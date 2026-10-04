@@ -139,6 +139,40 @@ class AppPreferences @Inject constructor(
     /** 连续录入：开启后保存成功会清空表单并自动唤起相机，方便一次录多件。默认关闭。 */
     val continuousEntry: StateFlow<Boolean> = _continuousEntry.asStateFlow()
 
+    private val _keepAliveEnabled = MutableStateFlow(
+        preferences.getBoolean(KEY_KEEP_ALIVE_ENABLED, true)
+    )
+
+    /** 提醒保活：常驻前台服务防止划卡清理把提醒闹钟一起杀掉。默认开启。 */
+    val keepAliveEnabled: StateFlow<Boolean> = _keepAliveEnabled.asStateFlow()
+
+    private val _customReminderTimes = MutableStateFlow(
+        preferences.getString(KEY_CUSTOM_REMINDER_TIMES, null)
+            ?.split(REMINDER_TIME_SEPARATOR)
+            ?.filter { it.matches(TIME_FORMAT) }
+            ?.toSet()
+            ?: emptySet()
+    )
+
+    /** 用户自定义的提醒时间点候选（补充固定档位）；展示与勾选时与固定档位合并。 */
+    val customReminderTimes: StateFlow<Set<String>> = _customReminderTimes.asStateFlow()
+
+    private val _mealPrepDayShift = MutableStateFlow(
+        preferences.getInt(KEY_MEAL_PREP_DAY_SHIFT, -1)
+    )
+
+    /** 备菜提醒默认提前天数：-1 = 前一天，0 = 当天。 */
+    val mealPrepDayShift: StateFlow<Int> = _mealPrepDayShift.asStateFlow()
+
+    private val _mealPrepFireTime = MutableStateFlow(
+        preferences.getString(KEY_MEAL_PREP_FIRE_TIME, "19:00")?.takeIf {
+            it.matches(TIME_FORMAT)
+        } ?: "19:00"
+    )
+
+    /** 备菜提醒默认触发时间（HH:mm）。 */
+    val mealPrepFireTime: StateFlow<String> = _mealPrepFireTime.asStateFlow()
+
     private val _searchHistory = MutableStateFlow(loadSearchHistory())
 
     /** 搜索历史（最近 8 条，新的在前），持久化以免杀进程后丢失。 */
@@ -160,6 +194,44 @@ class AppPreferences @Inject constructor(
     fun setContinuousEntry(enabled: Boolean) {
         preferences.edit().putBoolean(KEY_CONTINUOUS_ENTRY, enabled).apply()
         _continuousEntry.value = enabled
+    }
+
+    fun setKeepAliveEnabled(enabled: Boolean) {
+        preferences.edit().putBoolean(KEY_KEEP_ALIVE_ENABLED, enabled).apply()
+        _keepAliveEnabled.value = enabled
+    }
+
+    /** 新增自定义提醒时间点并自动勾选；已是固定档位或已存在的自定义值时只勾选。 */
+    fun addCustomReminderTime(time: String) {
+        if (!time.matches(TIME_FORMAT)) return
+        if (time !in REMINDER_TIME_OPTIONS && time !in _customReminderTimes.value) {
+            _customReminderTimes.value = _customReminderTimes.value + time
+            preferences.edit()
+                .putString(KEY_CUSTOM_REMINDER_TIMES, _customReminderTimes.value.joinToString(REMINDER_TIME_SEPARATOR))
+                .apply()
+        }
+        setReminderTimes((reminderTimes.value + time).sorted())
+    }
+
+    /** 移除自定义提醒时间点（取消勾选自定义 chip 时调用），固定档位不受影响。 */
+    fun removeCustomReminderTime(time: String) {
+        if (time !in _customReminderTimes.value) return
+        _customReminderTimes.value = _customReminderTimes.value - time
+        preferences.edit()
+            .putString(KEY_CUSTOM_REMINDER_TIMES, _customReminderTimes.value.joinToString(REMINDER_TIME_SEPARATOR))
+            .apply()
+        setReminderTimes(reminderTimes.value - time)
+    }
+
+    fun setMealPrepDayShift(dayShift: Int) {
+        preferences.edit().putInt(KEY_MEAL_PREP_DAY_SHIFT, dayShift).apply()
+        _mealPrepDayShift.value = dayShift
+    }
+
+    fun setMealPrepFireTime(time: String) {
+        if (!time.matches(TIME_FORMAT)) return
+        preferences.edit().putString(KEY_MEAL_PREP_FIRE_TIME, time).apply()
+        _mealPrepFireTime.value = time
     }
 
     fun setLastSyncAt(timestamp: Long) {
@@ -571,6 +643,13 @@ class AppPreferences @Inject constructor(
         private const val REMINDER_TIME_SEPARATOR = ","
         private const val KEY_DEVICE_ID = "device_id"
         private const val KEY_CONTINUOUS_ENTRY = "continuous_entry"
+        private const val KEY_KEEP_ALIVE_ENABLED = "keep_alive_enabled"
+        private const val KEY_CUSTOM_REMINDER_TIMES = "custom_reminder_times"
+        private const val KEY_MEAL_PREP_DAY_SHIFT = "meal_prep_day_shift"
+        private const val KEY_MEAL_PREP_FIRE_TIME = "meal_prep_fire_time"
+
+        /** HH:mm 时间格式（24 小时制），用于校验自定义时间输入。 */
+        private val TIME_FORMAT = Regex("^([01]\\d|2[0-3]):[0-5]\\d$")
         private const val KEY_LAST_SYNC_AT = "last_sync_at"
         private const val KEY_EXPIRY_NOTIFIED_DATE = "expiry_notified_date"
         private const val KEY_SEARCH_HISTORY = "search_history"

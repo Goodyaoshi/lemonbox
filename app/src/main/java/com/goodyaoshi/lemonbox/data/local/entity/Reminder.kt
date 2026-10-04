@@ -29,9 +29,10 @@ enum class ReminderSource {
 }
 
 /**
- * 家务提醒：一次性（某天某时）或周期性（每天/每隔 N 天/每周几）。
+ * 待办提醒：一次性（某天某时）或周期性（每天/每隔 N 天/每周几）。
  * 触发时间统一落在 [nextFireAt]，由 [com.goodyaoshi.lemonbox.util.ReminderClock] 计算、
  * [com.goodyaoshi.lemonbox.util.TodoReminderWorker] 到点通知并推进。
+ * 到点只发通知不自动完结：一次性提醒保持待办，直到在通知或列表里手动完成。
  */
 @Entity(
     tableName = "reminders",
@@ -56,6 +57,8 @@ data class Reminder(
     val enabled: Boolean = true,
     /** 一次性提醒完成的时间；周期提醒完成只推进下一轮，不写这个字段。 */
     val completedAt: Long? = null,
+    /** 最近一次发过通知的时间；0 = 未提醒。防止重复通知，一次性提醒触发后靠它保持待办。 */
+    val notifiedAt: Long = 0,
     val source: String = ReminderSource.MANUAL.name,
     /** [ReminderSource.MEAL_PREP] 的防重复键（meal_prep:日期），一天最多生成一条。 */
     val sourceKey: String? = null,
@@ -68,6 +71,10 @@ data class Reminder(
     val sourceKind: ReminderSource
         get() = runCatching { ReminderSource.valueOf(source) }
             .getOrDefault(ReminderSource.MANUAL)
+
+    /** 到点通知已发、还在等手动完成的待办项（列表里显示「待完成」标记）。 */
+    val awaitingConfirmation: Boolean
+        get() = enabled && notifiedAt > 0
 
     companion object {
         /** 周几集合的持久化格式：去重排序后逗号连接。 */

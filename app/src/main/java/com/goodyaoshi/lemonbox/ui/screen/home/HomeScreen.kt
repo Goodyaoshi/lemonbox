@@ -38,6 +38,8 @@ import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.TaskAlt
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.TimePicker
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -130,6 +132,8 @@ fun HomeScreen(
     val toBuyCount by viewModel.toBuyCount.collectAsState()
     val todosTodayCount by viewModel.todosTodayCount.collectAsState()
     val mealPrepDays by viewModel.mealPrepDays.collectAsState()
+    val mealPrepDefaultDayShift by viewModel.mealPrepDefaultDayShift.collectAsState()
+    val mealPrepDefaultFireTime by viewModel.mealPrepDefaultFireTime.collectAsState()
     val weekPlan by viewModel.weekPlan.collectAsState()
     val recipeLibrary by viewModel.recipeLibrary.collectAsState()
     val planDays by viewModel.planDays.collectAsState()
@@ -366,6 +370,8 @@ fun HomeScreen(
                 MealPrepDialog(
                     dateKey = dateKey,
                     suggestedTitle = suggestedTitle,
+                    defaultDayShift = mealPrepDefaultDayShift,
+                    defaultFireTime = mealPrepDefaultFireTime,
                     onDismiss = { prepReminderDateKey = null },
                     onConfirm = { dayShift, fireTime ->
                         viewModel.createMealPrepReminder(dateKey, dayShift, fireTime) { saved ->
@@ -1243,7 +1249,7 @@ private fun AllClearRow() {
     }
 }
 
-/** 首页的家务提醒入口：今天（含错过未触发）要做几件事，点开进提醒页逐件完成。 */
+/** 首页的待办提醒入口：今天（含已提醒还没做完的）要做几件事，点开进提醒页逐件完成。 */
 @Composable
 private fun ReminderEntryCard(
     count: Int,
@@ -1276,7 +1282,7 @@ private fun ReminderEntryCard(
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "家务提醒 · 今天 $count 件",
+                    text = "待办提醒 · 今天 $count 件",
                     fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = TextPrimary
@@ -1301,20 +1307,48 @@ private fun ReminderEntryCard(
 /**
  * 备菜提醒弹窗：为某天的一餐挑提醒时机（前一天晚上 / 当天早上），
  * 文案按蛋白菜自动预填（带冻肉的提示解冻），可手改。
- * 解冻要么提前一晚、要么当天早上，当天晚上再提醒就来不及了，所以不提供该选项。
- * 当天的一餐不再提供「前一天晚上」。
+ * 「前一天/当天」与时间独立选择，时间默认带出设置页的「备菜提醒默认」，也可临时改成任意分钟。
+ * 当天的一餐不提供「前一天晚上」（当天那餐提前一天提醒没有意义）。
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MealPrepDialog(
     dateKey: String,
     suggestedTitle: String,
+    defaultDayShift: Int,
+    defaultFireTime: String,
     onDismiss: () -> Unit,
     onConfirm: (dayShift: Int, fireTime: String) -> Unit
 ) {
     var title by remember(dateKey) { mutableStateOf(suggestedTitle) }
     val isToday = remember(dateKey) { dateKey == LocalDate.now().toString() }
-    var dayShift by remember(dateKey) { mutableIntStateOf(if (isToday) 0 else -1) }
-    var fireTime by remember(dateKey) { mutableStateOf(if (isToday) "08:00" else "19:00") }
+    // 默认值来自设置页的「备菜提醒默认」；当天那餐不能选「前一天」，自动落到当天。
+    var dayShift by remember(dateKey, defaultDayShift) {
+        mutableIntStateOf(if (isToday) 0 else defaultDayShift)
+    }
+    var fireTime by remember(dateKey, defaultFireTime) {
+        mutableStateOf(defaultFireTime)
+    }
+    var showTimePicker by remember(dateKey) { mutableStateOf(false) }
+
+    if (showTimePicker) {
+        val pickerState = rememberTimePickerState(
+            initialHour = fireTime.substringBefore(":").toIntOrNull() ?: 19,
+            initialMinute = fireTime.substringAfter(":").toIntOrNull() ?: 0,
+            is24Hour = true
+        )
+        AppDialog(
+            title = "提醒时间",
+            onDismissRequest = { showTimePicker = false },
+            confirmText = "确定",
+            onConfirm = {
+                fireTime = "%02d:%02d".format(pickerState.hour, pickerState.minute)
+                showTimePicker = false
+            }
+        ) {
+            TimePicker(state = pickerState)
+        }
+    }
 
     AppDialog(
         title = "提醒准备",
@@ -1337,21 +1371,21 @@ private fun MealPrepDialog(
         ) {
             if (!isToday) {
                 EditorSelectionChip(
-                    text = "前一天晚上 19:00",
+                    text = "前一天",
                     selected = dayShift == -1,
-                    onClick = {
-                        dayShift = -1
-                        fireTime = "19:00"
-                    }
+                    onClick = { dayShift = -1 }
                 )
             }
             EditorSelectionChip(
-                text = "当天早上 08:00",
-                selected = dayShift == 0 && fireTime == "08:00",
-                onClick = {
-                    dayShift = 0
-                    fireTime = "08:00"
-                }
+                text = "当天",
+                selected = dayShift == 0,
+                onClick = { dayShift = 0 }
+            )
+            // 时间独立选择：默认带出设置页配置的时间，也能临时改成任意分钟。
+            EditorSelectionChip(
+                text = fireTime,
+                selected = false,
+                onClick = { showTimePicker = true }
             )
         }
     }

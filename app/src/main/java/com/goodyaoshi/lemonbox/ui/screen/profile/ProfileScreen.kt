@@ -248,8 +248,8 @@ fun ProfileScreen(
             ) {
                 MenuRow(
                     icon = Icons.Default.Alarm,
-                    title = "家务提醒",
-                    subtitle = "解冻、家务等一次性与周期提醒",
+                    title = "待办提醒",
+                    subtitle = "解冻、备菜、家务等一次性与周期待办",
                     onClick = onOpenReminders
                 )
                 DividerSpacer()

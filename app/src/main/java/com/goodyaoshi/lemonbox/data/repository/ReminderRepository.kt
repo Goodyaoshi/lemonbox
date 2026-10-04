@@ -13,7 +13,7 @@ import java.time.ZonedDateTime
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** 家务提醒的数据入口：所有写操作之后都会重新调排后台任务。 */
+/** 待办提醒的数据入口：所有写操作之后都会重新调排后台任务。 */
 @Singleton
 class ReminderRepository @Inject constructor(
     private val reminderDao: ReminderDao,
@@ -56,7 +56,8 @@ class ReminderRepository @Inject constructor(
         } else {
             ReminderClock.nextAfter(reminder, LocalDate.now(), now)
         } ?: return
-        reminderDao.update(reminder.copy(enabled = true, nextFireAt = next))
+        // 恢复时清掉已提醒标记，到点会重新通知。
+        reminderDao.update(reminder.copy(enabled = true, nextFireAt = next, notifiedAt = 0))
         scheduler.reschedule()
     }
 
@@ -70,7 +71,7 @@ class ReminderRepository @Inject constructor(
         } else {
             val next = ReminderClock.nextAfter(reminder, LocalDate.now(), ZonedDateTime.now())
                 ?: return
-            reminderDao.update(reminder.copy(nextFireAt = next))
+            reminderDao.update(reminder.copy(nextFireAt = next, notifiedAt = 0))
         }
         scheduler.reschedule()
     }

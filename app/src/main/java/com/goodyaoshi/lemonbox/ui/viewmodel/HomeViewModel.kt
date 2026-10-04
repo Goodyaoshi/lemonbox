@@ -106,7 +106,7 @@ class HomeViewModel @Inject constructor(
     val toBuyCount: StateFlow<Int> = itemRepository.getToBuyCount()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
-    /** 今天要做的家务提醒数（含之前错过但还没触发的）。 */
+    /** 今天的待办提醒数（含已提醒但还没点完成的）。 */
     val todosTodayCount: StateFlow<Int> = reminderRepository.getActiveReminders()
         .map { list ->
             val endOfToday = LocalDate.now().plusDays(1)
@@ -123,6 +123,11 @@ class HomeViewModel @Inject constructor(
             }.toSet()
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
+
+    /** 备菜提醒的默认提前天数（-1 前一天 / 0 当天）与触发时间，在设置页配置。 */
+    val mealPrepDefaultDayShift: StateFlow<Int> = appPreferences.mealPrepDayShift
+
+    val mealPrepDefaultFireTime: StateFlow<String> = appPreferences.mealPrepFireTime
 
     val categories: StateFlow<List<Category>> = itemRepository.getActiveItems()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())

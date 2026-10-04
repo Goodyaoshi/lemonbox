@@ -10,6 +10,21 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!--
+        家务提醒的精确闹钟：USE_EXACT_ALARM 在 Android 13+ 安装即授予（闹钟类正当用途）；
+        SCHEDULE_EXACT_ALARM 兼容 Android 12。不给精确权限时自动退化为窗口闹钟 + WorkManager 兜底。
+    -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+
+    <!--
+        提醒保活：前台服务防止 MIUI 等划卡清理 force stop 进程导致提醒丢失；
+        REQUEST_IGNORE_BATTERY_OPTIMIZATIONS 用于弹出系统的一键电池优化白名单对话框。
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+    <!--
         局域网同步：只在同一 WiFi 内与配对设备互传数据，不访问任何互联网服务。
         即使只使用局域网 socket，Android 也要求声明 INTERNET 权限。
     -->
@@ -62,6 +77,26 @@
             android:name=".ui.scan.ScanActivity"
             android:exported="false"
             android:theme="@style/Theme.Lemon.Scan" />
+
+        <!-- 待办提醒的精确闹钟触发入口（仅应用内部 PendingIntent 可达） -->
+        <receiver
+            android:name=".util.TodoAlarmReceiver"
+            android:exported="false" />
+
+        <!-- 待办提醒通知上的「完成」按钮：直接标记完成，不必进 App -->
+        <receiver
+            android:name=".util.TodoCompleteReceiver"
+            android:exported="false" />
+
+        <!-- 提醒保活前台服务：常驻通知占住前台身份，防止划卡清理连带杀掉提醒闹钟 -->
+        <service
+            android:name=".util.TodoKeepAliveService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Keep the reminder process alive so scheduled reminders are not dropped by aggressive battery savers" />
+        </service>
 
     </application>
 

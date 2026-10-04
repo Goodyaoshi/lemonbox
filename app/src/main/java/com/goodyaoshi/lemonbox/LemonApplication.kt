@@ -1,6 +1,8 @@
 package com.goodyaoshi.lemonbox
 
 import android.app.Application
+import android.content.Intent
+import androidx.core.content.ContextCompat
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
 import com.goodyaoshi.lemonbox.data.repository.ItemRepository
@@ -8,6 +10,7 @@ import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import com.goodyaoshi.lemonbox.util.ExpiryCheckWorker
 import com.goodyaoshi.lemonbox.util.ImageUtil
 import com.goodyaoshi.lemonbox.util.NotificationHelper
+import com.goodyaoshi.lemonbox.util.TodoKeepAliveService
 import com.goodyaoshi.lemonbox.util.TodoReminderScheduler
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
@@ -37,8 +40,9 @@ class LemonApplication : Application(), Configuration.Provider {
         super.onCreate()
         NotificationHelper.createChannel(this)
         ExpiryCheckWorker.ensureScheduled(this, appPreferences.reminderTimes.value)
+        startKeepAliveService()
         applicationScope.launch {
-            // 家务提醒（解冻肉/洗衣服等）：启动时按最新数据重排一次性任务。
+            // 待办提醒（解冻肉/洗衣服等）：启动时按最新数据重排一次性任务。
             todoReminderScheduler.reschedule()
         }
         applicationScope.launch {
@@ -46,6 +50,21 @@ class LemonApplication : Application(), Configuration.Provider {
             itemRepository.purgeDeletedItemsOlderThan(cutoffTime).forEach { item ->
                 item.imagePathList().forEach(ImageUtil::deleteImage)
             }
+        }
+    }
+
+    /**
+     * 启动提醒保活前台服务（默认开启，可在设置关闭）。
+     * 前台身份能防住 MIUI 等划卡清理的 force stop，避免提醒闹钟被连带取消。
+     * 仅在前台启动时拉起；闹钟在后台拉起进程的场景下会因系统限制失败，静默忽略即可。
+     */
+    private fun startKeepAliveService() {
+        if (!appPreferences.keepAliveEnabled.value) return
+        val intent = Intent(this, TodoKeepAliveService::class.java)
+        try {
+            ContextCompat.startForegroundService(this, intent)
+        } catch (_: Exception) {
+            // 后台被拉起进程时系统不允许启动前台服务，忽略；下次用户打开 App 会再拉起。
         }
     }
 

@@ -18,7 +18,7 @@ import com.goodyaoshi.lemonbox.util.LegacyTextNormalizer
 
 @Database(
     entities = [Item::class, Category::class, Location::class, Reminder::class],
-    version = 19,
+    version = 20,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -353,6 +353,19 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * 待办提醒语义：到点只通知不自动完结，一次性提醒保持待办等手动完成。
+         * notifiedAt 记录最近一次发通知的时间（0=未提醒），既防重复通知，
+         * 也让列表能把「已提醒待完成」的项标出来。
+         */
+        private val MIGRATION_19_20 = object : Migration(19, 20) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE `reminders` ADD COLUMN `notifiedAt` INTEGER NOT NULL DEFAULT 0"
+                )
+            }
+        }
+
         fun buildDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -378,7 +391,8 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_15_16,
                         MIGRATION_16_17,
                         MIGRATION_17_18,
-                        MIGRATION_18_19
+                        MIGRATION_18_19,
+                        MIGRATION_19_20
                     )
                     .addCallback(PrepopulateCallback())
                     .build()

@@ -30,6 +30,10 @@ interface ReminderDao {
     @Query("SELECT * FROM reminders WHERE sourceKey = :sourceKey AND enabled = 1 LIMIT 1")
     suspend fun findActiveBySourceKey(sourceKey: String): Reminder?
 
+    /** 按主键查进行中的提醒（通知上的「完成」按钮用）。 */
+    @Query("SELECT * FROM reminders WHERE id = :id AND enabled = 1 LIMIT 1")
+    suspend fun findActiveById(id: Long): Reminder?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(reminder: Reminder): Long
 

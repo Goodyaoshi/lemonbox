@@ -26,11 +26,14 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TimePicker
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -65,6 +68,8 @@ import com.goodyaoshi.lemonbox.ui.theme.TagBlue
 import com.goodyaoshi.lemonbox.ui.theme.TagBlueText
 import com.goodyaoshi.lemonbox.ui.theme.TagGreen
 import com.goodyaoshi.lemonbox.ui.theme.TagGreenText
+import com.goodyaoshi.lemonbox.ui.theme.TagOrange
+import com.goodyaoshi.lemonbox.ui.theme.TagOrangeText
 import com.goodyaoshi.lemonbox.ui.theme.TextHint
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
 import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
@@ -139,7 +144,7 @@ fun RemindersScreen(
                     )
                 }
                 Text(
-                    text = "家务提醒",
+                    text = "待办提醒",
                     fontSize = 24.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary,
@@ -273,11 +278,23 @@ private fun ReminderRow(
                             contentColor = TagBlueText
                         )
                     }
+                    if (reminder.awaitingConfirmation) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        PillTag(
+                            text = "待完成",
+                            backgroundColor = TagOrange,
+                            contentColor = TagOrangeText
+                        )
+                    }
                 }
                 Text(
                     text = if (reminder.enabled) {
-                        "${ReminderClock.fireAtText(reminder.nextFireAt)} · " +
-                            ReminderClock.describeRepeat(reminder)
+                        if (reminder.awaitingConfirmation) {
+                            "已提醒，做完记得点「完成」 · " + ReminderClock.describeRepeat(reminder)
+                        } else {
+                            "${ReminderClock.fireAtText(reminder.nextFireAt)} · " +
+                                ReminderClock.describeRepeat(reminder)
+                        }
                     } else {
                         reminder.completedAt?.let { "已完成 ${DateUtil.formatDateTime(it)}" } ?: "已暂停"
                     },
@@ -324,7 +341,7 @@ private fun ReminderRow(
 }
 
 /** 新建提醒：标题、重复方式（一次/每天/每隔 N 天/每周几）、提醒时间。 */
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 private fun AddReminderDialog(
     onDismissRequest: () -> Unit,
@@ -336,6 +353,7 @@ private fun AddReminderDialog(
     var intervalDays by remember { mutableIntStateOf(2) }
     var weekdays by remember { mutableStateOf(setOf(1)) }
     var fireTime by remember { mutableStateOf("19:00") }
+    var showTimePicker by remember { mutableStateOf(false) }
 
     val targetDate = remember(dayOffset) { LocalDate.now().plusDays(dayOffset.toLong()).toString() }
     val targetLabel = remember(dayOffset) {
@@ -344,6 +362,26 @@ private fun AddReminderDialog(
             0 -> "今天"
             1 -> "明天"
             else -> "${date.monthValue}/${date.dayOfMonth}"
+        }
+    }
+
+    // 自定义时间选择器：固定档位之外可以精确到任意分钟（如「14:35 提醒我拿快递」）。
+    if (showTimePicker) {
+        val pickerState = rememberTimePickerState(
+            initialHour = fireTime.substringBefore(":").toIntOrNull() ?: 19,
+            initialMinute = fireTime.substringAfter(":").toIntOrNull() ?: 0,
+            is24Hour = true
+        )
+        AppDialog(
+            title = "自定义提醒时间",
+            onDismissRequest = { showTimePicker = false },
+            confirmText = "确定",
+            onConfirm = {
+                fireTime = "%02d:%02d".format(pickerState.hour, pickerState.minute)
+                showTimePicker = false
+            }
+        ) {
+            TimePicker(state = pickerState)
         }
     }
 
@@ -452,6 +490,12 @@ private fun AddReminderDialog(
                     onClick = { fireTime = time }
                 )
             }
+            // 档位之外的时间走自定义；选中态显示当前自定义的时间。
+            EditorSelectionChip(
+                text = if (fireTime in AppPreferences.REMINDER_TIME_OPTIONS) "自定义…" else fireTime,
+                selected = fireTime !in AppPreferences.REMINDER_TIME_OPTIONS,
+                onClick = { showTimePicker = true }
+            )
         }
     }
 }

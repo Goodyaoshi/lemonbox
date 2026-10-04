@@ -18,10 +18,14 @@ object NotificationHelper {
     private const val SUMMARY_NOTIFICATION_ID = 1001
 
     private const val TODO_CHANNEL_ID = "todo_reminder"
-    private const val TODO_CHANNEL_NAME = "家务提醒"
+    private const val TODO_CHANNEL_NAME = "待办提醒"
 
-    /** 家务提醒通知的 id 基数：每条提醒用自己的 id 通知，互不顶掉。 */
-    private const val TODO_NOTIFICATION_ID_BASE = 2000L
+    /** 待办提醒通知的 id 基数：每条提醒用自己的 id 通知，互不顶掉；「完成」按钮撤通知也用它。 */
+    const val TODO_NOTIFICATION_ID_BASE = 2000L
+
+    private const val KEEP_ALIVE_CHANNEL_ID = "keep_alive"
+    private const val KEEP_ALIVE_CHANNEL_NAME = "提醒保活"
+    const val KEEP_ALIVE_NOTIFICATION_ID = 1999
 
     /** 汇总通知里单件物品的展示信息。 */
     data class ExpiryNotificationItem(
@@ -46,7 +50,17 @@ object NotificationHelper {
                 TODO_CHANNEL_NAME,
                 NotificationManager.IMPORTANCE_DEFAULT
             ).apply {
-                description = "用于家务提醒与做菜前的准备提醒（如解冻肉）"
+                description = "用于待办提醒与做菜前的准备提醒（如解冻肉）"
+            }
+        )
+        manager.createNotificationChannel(
+            NotificationChannel(
+                KEEP_ALIVE_CHANNEL_ID,
+                KEEP_ALIVE_CHANNEL_NAME,
+                NotificationManager.IMPORTANCE_MIN
+            ).apply {
+                description = "保持提醒服务常驻，避免被系统省电策略终止提醒"
+                setShowBadge(false)
             }
         )
     }
@@ -115,8 +129,9 @@ object NotificationHelper {
     }
 
     /**
-     * 单条家务提醒通知（解冻肉、洗衣服等）。点通知打开应用，首页卡片能看到当天待办。
-     * 防重复由调用方 [TodoReminderWorker] 负责触发后立即推进 nextFireAt / 完成提醒。
+     * 单条待办提醒通知（解冻肉、洗衣服等）。点通知打开应用，首页卡片能看到当天待办；
+     * 通知自带「完成」按钮，点一下直接完结这条待办。
+     * 防重复由调用方 [TodoReminderWorker] 通过 notifiedAt 标记负责。
      */
     fun showTodoReminder(
         context: Context,
@@ -142,6 +157,12 @@ object NotificationHelper {
                 android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
             )
         }
+        val completeIntent = android.app.PendingIntent.getBroadcast(
+            context,
+            reminderId.toInt(),
+            TodoCompleteReceiver.intent(context, reminderId),
+            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+        )
 
         val notification = NotificationCompat.Builder(context, TODO_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
@@ -149,10 +170,35 @@ object NotificationHelper {
             .setContentText(note.ifBlank { "别忘了这件事" })
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setContentIntent(pendingIntent)
+            .addAction(0, "完成", completeIntent)
             .setAutoCancel(true)
             .build()
 
         NotificationManagerCompat.from(context)
             .notify((TODO_NOTIFICATION_ID_BASE + reminderId).toInt(), notification)
     }
+
+    /** 保活服务独立拉起时确保渠道存在（幂等，与 createChannel 重复调用无副作用）。 */
+    fun createKeepAliveChannel(context: Context) {
+        context.getSystemService(NotificationManager::class.java).createNotificationChannel(
+            NotificationChannel(
+                KEEP_ALIVE_CHANNEL_ID,
+                KEEP_ALIVE_CHANNEL_NAME,
+                NotificationManager.IMPORTANCE_MIN
+            ).apply {
+                description = "保持提醒服务常驻，避免被系统省电策略终止提醒"
+                setShowBadge(false)
+            }
+        )
+    }
+
+    /** 保活前台服务的常驻通知：最低重要度，无声无横幅，不占角标。 */
+    fun buildKeepAliveNotification(context: Context): android.app.Notification =
+        NotificationCompat.Builder(context, KEEP_ALIVE_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle("家务提醒运行中")
+            .setContentText("保持常驻，到点准时提醒")
+            .setPriority(NotificationCompat.PRIORITY_MIN)
+            .setOngoing(true)
+            .build()
 }
