@@ -69,6 +69,7 @@ import com.goodyaoshi.lemonbox.ui.screen.expiry.ExpiryScreen
 import com.goodyaoshi.lemonbox.ui.screen.home.HomeScreen
 import com.goodyaoshi.lemonbox.ui.screen.profile.ProfileScreen
 import com.goodyaoshi.lemonbox.ui.screen.recipe.RecipeScreen
+import com.goodyaoshi.lemonbox.ui.screen.reminders.RemindersScreen
 import com.goodyaoshi.lemonbox.ui.screen.save.SavePhotoMode
 import com.goodyaoshi.lemonbox.ui.screen.save.SaveScreen
 import com.goodyaoshi.lemonbox.ui.screen.scan.ScanScreen
@@ -184,7 +185,8 @@ fun AppNavGraph() {
                         onNavigateToLibrary = { navigateToTopLevel(Screen.Search.route) },
                         onNavigateToExpiry = { navController.navigate(Screen.Expiry.route) },
                         onNavigateToScan = openScan,
-                        onNavigateToToBuy = { navController.navigate(Screen.ToBuy.route) }
+                        onNavigateToToBuy = { navController.navigate(Screen.ToBuy.route) },
+                        onNavigateToReminders = { navController.navigate(Screen.Reminders.route) }
                     )
                 }
 
@@ -378,6 +380,12 @@ fun AppNavGraph() {
                     )
                 }
 
+                composable(Screen.Reminders.route) {
+                    RemindersScreen(
+                        onBack = { navController.popBackStack() }
+                    )
+                }
+
                 composable(
                     route = Screen.Edit.route,
                     arguments = listOf(
@@ -446,6 +454,7 @@ fun AppNavGraph() {
                         onOpenLanSync = { navController.navigate(Screen.LanSync.route) },
                         onOpenToBuy = { navController.navigate(Screen.ToBuy.route) },
                         onOpenCategory = { navController.navigate(Screen.Category.route) },
+                        onOpenReminders = { navController.navigate(Screen.Reminders.route) },
                         onOpenAllItems = { navigateToTopLevel(Screen.Search.route) }
                     )
                 }

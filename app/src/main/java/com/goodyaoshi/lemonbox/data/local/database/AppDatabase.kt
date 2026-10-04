@@ -9,14 +9,16 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import com.goodyaoshi.lemonbox.data.local.dao.CategoryDao
 import com.goodyaoshi.lemonbox.data.local.dao.ItemDao
 import com.goodyaoshi.lemonbox.data.local.dao.LocationDao
+import com.goodyaoshi.lemonbox.data.local.dao.ReminderDao
 import com.goodyaoshi.lemonbox.data.local.entity.Category
 import com.goodyaoshi.lemonbox.data.local.entity.Item
 import com.goodyaoshi.lemonbox.data.local.entity.Location
+import com.goodyaoshi.lemonbox.data.local.entity.Reminder
 import com.goodyaoshi.lemonbox.util.LegacyTextNormalizer
 
 @Database(
-    entities = [Item::class, Category::class, Location::class],
-    version = 18,
+    entities = [Item::class, Category::class, Location::class, Reminder::class],
+    version = 19,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -24,6 +26,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun itemDao(): ItemDao
     abstract fun categoryDao(): CategoryDao
     abstract fun locationDao(): LocationDao
+    abstract fun reminderDao(): ReminderDao
 
     companion object {
         @Volatile
@@ -313,6 +316,43 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * 家务提醒：新表 reminders 承载一次性（某天某时）与周期性
+         * （每天/每隔 N 天/每周几）提醒，到点由 TodoReminderWorker 通知并推进。
+         */
+        private val MIGRATION_18_19 = object : Migration(18, 19) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `reminders` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `title` TEXT NOT NULL,
+                        `note` TEXT NOT NULL,
+                        `repeatType` TEXT NOT NULL,
+                        `intervalDays` INTEGER NOT NULL,
+                        `weekdays` TEXT NOT NULL,
+                        `fireTime` TEXT NOT NULL,
+                        `targetDate` TEXT,
+                        `nextFireAt` INTEGER NOT NULL,
+                        `enabled` INTEGER NOT NULL,
+                        `completedAt` INTEGER,
+                        `source` TEXT NOT NULL,
+                        `sourceKey` TEXT,
+                        `createdAt` INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_reminders_nextFireAt` " +
+                        "ON `reminders` (`nextFireAt`)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_reminders_sourceKey` " +
+                        "ON `reminders` (`sourceKey`)"
+                )
+            }
+        }
+
         fun buildDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -337,7 +377,8 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_14_15,
                         MIGRATION_15_16,
                         MIGRATION_16_17,
-                        MIGRATION_17_18
+                        MIGRATION_17_18,
+                        MIGRATION_18_19
                     )
                     .addCallback(PrepopulateCallback())
                     .build()

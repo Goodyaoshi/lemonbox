@@ -4,6 +4,7 @@ import android.content.Context
 import com.goodyaoshi.lemonbox.data.local.dao.CategoryDao
 import com.goodyaoshi.lemonbox.data.local.dao.ItemDao
 import com.goodyaoshi.lemonbox.data.local.dao.LocationDao
+import com.goodyaoshi.lemonbox.data.local.dao.ReminderDao
 import com.goodyaoshi.lemonbox.data.local.database.AppDatabase
 import dagger.Module
 import dagger.Provides
@@ -30,4 +31,7 @@ object DatabaseModule {
 
     @Provides
     fun provideLocationDao(database: AppDatabase): LocationDao = database.locationDao()
+
+    @Provides
+    fun provideReminderDao(database: AppDatabase): ReminderDao = database.reminderDao()
 }

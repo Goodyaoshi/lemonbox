@@ -9,6 +9,9 @@ import com.goodyaoshi.lemonbox.data.local.entity.Item
 import com.goodyaoshi.lemonbox.data.local.entity.Category
 import com.goodyaoshi.lemonbox.data.local.entity.ItemDetail
 import com.goodyaoshi.lemonbox.data.local.entity.Location
+import com.goodyaoshi.lemonbox.data.local.entity.Reminder
+import com.goodyaoshi.lemonbox.data.local.entity.ReminderRepeatType
+import com.goodyaoshi.lemonbox.data.local.entity.ReminderSource
 import com.goodyaoshi.lemonbox.data.meal.DishRole
 import com.goodyaoshi.lemonbox.data.meal.MealCombo
 import com.goodyaoshi.lemonbox.data.meal.MealDish
@@ -19,6 +22,7 @@ import com.goodyaoshi.lemonbox.data.meal.Recipe
 import com.goodyaoshi.lemonbox.data.repository.CategoryRepository
 import com.goodyaoshi.lemonbox.data.repository.ItemRepository
 import com.goodyaoshi.lemonbox.data.repository.LocationRepository
+import com.goodyaoshi.lemonbox.data.repository.ReminderRepository
 import com.goodyaoshi.lemonbox.data.search.LocalSearchParser
 import com.goodyaoshi.lemonbox.data.search.SearchCriteria
 import com.goodyaoshi.lemonbox.data.search.SearchEngine
@@ -36,6 +40,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import com.goodyaoshi.lemonbox.util.DateUtil
 import java.time.LocalDate
+import java.time.ZoneId
 import javax.inject.Inject
 
 /** 「未来 N 天菜单」里的一天：日期、展示名、一餐搭配与是否已做。 */
@@ -69,6 +74,7 @@ class HomeViewModel @Inject constructor(
     private val categoryDao: CategoryDao,
     private val categoryRepository: CategoryRepository,
     private val locationRepository: LocationRepository,
+    private val reminderRepository: ReminderRepository,
     private val appPreferences: AppPreferences
 ) : ViewModel() {
 
@@ -99,6 +105,24 @@ class HomeViewModel @Inject constructor(
 
     val toBuyCount: StateFlow<Int> = itemRepository.getToBuyCount()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    /** 今天要做的家务提醒数（含之前错过但还没触发的）。 */
+    val todosTodayCount: StateFlow<Int> = reminderRepository.getActiveReminders()
+        .map { list ->
+            val endOfToday = LocalDate.now().plusDays(1)
+                .atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+            list.count { it.nextFireAt < endOfToday }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    /** 已经生成过「提醒准备」的菜谱日期集合，周菜谱据此把按钮显示为「已提醒」。 */
+    val mealPrepDays: StateFlow<Set<String>> = reminderRepository.getMealPrepKeys()
+        .map { keys ->
+            keys.mapNotNull { key ->
+                key.removePrefix(MEAL_PREP_KEY_PREFIX).takeIf(String::isNotBlank)
+            }.toSet()
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
 
     val categories: StateFlow<List<Category>> = itemRepository.getActiveItems()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -195,6 +219,69 @@ class HomeViewModel @Inject constructor(
         if (dateKey.isBlank() || spec.dishes.isEmpty()) return
         appPreferences.setWeeklyMenu(appPreferences.weeklyMenu.value + (dateKey to spec))
         viewModelScope.launch { addMissingIngredientsToBuy(spec) }
+    }
+
+    /**
+     * 某天一餐的备菜提醒预填文案：只有蛋白质角色那道菜才可能带冻肉/水产，
+     * 才需要提前解冻，提醒文案也指蛋白菜。例如「记得解冻肉，明天要做辣椒炒肉」。
+     */
+    fun mealPrepTitle(dateKey: String): String? {
+        val day = _weekPlan.value.firstOrNull { it.dateKey == dateKey } ?: return null
+        val proteinDishes = day.combo.dishes.filter { DishRole.PROTEIN in it.displayRoles }
+        val proteinRecipes = proteinDishes
+            .mapNotNull { it.recipeId }
+            .mapNotNull { id -> recipes.firstOrNull { it.id == id } }
+        // 蛋白菜的主料带肉/排骨/鸡/鱼/虾等（鸡蛋除外）才算需要解冻。
+        val thawRecipe = proteinRecipes.firstOrNull { recipe ->
+            recipe.ingredients.any { ingredient ->
+                ingredient.matchKeywords.any { keyword ->
+                    !keyword.contains("蛋") &&
+                        MEAT_KEYWORD_HINTS.any { keyword.contains(it) }
+                }
+            }
+        }
+        val mainName = thawRecipe?.name
+            ?: proteinDishes.firstOrNull()?.label
+            ?: return null
+        return if (thawRecipe != null) {
+            "记得解冻肉，${day.dayLabel}要做$mainName"
+        } else {
+            "提前备菜：${day.dayLabel}要做$mainName"
+        }
+    }
+
+    /**
+     * 为某天的一餐生成备菜提醒（一次性）：[dayShift] -1 表示前一天晚上、0 表示当天早上。
+     * 一天最多一条（sourceKey 去重）；时刻已过时返回 false 由页面提示。
+     */
+    fun createMealPrepReminder(
+        dateKey: String,
+        dayShift: Int,
+        fireTime: String,
+        onResult: (Boolean) -> Unit
+    ) {
+        val title = mealPrepTitle(dateKey)
+        if (title == null) {
+            onResult(false)
+            return
+        }
+        val note = _weekPlan.value.firstOrNull { it.dateKey == dateKey }?.title.orEmpty()
+        viewModelScope.launch {
+            val saved = reminderRepository.create(
+                Reminder(
+                    title = title,
+                    note = note,
+                    repeatType = ReminderRepeatType.ONCE.name,
+                    fireTime = fireTime,
+                    targetDate = runCatching {
+                        LocalDate.parse(dateKey).plusDays(dayShift.toLong()).toString()
+                    }.getOrNull(),
+                    source = ReminderSource.MEAL_PREP.name,
+                    sourceKey = MEAL_PREP_KEY_PREFIX + dateKey
+                )
+            )
+            onResult(saved)
+        }
     }
 
     /** 把一餐里还缺的主料写入待买清单，已经在待买里的不重复添加。 */
@@ -567,6 +654,12 @@ class HomeViewModel @Inject constructor(
 
         /** 手动编辑一餐后自动补进待买清单的默认单位。 */
         const val DEFAULT_BUY_UNIT = "件"
+
+        /** 菜谱准备提醒的来源键前缀（meal_prep:日期），一天最多生成一条。 */
+        const val MEAL_PREP_KEY_PREFIX = "meal_prep:"
+
+        /** 判断菜谱主料是否需要解冻的关键词（含「蛋」的不算，鸡蛋不用解冻）。 */
+        val MEAT_KEYWORD_HINTS = listOf("肉", "排骨", "肋排", "鸡", "牛", "羊", "鱼", "虾")
 
         /** 周几的展示名，索引 = dayOfWeek.value - 1。 */
         val WEEKDAY_LABELS = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")

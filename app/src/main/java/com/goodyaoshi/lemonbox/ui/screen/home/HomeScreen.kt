@@ -2,6 +2,7 @@ package com.goodyaoshi.lemonbox.ui.screen.home
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,6 +29,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Notifications
@@ -37,6 +39,7 @@ import androidx.compose.material.icons.filled.TaskAlt
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -49,6 +52,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -101,6 +105,7 @@ import com.goodyaoshi.lemonbox.ui.theme.TextHint
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
 import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
 import com.goodyaoshi.lemonbox.ui.viewmodel.HomeViewModel
+import java.time.LocalDate
 import java.util.Calendar
 
 /**
@@ -115,6 +120,7 @@ fun HomeScreen(
     onNavigateToExpiry: () -> Unit = {},
     onNavigateToScan: () -> Unit = {},
     onNavigateToToBuy: () -> Unit = {},
+    onNavigateToReminders: () -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val allItems by viewModel.allItems.collectAsState()
@@ -122,6 +128,8 @@ fun HomeScreen(
     val searchResults by viewModel.searchResults.collectAsState()
     val expiringCount by viewModel.expiringCount.collectAsState()
     val toBuyCount by viewModel.toBuyCount.collectAsState()
+    val todosTodayCount by viewModel.todosTodayCount.collectAsState()
+    val mealPrepDays by viewModel.mealPrepDays.collectAsState()
     val weekPlan by viewModel.weekPlan.collectAsState()
     val recipeLibrary by viewModel.recipeLibrary.collectAsState()
     val planDays by viewModel.planDays.collectAsState()
@@ -130,6 +138,8 @@ fun HomeScreen(
     var pendingDeleteItem by remember { mutableStateOf<Item?>(null) }
     var editingMealDateKey by remember { mutableStateOf<String?>(null) }
     var showPlanDaysDialog by remember { mutableStateOf(false) }
+    var prepReminderDateKey by remember { mutableStateOf<String?>(null) }
+    val context = LocalContext.current
 
     // 一件物品的完整操作集：滑动一级动作与「更多」面板共用同一份回调。
     val handlersFor: (Item) -> ItemActionHandlers = { item ->
@@ -210,6 +220,15 @@ fun HomeScreen(
                             .fillMaxWidth()
                             .padding(horizontal = 20.dp, vertical = 18.dp)
                     ) {
+                        if (todosTodayCount > 0) {
+                            ReminderEntryCard(
+                                count = todosTodayCount,
+                                onClick = onNavigateToReminders
+                            )
+                            if (showExpiring || showToBuy) {
+                                Spacer(modifier = Modifier.height(12.dp))
+                            }
+                        }
                         if (showExpiring || showToBuy) {
                             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 if (showExpiring) {
@@ -237,7 +256,7 @@ fun HomeScreen(
                                     )
                                 }
                             }
-                        } else {
+                        } else if (todosTodayCount == 0) {
                             AllClearRow()
                         }
                     }
@@ -252,6 +271,8 @@ fun HomeScreen(
                             onCooked = viewModel::markDayCooked,
                             onEdit = { dateKey -> editingMealDateKey = dateKey },
                             onChangeDays = { showPlanDaysDialog = true },
+                            onPrepReminder = { dateKey -> prepReminderDateKey = dateKey },
+                            mealPrepDays = mealPrepDays,
                             onItemClick = { onNavigateToDetail(it.item.id) }
                         )
                     }
@@ -338,6 +359,28 @@ fun HomeScreen(
                     }
                 )
             }
+        }
+
+        prepReminderDateKey?.let { dateKey ->
+            viewModel.mealPrepTitle(dateKey)?.let { suggestedTitle ->
+                MealPrepDialog(
+                    dateKey = dateKey,
+                    suggestedTitle = suggestedTitle,
+                    onDismiss = { prepReminderDateKey = null },
+                    onConfirm = { dayShift, fireTime ->
+                        viewModel.createMealPrepReminder(dateKey, dayShift, fireTime) { saved ->
+                            if (!saved) {
+                                Toast.makeText(
+                                    context,
+                                    "这个时间已经过了，换个时间吧",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        }
+                        prepReminderDateKey = null
+                    }
+                )
+            } ?: run { prepReminderDateKey = null }
         }
 
         moreItem?.let { item ->
@@ -519,6 +562,8 @@ private fun WeeklyMenuSection(
     onCooked: (String) -> Unit,
     onEdit: (String) -> Unit,
     onChangeDays: () -> Unit,
+    onPrepReminder: (String) -> Unit,
+    mealPrepDays: Set<String>,
     onItemClick: (ItemDetail) -> Unit
 ) {
     if (days.isEmpty()) return
@@ -575,9 +620,11 @@ private fun WeeklyMenuSection(
 
         DayMealActionRow(
             day = day,
+            hasPrepReminder = day.dateKey in mealPrepDays,
             onCooked = { onCooked(day.dateKey) },
             onReroll = { onReroll(day.dateKey) },
-            onEdit = { onEdit(day.dateKey) }
+            onEdit = { onEdit(day.dateKey) },
+            onPrepReminder = { onPrepReminder(day.dateKey) }
         )
     }
 }
@@ -720,13 +767,15 @@ private fun MealDishCard(
     }
 }
 
-/** 选中那天的操作行：做了 / 编辑一餐 / 换一道，并提示还缺几样主料。 */
+/** 选中那天的操作行：做了 / 提醒准备 / 编辑一餐 / 换一道，并提示还缺几样主料。 */
 @Composable
 private fun DayMealActionRow(
     day: WeeklyMealDay,
+    hasPrepReminder: Boolean,
     onCooked: () -> Unit,
     onReroll: () -> Unit,
-    onEdit: () -> Unit
+    onEdit: () -> Unit,
+    onPrepReminder: () -> Unit
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -741,6 +790,14 @@ private fun DayMealActionRow(
         if (day.cooked) {
             PillTag(text = "已做", backgroundColor = TagGreen, contentColor = TagGreenText)
         } else {
+            // 备菜提醒（如提前一晚解冻肉）：一天一条，生成后显示「已提醒」。
+            PillTag(
+                text = if (hasPrepReminder) "已提醒" else "提醒准备",
+                backgroundColor = if (hasPrepReminder) TagGreen else SurfaceWarmDeep,
+                contentColor = if (hasPrepReminder) TagGreenText else TextSecondary,
+                onClick = if (hasPrepReminder) null else onPrepReminder
+            )
+            Spacer(modifier = Modifier.width(6.dp))
             PillTag(
                 text = "做了",
                 backgroundColor = OrangeStart,
@@ -1182,6 +1239,120 @@ private fun AllClearRow() {
                     modifier = Modifier.padding(top = 2.dp)
                 )
             }
+        }
+    }
+}
+
+/** 首页的家务提醒入口：今天（含错过未触发）要做几件事，点开进提醒页逐件完成。 */
+@Composable
+private fun ReminderEntryCard(
+    count: Int,
+    onClick: () -> Unit
+) {
+    AppSurfaceCard(
+        shape = RoundedCornerShape(22.dp),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
+        shadowElevation = 12.dp,
+        onClick = onClick
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(OrangeStart.copy(alpha = 0.12f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Alarm,
+                    contentDescription = null,
+                    tint = OrangeStart,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "家务提醒 · 今天 $count 件",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = TextPrimary
+                )
+                Text(
+                    text = "解冻肉、洗衣服这些要紧事，点开逐件完成",
+                    fontSize = 12.sp,
+                    color = TextSecondary,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+            }
+            Icon(
+                imageVector = Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = TextHint,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+    }
+}
+
+/**
+ * 备菜提醒弹窗：为某天的一餐挑提醒时机（前一天晚上 / 当天早上），
+ * 文案按蛋白菜自动预填（带冻肉的提示解冻），可手改。
+ * 解冻要么提前一晚、要么当天早上，当天晚上再提醒就来不及了，所以不提供该选项。
+ * 当天的一餐不再提供「前一天晚上」。
+ */
+@Composable
+private fun MealPrepDialog(
+    dateKey: String,
+    suggestedTitle: String,
+    onDismiss: () -> Unit,
+    onConfirm: (dayShift: Int, fireTime: String) -> Unit
+) {
+    var title by remember(dateKey) { mutableStateOf(suggestedTitle) }
+    val isToday = remember(dateKey) { dateKey == LocalDate.now().toString() }
+    var dayShift by remember(dateKey) { mutableIntStateOf(if (isToday) 0 else -1) }
+    var fireTime by remember(dateKey) { mutableStateOf(if (isToday) "08:00" else "19:00") }
+
+    AppDialog(
+        title = "提醒准备",
+        subtitle = "到点会发一条通知，提前把菜准备好。",
+        onDismissRequest = onDismiss,
+        confirmText = "好的",
+        confirmEnabled = title.isNotBlank(),
+        onConfirm = { onConfirm(dayShift, fireTime) }
+    ) {
+        OutlinedTextField(
+            value = title,
+            onValueChange = { title = it },
+            label = { Text("提醒内容") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            if (!isToday) {
+                EditorSelectionChip(
+                    text = "前一天晚上 19:00",
+                    selected = dayShift == -1,
+                    onClick = {
+                        dayShift = -1
+                        fireTime = "19:00"
+                    }
+                )
+            }
+            EditorSelectionChip(
+                text = "当天早上 08:00",
+                selected = dayShift == 0 && fireTime == "08:00",
+                onClick = {
+                    dayShift = 0
+                    fireTime = "08:00"
+                }
+            )
         }
     }
 }

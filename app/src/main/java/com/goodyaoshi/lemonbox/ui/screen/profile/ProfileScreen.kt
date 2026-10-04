@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.FileUpload
@@ -73,6 +74,7 @@ fun ProfileScreen(
     onOpenToBuy: () -> Unit = {},
     onOpenCategory: () -> Unit = {},
     onOpenAllItems: () -> Unit = {},
+    onOpenReminders: () -> Unit = {},
     viewModel: ProfileViewModel = hiltViewModel()
 ) {
     val availableCount by viewModel.availableCount.collectAsState()
@@ -244,6 +246,13 @@ fun ProfileScreen(
                 shape = RoundedCornerShape(24.dp),
                 shadowElevation = 12.dp
             ) {
+                MenuRow(
+                    icon = Icons.Default.Alarm,
+                    title = "家务提醒",
+                    subtitle = "解冻、家务等一次性与周期提醒",
+                    onClick = onOpenReminders
+                )
+                DividerSpacer()
                 MenuRow(
                     icon = Icons.Default.Widgets,
                     title = "分类与状态",

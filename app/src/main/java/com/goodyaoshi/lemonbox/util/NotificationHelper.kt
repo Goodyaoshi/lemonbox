@@ -17,6 +17,12 @@ object NotificationHelper {
     private const val CHANNEL_NAME = "到期提醒"
     private const val SUMMARY_NOTIFICATION_ID = 1001
 
+    private const val TODO_CHANNEL_ID = "todo_reminder"
+    private const val TODO_CHANNEL_NAME = "家务提醒"
+
+    /** 家务提醒通知的 id 基数：每条提醒用自己的 id 通知，互不顶掉。 */
+    private const val TODO_NOTIFICATION_ID_BASE = 2000L
+
     /** 汇总通知里单件物品的展示信息。 */
     data class ExpiryNotificationItem(
         val name: String,
@@ -24,15 +30,25 @@ object NotificationHelper {
     )
 
     fun createChannel(context: Context) {
-        val channel = NotificationChannel(
-            CHANNEL_ID,
-            CHANNEL_NAME,
-            NotificationManager.IMPORTANCE_DEFAULT
-        ).apply {
-            description = "用于提醒即将到期或已到期的物品"
-        }
         val manager = context.getSystemService(NotificationManager::class.java)
-        manager.createNotificationChannel(channel)
+        manager.createNotificationChannel(
+            NotificationChannel(
+                CHANNEL_ID,
+                CHANNEL_NAME,
+                NotificationManager.IMPORTANCE_DEFAULT
+            ).apply {
+                description = "用于提醒即将到期或已到期的物品"
+            }
+        )
+        manager.createNotificationChannel(
+            NotificationChannel(
+                TODO_CHANNEL_ID,
+                TODO_CHANNEL_NAME,
+                NotificationManager.IMPORTANCE_DEFAULT
+            ).apply {
+                description = "用于家务提醒与做菜前的准备提醒（如解冻肉）"
+            }
+        )
     }
 
     /**
@@ -96,5 +112,47 @@ object NotificationHelper {
         daysLeft < 0 -> "已过期 ${-daysLeft} 天"
         daysLeft == 0L -> "今天到期"
         else -> "还有 $daysLeft 天到期"
+    }
+
+    /**
+     * 单条家务提醒通知（解冻肉、洗衣服等）。点通知打开应用，首页卡片能看到当天待办。
+     * 防重复由调用方 [TodoReminderWorker] 负责触发后立即推进 nextFireAt / 完成提醒。
+     */
+    fun showTodoReminder(
+        context: Context,
+        title: String,
+        note: String,
+        reminderId: Long
+    ) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+
+        val contentIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+        val pendingIntent = contentIntent?.let {
+            android.app.PendingIntent.getActivity(
+                context,
+                reminderId.toInt(),
+                it,
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+            )
+        }
+
+        val notification = NotificationCompat.Builder(context, TODO_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(title)
+            .setContentText(note.ifBlank { "别忘了这件事" })
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+            .build()
+
+        NotificationManagerCompat.from(context)
+            .notify((TODO_NOTIFICATION_ID_BASE + reminderId).toInt(), notification)
     }
 }

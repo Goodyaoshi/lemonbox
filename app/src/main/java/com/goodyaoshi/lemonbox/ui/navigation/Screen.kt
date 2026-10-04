@@ -51,6 +51,7 @@ sealed class Screen(val route: String) {
     data object ToBuy : Screen("to-buy")
     data object Trash : Screen("trash")
     data object Expiry : Screen("expiry")
+    data object Reminders : Screen("reminders")
     data object Edit : Screen("edit/{itemId}?imageUri={imageUri}&imageUris={imageUris}&mode={mode}") {
         fun createRoute(
             itemId: Long,
