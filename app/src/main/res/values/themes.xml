@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Lemon" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">#FAFDF6</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+
+    <!--
+        手动固定深色时使用的兜底主题：系统为浅色时也能让开屏与窗口底色为深色，避免闪白。
+        见 AppPreferences.shouldStartDark / MainActivity 的 setTheme。
+    -->
+    <style name="Theme.Lemon.Dark" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#131B15</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+
+    <style name="Theme.Lemon.Launcher" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash_empty</item>
+        <item name="windowSplashScreenBackground">#FCFEF8</item>
+        <item name="windowSplashScreenIconBackgroundColor">@android:color/transparent</item>
+        <item name="postSplashScreenTheme">@style/Theme.Lemon</item>
+    </style>
+
+    <style name="Theme.Lemon.Launcher.Dark" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash_empty</item>
+        <item name="windowSplashScreenBackground">#131B15</item>
+        <item name="windowSplashScreenIconBackgroundColor">@android:color/transparent</item>
+        <item name="postSplashScreenTheme">@style/Theme.Lemon.Dark</item>
+    </style>
+
+    <!-- 扫码页主题：ZXingLite 的扫码 Activity 继承 AppCompatActivity，必须使用 AppCompat 主题 -->
+    <style name="Theme.Lemon.Scan" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+</resources>

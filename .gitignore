@@ -1,0 +1,28 @@
+*.iml
+.gradle
+.kotlin
+/local.properties
+/.idea
+/.trae
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+/app/build
+/app/release
+*.apk
+*.ap_
+*.aab
+*.jks
+*.keystore
+keystore.properties
+
+# Spec / design docs
+样板.md
+UI草图.png
+
+# Local screenshots / references
+/image/screenshots/
+/image/references/

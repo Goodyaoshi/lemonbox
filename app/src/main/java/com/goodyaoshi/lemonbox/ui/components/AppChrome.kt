@@ -1,0 +1,372 @@
+package com.goodyaoshi.lemonbox.ui.components
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.HazeStyle
+import dev.chrisbanes.haze.HazeTint
+import dev.chrisbanes.haze.hazeEffect
+import com.goodyaoshi.lemonbox.ui.theme.CardWhite
+import com.goodyaoshi.lemonbox.ui.theme.DividerSoft
+import com.goodyaoshi.lemonbox.ui.theme.GlassWhite
+import com.goodyaoshi.lemonbox.ui.theme.LocalLemonPalette
+import com.goodyaoshi.lemonbox.ui.theme.MintSoft
+import com.goodyaoshi.lemonbox.ui.theme.OrangeGlow
+import com.goodyaoshi.lemonbox.ui.theme.OrangeLight
+import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
+import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarmDeep
+import com.goodyaoshi.lemonbox.ui.theme.TextHint
+import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
+import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
+
+@Composable
+fun appGlassStyle(blurAlpha: Float = 0.55f): HazeStyle {
+    val palette = LocalLemonPalette.current
+    val strength = blurAlpha.coerceIn(0f, 1f)
+    return HazeStyle(
+        backgroundColor = Color.Transparent,
+        tints = listOf(
+            HazeTint(palette.glassTint.copy(alpha = 0.08f + (0.05f * strength))),
+            HazeTint(palette.glassTint.copy(alpha = 0.03f + (0.03f * strength)))
+        ),
+        blurRadius = (18 + (8 * strength)).dp,
+        noiseFactor = 0f,
+        fallbackTint = HazeTint(palette.glassFallback.copy(alpha = 0.56f + (0.12f * strength)))
+    )
+}
+
+@Composable
+fun AppDecorativeBackground(modifier: Modifier = Modifier) {
+    val palette = LocalLemonPalette.current
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(
+                brush = Brush.verticalGradient(
+                    colors = listOf(palette.backgroundTop, palette.background)
+                )
+            )
+    ) {
+        Box(
+            modifier = Modifier
+                .size(260.dp)
+                .offset(x = (-70).dp, y = (-50).dp)
+                .clip(CircleShape)
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(OrangeGlow.copy(alpha = 0.34f), Color.Transparent)
+                    )
+                )
+        )
+        Box(
+            modifier = Modifier
+                .size(320.dp)
+                .align(Alignment.TopEnd)
+                .offset(x = 72.dp, y = (-76).dp)
+                .clip(CircleShape)
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(OrangeLight.copy(alpha = 0.85f), Color.Transparent)
+                    )
+                )
+        )
+        Box(
+            modifier = Modifier
+                .size(240.dp)
+                .align(Alignment.BottomEnd)
+                .offset(x = 56.dp, y = 48.dp)
+                .clip(CircleShape)
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(MintSoft.copy(alpha = 0.75f), Color.Transparent)
+                    )
+                )
+        )
+    }
+}
+
+@Composable
+fun AppSurfaceCard(
+    modifier: Modifier = Modifier,
+    shape: Shape = RoundedCornerShape(28.dp),
+    contentPadding: PaddingValues = PaddingValues(20.dp),
+    containerColor: Color = CardWhite.copy(alpha = 0.96f),
+    shadowElevation: Dp = 18.dp,
+    enabled: Boolean = true,
+    onClick: (() -> Unit)? = null,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val cardModifier = modifier.shadow(
+        elevation = shadowElevation,
+        shape = shape,
+        ambientColor = OrangeStart.copy(alpha = 0.08f),
+        spotColor = Color.Black.copy(alpha = 0.08f)
+    )
+    val colors = CardDefaults.cardColors(containerColor = containerColor)
+    val elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+
+    if (onClick == null) {
+        Card(
+            modifier = cardModifier,
+            shape = shape,
+            colors = colors,
+            elevation = elevation
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(contentPadding),
+                content = content
+            )
+        }
+    } else {
+        Card(
+            onClick = onClick,
+            modifier = cardModifier,
+            enabled = enabled,
+            shape = shape,
+            colors = colors,
+            elevation = elevation,
+            interactionSource = remember { MutableInteractionSource() }
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(contentPadding),
+                content = content
+            )
+        }
+    }
+}
+
+@Composable
+fun GlassPanel(
+    modifier: Modifier = Modifier,
+    hazeState: HazeState? = null,
+    shape: Shape = RoundedCornerShape(28.dp),
+    contentPadding: PaddingValues = PaddingValues(20.dp),
+    containerColor: Color = GlassWhite,
+    borderColor: Color = GlassWhite,
+    shadowElevation: Dp = 12.dp,
+    blurAlpha: Float = 0.55f,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val glassBackground = containerColor.copy(alpha = 0.015f + (blurAlpha.coerceIn(0f, 1f) * 0.01f))
+    val glassStyle = appGlassStyle(blurAlpha = blurAlpha)
+    Box(
+        modifier = modifier
+            .shadow(
+                elevation = shadowElevation,
+                shape = shape,
+                ambientColor = OrangeStart.copy(alpha = 0.08f),
+                spotColor = Color.Black.copy(alpha = 0.08f)
+            )
+            .clip(shape)
+            .then(
+                if (hazeState == null) {
+                    Modifier.background(glassBackground)
+                } else {
+                    Modifier.hazeEffect(
+                        state = hazeState,
+                        style = glassStyle
+                    )
+                }
+            )
+            .border(
+                width = 1.dp,
+                color = borderColor,
+                shape = shape
+            )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(contentPadding),
+            content = content
+        )
+    }
+}
+
+/**
+ * 分段切换标签：外观与「分类与状态」页一致，用于同类内容的不同分组切换。
+ * 传入选中的下标与各自的展示文案即可。
+ */
+@Composable
+fun SegmentedTabs(
+    labels: List<String>,
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(22.dp))
+            .background(SurfaceWarmDeep)
+            .padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        labels.forEachIndexed { index, label ->
+            val selected = selectedIndex == index
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(if (selected) CardWhite else Color.Transparent)
+                    .clickable { onSelect(index) }
+                    .padding(vertical = 8.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = label,
+                    fontSize = 13.sp,
+                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                    color = if (selected) OrangeStart else TextHint
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun SectionHeader(
+    title: String,
+    subtitle: String? = null,
+    action: String? = null,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                color = TextPrimary,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold
+            )
+            subtitle?.let {
+                Text(
+                    text = it,
+                    color = TextSecondary,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+            }
+        }
+        action?.let {
+            Text(
+                text = it,
+                color = OrangeStart,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+    }
+}
+
+@Composable
+fun PillTag(
+    text: String,
+    modifier: Modifier = Modifier,
+    backgroundColor: Color,
+    contentColor: Color,
+    onClick: (() -> Unit)? = null
+) {
+    val shape = RoundedCornerShape(999.dp)
+    val baseModifier = modifier
+        .clip(shape)
+        .background(backgroundColor)
+
+    Box(
+        modifier = if (onClick == null) {
+            baseModifier.padding(horizontal = 8.dp, vertical = 3.dp)
+        } else {
+            baseModifier
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onClick
+                )
+                .padding(horizontal = 8.dp, vertical = 3.dp)
+        }
+    ) {
+        Text(
+            text = text,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Medium,
+            color = contentColor
+        )
+    }
+}
+
+@Composable
+fun StatTile(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier,
+    accent: Color = OrangeStart
+) {
+    AppSurfaceCard(
+        modifier = modifier,
+        shape = RoundedCornerShape(24.dp),
+        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
+        shadowElevation = 14.dp
+    ) {
+        Text(
+            text = value,
+            color = accent,
+            fontSize = 24.sp,
+            fontWeight = FontWeight.Bold
+        )
+        Text(
+            text = label,
+            color = TextSecondary,
+            fontSize = 12.sp,
+            modifier = Modifier.padding(top = 4.dp)
+        )
+    }
+}
+
+@Composable
+fun DividerLine(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(DividerSoft)
+    )
+}

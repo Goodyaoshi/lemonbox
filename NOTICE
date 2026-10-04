@@ -1,0 +1,23 @@
+柠檬百宝箱（LemonBox）
+======================
+
+本项目基于开源项目「有数 / YouShu」二次开发：
+    https://github.com/gorkys/youshu
+原始作品采用 MIT 许可证（详见 LICENSE），版权归原作者及贡献者所有。
+本衍生作品同样以 MIT 许可证发布。
+
+主要改造方向：
+- 以「柠檬百宝箱」为品牌重制视觉、图标、启动页与文案；
+- 移除全部云端 AI 能力，改为纯端侧离线推理（TensorFlow Lite / LiteRT）；
+- 新增局域网同步、合并式导入导出、软删除墓碑等本地优先的数据能力；
+- 应用包名调整为 com.goodyaoshi.lemonbox。
+
+使用的第三方组件及其许可证：
+- AndroidX / Jetpack Compose — Apache License 2.0
+- TensorFlow Lite / LiteRT 与 Task Library — Apache License 2.0
+- ZXingLite — Apache License 2.0
+- Haze — Apache License 2.0
+- NanoHTTPD — BSD 3-Clause License
+- Kotlinx Serialization / Coroutines — Apache License 2.0
+
+以上组件的版权归其各自作者所有，本项目仅按原许可证条款使用。

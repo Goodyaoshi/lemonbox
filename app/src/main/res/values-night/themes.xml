@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        跟随系统深色时，把基础主题与启动主题一并切到深色。
+        API 31+ 的系统启动画面由系统在进程启动前按此主题绘制，必须先在此处给深色底色，
+        否则会出现「开屏闪白」。
+    -->
+    <style name="Theme.Lemon" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#131B15</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+
+    <style name="Theme.Lemon.Launcher" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash_empty</item>
+        <item name="windowSplashScreenBackground">#131B15</item>
+        <item name="windowSplashScreenIconBackgroundColor">@android:color/transparent</item>
+        <item name="postSplashScreenTheme">@style/Theme.Lemon</item>
+    </style>
+</resources>

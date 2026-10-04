@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    仅服务于「局域网同步」：App 只会在同一 WiFi 内以 http 直连配对设备，
+    不访问任何公网服务。Android 的网络安全配置不支持按 IP 段声明放行，
+    因此这里保留明文放行；同时收紧信任锚点，仅信任系统证书、不接受用户
+    手动安装的 CA，以降低中间人攻击面。
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

@@ -1,0 +1,180 @@
+package com.goodyaoshi.lemonbox.data.sync
+
+import android.content.Context
+import android.net.nsd.NsdManager
+import android.net.nsd.NsdServiceInfo
+import android.net.wifi.WifiManager
+import com.goodyaoshi.lemonbox.data.settings.AppPreferences
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import java.net.Inet4Address
+import java.net.NetworkInterface
+import javax.inject.Inject
+import javax.inject.Singleton
+
+/** 局域网内发现到的可同步设备。 */
+data class SyncPeer(
+    val name: String,
+    val host: String,
+    val port: Int
+)
+
+/**
+ * 管理局域网同步的两件事：把本机注册到局域网（mDNS），以及发现其它设备。
+ * 发现失败时用户仍可手动输入对方显示的 IP。
+ */
+@Singleton
+class LanSyncManager @Inject constructor(
+    @ApplicationContext private val context: Context,
+    private val syncServer: SyncServer,
+    private val appPreferences: AppPreferences
+) {
+
+    private val nsdManager = context.getSystemService(Context.NSD_SERVICE) as NsdManager
+
+    private var registrationListener: NsdManager.RegistrationListener? = null
+    private var discoveryListener: NsdManager.DiscoveryListener? = null
+    private var multicastLock: WifiManager.MulticastLock? = null
+    private var resolving = false
+
+    private val _peers = MutableStateFlow<List<SyncPeer>>(emptyList())
+    val peers: StateFlow<List<SyncPeer>> = _peers.asStateFlow()
+
+    /** 开始被连接：启动服务端并广播自己。返回本机局域网 IP，供对方手动输入兜底。 */
+    fun startHosting(token: String): String? {
+        if (!syncServer.start(token)) return null
+        acquireMulticastLock()
+        registerService(syncServer.listeningPort)
+        return localIpAddress()
+    }
+
+    fun stopHosting() {
+        stopDiscovery()
+        registrationListener?.let { listener -> runCatching { nsdManager.unregisterService(listener) } }
+        registrationListener = null
+        syncServer.stop()
+        releaseMulticastLock()
+    }
+
+    fun startDiscovery() {
+        if (discoveryListener != null) return
+        acquireMulticastLock()
+        val listener = object : NsdManager.DiscoveryListener {
+            override fun onDiscoveryStarted(serviceType: String?) = Unit
+
+            override fun onDiscoveryStopped(serviceType: String?) = Unit
+
+            override fun onStartDiscoveryFailed(serviceType: String?, errorCode: Int) {
+                stopDiscovery()
+            }
+
+            override fun onStopDiscoveryFailed(serviceType: String?, errorCode: Int) {
+                stopDiscovery()
+            }
+
+            override fun onServiceFound(service: NsdServiceInfo?) {
+                service?.let { resolveService(it) }
+            }
+
+            override fun onServiceLost(service: NsdServiceInfo?) {
+                val name = service?.serviceName ?: return
+                _peers.value = _peers.value.filterNot { it.name == name }
+            }
+        }
+        discoveryListener = listener
+        runCatching {
+            nsdManager.discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, listener)
+        }.onFailure {
+            discoveryListener = null
+        }
+    }
+
+    fun stopDiscovery() {
+        discoveryListener?.let { listener -> runCatching { nsdManager.stopServiceDiscovery(listener) } }
+        discoveryListener = null
+        releaseMulticastLock()
+    }
+
+    fun clearPeers() {
+        _peers.value = emptyList()
+    }
+
+    private fun registerService(port: Int) {
+        registrationListener?.let { listener -> runCatching { nsdManager.unregisterService(listener) } }
+        val serviceInfo = NsdServiceInfo().apply {
+            serviceName = "柠檬百宝箱-${appPreferences.deviceId.take(4)}"
+            serviceType = SERVICE_TYPE
+            this.port = port
+        }
+        val listener = object : NsdManager.RegistrationListener {
+            override fun onServiceRegistered(serviceInfo: NsdServiceInfo?) = Unit
+
+            override fun onRegistrationFailed(serviceInfo: NsdServiceInfo?, errorCode: Int) = Unit
+
+            override fun onServiceUnregistered(serviceInfo: NsdServiceInfo?) = Unit
+
+            override fun onUnregistrationFailed(serviceInfo: NsdServiceInfo?, errorCode: Int) = Unit
+        }
+        registrationListener = listener
+        runCatching { nsdManager.registerService(serviceInfo, NsdManager.PROTOCOL_DNS_SD, listener) }
+    }
+
+    private fun resolveService(service: NsdServiceInfo) {
+        // resolveService 不支持并发，逐个解析
+        if (resolving) return
+        resolving = true
+        val listener = object : NsdManager.ResolveListener {
+            override fun onResolveFailed(serviceInfo: NsdServiceInfo?, errorCode: Int) {
+                resolving = false
+            }
+
+            override fun onServiceResolved(serviceInfo: NsdServiceInfo?) {
+                resolving = false
+                val resolved = serviceInfo ?: return
+                val host = resolved.host?.hostAddress ?: return
+                val peer = SyncPeer(
+                    name = resolved.serviceName,
+                    host = host,
+                    port = resolved.port
+                )
+                _peers.value = _peers.value.filterNot { it.name == peer.name } + peer
+            }
+        }
+        runCatching { nsdManager.resolveService(service, listener) }
+            .onFailure { resolving = false }
+    }
+
+    private fun acquireMulticastLock() {
+        if (multicastLock?.isHeld == true) return
+        val wifiManager = context.applicationContext
+            .getSystemService(Context.WIFI_SERVICE) as? WifiManager ?: return
+        multicastLock = wifiManager.createMulticastLock("lemon-sync").apply {
+            setReferenceCounted(false)
+            runCatching { acquire() }
+        }
+    }
+
+    private fun releaseMulticastLock() {
+        multicastLock?.let { lock -> runCatching { if (lock.isHeld) lock.release() } }
+        multicastLock = null
+    }
+
+    companion object {
+        /** mDNS 服务类型，两端必须一致。 */
+        const val SERVICE_TYPE = "_lemonsync._tcp"
+
+        /** 取本机局域网 IPv4 地址，供对方手动输入兜底。 */
+        fun localIpAddress(): String? {
+            return runCatching {
+                NetworkInterface.getNetworkInterfaces().toList()
+                    .filter { it.isUp && !it.isLoopback }
+                    .flatMap { it.inetAddresses.toList() }
+                    .filterIsInstance<Inet4Address>()
+                    .firstOrNull { it.isSiteLocalAddress }
+                    ?.hostAddress
+            }.getOrNull()
+        }
+    }
+}
