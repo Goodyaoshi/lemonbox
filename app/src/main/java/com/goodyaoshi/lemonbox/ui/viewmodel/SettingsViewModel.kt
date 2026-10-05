@@ -33,6 +33,12 @@ class SettingsViewModel @Inject constructor(
 
     val mealPrepFireTime: StateFlow<String> = appPreferences.mealPrepFireTime
 
+    val budgetReminderEnabled: StateFlow<Boolean> = appPreferences.budgetReminderEnabled
+
+    fun setBudgetReminderEnabled(enabled: Boolean) {
+        appPreferences.setBudgetReminderEnabled(enabled)
+    }
+
     fun setReminderLadder(days: List<Int>) {
         appPreferences.setReminderLadder(days)
     }

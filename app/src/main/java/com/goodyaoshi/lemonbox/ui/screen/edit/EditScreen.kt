@@ -46,6 +46,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.goodyaoshi.lemonbox.data.local.entity.Item
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
@@ -71,8 +72,13 @@ import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
 import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
 import com.goodyaoshi.lemonbox.ui.viewmodel.EditViewModel
 import com.goodyaoshi.lemonbox.util.DateUtil
+import java.time.LocalDate
 
 private data class ExpiryQuickOption(val label: String, val timestamp: Long)
+
+/** 购买日期、开始使用时间都可回溯过去 10 年。 */
+private val historyYearRange: IntRange
+    get() = (LocalDate.now().year - 10)..LocalDate.now().year
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -98,6 +104,8 @@ fun EditScreen(
 
     var showAdvanced by remember { mutableStateOf(true) }
     var showDatePicker by remember { mutableStateOf(false) }
+    var showPurchaseDatePicker by remember { mutableStateOf(false) }
+    var showStartUseDatePicker by remember { mutableStateOf(false) }
     var showCategoryPicker by remember { mutableStateOf(false) }
     var showLocationPicker by remember { mutableStateOf(false) }
 
@@ -305,6 +313,68 @@ fun EditScreen(
                             )
 
                             Spacer(modifier = Modifier.size(18.dp))
+                            EditorSectionLabel(label = "购买日期")
+                            Spacer(modifier = Modifier.size(8.dp))
+                            EditorInputBox(
+                                value = state.purchaseDate?.let(DateUtil::formatDate).orEmpty(),
+                                onValueChange = {},
+                                placeholder = "点击选择日期",
+                                readOnly = true,
+                                modifier = Modifier.clickable { showPurchaseDatePicker = true },
+                                trailingContent = {
+                                    Icon(
+                                        imageVector = Icons.Default.CalendarToday,
+                                        contentDescription = null,
+                                        tint = TextHint,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            )
+
+                            Spacer(modifier = Modifier.size(18.dp))
+                            EditorSectionLabel(label = "开始使用")
+                            Spacer(modifier = Modifier.size(8.dp))
+                            EditorInputBox(
+                                value = state.startUseTime?.let(DateUtil::formatDate).orEmpty(),
+                                onValueChange = {},
+                                placeholder = "还没开始用，点击补录",
+                                readOnly = true,
+                                modifier = Modifier.clickable { showStartUseDatePicker = true },
+                                trailingContent = {
+                                    Icon(
+                                        imageVector = Icons.Default.CalendarToday,
+                                        contentDescription = null,
+                                        tint = TextHint,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            )
+
+                            Spacer(modifier = Modifier.size(18.dp))
+                            EditorSectionLabel(label = "计量方式")
+                            Spacer(modifier = Modifier.size(8.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                EditorSelectionChip(
+                                    text = "按件消耗",
+                                    selected = state.trackMode == Item.TRACK_CONSUMABLE,
+                                    onClick = { viewModel.updateTrackMode(Item.TRACK_CONSUMABLE) }
+                                )
+                                EditorSelectionChip(
+                                    text = "持续使用",
+                                    selected = state.trackMode == Item.TRACK_DURABLE,
+                                    onClick = { viewModel.updateTrackMode(Item.TRACK_DURABLE) }
+                                )
+                            }
+                            if (state.trackMode == Item.TRACK_DURABLE) {
+                                Spacer(modifier = Modifier.size(6.dp))
+                                Text(
+                                    text = "不按件扣数量，按使用天数统计成本",
+                                    fontSize = 12.sp,
+                                    color = TextHint
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.size(18.dp))
                             EditorSectionLabel(label = "有效期")
                             Spacer(modifier = Modifier.size(8.dp))
                             EditorInputBox(
@@ -418,6 +488,40 @@ fun EditScreen(
                     viewModel.updateExpireTime(selectedMillis)
                     showDatePicker = false
                 }
+            )
+        }
+
+        if (showPurchaseDatePicker) {
+            ExpiryPickerDialog(
+                selectedDateMillis = state.purchaseDate,
+                onDismissRequest = { showPurchaseDatePicker = false },
+                onClear = {
+                    viewModel.updatePurchaseDate(null)
+                    showPurchaseDatePicker = false
+                },
+                onConfirm = { selectedMillis ->
+                    viewModel.updatePurchaseDate(selectedMillis)
+                    showPurchaseDatePicker = false
+                },
+                title = "选择购买日期",
+                yearRange = historyYearRange
+            )
+        }
+
+        if (showStartUseDatePicker) {
+            ExpiryPickerDialog(
+                selectedDateMillis = state.startUseTime,
+                onDismissRequest = { showStartUseDatePicker = false },
+                onClear = {
+                    viewModel.updateStartUseTime(null)
+                    showStartUseDatePicker = false
+                },
+                onConfirm = { selectedMillis ->
+                    viewModel.updateStartUseTime(selectedMillis)
+                    showStartUseDatePicker = false
+                },
+                title = "选择开始使用日期",
+                yearRange = historyYearRange
             )
         }
     }

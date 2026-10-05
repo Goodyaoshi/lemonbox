@@ -4,10 +4,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -22,11 +20,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Alarm
+import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Widgets
 import androidx.compose.material3.Icon
@@ -54,12 +55,14 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
+import com.goodyaoshi.lemonbox.ui.components.PillTag
 import com.goodyaoshi.lemonbox.ui.theme.LemonEnd
 import com.goodyaoshi.lemonbox.ui.theme.LemonStart
 import com.goodyaoshi.lemonbox.ui.theme.OnLemon
 import com.goodyaoshi.lemonbox.ui.theme.OnLemonSoft
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
-import com.goodyaoshi.lemonbox.ui.theme.StatusExpired
+import com.goodyaoshi.lemonbox.ui.theme.TagOrange
+import com.goodyaoshi.lemonbox.ui.theme.TagOrangeText
 import com.goodyaoshi.lemonbox.ui.theme.TextHint
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
 import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
@@ -67,20 +70,20 @@ import com.goodyaoshi.lemonbox.ui.viewmodel.ProfileViewModel
 
 @Composable
 fun ProfileScreen(
-    onOpenExpiry: () -> Unit,
     onOpenTrash: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenLanSync: () -> Unit = {},
-    onOpenToBuy: () -> Unit = {},
     onOpenCategory: () -> Unit = {},
-    onOpenAllItems: () -> Unit = {},
+    onOpenLedgerCategories: () -> Unit = {},
     onOpenReminders: () -> Unit = {},
+    onOpenToBuy: () -> Unit = {},
+    onOpenExpiry: () -> Unit = {},
     viewModel: ProfileViewModel = hiltViewModel()
 ) {
-    val availableCount by viewModel.availableCount.collectAsState()
-    val expiringCount by viewModel.expiringCount.collectAsState()
-    val toBuyCount by viewModel.toBuyCount.collectAsState()
     val trashCount by viewModel.trashCount.collectAsState()
+    val toBuyCount by viewModel.toBuyCount.collectAsState()
+    val expiringCount by viewModel.expiringCount.collectAsState()
+    val dueReminderCount by viewModel.dueReminderCount.collectAsState()
     val backupState by viewModel.backupState.collectAsState()
     var showBackupDialog by remember { mutableStateOf(false) }
 
@@ -160,7 +163,7 @@ fun ProfileScreen(
                                 color = OnLemon
                             )
                             Text(
-                                text = "家里的每件东西，都有它的位置",
+                                text = "你的小日子，交给我照顾",
                                 fontSize = 12.sp,
                                 color = OnLemonSoft
                             )
@@ -170,40 +173,41 @@ fun ProfileScreen(
             }
 
             SectionTitle(
-                title = "概览",
+                title = "常用",
                 modifier = Modifier.padding(start = 24.dp, top = 10.dp, bottom = 8.dp)
             )
             AppSurfaceCard(
                 modifier = Modifier.padding(horizontal = 20.dp),
                 shape = RoundedCornerShape(24.dp),
-                shadowElevation = 12.dp,
-                contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp)
+                shadowElevation = 12.dp
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    CompactStat(
-                        label = "在库可用",
-                        value = availableCount.toString(),
-                        onClick = onOpenAllItems
-                    )
-                    CompactStat(
-                        label = "即将过期",
-                        value = expiringCount.toString(),
-                        color = StatusExpired,
-                        onClick = onOpenExpiry
-                    )
-                    CompactStat(
-                        label = "待买清单",
-                        value = toBuyCount.toString(),
-                        onClick = onOpenToBuy
-                    )
-                }
+                MenuRow(
+                    icon = Icons.Default.Alarm,
+                    title = "待办提醒",
+                    subtitle = "解冻、备菜、家务等一次性与周期待办",
+                    badge = dueReminderCount.takeIf { it > 0 }?.toString(),
+                    onClick = onOpenReminders
+                )
+                DividerSpacer()
+                MenuRow(
+                    icon = Icons.Default.ShoppingCart,
+                    title = "待买清单",
+                    subtitle = "要补要买的东西，买完顺手记一笔",
+                    badge = toBuyCount.takeIf { it > 0 }?.toString(),
+                    onClick = onOpenToBuy
+                )
+                DividerSpacer()
+                MenuRow(
+                    icon = Icons.Default.Notifications,
+                    title = "到期提醒",
+                    subtitle = "快过期的东西，先吃先用别浪费",
+                    badge = expiringCount.takeIf { it > 0 }?.toString(),
+                    onClick = onOpenExpiry
+                )
             }
 
             SectionTitle(
-                title = "数据管理",
+                title = "管理",
                 modifier = Modifier.padding(start = 24.dp, top = 18.dp, bottom = 8.dp)
             )
             AppSurfaceCard(
@@ -211,6 +215,52 @@ fun ProfileScreen(
                 shape = RoundedCornerShape(24.dp),
                 shadowElevation = 12.dp
             ) {
+                MenuRow(
+                    icon = Icons.Default.Widgets,
+                    title = "家当分类与状态",
+                    subtitle = "物品分类、存放位置与状态选项",
+                    onClick = onOpenCategory
+                )
+                DividerSpacer()
+                MenuRow(
+                    icon = Icons.Default.Category,
+                    title = "记账分类",
+                    subtitle = "支出 / 收入分类的增删改",
+                    onClick = onOpenLedgerCategories
+                )
+                DividerSpacer()
+                MenuRow(
+                    icon = Icons.Default.History,
+                    title = "回收站",
+                    subtitle = if (trashCount > 0) "当前有 $trashCount 项可在 30 天内恢复" else "30 天内可恢复最近删除的物品",
+                    badge = trashCount.takeIf { it > 0 }?.toString(),
+                    onClick = onOpenTrash
+                )
+                DividerSpacer()
+                MenuRow(
+                    icon = Icons.Default.Settings,
+                    title = "设置",
+                    subtitle = "外观与到期提醒",
+                    onClick = onOpenSettings
+                )
+            }
+
+            SectionTitle(
+                title = "数据",
+                modifier = Modifier.padding(start = 24.dp, top = 18.dp, bottom = 8.dp)
+            )
+            AppSurfaceCard(
+                modifier = Modifier.padding(horizontal = 20.dp),
+                shape = RoundedCornerShape(24.dp),
+                shadowElevation = 12.dp
+            ) {
+                MenuRow(
+                    icon = Icons.Default.Sync,
+                    title = "局域网同步",
+                    subtitle = "同一 WiFi 下用配对码互相补齐数据",
+                    onClick = onOpenLanSync
+                )
+                DividerSpacer()
                 MenuRow(
                     icon = Icons.Default.FileDownload,
                     title = "导出数据",
@@ -228,55 +278,10 @@ fun ProfileScreen(
                         importLauncher.launch(arrayOf("application/zip", "*/*"))
                     }
                 )
-                DividerSpacer()
-                MenuRow(
-                    icon = Icons.Default.Sync,
-                    title = "局域网同步",
-                    subtitle = "同一 WiFi 下用配对码互相补齐数据",
-                    onClick = onOpenLanSync
-                )
-            }
-
-            SectionTitle(
-                title = "其他",
-                modifier = Modifier.padding(start = 24.dp, top = 18.dp, bottom = 8.dp)
-            )
-            AppSurfaceCard(
-                modifier = Modifier.padding(horizontal = 20.dp),
-                shape = RoundedCornerShape(24.dp),
-                shadowElevation = 12.dp
-            ) {
-                MenuRow(
-                    icon = Icons.Default.Alarm,
-                    title = "待办提醒",
-                    subtitle = "解冻、备菜、家务等一次性与周期待办",
-                    onClick = onOpenReminders
-                )
-                DividerSpacer()
-                MenuRow(
-                    icon = Icons.Default.Widgets,
-                    title = "分类与状态",
-                    subtitle = "维护物品分类、存放位置与状态选项",
-                    onClick = onOpenCategory
-                )
-                DividerSpacer()
-                MenuRow(
-                    icon = Icons.Default.History,
-                    title = "回收站",
-                    subtitle = if (trashCount > 0) "当前有 $trashCount 项可在 30 天内恢复" else "30 天内可恢复最近删除的物品",
-                    onClick = onOpenTrash
-                )
-                DividerSpacer()
-                MenuRow(
-                    icon = Icons.Default.Settings,
-                    title = "设置",
-                    subtitle = "外观与到期提醒",
-                    onClick = onOpenSettings
-                )
             }
 
             Text(
-                text = "家里的每件东西，都有它的位置",
+                text = "柠檬百宝箱 · 为你而做",
                 fontSize = 12.sp,
                 color = TextSecondary,
                 modifier = Modifier
@@ -335,43 +340,12 @@ private fun SectionTitle(
 }
 
 @Composable
-private fun CompactStat(
-    label: String,
-    value: String,
-    color: Color = OrangeStart,
-    onClick: (() -> Unit)? = null
-) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = if (onClick != null) {
-            Modifier
-                .clip(RoundedCornerShape(14.dp))
-                .clickable(onClick = onClick)
-                .padding(horizontal = 10.dp, vertical = 4.dp)
-        } else {
-            Modifier
-        }
-    ) {
-        Text(
-            text = value,
-            fontSize = 18.sp,
-            fontWeight = FontWeight.Bold,
-            color = color
-        )
-        Text(
-            text = label,
-            fontSize = 12.sp,
-            color = TextSecondary
-        )
-    }
-}
-
-@Composable
 private fun MenuRow(
     icon: ImageVector,
     title: String,
     subtitle: String,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    badge: String? = null
 ) {
     Row(
         modifier = Modifier
@@ -408,6 +382,10 @@ private fun MenuRow(
                 fontSize = 12.sp,
                 color = TextHint
             )
+        }
+        badge?.let {
+            PillTag(text = it, backgroundColor = TagOrange, contentColor = TagOrangeText)
+            Spacer(modifier = Modifier.size(6.dp))
         }
         Icon(
             imageVector = Icons.Default.ChevronRight,

@@ -4,10 +4,15 @@ import android.content.Context
 import android.net.Uri
 import com.goodyaoshi.lemonbox.data.local.entity.Category
 import com.goodyaoshi.lemonbox.data.local.entity.Item
+import com.goodyaoshi.lemonbox.data.local.entity.LedgerAsset
+import com.goodyaoshi.lemonbox.data.local.entity.LedgerBudget
+import com.goodyaoshi.lemonbox.data.local.entity.LedgerCategory
+import com.goodyaoshi.lemonbox.data.local.entity.LedgerRecord
 import com.goodyaoshi.lemonbox.data.local.entity.LegacyStatusMapping
 import com.goodyaoshi.lemonbox.data.local.entity.Location
 import com.goodyaoshi.lemonbox.data.repository.CategoryRepository
 import com.goodyaoshi.lemonbox.data.repository.ItemRepository
+import com.goodyaoshi.lemonbox.data.repository.LedgerRepository
 import com.goodyaoshi.lemonbox.data.repository.LocationRepository
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import com.goodyaoshi.lemonbox.util.ImageUtil
@@ -34,11 +39,14 @@ data class BackupMergeResult(
     val categoryUpdated: Int,
     val locationAdded: Int,
     val locationUpdated: Int,
-    val fromLegacyBackup: Boolean
+    val fromLegacyBackup: Boolean,
+    /** 记账模块四张表（账单/分类/账户/预算）合计的新增数，v4 起导出。 */
+    val ledgerAdded: Int = 0,
+    val ledgerUpdated: Int = 0
 ) {
     val hasChanges: Boolean
         get() = itemAdded + itemUpdated + categoryAdded + categoryUpdated +
-            locationAdded + locationUpdated > 0
+            locationAdded + locationUpdated + ledgerAdded + ledgerUpdated > 0
 }
 
 /** 把合并结果转成一句用户可读的说明；手动导入与局域网同步共用。 */
@@ -53,6 +61,8 @@ fun BackupMergeResult.toUserMessage(): String {
         if (categoryUpdated > 0) add("更新分类 $categoryUpdated 个")
         if (locationAdded > 0) add("新增位置 $locationAdded 个")
         if (locationUpdated > 0) add("更新位置 $locationUpdated 个")
+        if (ledgerAdded > 0) add("新增账目 $ledgerAdded 条")
+        if (ledgerUpdated > 0) add("更新账目 $ledgerUpdated 条")
         if (itemKept > 0) add("保留本地 $itemKept 件")
     }
     return "合并完成：" + parts.joinToString("、")
@@ -70,6 +80,7 @@ class AppBackupManager @Inject constructor(
     private val itemRepository: ItemRepository,
     private val categoryRepository: CategoryRepository,
     private val locationRepository: LocationRepository,
+    private val ledgerRepository: LedgerRepository,
     private val appPreferences: AppPreferences
 ) {
 
@@ -117,6 +128,24 @@ class AppBackupManager @Inject constructor(
                 categoryIdByKey = categoryOutcome.idByKey,
                 locationIdByKey = locationOutcome.idByKey
             )
+            val ledgerCategoryOutcome = mergeLedgerCategories(backup.ledgerCategories, useSyncIds)
+            val ledgerAssetOutcome = mergeLedgerAssets(backup.ledgerAssets, useSyncIds)
+            val ledgerRecordOutcome = mergeLedgerRecords(
+                snapshots = backup.ledgerRecords,
+                useSyncIds = useSyncIds,
+                categoryIdByKey = ledgerCategoryOutcome.idByKey,
+                assetIdByKey = ledgerAssetOutcome.idByKey,
+                itemKeyById = itemOutcome.idByKey
+            )
+            val ledgerBudgetOutcome = mergeLedgerBudgets(
+                snapshots = backup.ledgerBudgets,
+                useSyncIds = useSyncIds,
+                categoryIdByKey = ledgerCategoryOutcome.idByKey
+            )
+            val ledgerAdded = ledgerCategoryOutcome.added + ledgerAssetOutcome.added +
+                ledgerRecordOutcome.added + ledgerBudgetOutcome.added
+            val ledgerUpdated = ledgerCategoryOutcome.updated + ledgerAssetOutcome.updated +
+                ledgerRecordOutcome.updated + ledgerBudgetOutcome.updated
 
             return BackupMergeResult(
                 itemAdded = itemOutcome.added,
@@ -126,7 +155,9 @@ class AppBackupManager @Inject constructor(
                 categoryUpdated = categoryOutcome.updated,
                 locationAdded = locationOutcome.added,
                 locationUpdated = locationOutcome.updated,
-                fromLegacyBackup = !useSyncIds
+                fromLegacyBackup = !useSyncIds,
+                ledgerAdded = ledgerAdded,
+                ledgerUpdated = ledgerUpdated
             )
         } finally {
             workingDir.deleteRecursively()
@@ -150,9 +181,16 @@ class AppBackupManager @Inject constructor(
         val allCategories = categoryRepository.getAllCategoriesSnapshot()
         val allLocations = locationRepository.getAllLocationsSnapshot()
         val allItems = itemRepository.getAllItemsSnapshot()
+        val allLedgerAssets = ledgerRepository.getAllAssetsSnapshot()
+        val allLedgerCategories = ledgerRepository.getAllCategoriesSnapshot()
+        val allLedgerRecords = ledgerRepository.getAllRecordsSnapshot()
+        val allLedgerBudgets = ledgerRepository.getAllBudgetsSnapshot()
 
         val categorySyncIdById = allCategories.associate { it.id to it.syncId }
         val locationSyncIdById = allLocations.associate { it.id to it.syncId }
+        val itemSyncIdById = allItems.associate { it.id to it.syncId }
+        val ledgerCategorySyncIdById = allLedgerCategories.associate { it.id to it.syncId }
+        val ledgerAssetSyncIdById = allLedgerAssets.associate { it.id to it.syncId }
 
         val categories = if (since == null) {
             allCategories
@@ -168,6 +206,26 @@ class AppBackupManager @Inject constructor(
             allItems
         } else {
             allItems.filter { (it.updatedAt ?: it.createdAt) > since }
+        }
+        val ledgerAssets = if (since == null) {
+            allLedgerAssets
+        } else {
+            allLedgerAssets.filter { (it.updatedAt ?: 0L) > since }
+        }
+        val ledgerCategories = if (since == null) {
+            allLedgerCategories
+        } else {
+            allLedgerCategories.filter { (it.updatedAt ?: 0L) > since }
+        }
+        val ledgerRecords = if (since == null) {
+            allLedgerRecords
+        } else {
+            allLedgerRecords.filter { (it.updatedAt ?: it.createdAt) > since }
+        }
+        val ledgerBudgets = if (since == null) {
+            allLedgerBudgets
+        } else {
+            allLedgerBudgets.filter { (it.updatedAt ?: 0L) > since }
         }
 
         val workingFile = File(context.cacheDir, "lemonbox-backup-${System.currentTimeMillis()}.zip")
@@ -204,6 +262,23 @@ class AppBackupManager @Inject constructor(
                     imagePaths = images,
                     categorySyncId = item.categoryId?.let { categorySyncIdById[it] },
                     locationSyncId = item.locationId?.let { locationSyncIdById[it] }
+                )
+            },
+            ledgerAssets = ledgerAssets.map { LedgerAssetSnapshot.fromEntity(it) },
+            ledgerCategories = ledgerCategories.map { LedgerCategorySnapshot.fromEntity(it) },
+            ledgerRecords = ledgerRecords.map { record ->
+                LedgerRecordSnapshot.fromEntity(
+                    record = record,
+                    categorySyncId = record.categoryId?.let { ledgerCategorySyncIdById[it] },
+                    assetSyncId = record.assetId?.let { ledgerAssetSyncIdById[it] },
+                    targetAssetSyncId = record.targetAssetId?.let { ledgerAssetSyncIdById[it] },
+                    itemSyncId = record.itemId?.let { itemSyncIdById[it] }
+                )
+            },
+            ledgerBudgets = ledgerBudgets.map { budget ->
+                LedgerBudgetSnapshot.fromEntity(
+                    budget = budget,
+                    categorySyncId = budget.categoryId?.let { ledgerCategorySyncIdById[it] }
                 )
             }
         )
@@ -437,6 +512,244 @@ class AppBackupManager @Inject constructor(
         return ItemMergeOutcome(added, updated, kept, idByKey)
     }
 
+    /** 记账分类合并：扁平结构（parentId 恒为 null），单遍即可；保护位只增不减。 */
+    private suspend fun mergeLedgerCategories(
+        snapshots: List<LedgerCategorySnapshot>,
+        useSyncIds: Boolean
+    ): MergeOutcome {
+        val localCategories = ledgerRepository.getAllCategoriesSnapshot()
+        val localByKey = localCategories.associateBy { keyOf(it.syncId, it.id, useSyncIds) }
+        val idByKey = HashMap(localByKey.mapValues { it.value.id })
+        var added = 0
+        var updated = 0
+
+        snapshots.forEach { snapshot ->
+            val key = keyOf(snapshot.syncId, snapshot.id, useSyncIds)
+            val local = localByKey[key]
+            if (local == null) {
+                val newId = ledgerRepository.insertSyncedCategory(
+                    LedgerCategory(
+                        id = 0,
+                        name = snapshot.name,
+                        icon = snapshot.icon,
+                        kind = snapshot.kind,
+                        sort = snapshot.sort,
+                        parentId = null,
+                        isProtected = snapshot.isProtected,
+                        syncId = snapshot.syncId.orNewSyncId(),
+                        updatedAt = snapshot.updatedAt ?: System.currentTimeMillis(),
+                        deletedAt = snapshot.deletedAt
+                    )
+                )
+                idByKey[key] = newId
+                added++
+            } else {
+                idByKey[key] = local.id
+                if (!isRemoteNewer(snapshot.updatedAt, local.updatedAt)) return@forEach
+                ledgerRepository.updateSyncedCategory(
+                    local.copy(
+                        name = snapshot.name,
+                        icon = snapshot.icon,
+                        kind = snapshot.kind,
+                        sort = snapshot.sort,
+                        updatedAt = snapshot.updatedAt ?: local.updatedAt,
+                        deletedAt = snapshot.deletedAt,
+                        isProtected = local.isProtected || snapshot.isProtected
+                    )
+                )
+                updated++
+            }
+        }
+        return MergeOutcome(added, updated, idByKey)
+    }
+
+    /** 记账账户合并：无引用字段，单遍 LWW。 */
+    private suspend fun mergeLedgerAssets(
+        snapshots: List<LedgerAssetSnapshot>,
+        useSyncIds: Boolean
+    ): MergeOutcome {
+        val localAssets = ledgerRepository.getAllAssetsSnapshot()
+        val localByKey = localAssets.associateBy { keyOf(it.syncId, it.id, useSyncIds) }
+        val idByKey = HashMap(localByKey.mapValues { it.value.id })
+        var added = 0
+        var updated = 0
+
+        snapshots.forEach { snapshot ->
+            val key = keyOf(snapshot.syncId, snapshot.id, useSyncIds)
+            val local = localByKey[key]
+            if (local == null) {
+                val newId = ledgerRepository.insertSyncedAsset(
+                    LedgerAsset(
+                        id = 0,
+                        name = snapshot.name,
+                        icon = snapshot.icon,
+                        sort = snapshot.sort,
+                        initialBalance = snapshot.initialBalance,
+                        type = snapshot.type,
+                        syncId = snapshot.syncId.orNewSyncId(),
+                        updatedAt = snapshot.updatedAt ?: System.currentTimeMillis(),
+                        deletedAt = snapshot.deletedAt
+                    )
+                )
+                idByKey[key] = newId
+                added++
+            } else {
+                idByKey[key] = local.id
+                if (!isRemoteNewer(snapshot.updatedAt, local.updatedAt)) return@forEach
+                ledgerRepository.updateSyncedAsset(
+                    local.copy(
+                        name = snapshot.name,
+                        icon = snapshot.icon,
+                        sort = snapshot.sort,
+                        initialBalance = snapshot.initialBalance,
+                        type = snapshot.type,
+                        updatedAt = snapshot.updatedAt ?: local.updatedAt,
+                        deletedAt = snapshot.deletedAt
+                    )
+                )
+                updated++
+            }
+        }
+        return MergeOutcome(added, updated, idByKey)
+    }
+
+    /**
+     * 账单合并：分类/账户/关联物品按 syncId 重映射到本地 id。
+     * [itemKeyById] 来自物品合并的结果（已预填充本地全量），
+     * 记账分类与账户的 idByKey 同样包含本地全量，增量包也能解析。
+     */
+    private suspend fun mergeLedgerRecords(
+        snapshots: List<LedgerRecordSnapshot>,
+        useSyncIds: Boolean,
+        categoryIdByKey: Map<String, Long>,
+        assetIdByKey: Map<String, Long>,
+        itemKeyById: Map<String, Long>
+    ): MergeOutcome {
+        val localRecords = ledgerRepository.getAllRecordsSnapshot()
+        val localByKey = localRecords.associateBy { keyOf(it.syncId, it.id, useSyncIds) }
+        val idByKey = HashMap(localByKey.mapValues { it.value.id })
+        var added = 0
+        var updated = 0
+
+        snapshots.forEach { snapshot ->
+            val key = keyOf(snapshot.syncId, snapshot.id, useSyncIds)
+            val local = localByKey[key]
+            val categoryId = resolveReferenceId(
+                syncId = snapshot.categorySyncId,
+                fallbackId = snapshot.categoryId,
+                idByKey = categoryIdByKey,
+                useSyncIds = useSyncIds
+            )
+            val assetId = resolveReferenceId(
+                syncId = snapshot.assetSyncId,
+                fallbackId = snapshot.assetId,
+                idByKey = assetIdByKey,
+                useSyncIds = useSyncIds
+            )
+            val targetAssetId = resolveReferenceId(
+                syncId = snapshot.targetAssetSyncId,
+                fallbackId = snapshot.targetAssetId,
+                idByKey = assetIdByKey,
+                useSyncIds = useSyncIds
+            )
+            val itemId = resolveReferenceId(
+                syncId = snapshot.itemSyncId,
+                fallbackId = snapshot.itemId,
+                idByKey = itemKeyById,
+                useSyncIds = useSyncIds
+            )
+            if (local == null) {
+                ledgerRepository.insertSyncedRecord(
+                    LedgerRecord(
+                        id = 0,
+                        type = snapshot.type,
+                        amount = snapshot.amount,
+                        categoryId = categoryId,
+                        assetId = assetId,
+                        targetAssetId = targetAssetId,
+                        recordTime = snapshot.recordTime,
+                        remark = snapshot.remark,
+                        itemId = itemId,
+                        createdAt = snapshot.createdAt,
+                        syncId = snapshot.syncId.orNewSyncId(),
+                        updatedAt = snapshot.updatedAt ?: snapshot.createdAt,
+                        deletedAt = snapshot.deletedAt
+                    )
+                )
+                added++
+            } else {
+                idByKey[key] = local.id
+                if (!isRemoteNewer(snapshot.updatedAt, local.updatedAt)) return@forEach
+                ledgerRepository.updateSyncedRecord(
+                    local.copy(
+                        type = snapshot.type,
+                        amount = snapshot.amount,
+                        categoryId = categoryId,
+                        assetId = assetId,
+                        targetAssetId = targetAssetId,
+                        recordTime = snapshot.recordTime,
+                        remark = snapshot.remark,
+                        itemId = itemId,
+                        updatedAt = snapshot.updatedAt ?: local.updatedAt,
+                        deletedAt = snapshot.deletedAt
+                    )
+                )
+                updated++
+            }
+        }
+        return MergeOutcome(added, updated, idByKey)
+    }
+
+    /** 预算合并：LWW 覆盖式更新；categoryId 冲突由 REPLACE 兜底（远端胜出）。 */
+    private suspend fun mergeLedgerBudgets(
+        snapshots: List<LedgerBudgetSnapshot>,
+        useSyncIds: Boolean,
+        categoryIdByKey: Map<String, Long>
+    ): MergeOutcome {
+        val localBudgets = ledgerRepository.getAllBudgetsSnapshot()
+        val localByKey = localBudgets.associateBy { keyOf(it.syncId, it.id, useSyncIds) }
+        var added = 0
+        var updated = 0
+
+        snapshots.forEach { snapshot ->
+            val key = keyOf(snapshot.syncId, snapshot.id, useSyncIds)
+            val local = localByKey[key]
+            val categoryId = resolveReferenceId(
+                syncId = snapshot.categorySyncId,
+                fallbackId = snapshot.categoryId,
+                idByKey = categoryIdByKey,
+                useSyncIds = useSyncIds
+            )
+            if (local == null) {
+                ledgerRepository.insertSyncedBudget(
+                    LedgerBudget(
+                        id = 0,
+                        categoryId = categoryId,
+                        amount = snapshot.amount,
+                        period = snapshot.period,
+                        syncId = snapshot.syncId.orNewSyncId(),
+                        updatedAt = snapshot.updatedAt ?: System.currentTimeMillis(),
+                        deletedAt = null
+                    )
+                )
+                added++
+            } else {
+                if (!isRemoteNewer(snapshot.updatedAt, local.updatedAt)) return@forEach
+                ledgerRepository.updateSyncedBudget(
+                    local.copy(
+                        categoryId = categoryId,
+                        amount = snapshot.amount,
+                        period = snapshot.period,
+                        updatedAt = snapshot.updatedAt ?: local.updatedAt,
+                        deletedAt = null
+                    )
+                )
+                updated++
+            }
+        }
+        return MergeOutcome(added, updated, emptyMap())
+    }
+
     private fun resolveImages(relativePaths: List<String>, workingDir: File): List<String> {
         return relativePaths.mapNotNull { relativePath ->
             val sourceFile = File(workingDir, relativePath)
@@ -518,7 +831,7 @@ class AppBackupManager @Inject constructor(
         private const val BACKUP_MANIFEST_NAME = "backup.json"
 
         /** 支持合并的备份格式版本；缺失该字段的旧备份按 v1（仅数字 id 对齐）处理。 */
-        const val SYNC_VERSION = 3
+        const val SYNC_VERSION = 4
 
         /** 从该版本起备份用 syncId 对齐；更早的备份退回数字 id。 */
         private const val SYNC_ID_VERSION = 2
@@ -552,8 +865,149 @@ data class AppBackupPayload(
     val deviceId: String = "",
     val categories: List<CategorySnapshot>,
     val locations: List<LocationSnapshot>,
-    val items: List<ItemSnapshot>
+    val items: List<ItemSnapshot>,
+    // 记账模块，v4 起导出；旧版本 App 读新备份时按空列表忽略。
+    val ledgerAssets: List<LedgerAssetSnapshot> = emptyList(),
+    val ledgerCategories: List<LedgerCategorySnapshot> = emptyList(),
+    val ledgerRecords: List<LedgerRecordSnapshot> = emptyList(),
+    val ledgerBudgets: List<LedgerBudgetSnapshot> = emptyList()
 )
+
+@Serializable
+data class LedgerAssetSnapshot(
+    val id: Long,
+    val name: String,
+    val icon: String = "",
+    val sort: Int = 0,
+    val initialBalance: Long = 0,
+    val type: Int = 0,
+    val syncId: String? = null,
+    val updatedAt: Long? = null,
+    val deletedAt: Long? = null
+) {
+    companion object {
+        fun fromEntity(asset: LedgerAsset): LedgerAssetSnapshot = LedgerAssetSnapshot(
+            id = asset.id,
+            name = asset.name,
+            icon = asset.icon,
+            sort = asset.sort,
+            initialBalance = asset.initialBalance,
+            type = asset.type,
+            syncId = asset.syncId,
+            updatedAt = asset.updatedAt,
+            deletedAt = asset.deletedAt
+        )
+    }
+}
+
+@Serializable
+data class LedgerCategorySnapshot(
+    val id: Long,
+    val name: String,
+    val icon: String = "",
+    val kind: Int = 0,
+    val sort: Int = 0,
+    /** 预留二级分类；v1 恒为 null，导出保留字段以兼容后续扩展。 */
+    val parentId: Long? = null,
+    val isProtected: Boolean = false,
+    val syncId: String? = null,
+    val updatedAt: Long? = null,
+    val deletedAt: Long? = null
+) {
+    companion object {
+        fun fromEntity(category: LedgerCategory): LedgerCategorySnapshot =
+            LedgerCategorySnapshot(
+                id = category.id,
+                name = category.name,
+                icon = category.icon,
+                kind = category.kind,
+                sort = category.sort,
+                parentId = category.parentId,
+                isProtected = category.isProtected,
+                syncId = category.syncId,
+                updatedAt = category.updatedAt,
+                deletedAt = category.deletedAt
+            )
+    }
+}
+
+@Serializable
+data class LedgerRecordSnapshot(
+    val id: Long,
+    val type: Int,
+    /** 金额（分），恒为正。 */
+    val amount: Long,
+    val categoryId: Long? = null,
+    val assetId: Long? = null,
+    val targetAssetId: Long? = null,
+    val recordTime: Long,
+    val remark: String = "",
+    val itemId: Long? = null,
+    val createdAt: Long,
+    val syncId: String? = null,
+    /** 引用一律以 syncId 导出，导入端重映射到本地 id。 */
+    val categorySyncId: String? = null,
+    val assetSyncId: String? = null,
+    val targetAssetSyncId: String? = null,
+    val itemSyncId: String? = null,
+    val updatedAt: Long? = null,
+    val deletedAt: Long? = null
+) {
+    companion object {
+        fun fromEntity(
+            record: LedgerRecord,
+            categorySyncId: String?,
+            assetSyncId: String?,
+            targetAssetSyncId: String?,
+            itemSyncId: String?
+        ): LedgerRecordSnapshot = LedgerRecordSnapshot(
+            id = record.id,
+            type = record.type,
+            amount = record.amount,
+            categoryId = record.categoryId,
+            assetId = record.assetId,
+            targetAssetId = record.targetAssetId,
+            recordTime = record.recordTime,
+            remark = record.remark,
+            itemId = record.itemId,
+            createdAt = record.createdAt,
+            syncId = record.syncId,
+            categorySyncId = categorySyncId,
+            assetSyncId = assetSyncId,
+            targetAssetSyncId = targetAssetSyncId,
+            itemSyncId = itemSyncId,
+            updatedAt = record.updatedAt,
+            deletedAt = record.deletedAt
+        )
+    }
+}
+
+@Serializable
+data class LedgerBudgetSnapshot(
+    val id: Long,
+    /** null 表示月度总预算。 */
+    val categoryId: Long? = null,
+    val categorySyncId: String? = null,
+    val amount: Long,
+    val period: String = "monthly",
+    val syncId: String? = null,
+    val updatedAt: Long? = null,
+    val deletedAt: Long? = null
+) {
+    companion object {
+        fun fromEntity(budget: LedgerBudget, categorySyncId: String?): LedgerBudgetSnapshot =
+            LedgerBudgetSnapshot(
+                id = budget.id,
+                categoryId = budget.categoryId,
+                categorySyncId = categorySyncId,
+                amount = budget.amount,
+                period = budget.period,
+                syncId = budget.syncId,
+                updatedAt = budget.updatedAt,
+                deletedAt = budget.deletedAt
+            )
+    }
+}
 
 @Serializable
 data class CategorySnapshot(
@@ -635,6 +1089,14 @@ data class ItemSnapshot(
     val disposition: Int? = null,
     /** 需要补货；v3 起导出。 */
     val needRestock: Boolean? = null,
+    /** 购买日期；使用周期统计，为 null 表示备份里没有。 */
+    val purchaseDate: Long? = null,
+    /** 开始使用时间；使用周期统计，为 null 表示备份里没有。 */
+    val startUseTime: Long? = null,
+    /** 使用结束时间；使用周期统计，为 null 表示备份里没有。 */
+    val usageEndedAt: Long? = null,
+    /** 计量方式（0=按件消耗 1=持续使用）；为 null 表示备份里没有。 */
+    val trackMode: Int? = null,
     val rating: Int?,
     val ratedAt: Long?,
     val deletedAt: Long?,
@@ -666,6 +1128,10 @@ data class ItemSnapshot(
             usageStatus = state.usageStatus,
             disposition = state.disposition,
             needRestock = state.needRestock,
+            purchaseDate = purchaseDate,
+            startUseTime = startUseTime,
+            usageEndedAt = usageEndedAt,
+            trackMode = trackMode ?: Item.TRACK_CONSUMABLE,
             rating = rating,
             ratedAt = ratedAt,
             deletedAt = deletedAt,
@@ -721,6 +1187,10 @@ data class ItemSnapshot(
                 usageStatus = item.usageStatus,
                 disposition = item.disposition,
                 needRestock = item.needRestock,
+                purchaseDate = item.purchaseDate,
+                startUseTime = item.startUseTime,
+                usageEndedAt = item.usageEndedAt,
+                trackMode = item.trackMode,
                 rating = item.rating,
                 ratedAt = item.ratedAt,
                 deletedAt = item.deletedAt,

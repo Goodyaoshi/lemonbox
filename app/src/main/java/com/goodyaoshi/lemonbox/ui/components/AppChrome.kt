@@ -11,15 +11,18 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -31,6 +34,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -266,7 +270,8 @@ fun SectionHeader(
     title: String,
     subtitle: String? = null,
     action: String? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onActionClick: (() -> Unit)? = null
 ) {
     Row(
         modifier = modifier.fillMaxWidth(),
@@ -289,13 +294,56 @@ fun SectionHeader(
             }
         }
         action?.let {
+            val actionModifier = if (onActionClick != null) {
+                Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable(onClick = onActionClick)
+            } else {
+                Modifier
+            }
             Text(
                 text = it,
                 color = OrangeStart,
                 fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold
+                fontWeight = FontWeight.SemiBold,
+                modifier = actionModifier.padding(start = 8.dp)
             )
         }
+    }
+}
+
+/**
+ * 页头右侧的弱化入口胶囊：图标 + 文字，用于低频辅助功能的跳转
+ * （记账页的预算/统计、吃饭页的菜谱库），位置与样式全 App 统一。
+ */
+@Composable
+fun HeaderActionPill(
+    icon: ImageVector,
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(SurfaceWarmDeep)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = label,
+            tint = TextSecondary,
+            modifier = Modifier.size(14.dp)
+        )
+        Spacer(modifier = Modifier.width(4.dp))
+        Text(
+            text = label,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Medium,
+            color = TextSecondary
+        )
     }
 }
 

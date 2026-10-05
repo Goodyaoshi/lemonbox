@@ -11,7 +11,9 @@ import com.goodyaoshi.lemonbox.data.repository.CategoryRepository
 import com.goodyaoshi.lemonbox.data.repository.ItemRepository
 import com.goodyaoshi.lemonbox.data.repository.LocationRepository
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
+import com.goodyaoshi.lemonbox.util.DateUtil
 import com.goodyaoshi.lemonbox.util.ImageUtil
+import com.goodyaoshi.lemonbox.util.MonotonicClock
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -34,6 +36,12 @@ data class SaveItemState(
     val imagePaths: List<String> = emptyList(),
     /** 该物品单独的到期提醒阶梯（天）；为空表示跟随全局默认阶梯。 */
     val reminderDays: List<Int> = emptyList(),
+    /** 购买日期，默认今天，可改可清空。 */
+    val purchaseDate: Long? = DateUtil.daysFromNow(0),
+    /** 计量方式：按件消耗 / 持续使用（耐用品）。 */
+    val trackMode: Int = Item.TRACK_CONSUMABLE,
+    /** 用户是否手动改过计量方式；改过后不再跟随分类智能默认。 */
+    val trackModeTouched: Boolean = false,
     val isSaving: Boolean = false,
     val isSaved: Boolean = false
 )
@@ -125,7 +133,17 @@ class SaveViewModel @Inject constructor(
     }
 
     fun updateCategory(categoryId: Long?) {
-        _state.value = _state.value.copy(categoryId = categoryId)
+        val current = _state.value
+        _state.value = if (current.trackModeTouched) {
+            current.copy(categoryId = categoryId)
+        } else {
+            // 未手动选过计量方式时跟随分类智能默认（家电、数码等耐用品分类预选「持续使用」）。
+            val durable = Item.durableTopCategoryNames.contains(topCategoryName(categoryId))
+            current.copy(
+                categoryId = categoryId,
+                trackMode = if (durable) Item.TRACK_DURABLE else Item.TRACK_CONSUMABLE
+            )
+        }
     }
 
     fun updateLocation(locationId: Long?) {
@@ -153,6 +171,30 @@ class SaveViewModel @Inject constructor(
         _state.value = _state.value.copy(reminderDays = days.distinct().sorted())
     }
 
+    fun updatePurchaseDate(time: Long?) {
+        _state.value = _state.value.copy(purchaseDate = time)
+    }
+
+    /** 手动切换计量方式，之后不再跟随分类智能默认。 */
+    fun updateTrackMode(mode: Int) {
+        _state.value = _state.value.copy(
+            trackMode = mode,
+            trackModeTouched = true
+        )
+    }
+
+    /** 沿分类树上溯到顶级分类，取其名称用于耐用品智能默认判断。 */
+    private fun topCategoryName(categoryId: Long?): String? {
+        if (categoryId == null) return null
+        val byId = categories.value.associateBy { it.id }
+        var node = byId[categoryId]
+        var guard = 0
+        while (node?.parentId != null && guard++ < 10) {
+            node = byId[node.parentId]
+        }
+        return node?.name
+    }
+
     fun updateNote(note: String) {
         _state.value = _state.value.copy(note = note)
     }
@@ -163,6 +205,7 @@ class SaveViewModel @Inject constructor(
 
         _state.value = current.copy(isSaving = true)
         viewModelScope.launch {
+            val now = MonotonicClock.now()
             val normalizedImages = current.imagePaths.distinct()
             val item = Item(
                 name = current.name,
@@ -176,7 +219,11 @@ class SaveViewModel @Inject constructor(
                 note = current.note,
                 imagePath = normalizedImages.firstOrNull().orEmpty(),
                 imagePaths = Item.encodeImagePaths(normalizedImages),
-                reminderDays = Item.encodeReminderDays(current.reminderDays)
+                reminderDays = Item.encodeReminderDays(current.reminderDays),
+                purchaseDate = current.purchaseDate,
+                trackMode = current.trackMode,
+                // 默认「使用中」：开始使用时间即录入时刻，使用周期从此起算。
+                startUseTime = now
             )
             itemRepository.insert(item)
             _state.value = _state.value.copy(isSaving = false, isSaved = true)

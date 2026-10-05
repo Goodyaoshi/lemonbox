@@ -342,6 +342,28 @@ fun DetailScreen(
                 item.price?.let { price ->
                     DetailInfoRow("价格", DateUtil.formatCurrency(price))
                 }
+                item.purchaseDate?.let { purchaseDate ->
+                    DetailInfoRow("购买日期", DateUtil.formatDate(purchaseDate))
+                }
+                // 使用周期统计：开始用到现在（或结束）的天数，以及平均每天花掉的钱。
+                val usageDayCount = Item.usageDays(
+                    startUseTime = item.startUseTime,
+                    purchaseDate = item.purchaseDate,
+                    createdAt = item.createdAt,
+                    usageEndedAt = item.usageEndedAt,
+                    usageStatus = item.usageStatus,
+                    disposition = item.disposition
+                )
+                if (usageDayCount > 0) {
+                    val ended = Item.isUsageEnded(item.usageStatus, item.disposition)
+                    DetailInfoRow(
+                        label = "使用天数",
+                        value = if (ended) "共使用 $usageDayCount 天" else "已使用 $usageDayCount 天"
+                    )
+                    Item.averageDailyCost(item.price, item.quantity, usageDayCount)?.let { daily ->
+                        DetailInfoRow("平均每天", DateUtil.formatCurrency(daily))
+                    }
+                }
                 DetailInfoRow("添加时间", DateUtil.formatDateTime(item.createdAt))
                 DetailInfoRow(
                     label = statusDimensionTitle(StatusDimension.USAGE),

@@ -45,7 +45,11 @@ fun ExpiryPickerDialog(
     selectedDateMillis: Long?,
     onDismissRequest: () -> Unit,
     onClear: () -> Unit,
-    onConfirm: (Long?) -> Unit
+    onConfirm: (Long?) -> Unit,
+    /** 弹窗标题；购买日期、开始使用等场景可换成自己的文案。 */
+    title: String = "选择有效期",
+    /** 可选年份区间；到期默认未来 8 年，购买日期等回溯场景传过去年份。 */
+    yearRange: IntRange? = null
 ) {
     val zoneId = remember { ZoneId.systemDefault() }
     val today = remember { LocalDate.now(zoneId) }
@@ -59,7 +63,7 @@ fun ExpiryPickerDialog(
     var selectedDay by remember(initialDate) { mutableIntStateOf(initialDate.dayOfMonth) }
     var selectedPanel by remember { mutableStateOf(ExpiryPanel.MONTH) }
 
-    val yearRange = remember(today.year) { (today.year..today.year + 8).toList() }
+    val years = remember(today.year, yearRange) { yearRange ?: (today.year..today.year + 8) }
     val currentYearMonth = remember(selectedYear, selectedMonth) { YearMonth.of(selectedYear, selectedMonth) }
     val maxDay = currentYearMonth.lengthOfMonth()
     if (selectedDay > maxDay) {
@@ -67,7 +71,7 @@ fun ExpiryPickerDialog(
     }
 
     AppDialog(
-        title = "选择有效期",
+        title = title,
         subtitle = "按年、月、日分步选择，布局固定更直观。",
         onDismissRequest = onDismissRequest,
         confirmText = "确定",
@@ -122,7 +126,7 @@ fun ExpiryPickerDialog(
             ExpiryPanel.YEAR -> {
                 FixedGridOptions(
                     columns = 3,
-                    items = yearRange,
+                    items = years.toList(),
                     key = { it },
                     label = { it.toString() },
                     selected = { selectedYear == it },

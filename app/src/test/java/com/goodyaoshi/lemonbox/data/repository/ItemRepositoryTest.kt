@@ -86,6 +86,109 @@ class ItemRepositoryTest {
         assertEquals(true, created.needRestock)
     }
 
+    @Test
+    fun consumeOne_skipsDurableItems() = runTest {
+        val dao = FakeItemDao(
+            mutableListOf(
+                testItem(id = 1L, deletedAt = null).copy(
+                    trackMode = Item.TRACK_DURABLE,
+                    quantity = 3
+                )
+            )
+        )
+        val repository = ItemRepository(dao)
+
+        repository.consumeOne(1L)
+
+        val item = dao.snapshot().single()
+        // 持续使用型物品不扣数量、不改变状态。
+        assertEquals(3, item.quantity)
+        assertEquals(Item.USAGE_IN_USE, item.usageStatus)
+    }
+
+    @Test
+    fun consumeOne_closesUsageWindowWhenUsedUp() = runTest {
+        val dao = FakeItemDao(
+            mutableListOf(testItem(id = 1L, deletedAt = null).copy(startUseTime = 100L))
+        )
+        val repository = ItemRepository(dao)
+
+        repository.consumeOne(1L)
+
+        val item = dao.snapshot().single()
+        assertEquals(0, item.quantity)
+        assertEquals(Item.USAGE_USED_UP, item.usageStatus)
+        assertEquals(100L, item.startUseTime)
+        assertEquals(item.updatedAt, item.usageEndedAt)
+    }
+
+    @Test
+    fun markAsUsed_closesUsageWindow() = runTest {
+        val dao = FakeItemDao(
+            mutableListOf(
+                testItem(id = 1L, deletedAt = null).copy(
+                    startUseTime = 100L,
+                    usageStatus = Item.USAGE_IN_USE
+                )
+            )
+        )
+        val repository = ItemRepository(dao)
+
+        repository.markAsUsed(1L)
+
+        val item = dao.snapshot().single()
+        assertEquals(Item.USAGE_USED_UP, item.usageStatus)
+        assertEquals(true, item.needRestock)
+        assertEquals(100L, item.startUseTime)
+        assertEquals(item.updatedAt, item.usageEndedAt)
+    }
+
+    @Test
+    fun restoreToInUse_recordsPurchaseAndRestartsWindow() = runTest {
+        val dao = FakeItemDao(
+            mutableListOf(
+                testItem(id = 1L, deletedAt = null).copy(
+                    usageStatus = Item.USAGE_USED_UP,
+                    needRestock = true,
+                    startUseTime = 100L,
+                    usageEndedAt = 200L
+                )
+            )
+        )
+        val repository = ItemRepository(dao)
+
+        repository.restoreToInUse(1L)
+
+        val item = dao.snapshot().single()
+        assertEquals(Item.USAGE_IN_USE, item.usageStatus)
+        assertEquals(false, item.needRestock)
+        // 「已买到」= 刚买回来：购买日期记当下，并开启新一轮使用周期。
+        assertEquals(item.updatedAt, item.purchaseDate)
+        assertEquals(item.updatedAt, item.startUseTime)
+        assertNull(item.usageEndedAt)
+    }
+
+    @Test
+    fun setDisposition_backToInStockRestartsWindow() = runTest {
+        val dao = FakeItemDao(
+            mutableListOf(
+                testItem(id = 1L, deletedAt = null).copy(
+                    disposition = Item.DISPOSITION_GIVEN_AWAY,
+                    startUseTime = 100L,
+                    usageEndedAt = 200L
+                )
+            )
+        )
+        val repository = ItemRepository(dao)
+
+        repository.setDisposition(1L, Item.DISPOSITION_IN_STOCK)
+
+        val item = dao.snapshot().single()
+        assertEquals(Item.DISPOSITION_IN_STOCK, item.disposition)
+        assertEquals(item.updatedAt, item.startUseTime)
+        assertNull(item.usageEndedAt)
+    }
+
     private fun testItem(id: Long, deletedAt: Long?) = Item(
         id = id,
         name = "Item $id",
@@ -222,6 +325,31 @@ private class FakeItemDao(
     override suspend fun updateNeedRestock(id: Long, needRestock: Boolean, updatedAt: Long) {
         items.replaceAll { item ->
             if (item.id == id) item.copy(needRestock = needRestock, updatedAt = updatedAt) else item
+        }
+    }
+
+    override suspend fun updateUsageWindow(
+        id: Long,
+        startUseTime: Long?,
+        usageEndedAt: Long?,
+        updatedAt: Long
+    ) {
+        items.replaceAll { item ->
+            if (item.id == id) {
+                item.copy(
+                    startUseTime = startUseTime,
+                    usageEndedAt = usageEndedAt,
+                    updatedAt = updatedAt
+                )
+            } else {
+                item
+            }
+        }
+    }
+
+    override suspend fun updatePurchaseDate(id: Long, purchaseDate: Long?, updatedAt: Long) {
+        items.replaceAll { item ->
+            if (item.id == id) item.copy(purchaseDate = purchaseDate, updatedAt = updatedAt) else item
         }
     }
 

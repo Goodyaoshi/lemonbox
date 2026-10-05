@@ -43,7 +43,8 @@ sealed class Screen(val route: String) {
     }
 
     data object Search : Screen("search")
-    data object Recipe : Screen("recipe")
+    data object Meal : Screen("meal")
+    data object RecipeLibrary : Screen("recipe-library")
     data object Category : Screen("category")
     data object Profile : Screen("profile")
     data object Settings : Screen("settings")
@@ -52,6 +53,33 @@ sealed class Screen(val route: String) {
     data object Trash : Screen("trash")
     data object Expiry : Screen("expiry")
     data object Reminders : Screen("reminders")
+
+    // ---- 记账模块 ----
+    data object Ledger : Screen("ledger")
+    data object LedgerStats : Screen("ledger-stats")
+    data object LedgerBudget : Screen("ledger-budget")
+    data object LedgerCategoryManage : Screen("ledger-categories?kind={kind}") {
+        fun createRoute(kind: Int): String = "ledger-categories?kind=$kind"
+    }
+
+    /**
+     * 记一笔 / 编辑账单。recordId > 0 为编辑既有账单；itemId > 0 表示由家当
+     * 「已买到」联动进入，amount（分）与 remark 用于预填。
+     */
+    data object RecordEdit : Screen(
+        "record-edit?recordId={recordId}&itemId={itemId}&amount={amount}&remark={remark}"
+    ) {
+        fun createRoute(
+            recordId: Long? = null,
+            itemId: Long? = null,
+            amount: Long? = null,
+            remark: String? = null
+        ): String {
+            return "record-edit?recordId=${recordId ?: -1L}&itemId=${itemId ?: -1L}" +
+                "&amount=${amount ?: -1L}&remark=${Uri.encode(remark.orEmpty())}"
+        }
+    }
+
     data object Edit : Screen("edit/{itemId}?imageUri={imageUri}&imageUris={imageUris}&mode={mode}") {
         fun createRoute(
             itemId: Long,

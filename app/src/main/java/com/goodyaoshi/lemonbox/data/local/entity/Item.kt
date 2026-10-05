@@ -1,9 +1,13 @@
 package com.goodyaoshi.lemonbox.data.local.entity
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import java.time.Instant
+import java.time.ZoneId
+import java.time.temporal.ChronoUnit
 import java.util.UUID
 
 @Entity(
@@ -49,6 +53,18 @@ data class Item(
     val needRestock: Boolean = false,
     /** 该物品单独的到期提醒阶梯（逗号分隔的天数）；空表示跟随全局默认阶梯。 */
     val reminderDays: String? = null,
+    /** 购买日期（天精度）；未记录为 null。 */
+    val purchaseDate: Long? = null,
+    /** 开始使用时间；进入使用中时自动落值，可手动补录。 */
+    val startUseTime: Long? = null,
+    /** 使用结束时间；进入用完/送人/丢弃等非可用状态时自动落值。 */
+    val usageEndedAt: Long? = null,
+    /**
+     * 计量方式：按件消耗（零食、酱油瓶等，逐件扣数量）或持续使用
+     * （电器、调料等一直在用还没用完的，不扣数量，按使用天数统计成本）。
+     */
+    @ColumnInfo(defaultValue = "0")
+    val trackMode: Int = TRACK_CONSUMABLE,
     val rating: Int? = null,
     val ratedAt: Long? = null,
     val deletedAt: Long? = null,
@@ -90,6 +106,59 @@ data class Item(
 
         /** 物品去向：已经丢弃/扔掉。 */
         const val DISPOSITION_DISCARDED = 3
+
+        /** 计量方式：按件消耗（默认），「用1件」逐件扣数量，减到 0 记为已用完。 */
+        const val TRACK_CONSUMABLE = 0
+
+        /** 计量方式：持续使用（电器、调料等），不扣数量，按使用天数统计成本。 */
+        const val TRACK_DURABLE = 1
+
+        /** 这些顶级分类下的新物品默认按「持续使用」计量；录入时可手动改。 */
+        val durableTopCategoryNames = setOf("家电", "数码", "厨具", "衣物", "工具")
+
+        /** 该物品是否已进入非可用状态（已用完/已送人/已丢弃）；借出是暂时的，不算结束。 */
+        fun isUsageEnded(usageStatus: Int, disposition: Int): Boolean =
+            usageStatus == USAGE_USED_UP ||
+                disposition == DISPOSITION_GIVEN_AWAY ||
+                disposition == DISPOSITION_DISCARDED
+
+        /** 开始使用的兜底链：开始使用时间 → 购买日期 → 创建时间。 */
+        fun effectiveStartUseTime(startUseTime: Long?, purchaseDate: Long?, createdAt: Long): Long =
+            startUseTime ?: purchaseDate ?: createdAt
+
+        /**
+         * 已使用天数（按本地日历日，含首尾两天）：从开始使用到结束日；
+         * 还在用则算到今天。未开始，或已结束但没有结束时间戳（如待买占位记录）
+         * 返回 0，界面据此不展示使用统计。
+         */
+        fun usageDays(
+            startUseTime: Long?,
+            purchaseDate: Long?,
+            createdAt: Long,
+            usageEndedAt: Long?,
+            usageStatus: Int,
+            disposition: Int,
+            nowMillis: Long = System.currentTimeMillis()
+        ): Int {
+            if (usageStatus == USAGE_UNUSED) return 0
+            if (isUsageEnded(usageStatus, disposition) && usageEndedAt == null) return 0
+            val zone = ZoneId.systemDefault()
+            val start = Instant.ofEpochMilli(
+                effectiveStartUseTime(startUseTime, purchaseDate, createdAt)
+            ).atZone(zone).toLocalDate()
+            val endMillis = usageEndedAt ?: nowMillis
+            val end = Instant.ofEpochMilli(endMillis).atZone(zone).toLocalDate()
+            return (ChronoUnit.DAYS.between(start, end) + 1).toInt().coerceAtLeast(0)
+        }
+
+        /**
+         * 平均每天花费：总价（单价×数量，与「我的」页总价值口径一致）÷ 使用天数。
+         * 无价格或使用不足 1 天时返回 null，界面不展示。
+         */
+        fun averageDailyCost(price: Double?, quantity: Int, days: Int): Double? {
+            if (price == null || days < 1) return null
+            return price * quantity / days
+        }
 
         /**
          * 旧版单值 status 到三维状态的映射，迁移与旧备份导入共用。

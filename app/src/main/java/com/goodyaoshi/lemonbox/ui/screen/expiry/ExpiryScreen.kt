@@ -41,10 +41,8 @@ import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.EmptyState
 import com.goodyaoshi.lemonbox.ui.components.ItemCard
-import com.goodyaoshi.lemonbox.ui.components.PillTag
 import com.goodyaoshi.lemonbox.ui.components.SectionHeader
-import com.goodyaoshi.lemonbox.ui.theme.CardWhite
-import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
+import com.goodyaoshi.lemonbox.ui.components.SegmentedTabs
 import com.goodyaoshi.lemonbox.ui.theme.StatusWarning
 import com.goodyaoshi.lemonbox.ui.theme.TagOrange
 import com.goodyaoshi.lemonbox.ui.theme.TextHint
@@ -108,22 +106,15 @@ fun ExpiryScreen(
                 )
             }
 
-            Row(
+            // 固定筛选：与全 App 分段切换样式一致，整条等宽热区更大。
+            SegmentedTabs(
+                labels = expiryTabs.map { it.label },
+                selectedIndex = selectedTab,
+                onSelect = { selectedTab = it },
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                expiryTabs.forEachIndexed { index, tab ->
-                    val selected = selectedTab == index
-                    PillTag(
-                        text = tab.label,
-                        backgroundColor = if (selected) OrangeStart else CardWhite,
-                        contentColor = if (selected) Color.White else TextHint,
-                        onClick = { selectedTab = index }
-                    )
-                }
-            }
+                    .padding(horizontal = 20.dp)
+                    .padding(top = 2.dp, bottom = 10.dp)
+            )
 
             if (filteredItems.isEmpty()) {
                 EmptyState(

@@ -100,6 +100,7 @@ fun SettingsScreen(
     val customReminderTimes by viewModel.customReminderTimes.collectAsState()
     val mealPrepDayShift by viewModel.mealPrepDayShift.collectAsState()
     val mealPrepFireTime by viewModel.mealPrepFireTime.collectAsState()
+    val budgetReminderEnabled by viewModel.budgetReminderEnabled.collectAsState()
 
     var showTimePicker by remember { mutableStateOf(false) }
     var showMealPrepTimePicker by remember { mutableStateOf(false) }
@@ -356,6 +357,50 @@ fun SettingsScreen(
                     color = OrangeStart,
                     fontWeight = FontWeight.Medium
                 )
+            }
+
+            AppSurfaceCard(
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                shape = RoundedCornerShape(24.dp),
+                shadowElevation = 12.dp
+            ) {
+                Text(
+                    text = "记账提醒",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+                Spacer(modifier = Modifier.size(6.dp))
+                Text(
+                    text = "设置了月度总预算后，本月支出达到或超过预算时，首页和记账页会亮出超支提示条。",
+                    fontSize = 12.sp,
+                    color = TextSecondary
+                )
+                Spacer(modifier = Modifier.size(8.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "预算超支提醒",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = TextPrimary
+                        )
+                        Text(
+                            text = if (budgetReminderEnabled) "超支时会在首页提示" else "已关闭，不再提示超支",
+                            fontSize = 12.sp,
+                            color = TextSecondary
+                        )
+                    }
+                    Switch(
+                        checked = budgetReminderEnabled,
+                        onCheckedChange = { viewModel.setBudgetReminderEnabled(it) }
+                    )
+                }
             }
 
             AppSurfaceCard(

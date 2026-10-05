@@ -65,10 +65,12 @@ import com.goodyaoshi.lemonbox.ui.theme.TextHint
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
 import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
 import com.goodyaoshi.lemonbox.ui.viewmodel.ToBuyViewModel
+import com.goodyaoshi.lemonbox.util.LedgerMath
 
 @Composable
 fun ToBuyScreen(
     onBack: () -> Unit,
+    onRecordPurchase: (itemId: Long, amountCents: Long, name: String) -> Unit = { _, _, _ -> },
     viewModel: ToBuyViewModel = hiltViewModel()
 ) {
     val items by viewModel.items.collectAsState()
@@ -159,6 +161,18 @@ fun ToBuyScreen(
                 }
             }
 
+            // 固定分类筛选：常驻页头下方，翻长清单也能随时换分类。
+            if (filterOptions.isNotEmpty()) {
+                CategoryFilterRow(
+                    options = filterOptions,
+                    selectedId = effectiveFilter,
+                    onSelect = viewModel::setFilterCategory,
+                    modifier = Modifier
+                        .padding(horizontal = 20.dp)
+                        .padding(top = 2.dp, bottom = 10.dp)
+                )
+            }
+
             if (items.isEmpty()) {
                 EmptyState(
                     title = "还没有要买的",
@@ -175,15 +189,6 @@ fun ToBuyScreen(
                     ),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    if (filterOptions.isNotEmpty()) {
-                        item {
-                            CategoryFilterRow(
-                                options = filterOptions,
-                                selectedId = effectiveFilter,
-                                onSelect = viewModel::setFilterCategory
-                            )
-                        }
-                    }
                     item {
                         SectionHeader(
                             title = "要买的东西",
@@ -221,7 +226,18 @@ fun ToBuyScreen(
                                         itemDetail.categoryName,
                                         itemDetail.locationName
                                     ).joinToString(" · ").ifBlank { "未设置分类与位置" },
-                                    onBought = { viewModel.markBought(itemDetail.item.id) }
+                                    onBought = {
+                                        viewModel.markBought(itemDetail.item.id)
+                                        // 家当联动：跳到记一笔预填金额与名称，不需要时直接返回即可。
+                                        onRecordPurchase(
+                                            itemDetail.item.id,
+                                            LedgerMath.itemPriceToCents(
+                                                itemDetail.item.price ?: 0.0,
+                                                itemDetail.item.quantity
+                                            ),
+                                            itemDetail.item.name
+                                        )
+                                    }
                                 )
                             }
                         }
@@ -269,10 +285,11 @@ fun ToBuyScreen(
 private fun CategoryFilterRow(
     options: List<Pair<Long, String>>,
     selectedId: Long?,
-    onSelect: (Long?) -> Unit
+    onSelect: (Long?) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     FlowRow(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {

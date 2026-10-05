@@ -99,9 +99,11 @@ class ItemRepository @Inject constructor(
     /**
      * 「用1件」：同一种物品多件时只消耗其中一件，数量减 1。
      * 减到 0 时自动记为已用完并默认勾选需要补货（与「用完」一致）。
+     * 持续使用型物品不扣数量（电器、调料等按使用天数统计，不走逐件消耗）。
      */
     suspend fun consumeOne(id: Long) {
         val item = itemDao.getItemById(id) ?: return
+        if (item.trackMode == Item.TRACK_DURABLE) return
         val now = MonotonicClock.now()
         if (item.quantity > 1) {
             itemDao.incrementQuantity(id, -1, now)
@@ -112,40 +114,96 @@ class ItemRepository @Inject constructor(
         }
         itemDao.updateUsageStatus(id, Item.USAGE_USED_UP, now)
         itemDao.updateNeedRestock(id, true, now)
+        writeUsageWindow(item, Item.USAGE_USED_UP, item.disposition, now)
     }
 
-    /** "用完"= 该买了：记为已用完并默认勾选需要补货，进入待买清单。 */
+    /** "用完"= 该买了：记为已用完并默认勾选需要补货，进入待买清单；同时封口使用周期。 */
     suspend fun markAsUsed(id: Long) {
+        val item = itemDao.getItemById(id) ?: return
         val now = MonotonicClock.now()
         itemDao.updateUsageStatus(id, Item.USAGE_USED_UP, now)
         itemDao.updateNeedRestock(id, true, now)
+        writeUsageWindow(item, Item.USAGE_USED_UP, item.disposition, now)
     }
 
-    /** 丢弃：去向改为已丢弃，并取消补货标记（不会再买同款）。 */
+    /** 丢弃：去向改为已丢弃，取消补货标记，并封口使用周期。 */
     suspend fun markAsDiscarded(id: Long) {
+        val item = itemDao.getItemById(id) ?: return
         val now = MonotonicClock.now()
         itemDao.updateDisposition(id, Item.DISPOSITION_DISCARDED, now)
         itemDao.updateNeedRestock(id, false, now)
+        writeUsageWindow(item, item.usageStatus, Item.DISPOSITION_DISCARDED, now)
     }
 
-    /** 待买清单里勾选"已买到"：回到使用中并取消补货标记。 */
+    /**
+     * 待买清单里勾选"已买到"：回到使用中并取消补货标记，
+     * 同时记下购买日期、开启新一轮使用周期。
+     */
     suspend fun restoreToInUse(id: Long) {
         val now = MonotonicClock.now()
         itemDao.updateUsageStatus(id, Item.USAGE_IN_USE, now)
         itemDao.updateNeedRestock(id, false, now)
+        itemDao.updatePurchaseDate(id, now, now)
+        itemDao.updateUsageWindow(id, now, null, now)
     }
 
-    /** 详情页手动切换「使用进度」。 */
-    suspend fun setUsageStatus(id: Long, usageStatus: Int) =
-        itemDao.updateUsageStatus(id, usageStatus, MonotonicClock.now())
+    /** 详情页手动切换「使用进度」，同步维护使用周期窗口。 */
+    suspend fun setUsageStatus(id: Long, usageStatus: Int) {
+        val item = itemDao.getItemById(id) ?: return
+        val now = MonotonicClock.now()
+        itemDao.updateUsageStatus(id, usageStatus, now)
+        writeUsageWindow(item, usageStatus, item.disposition, now)
+    }
 
-    /** 详情页手动切换「物品去向」。 */
-    suspend fun setDisposition(id: Long, disposition: Int) =
-        itemDao.updateDisposition(id, disposition, MonotonicClock.now())
+    /** 详情页手动切换「物品去向」，同步维护使用周期窗口。 */
+    suspend fun setDisposition(id: Long, disposition: Int) {
+        val item = itemDao.getItemById(id) ?: return
+        val now = MonotonicClock.now()
+        itemDao.updateDisposition(id, disposition, now)
+        writeUsageWindow(item, item.usageStatus, disposition, now)
+    }
 
-    /** 详情页开关「需要补货」。 */
+    /** 开关「需要补货」（不涉及使用周期）。 */
     suspend fun setNeedRestock(id: Long, needRestock: Boolean) =
         itemDao.updateNeedRestock(id, needRestock, MonotonicClock.now())
+
+    /**
+     * 依最终状态计算使用周期窗口（开始使用, 使用结束）：
+     * - 未使用：清空窗口；
+     * - 已进入非可用状态（用完/送人/丢弃）：保留原开始时间（缺了用购买日期、创建时间兜底），
+     *   结束时间缺失时补当前时刻；
+     * - 从非可用状态回到可用：开启新一轮使用（开始=当前时刻，结束清空）；
+     * - 一直在用（含借出）：保留原开始时间，缺了补当前时刻。
+     */
+    private fun usageWindowFor(
+        item: Item,
+        newUsageStatus: Int,
+        newDisposition: Int,
+        now: Long
+    ): Pair<Long?, Long?> {
+        if (newUsageStatus == Item.USAGE_UNUSED) return null to null
+        val fallbackStart = Item.effectiveStartUseTime(
+            item.startUseTime, item.purchaseDate, item.createdAt
+        )
+        return when {
+            Item.isUsageEnded(newUsageStatus, newDisposition) ->
+                fallbackStart to (item.usageEndedAt ?: now)
+
+            Item.isUsageEnded(item.usageStatus, item.disposition) -> now to null
+
+            else -> (item.startUseTime ?: now) to null
+        }
+    }
+
+    private suspend fun writeUsageWindow(
+        item: Item,
+        newUsageStatus: Int,
+        newDisposition: Int,
+        now: Long
+    ) {
+        val (start, end) = usageWindowFor(item, newUsageStatus, newDisposition, now)
+        itemDao.updateUsageWindow(item.id, start, end, now)
+    }
 
     /** 手动添加一个待买项：名称 + 数量 + 单位，可选关联分类。 */
     suspend fun addToBuyItem(

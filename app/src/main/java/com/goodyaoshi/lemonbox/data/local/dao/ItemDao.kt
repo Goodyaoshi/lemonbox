@@ -283,6 +283,22 @@ interface ItemDao {
     @Query("UPDATE items SET needRestock = :needRestock, updatedAt = :updatedAt WHERE id = :id")
     suspend fun updateNeedRestock(id: Long, needRestock: Boolean, updatedAt: Long)
 
+    /** 使用周期窗口：开始使用 / 使用结束两个时间点，随状态流转由仓库层写入。 */
+    @Query(
+        "UPDATE items SET startUseTime = :startUseTime, usageEndedAt = :usageEndedAt, " +
+            "updatedAt = :updatedAt WHERE id = :id"
+    )
+    suspend fun updateUsageWindow(
+        id: Long,
+        startUseTime: Long?,
+        usageEndedAt: Long?,
+        updatedAt: Long
+    )
+
+    /** 购买日期单独写入（如待买清单点「已买到」时自动记今天）。 */
+    @Query("UPDATE items SET purchaseDate = :purchaseDate, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updatePurchaseDate(id: Long, purchaseDate: Long?, updatedAt: Long)
+
     @Query(
         """
         SELECT * FROM items

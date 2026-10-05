@@ -8,17 +8,34 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.goodyaoshi.lemonbox.data.local.dao.CategoryDao
 import com.goodyaoshi.lemonbox.data.local.dao.ItemDao
+import com.goodyaoshi.lemonbox.data.local.dao.LedgerAssetDao
+import com.goodyaoshi.lemonbox.data.local.dao.LedgerBudgetDao
+import com.goodyaoshi.lemonbox.data.local.dao.LedgerCategoryDao
+import com.goodyaoshi.lemonbox.data.local.dao.LedgerRecordDao
 import com.goodyaoshi.lemonbox.data.local.dao.LocationDao
 import com.goodyaoshi.lemonbox.data.local.dao.ReminderDao
 import com.goodyaoshi.lemonbox.data.local.entity.Category
 import com.goodyaoshi.lemonbox.data.local.entity.Item
+import com.goodyaoshi.lemonbox.data.local.entity.LedgerAsset
+import com.goodyaoshi.lemonbox.data.local.entity.LedgerBudget
+import com.goodyaoshi.lemonbox.data.local.entity.LedgerCategory
+import com.goodyaoshi.lemonbox.data.local.entity.LedgerRecord
 import com.goodyaoshi.lemonbox.data.local.entity.Location
 import com.goodyaoshi.lemonbox.data.local.entity.Reminder
 import com.goodyaoshi.lemonbox.util.LegacyTextNormalizer
 
 @Database(
-    entities = [Item::class, Category::class, Location::class, Reminder::class],
-    version = 20,
+    entities = [
+        Item::class,
+        Category::class,
+        Location::class,
+        Reminder::class,
+        LedgerRecord::class,
+        LedgerCategory::class,
+        LedgerAsset::class,
+        LedgerBudget::class
+    ],
+    version = 22,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -27,6 +44,10 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun categoryDao(): CategoryDao
     abstract fun locationDao(): LocationDao
     abstract fun reminderDao(): ReminderDao
+    abstract fun ledgerRecordDao(): LedgerRecordDao
+    abstract fun ledgerCategoryDao(): LedgerCategoryDao
+    abstract fun ledgerAssetDao(): LedgerAssetDao
+    abstract fun ledgerBudgetDao(): LedgerBudgetDao
 
     companion object {
         @Volatile
@@ -366,6 +387,119 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * 物品使用周期统计：购买日期、开始使用、使用结束三个时间点，
+         * 外加计量方式（按件消耗 / 持续使用，耐用品不扣数量只计天数）。
+         * 只加列不回填，历史记录不展示使用统计。
+         */
+        private val MIGRATION_20_21 = object : Migration(20, 21) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `items` ADD COLUMN `purchaseDate` INTEGER")
+                db.execSQL("ALTER TABLE `items` ADD COLUMN `startUseTime` INTEGER")
+                db.execSQL("ALTER TABLE `items` ADD COLUMN `usageEndedAt` INTEGER")
+                db.execSQL(
+                    "ALTER TABLE `items` ADD COLUMN `trackMode` INTEGER NOT NULL DEFAULT 0"
+                )
+            }
+        }
+
+        /**
+         * 记账模块：新增账单 / 记账分类 / 账户 / 预算四张表，
+         * 并种入默认账户（微信/支付宝/现金/银行卡）与默认记账分类。
+         */
+        private val MIGRATION_21_22 = object : Migration(21, 22) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `ledger_records` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `type` INTEGER NOT NULL,
+                        `amount` INTEGER NOT NULL,
+                        `categoryId` INTEGER,
+                        `assetId` INTEGER,
+                        `targetAssetId` INTEGER,
+                        `recordTime` INTEGER NOT NULL,
+                        `remark` TEXT NOT NULL,
+                        `itemId` INTEGER,
+                        `createdAt` INTEGER NOT NULL,
+                        `syncId` TEXT,
+                        `updatedAt` INTEGER,
+                        `deletedAt` INTEGER
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_ledger_records_recordTime` " +
+                        "ON `ledger_records` (`recordTime`)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_ledger_records_assetId` " +
+                        "ON `ledger_records` (`assetId`)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_ledger_records_targetAssetId` " +
+                        "ON `ledger_records` (`targetAssetId`)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_ledger_records_categoryId` " +
+                        "ON `ledger_records` (`categoryId`)"
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `ledger_categories` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `name` TEXT NOT NULL,
+                        `icon` TEXT NOT NULL,
+                        `kind` INTEGER NOT NULL,
+                        `sort` INTEGER NOT NULL,
+                        `parentId` INTEGER,
+                        `isProtected` INTEGER NOT NULL,
+                        `syncId` TEXT,
+                        `updatedAt` INTEGER,
+                        `deletedAt` INTEGER
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_ledger_categories_kind` " +
+                        "ON `ledger_categories` (`kind`)"
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `ledger_assets` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `name` TEXT NOT NULL,
+                        `icon` TEXT NOT NULL,
+                        `sort` INTEGER NOT NULL,
+                        `initialBalance` INTEGER NOT NULL,
+                        `type` INTEGER NOT NULL,
+                        `syncId` TEXT,
+                        `updatedAt` INTEGER,
+                        `deletedAt` INTEGER
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `ledger_budgets` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `categoryId` INTEGER,
+                        `amount` INTEGER NOT NULL,
+                        `period` TEXT NOT NULL,
+                        `syncId` TEXT,
+                        `updatedAt` INTEGER,
+                        `deletedAt` INTEGER
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_ledger_budgets_categoryId` " +
+                        "ON `ledger_budgets` (`categoryId`)"
+                )
+                SeedHelper.ensureLedgerSeedData(db)
+            }
+        }
+
         fun buildDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -392,7 +526,9 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_16_17,
                         MIGRATION_17_18,
                         MIGRATION_18_19,
-                        MIGRATION_19_20
+                        MIGRATION_19_20,
+                        MIGRATION_20_21,
+                        MIGRATION_21_22
                     )
                     .addCallback(PrepopulateCallback())
                     .build()
@@ -410,6 +546,7 @@ abstract class AppDatabase : RoomDatabase() {
             super.onCreate(db)
             SeedHelper.ensureSeedData(db)
             SeedHelper.ensureProtectedSeedData(db)
+            SeedHelper.ensureLedgerSeedData(db)
         }
     }
 }
@@ -610,6 +747,96 @@ private object SeedHelper {
     fun ensureSeedCategories(db: SupportSQLiteDatabase) {
         defaultCategories.forEach { (name, iconKey) ->
             ensureCategory(db, name, iconKey)
+        }
+    }
+
+    /** 默认账户（名称 to 图标 key），随记账模块首次使用种入。 */
+    private val defaultLedgerAssets = linkedMapOf(
+        "微信" to "wechat",
+        "支付宝" to "alipay",
+        "现金" to "cash",
+        "银行卡" to "bank"
+    )
+
+    /** 默认支出分类（名称 to 图标 key）。「其他」受保护不可删。 */
+    private val defaultLedgerExpenseCategories = linkedMapOf(
+        "餐饮" to "restaurant",
+        "购物" to "shopping",
+        "日用" to "home",
+        "交通" to "transport",
+        "娱乐" to "entertainment",
+        "居住" to "house",
+        "医疗" to "medical",
+        "其他" to "other"
+    )
+
+    /** 默认收入分类（名称 to 图标 key）。「其他」受保护不可删。 */
+    private val defaultLedgerIncomeCategories = linkedMapOf(
+        "工资" to "salary",
+        "红包" to "redpacket",
+        "理财" to "invest",
+        "其他" to "other"
+    )
+
+    /**
+     * 记账种子数据：默认账户与支出/收入分类。按「名称 + kind」查重，
+     * 已存在时仅回填空图标；供首次建库与 v21→v22 迁移共用。
+     */
+    fun ensureLedgerSeedData(db: SupportSQLiteDatabase) {
+        if (assetCount(db) == 0) {
+            var sort = 0
+            defaultLedgerAssets.forEach { (name, iconKey) ->
+                db.execSQL(
+                    "INSERT INTO ledger_assets (name, icon, sort, initialBalance, type, " +
+                        "syncId, updatedAt) VALUES " +
+                        "('${name.sql()}', '$iconKey', $sort, 0, 0, $newSyncIdSql, $nowMillisSql)"
+                )
+                sort++
+            }
+        }
+        defaultLedgerExpenseCategories.forEach { (name, iconKey) ->
+            ensureLedgerCategory(db, name, iconKey, /* kind = */ 0)
+        }
+        defaultLedgerIncomeCategories.forEach { (name, iconKey) ->
+            ensureLedgerCategory(db, name, iconKey, /* kind = */ 1)
+        }
+    }
+
+    private fun assetCount(db: SupportSQLiteDatabase): Int {
+        return db.query("SELECT COUNT(*) FROM ledger_assets").useCursor { cursor ->
+            cursor.moveToFirst()
+            cursor.getInt(0)
+        }
+    }
+
+    private fun ensureLedgerCategory(
+        db: SupportSQLiteDatabase,
+        name: String,
+        iconKey: String,
+        kind: Int
+    ) {
+        val existing = db.query(
+            "SELECT id, icon FROM ledger_categories " +
+                "WHERE name = '${name.sql()}' AND kind = $kind LIMIT 1"
+        ).useCursor { cursor ->
+            if (cursor.moveToFirst()) {
+                cursor.getLong(0) to cursor.getString(1)
+            } else {
+                null
+            }
+        }
+        if (existing == null) {
+            val isProtected = if (name == "其他") 1 else 0
+            db.execSQL(
+                "INSERT INTO ledger_categories (name, icon, kind, sort, parentId, isProtected, " +
+                    "syncId, updatedAt) VALUES " +
+                    "('${name.sql()}', '$iconKey', $kind, 0, NULL, $isProtected, " +
+                    "$newSyncIdSql, $nowMillisSql)"
+            )
+        } else if (existing.second.isEmpty()) {
+            db.execSQL(
+                "UPDATE ledger_categories SET icon = '$iconKey' WHERE id = ${existing.first}"
+            )
         }
     }
 

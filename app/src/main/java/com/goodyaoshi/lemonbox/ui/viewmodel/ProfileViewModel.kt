@@ -6,17 +6,20 @@ import androidx.lifecycle.viewModelScope
 import com.goodyaoshi.lemonbox.data.backup.AppBackupManager
 import com.goodyaoshi.lemonbox.data.backup.toUserMessage
 import com.goodyaoshi.lemonbox.data.local.dao.ItemDao
-import com.goodyaoshi.lemonbox.data.local.entity.Item
+import com.goodyaoshi.lemonbox.data.repository.ReminderRepository
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
-import com.goodyaoshi.lemonbox.util.DateUtil
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.time.LocalDate
+import java.time.ZoneId
 import javax.inject.Inject
 
 data class BackupUiState(
@@ -24,35 +27,42 @@ data class BackupUiState(
     val message: String? = null
 )
 
+@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class ProfileViewModel @Inject constructor(
     itemDao: ItemDao,
     private val backupManager: AppBackupManager,
-    private val appPreferences: AppPreferences
+    appPreferences: AppPreferences,
+    reminderRepository: ReminderRepository
 ) : ViewModel() {
 
     private val thirtyDaysMs = 30L * 24 * 60 * 60 * 1000
 
-    /** 在库可用：在库且还没用完，是「我的」页最该关注的库存量。 */
-    val availableCount: StateFlow<Int> = itemDao.getAvailableCount()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
-
-    val toBuyCount: StateFlow<Int> = itemDao.getToBuyCount()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
-
-    /** 临期数量：逐件按物品自己的提醒阶梯窗口判定（未设置则跟随全局）。 */
-    val expiringCount: StateFlow<Int> =
-        combine(itemDao.getActiveItems(), appPreferences.reminderLadder) { items, ladder ->
-            items.count { detail ->
-                val expireTime = detail.item.expireTime ?: return@count false
-                if (expireTime <= 0L) return@count false
-                val window = Item.reminderWindowDays(detail.item.reminderDays, ladder)
-                DateUtil.daysUntil(expireTime) <= window
-            }
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
-
     val trashCount: StateFlow<Int> = itemDao
         .getRecycleCount(System.currentTimeMillis() - thirtyDaysMs)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    /** 待买数量：「常用」组待买清单的徽标。 */
+    val toBuyCount: StateFlow<Int> = itemDao
+        .getToBuyCount()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    /** 临期数量：阈值与「即将过期」口径一致（提醒阶梯的最大天数）。 */
+    val expiringCount: StateFlow<Int> = appPreferences.reminderDays
+        .flatMapLatest { days ->
+            itemDao.getExpiringCount(
+                System.currentTimeMillis() + days * 24L * 60 * 60 * 1000
+            )
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    /** 今天（含已提醒还没完成）的待办数量：与首页「今天的事」的提醒口径一致。 */
+    val dueReminderCount: StateFlow<Int> = reminderRepository.getActiveReminders()
+        .map { list ->
+            val endOfToday = LocalDate.now().plusDays(1)
+                .atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+            list.count { it.nextFireAt < endOfToday }
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     private val _backupState = MutableStateFlow(BackupUiState())

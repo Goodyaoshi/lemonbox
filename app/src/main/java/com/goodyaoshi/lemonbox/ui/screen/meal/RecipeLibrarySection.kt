@@ -1,4 +1,4 @@
-package com.goodyaoshi.lemonbox.ui.screen.recipe
+package com.goodyaoshi.lemonbox.ui.screen.meal
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -18,12 +18,12 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.Close
@@ -36,6 +36,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,6 +44,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -60,6 +62,9 @@ import com.goodyaoshi.lemonbox.ui.components.EditorSelectionChip
 import com.goodyaoshi.lemonbox.ui.components.EmptyState
 import com.goodyaoshi.lemonbox.ui.components.PillTag
 import com.goodyaoshi.lemonbox.ui.components.SegmentedTabs
+import com.goodyaoshi.lemonbox.ui.theme.LemonEnd
+import com.goodyaoshi.lemonbox.ui.theme.LemonStart
+import com.goodyaoshi.lemonbox.ui.theme.OnLemon
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.StatusExpired
 import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarmDeep
@@ -73,9 +78,14 @@ import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
 import com.goodyaoshi.lemonbox.ui.viewmodel.IngredientGroup
 import com.goodyaoshi.lemonbox.ui.viewmodel.RecipeViewModel
 
-/** 菜谱页：管理「今天吃什么」用来配菜的菜谱库，支持新增、编辑、删除。 */
+/**
+ * 菜谱库独立页：低频管理页（从吃饭页右上角进入），维护配餐用的菜谱。
+ * 新增走右下角 FAB，与记账「记一笔」、家当「录入」统一；列表放在 verticalScroll 的
+ * 普通 Column 里，避免嵌套滚动。
+ */
 @Composable
-fun RecipeScreen(
+fun RecipeLibraryScreen(
+    onBack: () -> Unit,
     viewModel: RecipeViewModel = hiltViewModel()
 ) {
     val recipes by viewModel.recipes.collectAsState()
@@ -83,7 +93,7 @@ fun RecipeScreen(
     var editorTarget by remember { mutableStateOf<Recipe?>(null) }
     var showEditor by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<Recipe?>(null) }
-    var selectedTab by remember { mutableStateOf(0) }
+    var selectedTab by remember { mutableIntStateOf(0) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         AppDecorativeBackground()
@@ -92,86 +102,79 @@ fun RecipeScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
-                .navigationBarsPadding()
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 12.dp),
+                    .padding(horizontal = 12.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "菜谱",
-                        fontSize = 24.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimary
-                    )
-                    Text(
-                        text = "「未来 N 天菜谱」按这里的菜谱和分类去配现有食材，内置的也能改。",
-                        fontSize = 12.sp,
-                        color = TextSecondary,
-                        modifier = Modifier.padding(top = 2.dp)
+                IconButton(onClick = onBack) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "返回",
+                        tint = TextPrimary
                     )
                 }
-                AddRecipeChip(onClick = {
-                    editorTarget = null
-                    showEditor = true
-                })
+                Text(
+                    text = "菜谱库",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
             }
 
+            // 固定筛选：分类 TAB 常驻页头下方，不随列表滚动，滚到哪都能切。
             SegmentedTabs(
                 labels = RecipeTab.entries.map { it.label },
                 selectedIndex = selectedTab,
                 onSelect = { selectedTab = it },
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
+                modifier = Modifier
+                    .padding(horizontal = 20.dp)
+                    .padding(top = 2.dp, bottom = 12.dp)
             )
 
-            val visibleRecipes = remember(recipes, selectedTab) {
-                recipes.filterByRole(RecipeTab.entries[selectedTab].role)
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+            ) {
+                RecipeLibraryContent(
+                    recipes = recipes,
+                    selectedTab = selectedTab,
+                    ingredientGroups = ingredientGroups,
+                    onEdit = { recipe ->
+                        editorTarget = recipe
+                        showEditor = true
+                    },
+                    onDelete = { pendingDelete = it }
+                )
+                Spacer(modifier = Modifier.height(120.dp))
             }
-            // 食材标签 → 所属食品子分类（肉禽/蛋类/主食粮油…），用于按食材类型分组展示。
-            val groupIndex = remember(ingredientGroups) { buildIngredientGroupIndex(ingredientGroups) }
+        }
 
-            if (recipes.isEmpty()) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    EmptyState(
-                        title = "还没有菜谱",
-                        message = "点右上角「新增」，把常做的菜记下来吧。"
-                    )
-                }
-            } else if (visibleRecipes.isEmpty()) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    EmptyState(
-                        title = "这个分类下还没有菜谱",
-                        message = "换个标签看看，或点右上角「新增」加一道。"
-                    )
-                }
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 96.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    items(visibleRecipes, key = { it.id }) { recipe ->
-                        RecipeCard(
-                            recipe = recipe,
-                            groupIndex = groupIndex,
-                            onEdit = {
-                                editorTarget = recipe
-                                showEditor = true
-                            },
-                            onDelete = { pendingDelete = recipe }
-                        )
-                    }
-                }
-            }
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .navigationBarsPadding()
+                .padding(end = 20.dp, bottom = 24.dp)
+                .size(58.dp)
+                .clip(CircleShape)
+                .background(
+                    brush = Brush.linearGradient(colors = listOf(LemonStart, LemonEnd))
+                )
+                .clickable {
+                    editorTarget = null
+                    showEditor = true
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.Add,
+                contentDescription = "新增菜谱",
+                tint = OnLemon,
+                modifier = Modifier.size(28.dp)
+            )
         }
     }
 
@@ -199,7 +202,7 @@ fun RecipeScreen(
     pendingDelete?.let { recipe ->
         AppDialog(
             title = "删除菜谱",
-            subtitle = "删除后「今天吃什么」不会再推荐这道菜。",
+            subtitle = "删除后配餐和「做了」扣料都不会再算这道菜。",
             onDismissRequest = { pendingDelete = null },
             confirmText = "删除",
             destructiveConfirm = true,
@@ -217,29 +220,47 @@ fun RecipeScreen(
     }
 }
 
+/** 菜谱列表主体：菜谱卡列表（筛选 TAB 已上移到页头下方固定）。 */
 @Composable
-private fun AddRecipeChip(onClick: () -> Unit) {
-    Row(
+private fun RecipeLibraryContent(
+    recipes: List<Recipe>,
+    selectedTab: Int,
+    ingredientGroups: List<IngredientGroup>,
+    onEdit: (Recipe) -> Unit,
+    onDelete: (Recipe) -> Unit
+) {
+    val visibleRecipes = remember(recipes, selectedTab) {
+        recipes.filterByRole(RecipeTab.entries[selectedTab].role)
+    }
+    // 食材标签 → 所属食品子分类（肉禽/蛋类/主食粮油…），用于按食材类型分组展示。
+    val groupIndex = remember(ingredientGroups) { buildIngredientGroupIndex(ingredientGroups) }
+
+    Column(
         modifier = Modifier
-            .clip(RoundedCornerShape(999.dp))
-            .background(OrangeStart)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 9.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Icon(
-            imageVector = Icons.Default.Add,
-            contentDescription = null,
-            tint = Color.White,
-            modifier = Modifier.size(15.dp)
-        )
-        Spacer(modifier = Modifier.size(4.dp))
-        Text(
-            text = "新增",
-            fontSize = 13.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = Color.White
-        )
+        when {
+            recipes.isEmpty() -> EmptyState(
+                title = "还没有菜谱",
+                message = "点右下角的「+」，把常做的菜记下来吧。"
+            )
+            visibleRecipes.isEmpty() -> EmptyState(
+                title = "这个分类下还没有菜谱",
+                message = "换个标签看看，或点「+」加一道。"
+            )
+            else -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                visibleRecipes.forEach { recipe ->
+                    RecipeCard(
+                        recipe = recipe,
+                        groupIndex = groupIndex,
+                        onEdit = { onEdit(recipe) },
+                        onDelete = { onDelete(recipe) }
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -338,7 +359,7 @@ private fun RecipeCard(
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun RecipeEditorDialog(
+internal fun RecipeEditorDialog(
     initial: Recipe?,
     ingredientGroups: List<IngredientGroup>,
     onDismiss: () -> Unit,

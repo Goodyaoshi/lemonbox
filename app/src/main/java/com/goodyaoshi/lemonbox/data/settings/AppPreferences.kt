@@ -56,6 +56,34 @@ class AppPreferences @Inject constructor(
         _themeMode.value = mode
     }
 
+    private val _budgetReminderEnabled = MutableStateFlow(
+        preferences.getBoolean(KEY_BUDGET_REMINDER_ENABLED, true)
+    )
+
+    /** 预算超支提醒开关：控制记账页/首页的超支提示条显隐，默认开。 */
+    val budgetReminderEnabled: StateFlow<Boolean> = _budgetReminderEnabled.asStateFlow()
+
+    fun setBudgetReminderEnabled(enabled: Boolean) {
+        preferences.edit().putBoolean(KEY_BUDGET_REMINDER_ENABLED, enabled).apply()
+        _budgetReminderEnabled.value = enabled
+    }
+
+    private val _ledgerMonthStartDay = MutableStateFlow(
+        preferences.getInt(KEY_LEDGER_MONTH_START_DAY, 1).coerceIn(1, 28)
+    )
+
+    /**
+     * 记账月起始日（1-28），默认 1 即自然月。
+     * v1 只落数据层供账期窗口计算消费，暂不开放设置界面。
+     */
+    val ledgerMonthStartDay: StateFlow<Int> = _ledgerMonthStartDay.asStateFlow()
+
+    fun setLedgerMonthStartDay(day: Int) {
+        val normalized = day.coerceIn(1, 28)
+        preferences.edit().putInt(KEY_LEDGER_MONTH_START_DAY, normalized).apply()
+        _ledgerMonthStartDay.value = normalized
+    }
+
     private val _reminderLadder = MutableStateFlow(loadReminderLadder())
 
     /**
@@ -664,6 +692,8 @@ class AppPreferences @Inject constructor(
         private const val KEY_RECIPE_REFRESH_VERSION = "recipe_refresh_version"
         private const val KEY_MEAL_PLAN_DAYS = "meal_plan_days"
         private const val KEY_MEAL_PLAN_VERSION = "meal_plan_version"
+        private const val KEY_BUDGET_REMINDER_ENABLED = "budget_reminder_enabled"
+        private const val KEY_LEDGER_MONTH_START_DAY = "ledger_month_start_day"
 
         /** 内置菜谱下架清理的版本号，每次下架内置菜谱时 +1。 */
         private const val RECIPE_CLEANUP_VERSION = 3

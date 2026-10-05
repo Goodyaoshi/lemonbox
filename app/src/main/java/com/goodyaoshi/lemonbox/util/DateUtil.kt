@@ -16,6 +16,17 @@ object DateUtil {
     private val currencyFormatter = NumberFormat.getCurrencyInstance(Locale.CHINA)
     private val zoneId: ZoneId = ZoneId.systemDefault()
 
+    /**
+     * 相对日期词：以 [from] 为「今天」基准，往后数 今天/明天/后天（后天=from+2，即明天的明天），
+     * 更远用「周X」。同一天词在不同基准下含义不同，提醒文案必须按触发日为基准换算。
+     */
+    fun relativeDayLabel(date: LocalDate, from: LocalDate = LocalDate.now()): String = when (date) {
+        from -> "今天"
+        from.plusDays(1) -> "明天"
+        from.plusDays(2) -> "后天"
+        else -> ReminderClock.WEEKDAY_LABELS.getOrElse(date.dayOfWeek.value - 1) { date.toString() }
+    }
+
     fun formatDate(timestamp: Long): String {
         return dateFormat.format(Date(timestamp))
     }

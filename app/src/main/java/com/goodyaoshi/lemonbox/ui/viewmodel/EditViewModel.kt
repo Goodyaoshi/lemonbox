@@ -35,6 +35,12 @@ data class EditItemState(
     val imagePaths: List<String> = emptyList(),
     /** 该物品单独的到期提醒阶梯（天）；为空表示跟随全局默认阶梯。 */
     val reminderDays: List<Int> = emptyList(),
+    /** 购买日期；未记录为 null。 */
+    val purchaseDate: Long? = null,
+    /** 开始使用时间；可手动补录，为 null 表示还没开始用。 */
+    val startUseTime: Long? = null,
+    /** 计量方式：按件消耗 / 持续使用（耐用品）。 */
+    val trackMode: Int = Item.TRACK_CONSUMABLE,
     val rating: Int? = null,
     val ratedAt: Long? = null,
     /** 状态三维字段不在编辑表单里修改，仅原样带过，避免编辑后丢失。 */
@@ -85,6 +91,9 @@ class EditViewModel @Inject constructor(
                 note = item.note,
                 imagePaths = item.imagePathList(),
                 reminderDays = Item.decodeReminderDays(item.reminderDays),
+                purchaseDate = item.purchaseDate,
+                startUseTime = item.startUseTime,
+                trackMode = item.trackMode,
                 rating = item.rating,
                 ratedAt = item.ratedAt,
                 usageStatus = item.usageStatus,
@@ -170,6 +179,19 @@ class EditViewModel @Inject constructor(
         _state.value = _state.value.copy(reminderDays = days.distinct().sorted())
     }
 
+    fun updatePurchaseDate(time: Long?) {
+        _state.value = _state.value.copy(purchaseDate = time)
+    }
+
+    /** 补录/修改开始使用时间；清空表示还没开始用。 */
+    fun updateStartUseTime(time: Long?) {
+        _state.value = _state.value.copy(startUseTime = time)
+    }
+
+    fun updateTrackMode(mode: Int) {
+        _state.value = _state.value.copy(trackMode = mode)
+    }
+
     fun updateNote(note: String) {
         _state.value = _state.value.copy(note = note)
     }
@@ -193,6 +215,10 @@ class EditViewModel @Inject constructor(
                 price = current.price.toDoubleOrNull(),
                 expireTime = current.expireTime,
                 reminderDays = Item.encodeReminderDays(current.reminderDays),
+                purchaseDate = current.purchaseDate,
+                startUseTime = current.startUseTime,
+                usageEndedAt = original?.usageEndedAt,
+                trackMode = current.trackMode,
                 usageStatus = current.usageStatus,
                 disposition = current.disposition,
                 needRestock = current.needRestock,

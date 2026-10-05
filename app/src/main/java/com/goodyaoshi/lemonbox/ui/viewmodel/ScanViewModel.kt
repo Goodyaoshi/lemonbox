@@ -79,9 +79,14 @@ class ScanViewModel @Inject constructor(
         }
     }
 
-    /** 使用：把最早到期的一个在库批次消耗 1 件；减到 0 自动记为已用完。 */
+    /** 使用：把最早到期的一个在库批次消耗 1 件；减到 0 自动记为已用完。持续使用型物品不逐件消耗。 */
     fun consumeEarliest() {
-        val target = state.value.activeItems.firstOrNull()?.item ?: return
+        val target = state.value.activeItems
+            .firstOrNull { it.item.trackMode != Item.TRACK_DURABLE }?.item
+        if (target == null) {
+            messageFlow.value = "持续使用物品不按件消耗"
+            return
+        }
         viewModelScope.launch {
             itemRepository.consumeOne(target.id)
             messageFlow.value = "已使用 1${target.unit}「${target.name}」"
@@ -112,6 +117,10 @@ class ScanViewModel @Inject constructor(
                         rating = null,
                         ratedAt = null,
                         deletedAt = null,
+                        // 新批次是刚买回来的：购买日期与使用周期重新起算，不沿用模板旧记录。
+                        purchaseDate = System.currentTimeMillis(),
+                        startUseTime = System.currentTimeMillis(),
+                        usageEndedAt = null,
                         createdAt = System.currentTimeMillis()
                     )
                 )

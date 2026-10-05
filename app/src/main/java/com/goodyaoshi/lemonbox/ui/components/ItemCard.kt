@@ -158,6 +158,31 @@ fun ItemCard(
                     }
                 }
 
+                // 使用周期：单独占一行，天数和日均不会被数量/价格挤掉。
+                val usageDayCount = Item.usageDays(
+                    startUseTime = item.startUseTime,
+                    purchaseDate = item.purchaseDate,
+                    createdAt = item.createdAt,
+                    usageEndedAt = item.usageEndedAt,
+                    usageStatus = item.usageStatus,
+                    disposition = item.disposition
+                )
+                if (usageDayCount > 0) {
+                    val dailyCost = Item.averageDailyCost(item.price, item.quantity, usageDayCount)
+                    Text(
+                        text = if (dailyCost != null) {
+                            "已用 ${usageDayCount}天 ｜ 日均 ${DateUtil.formatCurrency(dailyCost)}"
+                        } else {
+                            "已用 ${usageDayCount}天"
+                        },
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = TextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)

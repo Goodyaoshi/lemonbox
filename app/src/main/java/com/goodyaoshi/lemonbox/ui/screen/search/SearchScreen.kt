@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -42,6 +43,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -68,6 +70,9 @@ import com.goodyaoshi.lemonbox.ui.components.itemStatusColors
 import com.goodyaoshi.lemonbox.ui.components.statusDimensionTitle
 import com.goodyaoshi.lemonbox.ui.components.statusOptionsFor
 import com.goodyaoshi.lemonbox.ui.theme.CardWhite
+import com.goodyaoshi.lemonbox.ui.theme.LemonEnd
+import com.goodyaoshi.lemonbox.ui.theme.LemonStart
+import com.goodyaoshi.lemonbox.ui.theme.OnLemon
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarmDeep
 import com.goodyaoshi.lemonbox.ui.theme.TextHint
@@ -97,6 +102,7 @@ private val presetChipOrder = listOf(
 fun SearchScreen(
     onNavigateToDetail: (Long, LibraryFilter) -> Unit,
     onNavigateToEdit: (Long) -> Unit,
+    onNavigateToSave: () -> Unit = {},
     viewModel: SearchViewModel = hiltViewModel()
 ) {
     val query by viewModel.query.collectAsState()
@@ -313,6 +319,30 @@ fun SearchScreen(
                     }
                 }
             }
+        }
+
+        // 录入家当入口：原底栏中央按钮移到这里，与记账页 FAB 同款。
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 20.dp, bottom = 108.dp)
+                .size(58.dp)
+                .clip(CircleShape)
+                .background(
+                    brush = Brush.linearGradient(colors = listOf(LemonStart, LemonEnd))
+                )
+                .clickable {
+                    openedItemId = null
+                    onNavigateToSave()
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.Add,
+                contentDescription = "录入家当",
+                tint = OnLemon,
+                modifier = Modifier.size(28.dp)
+            )
         }
 
         moreItem?.let { item ->

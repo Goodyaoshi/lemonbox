@@ -95,7 +95,8 @@ fun buildItemSwipeActions(
             onClick = { handlers.onSetUsageStatus(Item.USAGE_IN_USE) }
         )
         item.usageStatus == Item.USAGE_IN_USE -> {
-            if (item.quantity > 1) {
+            // 持续使用型物品（电器、调料）不逐件扣数量，只保留「用完」（退役/换新）。
+            if (item.quantity > 1 && item.trackMode != Item.TRACK_DURABLE) {
                 contextual += SwipeActionSpec(
                     label = "用1件",
                     icon = Icons.Default.Remove,
