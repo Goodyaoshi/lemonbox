@@ -25,13 +25,15 @@ data class RecipeIngredient(
  *
  * @param role 菜品角色 key，多个角色用「,」分隔（如 `STAPLE,PROTEIN,VEGETABLE` 表示饺子自带主食/蛋白/蔬菜）；
  *   为空时按菜名自动判定（见 [DishRoleClassifier]），保证老数据与用户自建菜谱也能正确归类。
+ * @param syncId 跨设备合并的稳定标识；内置菜谱为 null（按编号对齐），用户自建菜谱由 AppPreferences 生成。
  */
 @Serializable
 data class Recipe(
     val id: Long,
     val name: String,
     val ingredients: List<RecipeIngredient> = emptyList(),
-    val role: String = ""
+    val role: String = "",
+    val syncId: String? = null
 ) {
     /** 这道菜覆盖的角色：优先用显式 [role]（可多个），缺省时按菜名推断。 */
     val dishRoles: Set<DishRole>

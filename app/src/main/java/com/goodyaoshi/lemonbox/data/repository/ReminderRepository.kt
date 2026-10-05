@@ -10,10 +10,14 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import java.time.LocalDate
 import java.time.ZonedDateTime
+import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** 待办提醒的数据入口：所有写操作之后都会重新调排后台任务。 */
+/**
+ * 待办提醒的数据入口：所有写操作之后都会重新调排后台任务。
+ * 用户操作盖 syncId/updatedAt（随备份/同步传递）；Worker 推进的调度状态不动时间戳。
+ */
 @Singleton
 class ReminderRepository @Inject constructor(
     private val reminderDao: ReminderDao,
@@ -37,7 +41,13 @@ class ReminderRepository @Inject constructor(
     /** 新建提醒；算不出未来的触发时刻（比如给已过去的时间建一次性提醒）返回 false。 */
     suspend fun create(reminder: Reminder): Boolean {
         val first = ReminderClock.firstFireAt(reminder) ?: return false
-        reminderDao.insert(reminder.copy(nextFireAt = first))
+        reminderDao.insert(
+            reminder.copy(
+                nextFireAt = first,
+                syncId = reminder.syncId ?: UUID.randomUUID().toString(),
+                updatedAt = System.currentTimeMillis()
+            )
+        )
         scheduler.reschedule()
         return true
     }
@@ -46,7 +56,12 @@ class ReminderRepository @Inject constructor(
     suspend fun setEnabled(reminder: Reminder, enabled: Boolean) {
         if (enabled == reminder.enabled) return
         if (!enabled) {
-            reminderDao.update(reminder.copy(enabled = false))
+            reminderDao.update(
+                reminder.copy(
+                    enabled = false,
+                    updatedAt = System.currentTimeMillis()
+                )
+            )
             scheduler.reschedule()
             return
         }
@@ -57,7 +72,14 @@ class ReminderRepository @Inject constructor(
             ReminderClock.nextAfter(reminder, LocalDate.now(), now)
         } ?: return
         // 恢复时清掉已提醒标记，到点会重新通知。
-        reminderDao.update(reminder.copy(enabled = true, nextFireAt = next, notifiedAt = 0))
+        reminderDao.update(
+            reminder.copy(
+                enabled = true,
+                nextFireAt = next,
+                notifiedAt = 0,
+                updatedAt = System.currentTimeMillis()
+            )
+        )
         scheduler.reschedule()
     }
 
@@ -66,18 +88,50 @@ class ReminderRepository @Inject constructor(
         if (!reminder.enabled) return
         if (reminder.repeat == ReminderRepeatType.ONCE) {
             reminderDao.update(
-                reminder.copy(enabled = false, completedAt = System.currentTimeMillis())
+                reminder.copy(
+                    enabled = false,
+                    completedAt = System.currentTimeMillis(),
+                    updatedAt = System.currentTimeMillis()
+                )
             )
         } else {
             val next = ReminderClock.nextAfter(reminder, LocalDate.now(), ZonedDateTime.now())
                 ?: return
-            reminderDao.update(reminder.copy(nextFireAt = next, notifiedAt = 0))
+            reminderDao.update(
+                reminder.copy(
+                    nextFireAt = next,
+                    notifiedAt = 0,
+                    updatedAt = System.currentTimeMillis()
+                )
+            )
         }
         scheduler.reschedule()
     }
 
+    /** 软删除：墓碑随备份/同步传递；菜谱准备提醒等来源型提醒同样走这里。 */
     suspend fun delete(reminder: Reminder) {
-        reminderDao.delete(reminder)
+        val now = System.currentTimeMillis()
+        if (reminder.deletedAt != null) {
+            reminderDao.delete(reminder)
+        } else {
+            reminderDao.softDelete(id = reminder.id, deletedAt = now, updatedAt = now)
+        }
         scheduler.reschedule()
+    }
+
+    // ---- 备份/同步 ----
+
+    suspend fun getAllSnapshot(): List<Reminder> = reminderDao.getAllSnapshot()
+
+    suspend fun insertSynced(reminder: Reminder) {
+        reminderDao.insert(reminder)
+    }
+
+    suspend fun updateSynced(reminder: Reminder) {
+        reminderDao.update(reminder)
+    }
+
+    suspend fun purgeDeletedOlderThan(cutoff: Long) {
+        reminderDao.purgeDeletedOlderThan(cutoff)
     }
 }

@@ -42,6 +42,21 @@ interface LedgerRecordDao {
     )
     suspend fun sumByTypeBetween(start: Long, end: Long): List<LedgerTypeSum>
 
+    /** 某时间段某分类的账单流水（时间倒序）；categoryId 为 null 表示未分类。 */
+    @Query(
+        "SELECT * FROM ledger_records " +
+            "WHERE deletedAt IS NULL AND type = :kind " +
+            "AND recordTime >= :start AND recordTime < :end " +
+            "AND ((:categoryId IS NULL AND categoryId IS NULL) OR categoryId = :categoryId) " +
+            "ORDER BY recordTime DESC, id DESC"
+    )
+    fun observeRecordsByCategoryBetween(
+        kind: Int,
+        categoryId: Long?,
+        start: Long,
+        end: Long
+    ): Flow<List<LedgerRecord>>
+
     /** 某时间段支出按分类聚合（金额降序），供统计饼图与排行使用。 */
     @Query(
         "SELECT categoryId, SUM(amount) AS total FROM ledger_records " +

@@ -62,7 +62,12 @@ data class Reminder(
     val source: String = ReminderSource.MANUAL.name,
     /** [ReminderSource.MEAL_PREP] 的防重复键（meal_prep:日期），一天最多生成一条。 */
     val sourceKey: String? = null,
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    /** 跨设备合并的稳定标识（v23 起；备份/同步用）。 */
+    val syncId: String? = null,
+    val updatedAt: Long? = null,
+    /** 软删除墓碑；非空表示该提醒已在来源设备删除。 */
+    val deletedAt: Long? = null
 ) {
     val repeat: ReminderRepeatType
         get() = runCatching { ReminderRepeatType.valueOf(repeatType) }

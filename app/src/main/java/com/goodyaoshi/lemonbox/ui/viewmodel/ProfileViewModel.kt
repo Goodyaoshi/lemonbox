@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.goodyaoshi.lemonbox.data.backup.AppBackupManager
 import com.goodyaoshi.lemonbox.data.backup.toUserMessage
 import com.goodyaoshi.lemonbox.data.local.dao.ItemDao
+import com.goodyaoshi.lemonbox.data.repository.AnniversaryRepository
 import com.goodyaoshi.lemonbox.data.repository.ReminderRepository
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -33,7 +34,8 @@ class ProfileViewModel @Inject constructor(
     itemDao: ItemDao,
     private val backupManager: AppBackupManager,
     appPreferences: AppPreferences,
-    reminderRepository: ReminderRepository
+    reminderRepository: ReminderRepository,
+    anniversaryRepository: AnniversaryRepository
 ) : ViewModel() {
 
     private val thirtyDaysMs = 30L * 24 * 60 * 60 * 1000
@@ -63,6 +65,10 @@ class ProfileViewModel @Inject constructor(
                 .atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
             list.count { it.nextFireAt < endOfToday }
         }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    /** 纪念日数量：「常用」组纪念日入口的徽标。 */
+    val anniversaryCount: StateFlow<Int> = anniversaryRepository.observeCount()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     private val _backupState = MutableStateFlow(BackupUiState())

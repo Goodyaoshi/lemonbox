@@ -55,13 +55,17 @@ import androidx.navigation.navArgument
 import com.goodyaoshi.lemonbox.data.local.entity.Item
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerCategory
 import com.goodyaoshi.lemonbox.ui.components.GlassPanel
+import com.goodyaoshi.lemonbox.ui.screen.anniversary.AnniversaryEditScreen
+import com.goodyaoshi.lemonbox.ui.screen.anniversary.AnniversaryScreen
 import com.goodyaoshi.lemonbox.ui.screen.camera.CameraScreen
 import com.goodyaoshi.lemonbox.ui.screen.category.CategoryScreen
 import com.goodyaoshi.lemonbox.ui.screen.detail.DetailScreen
 import com.goodyaoshi.lemonbox.ui.screen.edit.EditScreen
 import com.goodyaoshi.lemonbox.ui.screen.expiry.ExpiryScreen
 import com.goodyaoshi.lemonbox.ui.screen.home.HomeScreen
+import com.goodyaoshi.lemonbox.ui.screen.ledger.LedgerAssetsScreen
 import com.goodyaoshi.lemonbox.ui.screen.ledger.LedgerBudgetScreen
+import com.goodyaoshi.lemonbox.ui.screen.ledger.LedgerCategoryDetailScreen
 import com.goodyaoshi.lemonbox.ui.screen.ledger.LedgerCategoryManageScreen
 import com.goodyaoshi.lemonbox.ui.screen.ledger.LedgerScreen
 import com.goodyaoshi.lemonbox.ui.screen.ledger.LedgerStatsScreen
@@ -185,7 +189,8 @@ fun AppNavGraph() {
                         onNavigateToToBuy = { navController.navigate(Screen.ToBuy.route) },
                         onNavigateToReminders = { navController.navigate(Screen.Reminders.route) },
                         onNavigateToLedger = { navigateToTopLevel(Screen.Ledger.route) },
-                        onNavigateToMeal = { navigateToTopLevel(Screen.Meal.route) }
+                        onNavigateToMeal = { navigateToTopLevel(Screen.Meal.route) },
+                        onNavigateToAnniversaries = { navController.navigate(Screen.Anniversaries.route) }
                     )
                 }
 
@@ -369,6 +374,7 @@ fun AppNavGraph() {
                     LedgerScreen(
                         onNavigateToStats = { navController.navigate(Screen.LedgerStats.route) },
                         onNavigateToBudget = { navController.navigate(Screen.LedgerBudget.route) },
+                        onNavigateToAssets = { navController.navigate(Screen.LedgerAssets.route) },
                         onNavigateToRecordEdit = { recordId ->
                             navController.navigate(Screen.RecordEdit.createRoute(recordId = recordId))
                         },
@@ -403,11 +409,47 @@ fun AppNavGraph() {
                 }
 
                 composable(Screen.LedgerStats.route) {
-                    LedgerStatsScreen(onBack = { navController.popBackStack() })
+                    LedgerStatsScreen(
+                        onBack = { navController.popBackStack() },
+                        onOpenCategory = { kind, categoryId, monthKey ->
+                            navController.navigate(
+                                Screen.LedgerCategoryDetail.createRoute(kind, categoryId, monthKey)
+                            )
+                        }
+                    )
                 }
 
                 composable(Screen.LedgerBudget.route) {
                     LedgerBudgetScreen(onBack = { navController.popBackStack() })
+                }
+
+                composable(Screen.LedgerAssets.route) {
+                    LedgerAssetsScreen(onBack = { navController.popBackStack() })
+                }
+
+                composable(
+                    route = Screen.LedgerCategoryDetail.route,
+                    arguments = listOf(
+                        navArgument("kind") {
+                            type = NavType.IntType
+                            defaultValue = LedgerCategory.KIND_EXPENSE
+                        },
+                        navArgument("categoryId") {
+                            type = NavType.LongType
+                            defaultValue = -1L
+                        },
+                        navArgument("monthKey") {
+                            type = NavType.StringType
+                            defaultValue = ""
+                        }
+                    )
+                ) {
+                    LedgerCategoryDetailScreen(
+                        onBack = { navController.popBackStack() },
+                        onNavigateToRecordEdit = { recordId ->
+                            navController.navigate(Screen.RecordEdit.createRoute(recordId = recordId))
+                        }
+                    )
                 }
 
                 composable(
@@ -451,6 +493,27 @@ fun AppNavGraph() {
                     RemindersScreen(
                         onBack = { navController.popBackStack() }
                     )
+                }
+
+                composable(Screen.Anniversaries.route) {
+                    AnniversaryScreen(
+                        onBack = { navController.popBackStack() },
+                        onOpenEdit = { id ->
+                            navController.navigate(Screen.AnniversaryEdit.createRoute(id))
+                        }
+                    )
+                }
+
+                composable(
+                    route = Screen.AnniversaryEdit.route,
+                    arguments = listOf(
+                        navArgument("anniversaryId") {
+                            type = NavType.LongType
+                            defaultValue = -1L
+                        }
+                    )
+                ) {
+                    AnniversaryEditScreen(onBack = { navController.popBackStack() })
                 }
 
                 composable(
@@ -526,7 +589,8 @@ fun AppNavGraph() {
                         },
                         onOpenReminders = { navController.navigate(Screen.Reminders.route) },
                         onOpenToBuy = { navController.navigate(Screen.ToBuy.route) },
-                        onOpenExpiry = { navController.navigate(Screen.Expiry.route) }
+                        onOpenExpiry = { navController.navigate(Screen.Expiry.route) },
+                        onOpenAnniversaries = { navController.navigate(Screen.Anniversaries.route) }
                     )
                 }
 

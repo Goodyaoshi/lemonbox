@@ -2,6 +2,7 @@ package com.goodyaoshi.lemonbox.data.backup
 
 import android.content.Context
 import android.net.Uri
+import com.goodyaoshi.lemonbox.data.local.entity.Anniversary
 import com.goodyaoshi.lemonbox.data.local.entity.Category
 import com.goodyaoshi.lemonbox.data.local.entity.Item
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerAsset
@@ -9,13 +10,22 @@ import com.goodyaoshi.lemonbox.data.local.entity.LedgerBudget
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerCategory
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerRecord
 import com.goodyaoshi.lemonbox.data.local.entity.LegacyStatusMapping
+import com.goodyaoshi.lemonbox.data.local.entity.ItemStatusOption
 import com.goodyaoshi.lemonbox.data.local.entity.Location
+import com.goodyaoshi.lemonbox.data.local.entity.Reminder
+import com.goodyaoshi.lemonbox.data.local.entity.StatusDimension
+import com.goodyaoshi.lemonbox.data.meal.MealSpec
+import com.goodyaoshi.lemonbox.data.meal.Recipe
+import com.goodyaoshi.lemonbox.data.repository.AnniversaryRepository
 import com.goodyaoshi.lemonbox.data.repository.CategoryRepository
 import com.goodyaoshi.lemonbox.data.repository.ItemRepository
 import com.goodyaoshi.lemonbox.data.repository.LedgerRepository
 import com.goodyaoshi.lemonbox.data.repository.LocationRepository
+import com.goodyaoshi.lemonbox.data.repository.ReminderRepository
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import com.goodyaoshi.lemonbox.util.ImageUtil
+import com.goodyaoshi.lemonbox.util.ReminderClock
+import com.goodyaoshi.lemonbox.util.TodoReminderScheduler
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -42,11 +52,23 @@ data class BackupMergeResult(
     val fromLegacyBackup: Boolean,
     /** 记账模块四张表（账单/分类/账户/预算）合计的新增数，v4 起导出。 */
     val ledgerAdded: Int = 0,
-    val ledgerUpdated: Int = 0
+    val ledgerUpdated: Int = 0,
+    /** 待办提醒，v5 起导出。 */
+    val reminderAdded: Int = 0,
+    val reminderUpdated: Int = 0,
+    /** 纪念日，v5 起导出。 */
+    val anniversaryAdded: Int = 0,
+    val anniversaryUpdated: Int = 0,
+    /** 用户自建菜谱新增数，v5 起导出。 */
+    val recipeAdded: Int = 0,
+    /** 周菜单/已做日期/自定义状态/提醒设置是否有应用。 */
+    val prefsApplied: Boolean = false
 ) {
     val hasChanges: Boolean
         get() = itemAdded + itemUpdated + categoryAdded + categoryUpdated +
-            locationAdded + locationUpdated + ledgerAdded + ledgerUpdated > 0
+            locationAdded + locationUpdated + ledgerAdded + ledgerUpdated +
+            reminderAdded + reminderUpdated + anniversaryAdded + anniversaryUpdated +
+            recipeAdded > 0 || prefsApplied
 }
 
 /** 把合并结果转成一句用户可读的说明；手动导入与局域网同步共用。 */
@@ -63,6 +85,12 @@ fun BackupMergeResult.toUserMessage(): String {
         if (locationUpdated > 0) add("更新位置 $locationUpdated 个")
         if (ledgerAdded > 0) add("新增账目 $ledgerAdded 条")
         if (ledgerUpdated > 0) add("更新账目 $ledgerUpdated 条")
+        if (reminderAdded > 0) add("新增提醒 $reminderAdded 条")
+        if (reminderUpdated > 0) add("更新提醒 $reminderUpdated 条")
+        if (anniversaryAdded > 0) add("新增纪念日 $anniversaryAdded 个")
+        if (anniversaryUpdated > 0) add("更新纪念日 $anniversaryUpdated 个")
+        if (recipeAdded > 0) add("新增菜谱 $recipeAdded 道")
+        if (prefsApplied) add("同步了菜单与提醒设置")
         if (itemKept > 0) add("保留本地 $itemKept 件")
     }
     return "合并完成：" + parts.joinToString("、")
@@ -81,6 +109,9 @@ class AppBackupManager @Inject constructor(
     private val categoryRepository: CategoryRepository,
     private val locationRepository: LocationRepository,
     private val ledgerRepository: LedgerRepository,
+    private val anniversaryRepository: AnniversaryRepository,
+    private val reminderRepository: ReminderRepository,
+    private val todoReminderScheduler: TodoReminderScheduler,
     private val appPreferences: AppPreferences
 ) {
 
@@ -147,6 +178,32 @@ class AppBackupManager @Inject constructor(
             val ledgerUpdated = ledgerCategoryOutcome.updated + ledgerAssetOutcome.updated +
                 ledgerRecordOutcome.updated + ledgerBudgetOutcome.updated
 
+            // v5 起：纪念日与待办提醒进备份（含软删墓碑），LWW 合并。
+            val anniversaryOutcome = mergeAnniversaries(backup.anniversaries, useSyncIds)
+            val reminderOutcome = mergeReminders(backup.reminders, useSyncIds)
+            // v5 起：菜谱/周菜单/自定义状态/提醒设置等偏好内容。
+            val prefs = backup.preferences
+            val recipeAdded = prefs?.let { appPreferences.applySyncedRecipes(it.recipes) } ?: 0
+            var prefsApplied = false
+            if (prefs != null) {
+                prefsApplied = prefsApplied ||
+                    appPreferences.applySyncedWeeklyMenu(prefs.weeklyMenu) > 0 ||
+                    appPreferences.applySyncedCookedDates(prefs.cookedMenuDates) > 0 ||
+                    appPreferences.applySyncedCustomStatuses(
+                        prefs.customStatuses.mapNotNull { it.toOption() }
+                    ) > 0 ||
+                    appPreferences.applySyncedReminderSettings(
+                        reminderLadder = prefs.reminderLadder,
+                        reminderTimes = prefs.reminderTimes,
+                        customReminderTimes = prefs.customReminderTimes,
+                        mealPrepDayShift = prefs.mealPrepDayShift,
+                        mealPrepFireTime = prefs.mealPrepFireTime
+                    )
+            }
+            if (reminderOutcome.added + reminderOutcome.updated > 0) {
+                todoReminderScheduler.reschedule()
+            }
+
             return BackupMergeResult(
                 itemAdded = itemOutcome.added,
                 itemUpdated = itemOutcome.updated,
@@ -157,7 +214,13 @@ class AppBackupManager @Inject constructor(
                 locationUpdated = locationOutcome.updated,
                 fromLegacyBackup = !useSyncIds,
                 ledgerAdded = ledgerAdded,
-                ledgerUpdated = ledgerUpdated
+                ledgerUpdated = ledgerUpdated,
+                reminderAdded = reminderOutcome.added,
+                reminderUpdated = reminderOutcome.updated,
+                anniversaryAdded = anniversaryOutcome.added,
+                anniversaryUpdated = anniversaryOutcome.updated,
+                recipeAdded = recipeAdded,
+                prefsApplied = prefsApplied
             )
         } finally {
             workingDir.deleteRecursively()
@@ -185,6 +248,8 @@ class AppBackupManager @Inject constructor(
         val allLedgerCategories = ledgerRepository.getAllCategoriesSnapshot()
         val allLedgerRecords = ledgerRepository.getAllRecordsSnapshot()
         val allLedgerBudgets = ledgerRepository.getAllBudgetsSnapshot()
+        val allAnniversaries = anniversaryRepository.getAllSnapshot()
+        val allReminders = reminderRepository.getAllSnapshot()
 
         val categorySyncIdById = allCategories.associate { it.id to it.syncId }
         val locationSyncIdById = allLocations.associate { it.id to it.syncId }
@@ -226,6 +291,16 @@ class AppBackupManager @Inject constructor(
             allLedgerBudgets
         } else {
             allLedgerBudgets.filter { (it.updatedAt ?: 0L) > since }
+        }
+        val anniversaries = if (since == null) {
+            allAnniversaries
+        } else {
+            allAnniversaries.filter { (it.updatedAt ?: it.createdAt) > since }
+        }
+        val reminders = if (since == null) {
+            allReminders
+        } else {
+            allReminders.filter { (it.updatedAt ?: it.createdAt) > since }
         }
 
         val workingFile = File(context.cacheDir, "lemonbox-backup-${System.currentTimeMillis()}.zip")
@@ -280,7 +355,21 @@ class AppBackupManager @Inject constructor(
                     budget = budget,
                     categorySyncId = budget.categoryId?.let { ledgerCategorySyncIdById[it] }
                 )
-            }
+            },
+            anniversaries = anniversaries.map { AnniversarySnapshot.fromEntity(it) },
+            reminders = reminders.map { ReminderSnapshot.fromEntity(it) },
+            preferences = PreferencesSnapshot(
+                recipes = appPreferences.recipesSnapshot(),
+                weeklyMenu = appPreferences.weeklyMenuSnapshot(),
+                cookedMenuDates = appPreferences.cookedMenuDatesSnapshot(),
+                customStatuses = appPreferences.customStatusesSnapshot()
+                    .map { CustomStatusSnapshot.fromOption(it) },
+                reminderLadder = appPreferences.reminderLadder.value,
+                reminderTimes = appPreferences.reminderTimes.value,
+                customReminderTimes = appPreferences.customReminderTimes.value,
+                mealPrepDayShift = appPreferences.mealPrepDayShift.value,
+                mealPrepFireTime = appPreferences.mealPrepFireTime.value
+            )
         )
 
         ZipOutputStream(FileOutputStream(workingFile)).use { zip ->
@@ -750,6 +839,106 @@ class AppBackupManager @Inject constructor(
         return MergeOutcome(added, updated, emptyMap())
     }
 
+    /**
+     * 纪念日合并：无引用字段，单遍 LWW；通知去重标记 lastNotifiedDate 是设备本地状态，
+     * 不进快照、不参与合并。
+     */
+    private suspend fun mergeAnniversaries(
+        snapshots: List<AnniversarySnapshot>,
+        useSyncIds: Boolean
+    ): MergeOutcome {
+        val localAnniversaries = anniversaryRepository.getAllSnapshot()
+        val localByKey = localAnniversaries.associateBy { keyOf(it.syncId, it.id, useSyncIds) }
+        var added = 0
+        var updated = 0
+
+        snapshots.forEach { snapshot ->
+            val key = keyOf(snapshot.syncId, snapshot.id, useSyncIds)
+            val local = localByKey[key]
+            if (local == null) {
+                anniversaryRepository.insertSynced(
+                    Anniversary(
+                        id = 0,
+                        name = snapshot.name,
+                        note = snapshot.note,
+                        date = snapshot.date,
+                        isLunar = snapshot.isLunar,
+                        lunarMonth = snapshot.lunarMonth,
+                        lunarDay = snapshot.lunarDay,
+                        type = snapshot.type,
+                        repeatUnit = Anniversary.normalizeRepeatUnit(snapshot.repeatUnit),
+                        repeatInterval = (snapshot.repeatInterval ?: 1).coerceAtLeast(1),
+                        remindDays = snapshot.remindDays,
+                        enabled = snapshot.enabled,
+                        createdAt = snapshot.createdAt,
+                        syncId = snapshot.syncId.orNewSyncId(),
+                        updatedAt = snapshot.updatedAt ?: snapshot.createdAt,
+                        deletedAt = snapshot.deletedAt
+                    )
+                )
+                added++
+            } else {
+                if (!isRemoteNewer(snapshot.updatedAt, local.updatedAt)) return@forEach
+                anniversaryRepository.updateSynced(
+                    local.copy(
+                        name = snapshot.name,
+                        note = snapshot.note,
+                        date = snapshot.date,
+                        isLunar = snapshot.isLunar,
+                        lunarMonth = snapshot.lunarMonth,
+                        lunarDay = snapshot.lunarDay,
+                        type = snapshot.type,
+                        repeatUnit = Anniversary.normalizeRepeatUnit(snapshot.repeatUnit),
+                        repeatInterval = (snapshot.repeatInterval ?: 1).coerceAtLeast(1),
+                        remindDays = snapshot.remindDays,
+                        enabled = snapshot.enabled,
+                        updatedAt = snapshot.updatedAt ?: local.updatedAt,
+                        deletedAt = snapshot.deletedAt
+                    )
+                )
+                updated++
+            }
+        }
+        return MergeOutcome(added, updated, emptyMap())
+    }
+
+    /**
+     * 待办提醒合并：单遍 LWW。nextFireAt 是调度状态，导入时若原值不可用则按提醒规则重算；
+     * notifiedAt 是设备本地的通知状态，不进快照。
+     */
+    private suspend fun mergeReminders(
+        snapshots: List<ReminderSnapshot>,
+        useSyncIds: Boolean
+    ): MergeOutcome {
+        val localReminders = reminderRepository.getAllSnapshot()
+        val localByKey = localReminders.associateBy { keyOf(it.syncId, it.id, useSyncIds) }
+        var added = 0
+        var updated = 0
+
+        snapshots.forEach { snapshot ->
+            val key = keyOf(snapshot.syncId, snapshot.id, useSyncIds)
+            val local = localByKey[key]
+            if (local == null) {
+                val base = snapshot.toReminder(targetId = 0)
+                val fireAt = base.nextFireAt.takeIf { it > 0 }
+                    ?: ReminderClock.firstFireAt(base)
+                    ?: 0L
+                reminderRepository.insertSynced(base.copy(nextFireAt = fireAt))
+                added++
+            } else {
+                if (!isRemoteNewer(snapshot.updatedAt, local.updatedAt)) return@forEach
+                reminderRepository.updateSynced(
+                    snapshot.toReminder(targetId = local.id).copy(
+                        syncId = local.syncId ?: snapshot.syncId.orNewSyncId(),
+                        nextFireAt = snapshot.nextFireAt.takeIf { it > 0 } ?: local.nextFireAt
+                    )
+                )
+                updated++
+            }
+        }
+        return MergeOutcome(added, updated, emptyMap())
+    }
+
     private fun resolveImages(relativePaths: List<String>, workingDir: File): List<String> {
         return relativePaths.mapNotNull { relativePath ->
             val sourceFile = File(workingDir, relativePath)
@@ -830,8 +1019,9 @@ class AppBackupManager @Inject constructor(
     companion object {
         private const val BACKUP_MANIFEST_NAME = "backup.json"
 
-        /** 支持合并的备份格式版本；缺失该字段的旧备份按 v1（仅数字 id 对齐）处理。 */
-        const val SYNC_VERSION = 4
+        /** 支持合并的备份格式版本；缺失该字段的旧备份按 v1（仅数字 id 对齐）处理。
+         * v7：纪念日类型 type（倒数日/正数日/生日），不再导出 v5 的 repeatYearly 旧字段。 */
+        const val SYNC_VERSION = 7
 
         /** 从该版本起备份用 syncId 对齐；更早的备份退回数字 id。 */
         private const val SYNC_ID_VERSION = 2
@@ -870,8 +1060,168 @@ data class AppBackupPayload(
     val ledgerAssets: List<LedgerAssetSnapshot> = emptyList(),
     val ledgerCategories: List<LedgerCategorySnapshot> = emptyList(),
     val ledgerRecords: List<LedgerRecordSnapshot> = emptyList(),
-    val ledgerBudgets: List<LedgerBudgetSnapshot> = emptyList()
+    val ledgerBudgets: List<LedgerBudgetSnapshot> = emptyList(),
+    // 纪念日与待办提醒，v5 起导出。
+    val anniversaries: List<AnniversarySnapshot> = emptyList(),
+    val reminders: List<ReminderSnapshot> = emptyList(),
+    // 菜谱/周菜单/自定义状态/提醒设置等偏好内容，v5 起导出。
+    val preferences: PreferencesSnapshot? = null
 )
+
+/** 用户自定义状态的快照形式（dimension 存枚举名，导入端解析）。 */
+@Serializable
+data class CustomStatusSnapshot(
+    val code: Int,
+    val label: String,
+    val dimension: String
+) {
+    fun toOption(): ItemStatusOption? {
+        val dimension = runCatching { StatusDimension.valueOf(dimension) }.getOrNull()
+            ?: return null
+        return ItemStatusOption(
+            code = code,
+            label = label,
+            dimension = dimension,
+            isBuiltIn = false
+        )
+    }
+
+    companion object {
+        fun fromOption(option: ItemStatusOption): CustomStatusSnapshot = CustomStatusSnapshot(
+            code = option.code,
+            label = option.label,
+            dimension = option.dimension.name
+        )
+    }
+}
+
+/**
+ * 偏好内容快照（v5 起）：菜谱库、周菜单、已做日期、自定义状态与提醒相关设置。
+ * 外观/录入等设备个性化设置不进备份。
+ */
+@Serializable
+data class PreferencesSnapshot(
+    val recipes: List<Recipe> = emptyList(),
+    val weeklyMenu: Map<String, MealSpec> = emptyMap(),
+    val cookedMenuDates: Set<String> = emptySet(),
+    val customStatuses: List<CustomStatusSnapshot> = emptyList(),
+    val reminderLadder: List<Int> = emptyList(),
+    val reminderTimes: List<String> = emptyList(),
+    val customReminderTimes: Set<String> = emptySet(),
+    val mealPrepDayShift: Int? = null,
+    val mealPrepFireTime: String? = null
+)
+
+/**
+ * 纪念日快照；lastNotifiedDate 是设备本地通知状态，不导出。
+ * type 是 v7 起的类型（倒数日/正数日/生日）；repeatUnit/repeatInterval 是 v6 起的重复周期。
+ */
+@Serializable
+data class AnniversarySnapshot(
+    val id: Long,
+    val name: String,
+    val note: String = "",
+    /** 类型：TYPE_COUNTDOWN/TYPE_COUNTUP/TYPE_BIRTHDAY；旧快照缺省按倒数日。 */
+    val type: Int = Anniversary.TYPE_COUNTDOWN,
+    val date: String,
+    val isLunar: Boolean = false,
+    val lunarMonth: Int = 0,
+    val lunarDay: Int = 0,
+    val repeatUnit: String? = null,
+    val repeatInterval: Int? = null,
+    val remindDays: String = "",
+    val enabled: Boolean = true,
+    val createdAt: Long,
+    val syncId: String? = null,
+    val updatedAt: Long? = null,
+    val deletedAt: Long? = null
+) {
+    companion object {
+        fun fromEntity(anniversary: Anniversary): AnniversarySnapshot = AnniversarySnapshot(
+            id = anniversary.id,
+            name = anniversary.name,
+            note = anniversary.note,
+            type = anniversary.type,
+            date = anniversary.date,
+            isLunar = anniversary.isLunar,
+            lunarMonth = anniversary.lunarMonth,
+            lunarDay = anniversary.lunarDay,
+            repeatUnit = anniversary.repeatUnit,
+            repeatInterval = anniversary.repeatInterval,
+            remindDays = anniversary.remindDays,
+            enabled = anniversary.enabled,
+            createdAt = anniversary.createdAt,
+            syncId = anniversary.syncId,
+            updatedAt = anniversary.updatedAt,
+            deletedAt = anniversary.deletedAt
+        )
+    }
+}
+
+/** 待办提醒快照；notifiedAt 是设备本地通知状态，不导出。 */
+@Serializable
+data class ReminderSnapshot(
+    val id: Long,
+    val title: String,
+    val note: String = "",
+    val repeatType: String = "ONCE",
+    val intervalDays: Int = 1,
+    val weekdays: String = "",
+    val fireTime: String = "19:00",
+    val targetDate: String? = null,
+    val nextFireAt: Long = 0,
+    val enabled: Boolean = true,
+    val completedAt: Long? = null,
+    val source: String = "MANUAL",
+    val sourceKey: String? = null,
+    val createdAt: Long,
+    val syncId: String? = null,
+    val updatedAt: Long? = null,
+    val deletedAt: Long? = null
+) {
+    /** 还原成实体；nextFireAt 保留原值（0 时由导入端重算）。 */
+    fun toReminder(targetId: Long): Reminder = Reminder(
+        id = targetId,
+        title = title,
+        note = note,
+        repeatType = repeatType,
+        intervalDays = intervalDays,
+        weekdays = weekdays,
+        fireTime = fireTime,
+        targetDate = targetDate,
+        nextFireAt = nextFireAt,
+        enabled = enabled,
+        completedAt = completedAt,
+        source = source,
+        sourceKey = sourceKey,
+        createdAt = createdAt,
+        syncId = syncId,
+        updatedAt = updatedAt ?: createdAt,
+        deletedAt = deletedAt
+    )
+
+    companion object {
+        fun fromEntity(reminder: Reminder): ReminderSnapshot = ReminderSnapshot(
+            id = reminder.id,
+            title = reminder.title,
+            note = reminder.note,
+            repeatType = reminder.repeatType,
+            intervalDays = reminder.intervalDays,
+            weekdays = reminder.weekdays,
+            fireTime = reminder.fireTime,
+            targetDate = reminder.targetDate,
+            nextFireAt = reminder.nextFireAt,
+            enabled = reminder.enabled,
+            completedAt = reminder.completedAt,
+            source = reminder.source,
+            sourceKey = reminder.sourceKey,
+            createdAt = reminder.createdAt,
+            syncId = reminder.syncId,
+            updatedAt = reminder.updatedAt,
+            deletedAt = reminder.deletedAt
+        )
+    }
+}
 
 @Serializable
 data class LedgerAssetSnapshot(

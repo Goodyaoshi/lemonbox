@@ -1,6 +1,7 @@
 package com.goodyaoshi.lemonbox.ui.screen.ledger
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -37,6 +38,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.goodyaoshi.lemonbox.data.local.entity.LedgerCategory
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.EmptyState
@@ -76,10 +78,11 @@ private val statSliceColors = listOf(
     Color(0xFF5B6B55)
 )
 
-/** 记账统计：支出/收入切换 + 环形饼图 + 分类排行。 */
+/** 记账统计：支出/收入切换 + 环形饼图 + 分类排行，分类可点进当月明细。 */
 @Composable
 fun LedgerStatsScreen(
     onBack: () -> Unit,
+    onOpenCategory: (kind: Int, categoryId: Long?, monthKey: String) -> Unit,
     viewModel: LedgerStatsViewModel = hiltViewModel()
 ) {
     val stats by viewModel.stats.collectAsState()
@@ -89,6 +92,8 @@ fun LedgerStatsScreen(
     val slices = if (kindIndex == 0) stats.expenseSlices else stats.incomeSlices
     val totalCents = if (kindIndex == 0) stats.expenseCents else stats.incomeCents
     val kindLabel = if (kindIndex == 0) "支出" else "收入"
+    val kind = if (kindIndex == 0) LedgerCategory.KIND_EXPENSE else LedgerCategory.KIND_INCOME
+    val monthKey = yearMonth.toString()
 
     Box(modifier = Modifier.fillMaxSize()) {
         AppDecorativeBackground()
@@ -185,7 +190,12 @@ fun LedgerStatsScreen(
                                 slices.take(5).forEachIndexed { index, slice ->
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.padding(vertical = 4.dp)
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable {
+                                                onOpenCategory(kind, slice.categoryId, monthKey)
+                                            }
+                                            .padding(vertical = 4.dp)
                                     ) {
                                         Box(
                                             modifier = Modifier
@@ -234,7 +244,8 @@ fun LedgerStatsScreen(
                                 amountText = DateUtil.formatCurrency(LedgerMath.centsToYuan(slice.amountCents)),
                                 ratio = slice.ratio,
                                 icon = ledgerIconFor(slice.icon),
-                                modifier = Modifier.padding(vertical = 6.dp)
+                                modifier = Modifier.padding(vertical = 6.dp),
+                                onClick = { onOpenCategory(kind, slice.categoryId, monthKey) }
                             )
                         }
                     }

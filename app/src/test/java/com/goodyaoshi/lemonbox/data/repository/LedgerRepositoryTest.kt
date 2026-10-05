@@ -192,6 +192,21 @@ class LedgerRepositoryTest {
             )
         }
 
+        override fun observeRecordsByCategoryBetween(
+            kind: Int,
+            categoryId: Long?,
+            start: Long,
+            end: Long
+        ): Flow<List<LedgerRecord>> = flow {
+            emit(
+                records.filter {
+                    it.deletedAt == null && it.type == kind &&
+                        it.recordTime >= start && it.recordTime < end &&
+                        it.categoryId == categoryId
+                }.sortedByDescending { it.recordTime }
+            )
+        }
+
         override suspend fun getById(id: Long): LedgerRecord? =
             records.firstOrNull { it.id == id }
 

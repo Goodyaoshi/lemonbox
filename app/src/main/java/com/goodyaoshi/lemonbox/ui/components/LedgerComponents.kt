@@ -318,7 +318,7 @@ data class LedgerPieSlice(
     val color: Color
 )
 
-/** 分类排行条：图标 + 名称 + 金额 + 占比进度。 */
+/** 分类排行条：图标 + 名称 + 金额 + 占比进度；onClick 非空时可点进明细。 */
 @Composable
 fun LedgerRankRow(
     rank: Int,
@@ -326,10 +326,13 @@ fun LedgerRankRow(
     amountText: String,
     ratio: Float,
     icon: ImageVector,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null
 ) {
     Row(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(enabled = onClick != null) { onClick?.invoke() },
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(

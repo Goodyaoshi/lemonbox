@@ -10,7 +10,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!--
-        家务提醒的精确闹钟：USE_EXACT_ALARM 在 Android 13+ 安装即授予（闹钟类正当用途）；
+        待办提醒的精确闹钟：USE_EXACT_ALARM 在 Android 13+ 安装即授予（闹钟类正当用途）；
         SCHEDULE_EXACT_ALARM 兼容 Android 12。不给精确权限时自动退化为窗口闹钟 + WorkManager 兜底。
     -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />

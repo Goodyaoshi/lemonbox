@@ -11,6 +11,7 @@ import com.goodyaoshi.lemonbox.data.local.entity.ItemDetail
 import com.goodyaoshi.lemonbox.data.local.entity.Location
 import com.goodyaoshi.lemonbox.data.local.entity.Reminder
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerRecord
+import com.goodyaoshi.lemonbox.data.repository.AnniversaryRepository
 import com.goodyaoshi.lemonbox.data.repository.ItemRepository
 import com.goodyaoshi.lemonbox.data.repository.LedgerRepository
 import com.goodyaoshi.lemonbox.data.repository.LocationRepository
@@ -53,6 +54,7 @@ class HomeViewModel @Inject constructor(
     private val categoryDao: CategoryDao,
     private val locationRepository: LocationRepository,
     private val reminderRepository: ReminderRepository,
+    private val anniversaryRepository: AnniversaryRepository,
     private val ledgerRepository: LedgerRepository,
     private val weekMenuRepository: WeekMenuRepository,
     private val appPreferences: AppPreferences
@@ -81,6 +83,22 @@ class HomeViewModel @Inject constructor(
 
     /** 未来 N 天菜单（今天吃什么卡要用今天那天），生成与扣料逻辑都在 WeekMenuRepository。 */
     val weekPlan: StateFlow<List<WeeklyMealDay>> = weekMenuRepository.weekPlan
+
+    /** 首页「纪念日」速览：最近的 1-2 条（未到的按剩余天数升序，累计的在一起越久越靠前）。 */
+    val anniversaryHighlights: StateFlow<List<AnniversaryRow>> =
+        anniversaryRepository.getActiveAnniversaries().map { list ->
+            val today = LocalDate.now()
+            list.map { it.toRow(today) }
+                .filter { it.days != null }
+                .sortedWith(
+                    compareBy(
+                        { (it.days ?: 0L) < 0 },
+                        { if ((it.days ?: 0L) < 0) -(it.days ?: 0L) else it.days ?: 0L }
+                    )
+                )
+                .take(2)
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /** 一餐做完：仓库内幂等（已做不重复扣料）。 */
     fun markDayCooked(dateKey: String) = weekMenuRepository.markDayCooked(dateKey)

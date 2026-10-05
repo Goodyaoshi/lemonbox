@@ -35,6 +35,9 @@ import com.goodyaoshi.lemonbox.ui.theme.TextHint
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
 import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
 import com.goodyaoshi.lemonbox.util.DateUtil
+import com.tyme.lunar.LunarDay
+import com.tyme.lunar.LunarMonth
+import com.tyme.lunar.LunarYear
 import java.time.Instant
 import java.time.LocalDate
 import java.time.YearMonth
@@ -44,12 +47,13 @@ import java.time.ZoneId
 fun ExpiryPickerDialog(
     selectedDateMillis: Long?,
     onDismissRequest: () -> Unit,
-    onClear: () -> Unit,
     onConfirm: (Long?) -> Unit,
     /** 弹窗标题；购买日期、开始使用等场景可换成自己的文案。 */
     title: String = "选择有效期",
     /** 可选年份区间；到期默认未来 8 年，购买日期等回溯场景传过去年份。 */
-    yearRange: IntRange? = null
+    yearRange: IntRange? = null,
+    /** 清空动作；不传则不显示「清空」按钮（日期必填的场景）。 */
+    onClear: (() -> Unit)? = null
 ) {
     val zoneId = remember { ZoneId.systemDefault() }
     val today = remember { LocalDate.now(zoneId) }
@@ -75,7 +79,7 @@ fun ExpiryPickerDialog(
         subtitle = "按年、月、日分步选择，布局固定更直观。",
         onDismissRequest = onDismissRequest,
         confirmText = "确定",
-        secondaryText = "清空",
+        secondaryText = onClear?.let { "清空" },
         onSecondary = onClear,
         onConfirm = {
             val millis = LocalDate.of(selectedYear, selectedMonth, selectedDay)
@@ -269,5 +273,123 @@ private fun ExpiryGridCell(
             textAlign = TextAlign.Center,
             maxLines = 1
         )
+    }
+}
+
+/**
+ * 农历日期选择器：按农历年 → 月 → 日分步选择，交互与 [ExpiryPickerDialog] 一致。
+ * 月份展示实际农历月名，日面板收拢到当月真实天数（小月选不到三十）。
+ */
+@Composable
+fun LunarDatePickerDialog(
+    initialLunarYear: Int,
+    initialLunarMonth: Int,
+    initialLunarDay: Int,
+    onDismissRequest: () -> Unit,
+    onConfirm: (lunarYear: Int, lunarMonth: Int, lunarDay: Int) -> Unit
+) {
+    val thisYear = remember { LocalDate.now().year }
+    var selectedYear by remember {
+        mutableIntStateOf(initialLunarYear.coerceIn(thisYear - 120, thisYear))
+    }
+    var selectedMonth by remember { mutableIntStateOf(initialLunarMonth.coerceIn(1, 12)) }
+    var selectedDay by remember { mutableIntStateOf(initialLunarDay.coerceIn(1, 30)) }
+    var selectedPanel by remember { mutableStateOf(ExpiryPanel.YEAR) }
+
+    // 生日是出生日期：农历年份从今年往前 120 年，近的排前面好选
+    val years = remember { (thisYear - 120..thisYear).toList().asReversed() }
+    val maxDay = remember(selectedYear, selectedMonth) {
+        runCatching { LunarMonth.fromYm(selectedYear, selectedMonth).getDayCount() }.getOrDefault(30)
+    }
+    if (selectedDay > maxDay) {
+        selectedDay = maxDay
+    }
+    val monthName = LunarMonth.fromYm(2024, selectedMonth).getName()
+    val dayName = LunarDay.NAMES.getOrNull(selectedDay - 1) ?: "$selectedDay"
+    // 农历年的干支名（如「庚辰」），仅用于展示；换算失败不显示
+    val yearGanZhi = runCatching {
+        LunarYear.fromYear(selectedYear).getSixtyCycle().getName()
+    }.getOrNull()
+
+    AppDialog(
+        title = "选择农历日期",
+        subtitle = "按农历年、月、日分步选择；闰月按平月过。",
+        onDismissRequest = onDismissRequest,
+        confirmText = "确定",
+        onConfirm = { onConfirm(selectedYear, selectedMonth, selectedDay) }
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            ExpiryTab(
+                text = "${selectedYear}年",
+                selected = selectedPanel == ExpiryPanel.YEAR,
+                onClick = { selectedPanel = ExpiryPanel.YEAR },
+                modifier = Modifier.weight(1f)
+            )
+            ExpiryTab(
+                text = monthName,
+                selected = selectedPanel == ExpiryPanel.MONTH,
+                onClick = { selectedPanel = ExpiryPanel.MONTH },
+                modifier = Modifier.weight(1f)
+            )
+            ExpiryTab(
+                text = dayName,
+                selected = selectedPanel == ExpiryPanel.DAY,
+                onClick = { selectedPanel = ExpiryPanel.DAY },
+                modifier = Modifier.weight(1f)
+            )
+        }
+
+        Text(
+            text = "农历${selectedYear}年${yearGanZhi?.let { "（$it）" } ?: ""}$monthName$dayName",
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Bold,
+            color = TextPrimary,
+            modifier = Modifier.align(Alignment.CenterHorizontally)
+        )
+
+        when (selectedPanel) {
+            ExpiryPanel.YEAR -> {
+                FixedGridOptions(
+                    columns = 4,
+                    items = years,
+                    key = { it },
+                    label = { it.toString() },
+                    selected = { selectedYear == it },
+                    onSelect = {
+                        selectedYear = it
+                        selectedPanel = ExpiryPanel.MONTH
+                    }
+                )
+            }
+
+            ExpiryPanel.MONTH -> {
+                FixedGridOptions(
+                    columns = 4,
+                    items = (1..12).toList(),
+                    key = { it },
+                    label = { LunarMonth.fromYm(2024, it).getName() },
+                    selected = { selectedMonth == it },
+                    onSelect = {
+                        selectedMonth = it
+                        selectedPanel = ExpiryPanel.DAY
+                    }
+                )
+            }
+
+            ExpiryPanel.DAY -> {
+                // 农历日名是两字（初一/三十），5 列保证单元格放得下不折行
+                FixedGridOptions(
+                    columns = 5,
+                    items = (1..maxDay).toList(),
+                    key = { it },
+                    label = { LunarDay.NAMES.getOrNull(it - 1) ?: it.toString() },
+                    selected = { selectedDay == it },
+                    onSelect = { selectedDay = it }
+                )
+            }
+        }
     }
 }

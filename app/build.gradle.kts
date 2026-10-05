@@ -117,6 +117,9 @@ dependencies {
     // 局域网同步（同一 WiFi 内互传）
     implementation(libs.nanohttpd)
 
+    // 农历换算（纪念日农历生日按农历推算每年循环；MIT）
+    implementation("cn.6tail:tyme4kt-android:1.5.0")
+
     implementation(libs.hilt.android)
     ksp(libs.hilt.android.compiler)
     implementation(libs.hilt.navigation.compose)

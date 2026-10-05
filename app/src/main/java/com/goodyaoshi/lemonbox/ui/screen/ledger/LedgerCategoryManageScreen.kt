@@ -309,8 +309,9 @@ private fun LedgerCategoryEditDialog(
     }
 }
 
+/** 分类图标九宫格单元（分类管理页与资产负债登记页共用）。 */
 @Composable
-private fun IconPickCell(
+internal fun IconPickCell(
     option: LedgerIconOption,
     selected: Boolean,
     onClick: () -> Unit

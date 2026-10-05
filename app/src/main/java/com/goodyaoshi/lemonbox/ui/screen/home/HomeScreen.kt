@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.ShoppingCart
@@ -77,6 +78,7 @@ import com.goodyaoshi.lemonbox.ui.theme.TagOrangeText
 import com.goodyaoshi.lemonbox.ui.theme.TextHint
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
 import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
+import com.goodyaoshi.lemonbox.ui.viewmodel.AnniversaryRow
 import com.goodyaoshi.lemonbox.ui.viewmodel.HomeViewModel
 import com.goodyaoshi.lemonbox.ui.viewmodel.MonthSpending
 import com.goodyaoshi.lemonbox.ui.viewmodel.TodayEvent
@@ -101,6 +103,7 @@ fun HomeScreen(
     onNavigateToReminders: () -> Unit = {},
     onNavigateToLedger: () -> Unit = {},
     onNavigateToMeal: () -> Unit = {},
+    onNavigateToAnniversaries: () -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val allItems by viewModel.allItems.collectAsState()
@@ -109,6 +112,7 @@ fun HomeScreen(
     val todayEvents by viewModel.todayEvents.collectAsState()
     val monthSpending by viewModel.monthSpending.collectAsState()
     val weekPlan by viewModel.weekPlan.collectAsState()
+    val anniversaryRows by viewModel.anniversaryHighlights.collectAsState()
     var openedItemId by remember { mutableStateOf<Long?>(null) }
     var moreItemId by remember { mutableStateOf<Long?>(null) }
     var pendingDeleteItem by remember { mutableStateOf<Item?>(null) }
@@ -225,6 +229,14 @@ fun HomeScreen(
                         onEventClick = onEventClick,
                         onComplete = viewModel::completeTodayEvent
                     )
+                }
+                if (anniversaryRows.isNotEmpty()) {
+                    item {
+                        AnniversarySection(
+                            rows = anniversaryRows,
+                            onOpen = onNavigateToAnniversaries
+                        )
+                    }
                 }
                 item {
                     TodayMealCard(
@@ -530,6 +542,84 @@ private fun TodayEventRow(
             tint = TextHint,
             modifier = Modifier.size(16.dp)
         )
+    }
+}
+
+/** 「纪念日」速览：最近的 1-2 条（倒数/生日在前，累计的随后），没有数据整块不占位。 */
+@Composable
+private fun AnniversarySection(
+    rows: List<AnniversaryRow>,
+    onOpen: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 6.dp)
+    ) {
+        SectionHeader(
+            title = "纪念日",
+            action = "全部 ›",
+            onActionClick = onOpen,
+            modifier = Modifier.padding(top = 12.dp, bottom = 10.dp)
+        )
+        AppSurfaceCard(
+            shape = RoundedCornerShape(22.dp),
+            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
+            shadowElevation = 12.dp,
+            onClick = onOpen
+        ) {
+            Column {
+                rows.forEach { row ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(OrangeStart.copy(alpha = 0.12f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Favorite,
+                                contentDescription = null,
+                                tint = OrangeStart,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = row.name,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = TextPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = row.statusText,
+                                fontSize = 12.sp,
+                                color = TextSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(top = 1.dp)
+                            )
+                        }
+                        Icon(
+                            imageVector = Icons.Default.ChevronRight,
+                            contentDescription = null,
+                            tint = TextHint,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 

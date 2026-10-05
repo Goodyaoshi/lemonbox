@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material.icons.filled.Savings
 import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.filled.Wallet
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -88,6 +89,7 @@ import java.time.ZoneId
 fun LedgerScreen(
     onNavigateToStats: () -> Unit,
     onNavigateToBudget: () -> Unit,
+    onNavigateToAssets: () -> Unit,
     onNavigateToRecordEdit: (Long?) -> Unit,
     onNavigateToItemDetail: (Long) -> Unit,
     viewModel: LedgerViewModel = hiltViewModel()
@@ -135,6 +137,8 @@ fun LedgerScreen(
                 HeaderActionPill(icon = Icons.Filled.Savings, label = "预算", onClick = onNavigateToBudget)
                 Spacer(modifier = Modifier.width(8.dp))
                 HeaderActionPill(icon = Icons.Filled.PieChart, label = "统计", onClick = onNavigateToStats)
+                Spacer(modifier = Modifier.width(8.dp))
+                HeaderActionPill(icon = Icons.Filled.Wallet, label = "资产", onClick = onNavigateToAssets)
             }
 
             // 固定月份条：翻流水时也能随时换月（与统计页一致，不嵌在滚动列表里）。
@@ -308,9 +312,9 @@ private fun LedgerDayHeader(
     }
 }
 
-/** 单条流水行：图标 + 分类/备注 + 账户 + 带符号金额。 */
+/** 单条流水行：图标 + 分类/备注 + 账户 + 带符号金额（分类明细页复用）。 */
 @Composable
-private fun LedgerRecordRow(
+internal fun LedgerRecordRow(
     recordUi: LedgerRecordUi,
     onOpenItem: (() -> Unit)?,
     onClick: () -> Unit

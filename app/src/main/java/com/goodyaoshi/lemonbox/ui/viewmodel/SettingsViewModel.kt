@@ -6,6 +6,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import com.goodyaoshi.lemonbox.data.settings.ThemeMode
+import com.goodyaoshi.lemonbox.util.AnniversaryCheckWorker
 import com.goodyaoshi.lemonbox.util.ExpiryCheckWorker
 import com.goodyaoshi.lemonbox.util.TodoKeepAliveService
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -61,10 +62,12 @@ class SettingsViewModel @Inject constructor(
         appPreferences.setMealPrepFireTime(time)
     }
 
-    /** 保存提醒时间后立即按新时间重排每日检查任务。 */
+    /** 保存提醒时间后立即按新时间重排每日检查任务（到期与纪念日共用时间点）。 */
     fun setReminderTimes(times: List<String>) {
         appPreferences.setReminderTimes(times)
-        ExpiryCheckWorker.reschedule(appContext, appPreferences.reminderTimes.value)
+        val latest = appPreferences.reminderTimes.value
+        ExpiryCheckWorker.reschedule(appContext, latest)
+        AnniversaryCheckWorker.reschedule(appContext, latest)
     }
 
     fun setThemeMode(mode: ThemeMode) {

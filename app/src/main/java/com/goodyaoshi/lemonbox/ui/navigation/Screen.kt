@@ -53,13 +53,31 @@ sealed class Screen(val route: String) {
     data object Trash : Screen("trash")
     data object Expiry : Screen("expiry")
     data object Reminders : Screen("reminders")
+    data object Anniversaries : Screen("anniversaries")
+    data object AnniversaryEdit : Screen("anniversary-edit?anniversaryId={anniversaryId}") {
+        fun createRoute(anniversaryId: Long? = null): String =
+            "anniversary-edit?anniversaryId=${anniversaryId ?: -1L}"
+    }
 
     // ---- 记账模块 ----
     data object Ledger : Screen("ledger")
     data object LedgerStats : Screen("ledger-stats")
     data object LedgerBudget : Screen("ledger-budget")
+    data object LedgerAssets : Screen("ledger-assets")
     data object LedgerCategoryManage : Screen("ledger-categories?kind={kind}") {
         fun createRoute(kind: Int): String = "ledger-categories?kind=$kind"
+    }
+
+    /**
+     * 统计分类明细：某账期某分类的账单流水。
+     * kind 取 [com.goodyaoshi.lemonbox.data.local.entity.LedgerCategory] 的 KIND_ 值；
+     * categoryId 为 null 时传 -1，对应统计页的「未分类」；monthKey 为 yyyy-MM。
+     */
+    data object LedgerCategoryDetail : Screen(
+        "ledger-category-detail?kind={kind}&categoryId={categoryId}&monthKey={monthKey}"
+    ) {
+        fun createRoute(kind: Int, categoryId: Long?, monthKey: String): String =
+            "ledger-category-detail?kind=$kind&categoryId=${categoryId ?: -1L}&monthKey=$monthKey"
     }
 
     /**

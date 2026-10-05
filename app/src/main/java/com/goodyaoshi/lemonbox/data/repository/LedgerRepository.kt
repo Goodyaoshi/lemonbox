@@ -100,6 +100,17 @@ class LedgerRepository @Inject constructor(
 
     // ---------- 账户 ----------
 
+    suspend fun getAsset(id: Long): LedgerAsset? = assetDao.getById(id)
+
+    /** 某账期某分类的流水（时间倒序）；categoryId 为 null 表示未分类。 */
+    fun observeRecordsByCategoryBetween(
+        kind: Int,
+        categoryId: Long?,
+        start: Long,
+        end: Long
+    ): Flow<List<LedgerRecord>> =
+        recordDao.observeRecordsByCategoryBetween(kind, categoryId, start, end)
+
     /** 新增或更新账户；返回账户 id。 */
     suspend fun saveAsset(asset: LedgerAsset): Long = if (asset.id == 0L) {
         assetDao.insert(

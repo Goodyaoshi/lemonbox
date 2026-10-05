@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.FileUpload
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Settings
@@ -78,12 +79,14 @@ fun ProfileScreen(
     onOpenReminders: () -> Unit = {},
     onOpenToBuy: () -> Unit = {},
     onOpenExpiry: () -> Unit = {},
+    onOpenAnniversaries: () -> Unit = {},
     viewModel: ProfileViewModel = hiltViewModel()
 ) {
     val trashCount by viewModel.trashCount.collectAsState()
     val toBuyCount by viewModel.toBuyCount.collectAsState()
     val expiringCount by viewModel.expiringCount.collectAsState()
     val dueReminderCount by viewModel.dueReminderCount.collectAsState()
+    val anniversaryCount by viewModel.anniversaryCount.collectAsState()
     val backupState by viewModel.backupState.collectAsState()
     var showBackupDialog by remember { mutableStateOf(false) }
 
@@ -203,6 +206,14 @@ fun ProfileScreen(
                     subtitle = "快过期的东西，先吃先用别浪费",
                     badge = expiringCount.takeIf { it > 0 }?.toString(),
                     onClick = onOpenExpiry
+                )
+                DividerSpacer()
+                MenuRow(
+                    icon = Icons.Default.Favorite,
+                    title = "纪念日",
+                    subtitle = "在一起的累计、生日与倒数的日子",
+                    badge = anniversaryCount.takeIf { it > 0 }?.toString(),
+                    onClick = onOpenAnniversaries
                 )
             }
 

@@ -20,6 +20,10 @@ object NotificationHelper {
     private const val TODO_CHANNEL_ID = "todo_reminder"
     private const val TODO_CHANNEL_NAME = "待办提醒"
 
+    private const val ANNIVERSARY_CHANNEL_ID = "anniversary_reminder"
+    private const val ANNIVERSARY_CHANNEL_NAME = "纪念日提醒"
+    private const val ANNIVERSARY_SUMMARY_NOTIFICATION_ID = 1002
+
     /** 待办提醒通知的 id 基数：每条提醒用自己的 id 通知，互不顶掉；「完成」按钮撤通知也用它。 */
     const val TODO_NOTIFICATION_ID_BASE = 2000L
 
@@ -31,6 +35,12 @@ object NotificationHelper {
     data class ExpiryNotificationItem(
         val name: String,
         val daysLeft: Long
+    )
+
+    /** 汇总通知里单个纪念日的展示信息（行文案由 Worker 组装）。 */
+    data class AnniversaryNotificationItem(
+        val name: String,
+        val lineText: String
     )
 
     fun createChannel(context: Context) {
@@ -51,6 +61,15 @@ object NotificationHelper {
                 NotificationManager.IMPORTANCE_DEFAULT
             ).apply {
                 description = "用于待办提醒与做菜前的准备提醒（如解冻肉）"
+            }
+        )
+        manager.createNotificationChannel(
+            NotificationChannel(
+                ANNIVERSARY_CHANNEL_ID,
+                ANNIVERSARY_CHANNEL_NAME,
+                NotificationManager.IMPORTANCE_DEFAULT
+            ).apply {
+                description = "用于生日、纪念日与倒数的提前提醒"
             }
         )
         manager.createNotificationChannel(
@@ -129,6 +148,55 @@ object NotificationHelper {
     }
 
     /**
+     * 把多个临近的纪念日合并为一条汇总通知（生日/倒数/周年等）。
+     * 去重（按天/按时间点、逐条记录）由调用方 [AnniversaryCheckWorker] 负责。
+     */
+    fun showAnniversarySummary(
+        context: Context,
+        items: List<AnniversaryNotificationItem>
+    ) {
+        if (items.isEmpty()) return
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+
+        val todayCount = items.count { it.lineText == "就是今天" }
+        val title = "柠檬百宝箱 · ${items.size} 个纪念日要记着"
+        val summaryText = if (todayCount > 0) {
+            "今天就是 $todayCount 个，别忘了准备"
+        } else {
+            "提前提醒，方便准备心意"
+        }
+
+        val style = NotificationCompat.InboxStyle()
+            .setBigContentTitle(title)
+        items.take(5).forEach { item ->
+            style.addLine("「${item.name}」${item.lineText}")
+        }
+        if (items.size > 5) {
+            style.setSummaryText("另有 ${items.size - 5} 个…")
+        }
+
+        val notification = NotificationCompat.Builder(context, ANNIVERSARY_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(title)
+            .setContentText(summaryText)
+            .setStyle(style)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setAutoCancel(true)
+            .build()
+
+        NotificationManagerCompat.from(context)
+            .notify(ANNIVERSARY_SUMMARY_NOTIFICATION_ID, notification)
+    }
+
+    /**
      * 单条待办提醒通知（解冻肉、洗衣服等）。点通知打开应用，首页卡片能看到当天待办；
      * 通知自带「完成」按钮，点一下直接完结这条待办。
      * 防重复由调用方 [TodoReminderWorker] 通过 notifiedAt 标记负责。
@@ -196,7 +264,7 @@ object NotificationHelper {
     fun buildKeepAliveNotification(context: Context): android.app.Notification =
         NotificationCompat.Builder(context, KEEP_ALIVE_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle("家务提醒运行中")
+            .setContentTitle("柠檬提醒服务运行中")
             .setContentText("保持常驻，到点准时提醒")
             .setPriority(NotificationCompat.PRIORITY_MIN)
             .setOngoing(true)

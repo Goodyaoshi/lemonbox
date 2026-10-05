@@ -1,6 +1,7 @@
 package com.goodyaoshi.lemonbox.di
 
 import android.content.Context
+import com.goodyaoshi.lemonbox.data.local.dao.AnniversaryDao
 import com.goodyaoshi.lemonbox.data.local.dao.CategoryDao
 import com.goodyaoshi.lemonbox.data.local.dao.ItemDao
 import com.goodyaoshi.lemonbox.data.local.dao.LedgerAssetDao
@@ -38,6 +39,9 @@ object DatabaseModule {
 
     @Provides
     fun provideReminderDao(database: AppDatabase): ReminderDao = database.reminderDao()
+
+    @Provides
+    fun provideAnniversaryDao(database: AppDatabase): AnniversaryDao = database.anniversaryDao()
 
     @Provides
     fun provideLedgerRecordDao(database: AppDatabase): LedgerRecordDao = database.ledgerRecordDao()

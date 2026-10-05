@@ -466,7 +466,8 @@ class AppPreferences @Inject constructor(
             id = nextId.toLong(),
             name = trimmed,
             ingredients = normalizeIngredients(ingredients),
-            role = role
+            role = role,
+            syncId = UUID.randomUUID().toString()
         )
         preferences.edit()
             .putString(KEY_RECIPES, encodeRecipes(updated))
@@ -581,6 +582,133 @@ class AppPreferences @Inject constructor(
     }
 
     private fun encodeRecipes(recipes: List<Recipe>): String = recipeJson.encodeToString(recipes)
+
+    // ---- 备份/同步：偏好内容的导出与合并导入 ----
+
+    /** 菜谱库快照（内置 + 自建），备份导出用。 */
+    fun recipesSnapshot(): List<Recipe> = _recipes.value
+
+    /**
+     * 合并导入对方菜谱：
+     * - 内置菜谱（编号 < [RECIPE_ID_BASE]）按编号跳过——本地已有同号内置定义，不覆盖；
+     * - 用户自建按 syncId 对齐，对方没带 syncId 的退回按编号；冲突时保留本地编辑；
+     * - 新菜谱原样加入；本地自增计数器顶到最大编号 +1，避免后续新增撞号。
+     */
+    fun applySyncedRecipes(incoming: List<Recipe>): Int {
+        if (incoming.isEmpty()) return 0
+        val result = _recipes.value.toMutableList()
+        var added = 0
+        incoming.forEach { recipe ->
+            if (recipe.id < RECIPE_ID_BASE) return@forEach
+            val exists = recipe.syncId?.takeIf { it.isNotBlank() }?.let { syncId ->
+                result.any { it.syncId == syncId || it.id == recipe.id }
+            } ?: (result.any { it.id == recipe.id })
+            if (exists) return@forEach
+            result += recipe
+            added++
+        }
+        if (added == 0) return 0
+        val maxId = result.maxOf { it.id }.coerceAtLeast(RECIPE_ID_BASE - 1L)
+        preferences.edit()
+            .putString(KEY_RECIPES, encodeRecipes(result))
+            .putInt(KEY_NEXT_RECIPE_ID, (preferences.getInt(KEY_NEXT_RECIPE_ID, RECIPE_ID_BASE)).coerceAtLeast(maxId.toInt() + 1))
+            .apply()
+        _recipes.value = result
+        return added
+    }
+
+    /** 周菜单快照，备份导出用。 */
+    fun weeklyMenuSnapshot(): Map<String, MealSpec> = _weeklyMenu.value
+
+    /** 合并导入周菜单：同日期以备份为准，本地独有日期保留。 */
+    fun applySyncedWeeklyMenu(menu: Map<String, MealSpec>): Int {
+        if (menu.isEmpty()) return 0
+        val merged = _weeklyMenu.value + menu
+        if (merged == _weeklyMenu.value) return 0
+        setWeeklyMenu(merged)
+        return menu.size
+    }
+
+    /** 已做日期快照，备份导出用。 */
+    fun cookedMenuDatesSnapshot(): Set<String> = _cookedMenuDates.value
+
+    /** 合并导入已做日期：取并集。 */
+    fun applySyncedCookedDates(dates: Set<String>): Int {
+        val fresh = dates - _cookedMenuDates.value
+        if (fresh.isEmpty()) return 0
+        val updated = _cookedMenuDates.value + fresh
+        preferences.edit()
+            .putString(KEY_COOKED_MENU_DATES, updated.joinToString(SEARCH_SEPARATOR))
+            .apply()
+        _cookedMenuDates.value = updated
+        return fresh.size
+    }
+
+    /** 自定义状态快照，备份导出用。 */
+    fun customStatusesSnapshot(): List<ItemStatusOption> = _customStatuses.value
+
+    /**
+     * 合并导入自定义状态：同一维度按名称去重后追加，保留对方编号；
+     * 本地编号计数器顶到对方最大编号 +1，避免后续新增撞号。
+     */
+    fun applySyncedCustomStatuses(options: List<ItemStatusOption>): Int {
+        val fresh = options.filter { incoming ->
+            _customStatuses.value.none {
+                it.dimension == incoming.dimension && it.label == incoming.label
+            }
+        }
+        if (fresh.isEmpty()) return 0
+        val updated = _customStatuses.value + fresh
+        preferences.edit().putString(KEY_CUSTOM_STATUSES, encodeCustomStatuses(updated)).apply()
+        _customStatuses.value = updated
+        fresh.groupBy { it.dimension }.forEach { (dimension, optionsInDim) ->
+            val maxCode = optionsInDim.maxOf { it.code }
+            val key = nextCodeKey(dimension)
+            preferences.edit()
+                .putInt(key, (preferences.getInt(key, initialNextCode(dimension))).coerceAtLeast(maxCode + 1))
+                .apply()
+        }
+        return fresh.size
+    }
+
+    /**
+     * 应用对方备份里的提醒相关设置（提醒阶梯/时间点/备菜提醒）。
+     * 非空即覆盖：提醒要在两台设备一致才不会漏响。
+     */
+    fun applySyncedReminderSettings(
+        reminderLadder: List<Int>?,
+        reminderTimes: List<String>?,
+        customReminderTimes: Set<String>?,
+        mealPrepDayShift: Int?,
+        mealPrepFireTime: String?
+    ): Boolean {
+        var applied = false
+        if (!reminderLadder.isNullOrEmpty()) {
+            setReminderLadder(reminderLadder)
+            applied = true
+        }
+        if (!reminderTimes.isNullOrEmpty()) {
+            setReminderTimes(reminderTimes)
+            applied = true
+        }
+        if (!customReminderTimes.isNullOrEmpty()) {
+            val merged = _customReminderTimes.value + customReminderTimes
+            preferences.edit()
+                .putString(KEY_CUSTOM_REMINDER_TIMES, merged.joinToString(REMINDER_TIME_SEPARATOR))
+                .apply()
+            _customReminderTimes.value = merged
+            applied = true
+        }
+        if (mealPrepDayShift != null) {
+            setMealPrepDayShift(mealPrepDayShift)
+            applied = true
+        }
+        if (mealPrepFireTime != null && mealPrepFireTime.matches(TIME_FORMAT)) {
+            setMealPrepFireTime(mealPrepFireTime)
+            applied = true
+        }
+        return applied
+    }
 
     /** 去掉空白食材并清理首尾空格，保证展示与匹配都干净。 */
     private fun normalizeIngredients(ingredients: List<RecipeIngredient>): List<RecipeIngredient> =

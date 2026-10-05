@@ -6,6 +6,7 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.goodyaoshi.lemonbox.data.local.dao.AnniversaryDao
 import com.goodyaoshi.lemonbox.data.local.dao.CategoryDao
 import com.goodyaoshi.lemonbox.data.local.dao.ItemDao
 import com.goodyaoshi.lemonbox.data.local.dao.LedgerAssetDao
@@ -14,6 +15,7 @@ import com.goodyaoshi.lemonbox.data.local.dao.LedgerCategoryDao
 import com.goodyaoshi.lemonbox.data.local.dao.LedgerRecordDao
 import com.goodyaoshi.lemonbox.data.local.dao.LocationDao
 import com.goodyaoshi.lemonbox.data.local.dao.ReminderDao
+import com.goodyaoshi.lemonbox.data.local.entity.Anniversary
 import com.goodyaoshi.lemonbox.data.local.entity.Category
 import com.goodyaoshi.lemonbox.data.local.entity.Item
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerAsset
@@ -30,12 +32,13 @@ import com.goodyaoshi.lemonbox.util.LegacyTextNormalizer
         Category::class,
         Location::class,
         Reminder::class,
+        Anniversary::class,
         LedgerRecord::class,
         LedgerCategory::class,
         LedgerAsset::class,
         LedgerBudget::class
     ],
-    version = 22,
+    version = 25,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -44,6 +47,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun categoryDao(): CategoryDao
     abstract fun locationDao(): LocationDao
     abstract fun reminderDao(): ReminderDao
+    abstract fun anniversaryDao(): AnniversaryDao
     abstract fun ledgerRecordDao(): LedgerRecordDao
     abstract fun ledgerCategoryDao(): LedgerCategoryDao
     abstract fun ledgerAssetDao(): LedgerAssetDao
@@ -338,7 +342,7 @@ abstract class AppDatabase : RoomDatabase() {
         }
 
         /**
-         * 家务提醒：新表 reminders 承载一次性（某天某时）与周期性
+         * 待办提醒：新表 reminders 承载一次性（某天某时）与周期性
          * （每天/每隔 N 天/每周几）提醒，到点由 TodoReminderWorker 通知并推进。
          */
         private val MIGRATION_18_19 = object : Migration(18, 19) {
@@ -500,6 +504,127 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * 纪念日模块：新表 anniversaries（锚点日期 + 每年循环 + 农历 + 提前提醒）；
+         * 同时给 reminders 补上跨设备合并三件套（syncId/updatedAt/deletedAt），
+         * 让待办提醒也进备份与局域网同步。
+         */
+        private val MIGRATION_22_23 = object : Migration(22, 23) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `anniversaries` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `name` TEXT NOT NULL,
+                        `note` TEXT NOT NULL,
+                        `date` TEXT NOT NULL,
+                        `isLunar` INTEGER NOT NULL,
+                        `lunarMonth` INTEGER NOT NULL,
+                        `lunarDay` INTEGER NOT NULL,
+                        `repeatYearly` INTEGER NOT NULL,
+                        `remindDays` TEXT NOT NULL,
+                        `lastNotifiedDate` TEXT,
+                        `enabled` INTEGER NOT NULL,
+                        `syncId` TEXT,
+                        `updatedAt` INTEGER,
+                        `deletedAt` INTEGER,
+                        `createdAt` INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                listOf("syncId TEXT", "updatedAt INTEGER", "deletedAt INTEGER").forEach { column ->
+                    db.execSQL("ALTER TABLE `reminders` ADD COLUMN `$column`")
+                }
+                db.execSQL(
+                    "UPDATE reminders SET syncId = lower(hex(randomblob(16))) " +
+                        "WHERE syncId IS NULL"
+                )
+                db.execSQL(
+                    "UPDATE reminders SET updatedAt = createdAt WHERE updatedAt IS NULL"
+                )
+            }
+        }
+
+        /**
+         * 纪念日重复周期：「每年循环」开关升级为 repeatUnit（不循环/天/周/月/年）
+         * + repeatInterval（每 N 个单位）。SQLite 不支持直接删列，按 Room 惯例
+         * 重建表搬数据，repeatYearly=true 的旧数据回填成「每年」。
+         */
+        private val MIGRATION_23_24 = object : Migration(23, 24) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `anniversaries_new` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `name` TEXT NOT NULL,
+                        `note` TEXT NOT NULL,
+                        `date` TEXT NOT NULL,
+                        `isLunar` INTEGER NOT NULL,
+                        `lunarMonth` INTEGER NOT NULL,
+                        `lunarDay` INTEGER NOT NULL,
+                        `repeatUnit` TEXT NOT NULL,
+                        `repeatInterval` INTEGER NOT NULL,
+                        `remindDays` TEXT NOT NULL,
+                        `lastNotifiedDate` TEXT,
+                        `enabled` INTEGER NOT NULL,
+                        `syncId` TEXT,
+                        `updatedAt` INTEGER,
+                        `deletedAt` INTEGER,
+                        `createdAt` INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    INSERT INTO `anniversaries_new`
+                        (`id`, `name`, `note`, `date`, `isLunar`, `lunarMonth`, `lunarDay`,
+                         `repeatUnit`, `repeatInterval`, `remindDays`, `lastNotifiedDate`,
+                         `enabled`, `syncId`, `updatedAt`, `deletedAt`, `createdAt`)
+                    SELECT `id`, `name`, `note`, `date`, `isLunar`, `lunarMonth`, `lunarDay`,
+                        CASE WHEN `repeatYearly` = 1 THEN 'YEAR' ELSE 'NONE' END,
+                        1, `remindDays`, `lastNotifiedDate`,
+                        `enabled`, `syncId`, `updatedAt`, `deletedAt`, `createdAt`
+                    FROM `anniversaries`
+                    """.trimIndent()
+                )
+                db.execSQL("DROP TABLE `anniversaries`")
+                db.execSQL("ALTER TABLE `anniversaries_new` RENAME TO `anniversaries`")
+            }
+        }
+
+        /**
+         * 纪念日重构为类型制：新增 type 列（0 倒数日 / 1 正数日 / 2 生日）。
+         * 本应用升级一律卸载重装，无需迁移数据，重建空表即可。
+         */
+        private val MIGRATION_24_25 = object : Migration(24, 25) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("DROP TABLE IF EXISTS `anniversaries`")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `anniversaries` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `name` TEXT NOT NULL,
+                        `note` TEXT NOT NULL,
+                        `type` INTEGER NOT NULL,
+                        `date` TEXT NOT NULL,
+                        `isLunar` INTEGER NOT NULL,
+                        `lunarMonth` INTEGER NOT NULL,
+                        `lunarDay` INTEGER NOT NULL,
+                        `repeatUnit` TEXT NOT NULL,
+                        `repeatInterval` INTEGER NOT NULL,
+                        `remindDays` TEXT NOT NULL,
+                        `lastNotifiedDate` TEXT,
+                        `enabled` INTEGER NOT NULL,
+                        `syncId` TEXT,
+                        `updatedAt` INTEGER,
+                        `deletedAt` INTEGER,
+                        `createdAt` INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
         fun buildDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -528,7 +653,10 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_18_19,
                         MIGRATION_19_20,
                         MIGRATION_20_21,
-                        MIGRATION_21_22
+                        MIGRATION_21_22,
+                        MIGRATION_22_23,
+                        MIGRATION_23_24,
+                        MIGRATION_24_25
                     )
                     .addCallback(PrepopulateCallback())
                     .build()
