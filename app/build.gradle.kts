@@ -77,6 +77,26 @@ ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
 }
 
+// 分发副本：assembleRelease 完成后，把产物额外复制一份为「柠檬百宝箱.apk」到分发目录。
+// 原始 app\build\outputs\apk\release\app-release.apk 保持不动，二者同时存在、内容一致。
+// 分发目录可用 -PlemonApkOutputDir=... 覆盖，默认 D:/Downloads/kotlin。
+val lemonApkOutputDir = (findProperty("lemonApkOutputDir") as String?) ?: "D:/Downloads/kotlin"
+
+val copyReleaseApkForDistribution by tasks.registering(Copy::class) {
+    description = "把 release APK 复制为「柠檬百宝箱.apk」到分发目录"
+    group = "build"
+    from(layout.buildDirectory.file("outputs/apk/release/app-release.apk"))
+    into(lemonApkOutputDir)
+    rename { "柠檬百宝箱.apk" }
+    // 产物尚未生成时（例如只跑了别的任务）静默跳过，不打断构建。
+    onlyIf { layout.buildDirectory.file("outputs/apk/release/app-release.apk").get().asFile.exists() }
+}
+
+// 只挂在 release 构建上，debug 等其它任务不受影响。
+tasks.matching { it.name == "assembleRelease" }.configureEach {
+    finalizedBy(copyReleaseApkForDistribution)
+}
+
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.core.splashscreen)
