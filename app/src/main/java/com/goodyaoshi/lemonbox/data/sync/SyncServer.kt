@@ -155,10 +155,11 @@ class SyncServer @Inject constructor(
                 )
             val tempFile = File(context.cacheDir, "sync-in-${System.currentTimeMillis()}.zip")
             try {
-                session.inputStream.use { input ->
-                    tempFile.outputStream().use { output ->
-                        copyExactly(input, output, contentLength)
-                    }
+                // 只按 content-length 读完请求体，绝不能关闭 session.inputStream：
+                // 它底层是 socket 的输入流，关闭会连带关闭整个 socket，
+                // 导致 NanoHTTPD 无法把响应写回，客户端报 "unexpected end of stream"。
+                tempFile.outputStream().use { output ->
+                    copyExactly(session.inputStream, output, contentLength)
                 }
                 val result = runBlocking {
                     backupManager.importBackup(Uri.fromFile(tempFile))

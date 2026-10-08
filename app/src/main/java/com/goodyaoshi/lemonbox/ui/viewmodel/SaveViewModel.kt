@@ -38,6 +38,8 @@ data class SaveItemState(
     val reminderDays: List<Int> = emptyList(),
     /** 购买日期，默认今天，可改可清空。 */
     val purchaseDate: Long? = DateUtil.daysFromNow(0),
+    /** 开始使用时间；持续使用物品可在录入时自定义，为空则默认购买日期。 */
+    val startUseTime: Long? = null,
     /** 计量方式：按件消耗 / 持续使用（耐用品）。 */
     val trackMode: Int = Item.TRACK_CONSUMABLE,
     /** 用户是否手动改过计量方式；改过后不再跟随分类智能默认。 */
@@ -175,6 +177,11 @@ class SaveViewModel @Inject constructor(
         _state.value = _state.value.copy(purchaseDate = time)
     }
 
+    /** 持续使用物品的开始使用时间；清空后保存时回退为购买日期。 */
+    fun updateStartUseTime(time: Long?) {
+        _state.value = _state.value.copy(startUseTime = time)
+    }
+
     /** 手动切换计量方式，之后不再跟随分类智能默认。 */
     fun updateTrackMode(mode: Int) {
         _state.value = _state.value.copy(
@@ -222,8 +229,13 @@ class SaveViewModel @Inject constructor(
                 reminderDays = Item.encodeReminderDays(current.reminderDays),
                 purchaseDate = current.purchaseDate,
                 trackMode = current.trackMode,
-                // 默认「使用中」：开始使用时间即录入时刻，使用周期从此起算。
-                startUseTime = now
+                // 持续使用物品：优先用录入时选定的开始使用时间，否则默认购买日期；
+                // 按件消耗物品：开始使用时间即录入时刻，使用周期从此起算。
+                startUseTime = if (current.trackMode == Item.TRACK_DURABLE) {
+                    current.startUseTime ?: current.purchaseDate ?: now
+                } else {
+                    now
+                }
             )
             itemRepository.insert(item)
             _state.value = _state.value.copy(isSaving = false, isSaved = true)

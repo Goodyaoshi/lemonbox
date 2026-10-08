@@ -7,6 +7,7 @@ import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
 import com.goodyaoshi.lemonbox.data.repository.AnniversaryRepository
 import com.goodyaoshi.lemonbox.data.repository.ItemRepository
+import com.goodyaoshi.lemonbox.data.repository.LocationRepository
 import com.goodyaoshi.lemonbox.data.repository.ReminderRepository
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import com.goodyaoshi.lemonbox.util.AnniversaryCheckWorker
@@ -38,6 +39,9 @@ class LemonApplication : Application(), Configuration.Provider {
     lateinit var reminderRepository: ReminderRepository
 
     @Inject
+    lateinit var locationRepository: LocationRepository
+
+    @Inject
     lateinit var appPreferences: AppPreferences
 
     @Inject
@@ -64,6 +68,10 @@ class LemonApplication : Application(), Configuration.Provider {
             // 纪念日与待办提醒的软删墓碑：30 天后物理清除，删除动作仍会先同步到对方。
             anniversaryRepository.purgeDeletedOlderThan(cutoffTime)
             reminderRepository.purgeDeletedOlderThan(cutoffTime)
+        }
+        applicationScope.launch {
+            // 清理历史遗留的同名同父级重复位置（重复种子/重复录入/旧版合并留下的）。
+            locationRepository.deduplicateLocations()
         }
     }
 

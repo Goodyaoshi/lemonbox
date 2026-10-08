@@ -204,6 +204,10 @@ class AppBackupManager @Inject constructor(
                 todoReminderScheduler.reschedule()
             }
 
+            // 两台设备各自种子化的默认位置 syncId 不同，按 syncId 对齐后会各留一份，
+            // 合并完统一按「同名同父级路径」收敛，避免选择器出现多个一样的位置。
+            locationRepository.deduplicateLocations()
+
             return BackupMergeResult(
                 itemAdded = itemOutcome.added,
                 itemUpdated = itemOutcome.updated,

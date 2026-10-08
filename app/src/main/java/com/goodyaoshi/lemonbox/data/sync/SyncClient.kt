@@ -44,17 +44,21 @@ class SyncClient @Inject constructor(
             val base = "http://$host:$port"
 
             // 1. 握手：拿到对方 deviceId，作为水位线的键。
-            val peerId = fetchPeerInfo("$base/info?token=$token").deviceId
+            val peerId = step("连接对方设备") {
+                fetchPeerInfo("$base/info?token=$token").deviceId
+            }
 
             // 2. 推送本机变更。pushBaseTime 必须在生成 ZIP 之前取，否则会漏掉
             //    「读取快照期间被修改」的记录。
             val pushSince = resolveSince(appPreferences.pushWatermark(peerId))
             val pushBaseTime = System.currentTimeMillis()
-            val archive = backupManager.createBackupZip(pushSince)
-            val peerMerge = try {
-                postBackup("$base/merge?token=$token", archive.file)
-            } finally {
-                archive.file.delete()
+            val peerMerge = step("推送本机数据") {
+                val archive = backupManager.createBackupZip(pushSince)
+                try {
+                    postBackup("$base/merge?token=$token", archive.file)
+                } finally {
+                    archive.file.delete()
+                }
             }
             appPreferences.setPushWatermark(peerId, pushBaseTime)
 
@@ -65,20 +69,30 @@ class SyncClient @Inject constructor(
                 if (pullSince != null) append("&since=$pullSince")
             }
             val incoming = File(context.cacheDir, "sync-out-${System.currentTimeMillis()}.zip")
-            val localMerge = try {
-                val exportedAt = downloadBackup(backupUrl, incoming)
-                val result = backupManager.importBackup(Uri.fromFile(incoming))
-                if (exportedAt != null) {
-                    appPreferences.setPullWatermark(peerId, exportedAt)
+            val localMerge = step("拉取对方数据") {
+                try {
+                    val exportedAt = downloadBackup(backupUrl, incoming)
+                    val result = backupManager.importBackup(Uri.fromFile(incoming))
+                    if (exportedAt != null) {
+                        appPreferences.setPullWatermark(peerId, exportedAt)
+                    }
+                    result
+                } finally {
+                    incoming.delete()
                 }
-                result
-            } finally {
-                incoming.delete()
             }
 
             SyncOutcome(localMerge = localMerge, peerMerge = peerMerge).also {
                 appPreferences.setLastSyncAt(System.currentTimeMillis())
             }
+        }
+
+    /** 包住单个步骤，把底层异常翻译成带环节说明的错误，便于定位失败位置。 */
+    private inline fun <T> step(label: String, block: () -> T): T =
+        try {
+            block()
+        } catch (e: Exception) {
+            throw java.io.IOException("${label}失败：${e.message ?: e.javaClass.simpleName}", e)
         }
 
     /**

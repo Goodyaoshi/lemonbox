@@ -114,6 +114,7 @@ fun SaveScreen(
     var showAdvanced by remember { mutableStateOf(true) }
     var showDatePicker by remember { mutableStateOf(false) }
     var showPurchaseDatePicker by remember { mutableStateOf(false) }
+    var showStartUseDatePicker by remember { mutableStateOf(false) }
     var showCategoryPicker by remember { mutableStateOf(false) }
     var showLocationPicker by remember { mutableStateOf(false) }
 
@@ -417,6 +418,26 @@ fun SaveScreen(
                                         fontSize = 12.sp,
                                         color = TextHint
                                     )
+
+                                    Spacer(modifier = Modifier.height(18.dp))
+                                    EditorSectionLabel(label = "开始使用")
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    EditorInputBox(
+                                        value = (state.startUseTime ?: state.purchaseDate)
+                                            ?.let(DateUtil::formatDate).orEmpty(),
+                                        onValueChange = {},
+                                        placeholder = "点击选择日期",
+                                        readOnly = true,
+                                        modifier = Modifier.clickable { showStartUseDatePicker = true },
+                                        trailingContent = {
+                                            Icon(
+                                                imageVector = Icons.Default.CalendarToday,
+                                                contentDescription = null,
+                                                tint = TextHint,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                    )
                                 }
 
                                 Spacer(modifier = Modifier.height(18.dp))
@@ -546,6 +567,23 @@ fun SaveScreen(
                     showPurchaseDatePicker = false
                 },
                 title = "选择购买日期",
+                yearRange = purchaseYearRange
+            )
+        }
+
+        if (showStartUseDatePicker) {
+            ExpiryPickerDialog(
+                selectedDateMillis = state.startUseTime ?: state.purchaseDate,
+                onDismissRequest = { showStartUseDatePicker = false },
+                onClear = {
+                    viewModel.updateStartUseTime(null)
+                    showStartUseDatePicker = false
+                },
+                onConfirm = { selectedMillis ->
+                    viewModel.updateStartUseTime(selectedMillis)
+                    showStartUseDatePicker = false
+                },
+                title = "选择开始使用日期",
                 yearRange = purchaseYearRange
             )
         }

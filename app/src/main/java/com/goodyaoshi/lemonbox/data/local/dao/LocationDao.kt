@@ -42,4 +42,22 @@ interface LocationDao {
 
     @Query("DELETE FROM locations")
     suspend fun deleteAll()
+
+    /** 同一父级下是否已存在同名位置（忽略大小写），供新增去重。 */
+    @Query(
+        "SELECT COUNT(*) FROM locations " +
+            "WHERE deletedAt IS NULL AND parentId IS :parentId AND name = :name COLLATE NOCASE"
+    )
+    suspend fun countByNameAndParent(name: String, parentId: Long?): Int
+
+    /** 把重复位置的下级位置改挂到保留项，供去重清理使用。 */
+    @Query("UPDATE locations SET parentId = :toId WHERE parentId = :fromId AND id != :toId")
+    suspend fun reassignChildren(fromId: Long, toId: Long)
+
+    /** 把挂在重复位置上的物品改挂到保留项，供去重清理使用。 */
+    @Query("UPDATE items SET locationId = :toId WHERE locationId = :fromId")
+    suspend fun reassignItemsToLocation(fromId: Long, toId: Long)
+
+    @Query("DELETE FROM locations WHERE id = :id")
+    suspend fun deleteById(id: Long)
 }

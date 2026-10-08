@@ -98,6 +98,8 @@ class CategoryViewModel @Inject constructor(
         val normalized = name.trim()
         if (normalized.isBlank()) return
         viewModelScope.launch {
+            // 同一父级下已有同名位置时不再新增，避免选择器里出现多个一样的位置。
+            if (locationRepository.existsWithName(normalized, parentId)) return@launch
             locationRepository.insert(Location(name = normalized, parentId = parentId))
         }
     }
