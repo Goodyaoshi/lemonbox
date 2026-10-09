@@ -14,6 +14,9 @@ import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/** 账户保存结果：成功，或与已有有效账户同名被守卫拦截。 */
+enum class AssetSaveResult { SAVED, DUPLICATE_NAME }
+
 /**
  * 记账仓库：账单、记账分类、账户、预算四张表的统一入口。
  * 备份与局域网同步只需注入这一个仓库。
@@ -111,17 +114,25 @@ class LedgerRepository @Inject constructor(
     ): Flow<List<LedgerRecord>> =
         recordDao.observeRecordsByCategoryBetween(kind, categoryId, start, end)
 
-    /** 新增或更新账户；返回账户 id。 */
-    suspend fun saveAsset(asset: LedgerAsset): Long = if (asset.id == 0L) {
-        assetDao.insert(
-            asset.copy(
-                syncId = asset.syncId ?: UUID.randomUUID().toString(),
-                updatedAt = MonotonicClock.now()
+    /** 新增或更新账户；名称与其他有效账户同名（忽略大小写）时拒绝并返回 [AssetSaveResult.DUPLICATE_NAME]。 */
+    suspend fun saveAsset(asset: LedgerAsset): AssetSaveResult {
+        val normalizedName = asset.name.trim()
+        // 同名守卫：与去重口径一致（忽略大小写、只看有效账户），拦截手动录入的重复账户。
+        if (assetDao.countActiveByName(normalizedName, asset.id) > 0) {
+            return AssetSaveResult.DUPLICATE_NAME
+        }
+        val target = asset.copy(name = normalizedName)
+        if (target.id == 0L) {
+            assetDao.insert(
+                target.copy(
+                    syncId = target.syncId ?: UUID.randomUUID().toString(),
+                    updatedAt = MonotonicClock.now()
+                )
             )
-        )
-    } else {
-        assetDao.update(asset.copy(updatedAt = MonotonicClock.now()))
-        asset.id
+        } else {
+            assetDao.update(target.copy(updatedAt = MonotonicClock.now()))
+        }
+        return AssetSaveResult.SAVED
     }
 
     /**

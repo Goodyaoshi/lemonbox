@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.goodyaoshi.lemonbox.data.local.dao.LedgerAssetWithBalance
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerAsset
+import com.goodyaoshi.lemonbox.data.repository.AssetSaveResult
 import com.goodyaoshi.lemonbox.data.repository.LedgerRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
@@ -51,20 +52,20 @@ class LedgerAssetsViewModel @Inject constructor(
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), LedgerAssetSummary())
 
-    /** 新增或更新账户；名称为空时忽略。 */
+    /** 新增或更新账户；名称为空时忽略。结果通过 [onResult] 回传，同名时弹窗保持打开。 */
     fun saveAsset(
         id: Long?,
         name: String,
         iconKey: String,
         initialBalanceCents: Long,
         type: Int,
-        onDone: () -> Unit
+        onResult: (AssetSaveResult) -> Unit
     ) {
         val normalizedName = name.trim()
         if (normalizedName.isEmpty()) return
         viewModelScope.launch {
             val origin = id?.let { ledgerRepository.getAsset(it) }
-            ledgerRepository.saveAsset(
+            val result = ledgerRepository.saveAsset(
                 LedgerAsset(
                     id = id ?: 0L,
                     name = normalizedName,
@@ -76,7 +77,7 @@ class LedgerAssetsViewModel @Inject constructor(
                     syncId = origin?.syncId
                 )
             )
-            onDone()
+            onResult(result)
         }
     }
 

@@ -20,8 +20,6 @@ class SettingsViewModel @Inject constructor(
     private val appPreferences: AppPreferences
 ) : ViewModel() {
 
-    val reminderLadder: StateFlow<List<Int>> = appPreferences.reminderLadder
-
     val reminderTimes: StateFlow<List<String>> = appPreferences.reminderTimes
 
     val themeMode: StateFlow<ThemeMode> = appPreferences.themeMode
@@ -36,19 +34,8 @@ class SettingsViewModel @Inject constructor(
 
     val budgetReminderEnabled: StateFlow<Boolean> = appPreferences.budgetReminderEnabled
 
-    /** 家当录入页的有效期快捷档位（编码列表），可自定义。 */
-    val expiryQuickOptions: StateFlow<List<String>> = appPreferences.expiryQuickOptions
-
-    fun setExpiryQuickOptions(codes: List<String>) {
-        appPreferences.setExpiryQuickOptions(codes)
-    }
-
     fun setBudgetReminderEnabled(enabled: Boolean) {
         appPreferences.setBudgetReminderEnabled(enabled)
-    }
-
-    fun setReminderLadder(days: List<Int>) {
-        appPreferences.setReminderLadder(days)
     }
 
     /** 自定义时间点：加入候选池并自动勾选。 */

@@ -7,6 +7,9 @@ import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/** 纪念日保存结果：成功，或与已有同「名称+日期+类型」的有效纪念日重复被守卫拦截。 */
+enum class AnniversarySaveResult { SAVED, DUPLICATE_NAME }
+
 /**
  * 纪念日的数据入口：普通写入盖 syncId/updatedAt；同步导入走 insertSynced/updateSynced
  * 原样保留备份里的时间戳，保证 LWW 合并不被打乱。
@@ -38,6 +41,26 @@ class AnniversaryRepository @Inject constructor(
                 updatedAt = now
             )
         )
+    }
+
+    /**
+     * 新增或更新纪念日；与已有有效纪念日同「名称+日期+类型」（忽略大小写与首尾空格）时
+     * 拒绝并返回 [AnniversarySaveResult.DUPLICATE_NAME]，避免手动录入产生重复项。
+     */
+    suspend fun save(anniversary: Anniversary): AnniversarySaveResult {
+        val normalizedName = anniversary.name.trim()
+        if (anniversaryDao.countActiveByNameDateType(
+                name = normalizedName,
+                date = anniversary.date,
+                type = anniversary.type,
+                excludeId = anniversary.id
+            ) > 0
+        ) {
+            return AnniversarySaveResult.DUPLICATE_NAME
+        }
+        val target = anniversary.copy(name = normalizedName)
+        if (target.id == 0L) create(target) else update(target)
+        return AnniversarySaveResult.SAVED
     }
 
     suspend fun update(anniversary: Anniversary) {
@@ -72,6 +95,32 @@ class AnniversaryRepository @Inject constructor(
     suspend fun purgeDeletedOlderThan(cutoff: Long) {
         anniversaryDao.purgeDeletedOlderThan(cutoff)
     }
+
+    /**
+     * 清理同「名称+日期+类型」的重复纪念日（重复录入/旧版合并留下的）。
+     * 保留规则与设备无关：取 syncId 字典序最小的一条，其余软删除写入墓碑，
+     * 随备份/同步传递给对端，避免对端再次生成副本。返回清理条数。
+     */
+    suspend fun deduplicateAnniversaries(): Int {
+        val active = anniversaryDao.getAllSnapshot().filter { it.deletedAt == null }
+        val groups = active.groupBy { anniversaryKey(it) }.values.filter { it.size > 1 }
+        if (groups.isEmpty()) return 0
+        val now = System.currentTimeMillis()
+        var removed = 0
+        groups.forEach { group ->
+            val keeper = group.minByOrNull { it.syncId ?: "id:${it.id}" }!!
+            group.forEach { dup ->
+                if (dup.id == keeper.id) return@forEach
+                anniversaryDao.softDelete(id = dup.id, deletedAt = now, updatedAt = now)
+                removed++
+            }
+        }
+        return removed
+    }
+
+    /** 去重键：名称（忽略大小写与首尾空格）+ 日期 + 类型。 */
+    private fun anniversaryKey(anniversary: Anniversary): String =
+        "${anniversary.name.trim().lowercase()}|${anniversary.date}|${anniversary.type}"
 
     // ---- 备份/同步 ----
 

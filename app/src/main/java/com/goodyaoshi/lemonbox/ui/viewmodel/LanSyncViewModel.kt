@@ -133,6 +133,12 @@ class LanSyncViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(message = null)
     }
 
+    /** 重新搜索附近设备：先停再开，让列表能刷掉已离线/已变更的项。 */
+    fun refreshDiscovery() {
+        lanSyncManager.stopDiscovery()
+        lanSyncManager.startDiscovery()
+    }
+
     private fun showMessage(text: String) {
         _uiState.value = _uiState.value.copy(message = text)
     }

@@ -47,6 +47,22 @@ class CategoryViewModel @Inject constructor(
     /** 用户自定义的物品状态（不含内置，含两个维度），与物品详情共用同一份偏好。 */
     val customStatuses: StateFlow<List<ItemStatusOption>> = appPreferences.customStatuses
 
+    /** 到期提醒阶梯（提前 N 天），未单独设置的物品都跟随这份默认阶梯。 */
+    val reminderLadder: StateFlow<List<Int>> = appPreferences.reminderLadder
+
+    /** 家当录入页的有效期快捷档位（编码列表），可自定义。 */
+    val expiryQuickOptions: StateFlow<List<String>> = appPreferences.expiryQuickOptions
+
+    /** 更新到期提醒阶梯。 */
+    fun setReminderLadder(days: List<Int>) {
+        appPreferences.setReminderLadder(days)
+    }
+
+    /** 更新有效期快捷档位。 */
+    fun setExpiryQuickOptions(codes: List<String>) {
+        appPreferences.setExpiryQuickOptions(codes)
+    }
+
     private val _selectedCategoryId = MutableStateFlow<Long?>(null)
     val selectedCategoryId: StateFlow<Long?> = _selectedCategoryId.asStateFlow()
 

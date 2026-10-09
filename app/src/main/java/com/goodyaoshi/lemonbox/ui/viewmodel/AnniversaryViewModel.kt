@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.goodyaoshi.lemonbox.data.local.entity.Anniversary
 import com.goodyaoshi.lemonbox.data.repository.AnniversaryRepository
+import com.goodyaoshi.lemonbox.data.repository.AnniversarySaveResult
 import com.goodyaoshi.lemonbox.util.AnniversaryClock
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
@@ -150,24 +151,29 @@ class AnniversaryEditViewModel @Inject constructor(
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
     }
 
-    fun save(anniversary: Anniversary, onDone: () -> Unit) {
+    fun save(
+        anniversary: Anniversary,
+        onDone: () -> Unit,
+        onDuplicateName: () -> Unit = {}
+    ) {
         viewModelScope.launch {
-            if (isEditMode) {
+            val target = if (isEditMode) {
                 val original = anniversaryRepository.getById(anniversaryId) ?: return@launch
-                anniversaryRepository.update(
-                    anniversary.copy(
-                        id = original.id,
-                        syncId = original.syncId,
-                        createdAt = original.createdAt,
-                        // 保留原字段模式：编辑不抹掉本地通知去重与软删标记
-                        lastNotifiedDate = original.lastNotifiedDate,
-                        deletedAt = original.deletedAt
-                    )
+                anniversary.copy(
+                    id = original.id,
+                    syncId = original.syncId,
+                    createdAt = original.createdAt,
+                    // 保留原字段模式：编辑不抹掉本地通知去重与软删标记
+                    lastNotifiedDate = original.lastNotifiedDate,
+                    deletedAt = original.deletedAt
                 )
             } else {
-                anniversaryRepository.create(anniversary)
+                anniversary
             }
-            onDone()
+            when (anniversaryRepository.save(target)) {
+                AnniversarySaveResult.DUPLICATE_NAME -> onDuplicateName()
+                AnniversarySaveResult.SAVED -> onDone()
+            }
         }
     }
 

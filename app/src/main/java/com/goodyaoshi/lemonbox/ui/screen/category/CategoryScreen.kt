@@ -88,10 +88,12 @@ import com.goodyaoshi.lemonbox.data.local.entity.ItemStatusCatalog
 import com.goodyaoshi.lemonbox.data.local.entity.ItemStatusOption
 import com.goodyaoshi.lemonbox.data.local.entity.Location
 import com.goodyaoshi.lemonbox.data.local.entity.StatusDimension
+import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.CategoryIconOption
+import com.goodyaoshi.lemonbox.ui.components.EditorInputBox
 import com.goodyaoshi.lemonbox.ui.components.categoryIconFor
 import com.goodyaoshi.lemonbox.ui.components.categoryIconOptions
 import com.goodyaoshi.lemonbox.ui.components.itemStatusColors
@@ -106,6 +108,7 @@ import com.goodyaoshi.lemonbox.ui.theme.TextHint
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
 import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
 import com.goodyaoshi.lemonbox.ui.viewmodel.CategoryViewModel
+import com.goodyaoshi.lemonbox.util.DateUtil
 
 /** 分类页：统一维护物品分类、存放位置与物品状态选项，从「我的」进入。 */
 @Composable
@@ -121,6 +124,8 @@ fun CategoryScreen(
     val selectedCategoryId by viewModel.selectedCategoryId.collectAsState()
     val selectedLocationId by viewModel.selectedLocationId.collectAsState()
     val customStatuses by viewModel.customStatuses.collectAsState()
+    val reminderLadder by viewModel.reminderLadder.collectAsState()
+    val expiryQuickOptions by viewModel.expiryQuickOptions.collectAsState()
 
     var selectedTab by remember { mutableIntStateOf(0) }
     val expandedLocations = remember { mutableStateMapOf<Long, Boolean>() }
@@ -142,6 +147,7 @@ fun CategoryScreen(
     var editingStatus by remember { mutableStateOf<ItemStatusOption?>(null) }
     var statusInput by remember { mutableStateOf("") }
     var statusError by remember { mutableStateOf<String?>(null) }
+    var showExpiryQuickDialog by remember { mutableStateOf(false) }
 
     val locationDescendants = remember(allLocations) { buildLocationDescendants(allLocations) }
     val categoryDescendants = remember(categories) { buildCategoryDescendants(categories) }
@@ -184,14 +190,14 @@ fun CategoryScreen(
                     )
                 }
                 Text(
-                    text = "分类与状态",
+                    text = "家当设置",
                     fontSize = 24.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary
                 )
             }
             Text(
-                text = "物品分类、存放位置、状态选项都在这里维护；查看物品请到家当筛选。",
+                text = "物品分类、存放位置、状态选项，以及有效期快捷与到期提醒，都在这里维护；查看物品请到家当筛选。",
                 fontSize = 13.sp,
                 color = TextSecondary,
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
@@ -223,14 +229,15 @@ fun CategoryScreen(
                     text = when (selectedTab) {
                         0 -> "管理分类"
                         1 -> "管理位置"
-                        else -> "状态选项"
+                        2 -> "状态选项"
+                        else -> "有效期与提醒"
                     },
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = TextPrimary,
                     modifier = Modifier.weight(1f)
                 )
-                if (selectedTab != 2) {
+                if (selectedTab < 2) {
                     val editingSelected = if (selectedTab == 0) {
                         selectedCategoryId != null
                     } else {
@@ -352,7 +359,7 @@ fun CategoryScreen(
                         viewModel = viewModel
                     )
 
-                    else -> StatusOptionsPanel(
+                    2 -> StatusOptionsPanel(
                         customStatuses = customStatuses,
                         onAdd = { dimension ->
                             statusInput = ""
@@ -367,6 +374,28 @@ fun CategoryScreen(
                             statusDialogDimension = option.dimension
                         },
                         onRemove = viewModel::removeCustomStatus
+                    )
+
+                    else -> ExpiryReminderPanel(
+                        reminderLadder = reminderLadder,
+                        onToggleLadder = { days ->
+                            val updated = if (reminderLadder.contains(days)) {
+                                reminderLadder - days
+                            } else {
+                                (reminderLadder + days).sorted()
+                            }
+                            viewModel.setReminderLadder(updated)
+                        },
+                        expiryQuickOptions = expiryQuickOptions,
+                        onToggleQuickOption = { code ->
+                            val updated = if (expiryQuickOptions.contains(code)) {
+                                expiryQuickOptions - code
+                            } else {
+                                expiryQuickOptions + code
+                            }
+                            viewModel.setExpiryQuickOptions(updated)
+                        },
+                        onOpenQuickCustom = { showExpiryQuickDialog = true }
                     )
                 }
             }
@@ -511,6 +540,225 @@ fun CategoryScreen(
                 )
             }
         }
+    }
+
+    if (showExpiryQuickDialog) {
+        ExpiryQuickDialog(
+            onDismiss = { showExpiryQuickDialog = false },
+            onConfirm = { codes ->
+                viewModel.setExpiryQuickOptions(codes)
+                showExpiryQuickDialog = false
+            }
+        )
+    }
+}
+
+/**
+ * 「有效期与提醒」面板：家当录入页的有效期快捷档位 + 到期提醒阶梯，
+ * 原来分散在设置页，合并进家当设置统一维护。
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ExpiryReminderPanel(
+    reminderLadder: List<Int>,
+    onToggleLadder: (Int) -> Unit,
+    expiryQuickOptions: List<String>,
+    onToggleQuickOption: (String) -> Unit,
+    onOpenQuickCustom: () -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(20.dp)
+    ) {
+        item {
+            Column {
+                Text(
+                    text = "有效期快捷选项",
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = TextPrimary
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "家当录入页「有效期」的快捷档位，按自己常买物品的保质期自定义（支持 x天/x周/x月/x年）。",
+                    fontSize = 12.sp,
+                    color = TextSecondary
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val candidates =
+                        (DateUtil.EXPIRY_QUICK_CANDIDATES + expiryQuickOptions).distinct()
+                    candidates.forEach { code ->
+                        OptionChip(
+                            label = DateUtil.expiryQuickLabel(code),
+                            selected = expiryQuickOptions.contains(code),
+                            onClick = { onToggleQuickOption(code) }
+                        )
+                    }
+                    OptionChip(
+                        label = "自定义…",
+                        selected = false,
+                        onClick = onOpenQuickCustom
+                    )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = if (expiryQuickOptions.isEmpty()) {
+                        "尚未设置快捷档位，录入时可直接选日期"
+                    } else {
+                        "当前档位：" + expiryQuickOptions.joinToString("、") {
+                            DateUtil.expiryQuickLabel(it)
+                        }
+                    },
+                    fontSize = 12.sp,
+                    color = OrangeStart,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        }
+
+        item {
+            Column {
+                Text(
+                    text = "到期提醒阶梯",
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = TextPrimary
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "可多选。物品有效期进入所选的天数档位时提醒一次，未单独设置的物品都跟随这份默认阶梯。",
+                    fontSize = 12.sp,
+                    color = TextSecondary
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    AppPreferences.REMINDER_LADDER_OPTIONS.forEach { days ->
+                        OptionChip(
+                            label = "$days 天",
+                            selected = reminderLadder.contains(days),
+                            onClick = { onToggleLadder(days) }
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = if (reminderLadder.isEmpty()) {
+                        "尚未选择档位，临期与到期当天仍会提醒"
+                    } else {
+                        "当前阶梯：${reminderLadder.joinToString("、") { "$it 天" }}"
+                    },
+                    fontSize = 12.sp,
+                    color = OrangeStart,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        }
+    }
+}
+
+/** 有效期快捷档位自定义：输入数值 + 选单位（天/周/月/年），追加到现有档位并去重。 */
+@Composable
+private fun ExpiryQuickDialog(
+    onDismiss: () -> Unit,
+    onConfirm: (List<String>) -> Unit
+) {
+    var amountText by remember { mutableStateOf("") }
+    var unit by remember { mutableStateOf("d") }
+    var added by remember { mutableStateOf(DateUtil.DEFAULT_EXPIRY_QUICK_CODES) }
+    val unitOptions = listOf("d" to "天", "w" to "周", "m" to "月", "y" to "年")
+
+    AppDialog(
+        title = "自定义有效期快捷",
+        onDismissRequest = onDismiss,
+        confirmText = "保存",
+        onConfirm = { onConfirm(added) }
+    ) {
+        Column {
+            Text(
+                text = "输入数值并选择单位，添加到快捷档位。",
+                fontSize = 12.sp,
+                color = TextSecondary
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(modifier = Modifier.weight(1f)) {
+                    EditorInputBox(
+                        value = amountText,
+                        onValueChange = { input ->
+                            amountText = input.filter { it.isDigit() }.take(3)
+                        },
+                        placeholder = "数值"
+                    )
+                }
+                unitOptions.forEach { (code, label) ->
+                    OptionChip(
+                        label = label,
+                        selected = unit == code,
+                        onClick = { unit = code }
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+            val canAdd = (amountText.toIntOrNull() ?: 0) > 0
+            OptionChip(
+                label = if (canAdd) {
+                    "添加：${DateUtil.expiryQuickLabel(amountText.toInt().toString() + unit)}"
+                } else {
+                    "添加"
+                },
+                selected = canAdd,
+                onClick = {
+                    if (!canAdd) return@OptionChip
+                    added = DateUtil.normalizeExpiryQuickCodes(
+                        added + (amountText.toInt().toString() + unit)
+                    )
+                    amountText = ""
+                }
+            )
+            if (added.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(
+                    text = "当前档位：" + added.joinToString("、") { DateUtil.expiryQuickLabel(it) },
+                    fontSize = 12.sp,
+                    color = OrangeStart,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        }
+    }
+}
+
+/** 单选胶囊：选中态用品牌色铺底 + 白字，未选中态用浅底 + 次级文字。 */
+@Composable
+private fun OptionChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(if (selected) OrangeStart else SurfaceWarmDeep)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 9.dp)
+    ) {
+        Text(
+            text = label,
+            fontSize = 13.sp,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            color = if (selected) CardWhite else TextSecondary
+        )
     }
 }
 
@@ -734,6 +982,12 @@ private fun SegmentedTabs(
             selected = selectedTab == 2,
             modifier = Modifier.weight(1f),
             onClick = { onSelectTab(2) }
+        )
+        SegmentItem(
+            text = "有效期与提醒",
+            selected = selectedTab == 3,
+            modifier = Modifier.weight(1f),
+            onClick = { onSelectTab(3) }
         )
     }
 }

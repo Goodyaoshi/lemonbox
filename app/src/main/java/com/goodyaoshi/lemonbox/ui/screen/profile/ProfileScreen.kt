@@ -176,7 +176,7 @@ fun ProfileScreen(
             }
 
             SectionTitle(
-                title = "常用",
+                title = "家当",
                 modifier = Modifier.padding(start = 24.dp, top = 10.dp, bottom = 8.dp)
             )
             AppSurfaceCard(
@@ -185,11 +185,10 @@ fun ProfileScreen(
                 shadowElevation = 12.dp
             ) {
                 MenuRow(
-                    icon = Icons.Default.Alarm,
-                    title = "待办提醒",
-                    subtitle = "解冻、备菜、家务等一次性与周期待办",
-                    badge = dueReminderCount.takeIf { it > 0 }?.toString(),
-                    onClick = onOpenReminders
+                    icon = Icons.Default.Widgets,
+                    title = "家当设置",
+                    subtitle = "分类、存放位置、状态选项与有效期提醒",
+                    onClick = onOpenCategory
                 )
                 DividerSpacer()
                 MenuRow(
@@ -209,6 +208,49 @@ fun ProfileScreen(
                 )
                 DividerSpacer()
                 MenuRow(
+                    icon = Icons.Default.History,
+                    title = "回收站",
+                    subtitle = if (trashCount > 0) "当前有 $trashCount 项可在 30 天内恢复" else "30 天内可恢复最近删除的物品",
+                    badge = trashCount.takeIf { it > 0 }?.toString(),
+                    onClick = onOpenTrash
+                )
+            }
+
+            SectionTitle(
+                title = "记账",
+                modifier = Modifier.padding(start = 24.dp, top = 18.dp, bottom = 8.dp)
+            )
+            AppSurfaceCard(
+                modifier = Modifier.padding(horizontal = 20.dp),
+                shape = RoundedCornerShape(24.dp),
+                shadowElevation = 12.dp
+            ) {
+                MenuRow(
+                    icon = Icons.Default.Category,
+                    title = "记账分类",
+                    subtitle = "支出 / 收入分类的增删改",
+                    onClick = onOpenLedgerCategories
+                )
+            }
+
+            SectionTitle(
+                title = "提醒与纪念日",
+                modifier = Modifier.padding(start = 24.dp, top = 18.dp, bottom = 8.dp)
+            )
+            AppSurfaceCard(
+                modifier = Modifier.padding(horizontal = 20.dp),
+                shape = RoundedCornerShape(24.dp),
+                shadowElevation = 12.dp
+            ) {
+                MenuRow(
+                    icon = Icons.Default.Alarm,
+                    title = "待办提醒",
+                    subtitle = "解冻、备菜、家务等一次性与周期待办",
+                    badge = dueReminderCount.takeIf { it > 0 }?.toString(),
+                    onClick = onOpenReminders
+                )
+                DividerSpacer()
+                MenuRow(
                     icon = Icons.Default.Favorite,
                     title = "纪念日",
                     subtitle = "在一起的累计、生日与倒数的日子",
@@ -218,7 +260,7 @@ fun ProfileScreen(
             }
 
             SectionTitle(
-                title = "管理",
+                title = "设置与数据",
                 modifier = Modifier.padding(start = 24.dp, top = 18.dp, bottom = 8.dp)
             )
             AppSurfaceCard(
@@ -226,45 +268,13 @@ fun ProfileScreen(
                 shape = RoundedCornerShape(24.dp),
                 shadowElevation = 12.dp
             ) {
-                MenuRow(
-                    icon = Icons.Default.Widgets,
-                    title = "家当分类与状态",
-                    subtitle = "物品分类、存放位置与状态选项",
-                    onClick = onOpenCategory
-                )
-                DividerSpacer()
-                MenuRow(
-                    icon = Icons.Default.Category,
-                    title = "记账分类",
-                    subtitle = "支出 / 收入分类的增删改",
-                    onClick = onOpenLedgerCategories
-                )
-                DividerSpacer()
-                MenuRow(
-                    icon = Icons.Default.History,
-                    title = "回收站",
-                    subtitle = if (trashCount > 0) "当前有 $trashCount 项可在 30 天内恢复" else "30 天内可恢复最近删除的物品",
-                    badge = trashCount.takeIf { it > 0 }?.toString(),
-                    onClick = onOpenTrash
-                )
-                DividerSpacer()
                 MenuRow(
                     icon = Icons.Default.Settings,
                     title = "设置",
-                    subtitle = "外观与到期提醒",
+                    subtitle = "外观、提醒时间、备菜提醒与提醒可靠性",
                     onClick = onOpenSettings
                 )
-            }
-
-            SectionTitle(
-                title = "数据",
-                modifier = Modifier.padding(start = 24.dp, top = 18.dp, bottom = 8.dp)
-            )
-            AppSurfaceCard(
-                modifier = Modifier.padding(horizontal = 20.dp),
-                shape = RoundedCornerShape(24.dp),
-                shadowElevation = 12.dp
-            ) {
+                DividerSpacer()
                 MenuRow(
                     icon = Icons.Default.Sync,
                     title = "局域网同步",

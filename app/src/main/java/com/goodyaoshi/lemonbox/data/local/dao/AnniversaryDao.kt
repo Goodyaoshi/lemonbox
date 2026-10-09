@@ -19,8 +19,8 @@ interface AnniversaryDao {
     @Query("SELECT * FROM anniversaries WHERE deletedAt IS NULL")
     fun getAllAnniversaries(): Flow<List<Anniversary>>
 
-    /** 未删除全量快照（备份导出/合并导入用）。 */
-    @Query("SELECT * FROM anniversaries WHERE deletedAt IS NULL")
+    /** 全量快照（含软删墓碑，备份导出/合并导入用）；墓碑必须随包传递，否则本机删除不会同步到对端。 */
+    @Query("SELECT * FROM anniversaries")
     suspend fun getAllSnapshot(): List<Anniversary>
 
     /** 活跃快照（后台检查Worker用）。 */
@@ -36,6 +36,14 @@ interface AnniversaryDao {
 
     @Query("SELECT COUNT(*) FROM anniversaries WHERE deletedAt IS NULL")
     fun observeCount(): Flow<Int>
+
+    /** 同「名称+日期+类型」的有效纪念日数量（忽略大小写与首尾空格）；编辑时排除自身，用于录入同名守卫。 */
+    @Query(
+        "SELECT COUNT(*) FROM anniversaries " +
+            "WHERE deletedAt IS NULL AND type = :type AND date = :date " +
+            "AND LOWER(TRIM(name)) = LOWER(:name) AND id != :excludeId"
+    )
+    suspend fun countActiveByNameDateType(name: String, date: String, type: Int, excludeId: Long): Int
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(anniversary: Anniversary): Long

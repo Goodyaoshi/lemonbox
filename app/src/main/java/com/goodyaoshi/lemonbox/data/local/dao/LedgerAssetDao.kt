@@ -26,8 +26,8 @@ data class LedgerAssetWithBalance(
 interface LedgerAssetDao {
 
     /**
-     * 全部账户（含软删墓碑，供备份）+ 实时聚合余额：
-     * 支出扣减、收入增加；转账从转出方扣、向转入方加。
+     * 全部有效账户 + 实时聚合余额：支出扣减、收入增加；转账从转出方扣、向转入方加。
+     * 必须过滤软删墓碑（去重合并后的副本仍留在表中），否则记账页的账户胶囊会重复显示。
      */
     @Query(
         """
@@ -39,6 +39,7 @@ interface LedgerAssetDao {
         FROM ledger_assets a
         LEFT JOIN ledger_records r
             ON (r.assetId = a.id OR r.targetAssetId = a.id) AND r.deletedAt IS NULL
+        WHERE a.deletedAt IS NULL
         GROUP BY a.id
         ORDER BY a.sort ASC, a.id ASC
         """
@@ -50,6 +51,13 @@ interface LedgerAssetDao {
 
     @Query("SELECT * FROM ledger_assets WHERE id = :id")
     suspend fun getById(id: Long): LedgerAsset?
+
+    /** 同名有效账户数量（忽略大小写），排除自身，供新增/编辑时的同名守卫使用。 */
+    @Query(
+        "SELECT COUNT(*) FROM ledger_assets " +
+            "WHERE deletedAt IS NULL AND id != :excludeId AND name = :name COLLATE NOCASE"
+    )
+    suspend fun countActiveByName(name: String, excludeId: Long): Int
 
     /** 全量快照（含墓碑），供备份/同步合并使用。 */
     @Query("SELECT * FROM ledger_assets ORDER BY id ASC")

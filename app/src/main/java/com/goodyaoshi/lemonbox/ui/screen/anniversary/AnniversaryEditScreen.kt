@@ -132,6 +132,7 @@ fun AnniversaryEditScreen(
     var showSolarPicker by remember { mutableStateOf(false) }
     var showLunarPicker by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf(false) }
+    var duplicateName by remember { mutableStateOf(false) }
 
     LaunchedEffect(loaded) {
         val a = loaded ?: return@LaunchedEffect
@@ -607,7 +608,8 @@ fun AnniversaryEditScreen(
                             remindDays = Anniversary.encodeReminderDays(remindDays.toList()),
                             enabled = enabled
                         ),
-                        onDone = onBack
+                        onDone = onBack,
+                        onDuplicateName = { duplicateName = true }
                     )
                 },
                 modifier = Modifier
@@ -660,6 +662,22 @@ fun AnniversaryEditScreen(
                     // 锚点同步为出生当天的公历日期，预览与存库共用
                     AnniversaryClock.lunarToSolar(y, m, d)?.let { solarDate = it }
                 }
+            )
+        }
+    }
+
+    if (duplicateName) {
+        AppDialog(
+            title = "纪念日已存在",
+            subtitle = "已经有一个同名同日期的纪念日了，换个名称或日期再试。",
+            onDismissRequest = { duplicateName = false },
+            confirmText = "知道了",
+            onConfirm = { duplicateName = false }
+        ) {
+            Text(
+                text = "「${name.trim()}」与已有纪念日重复，就没有再存一份。",
+                fontSize = 14.sp,
+                color = TextSecondary
             )
         }
     }

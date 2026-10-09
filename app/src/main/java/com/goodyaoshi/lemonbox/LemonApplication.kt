@@ -79,11 +79,12 @@ class LemonApplication : Application(), Configuration.Provider {
         }
         applicationScope.launch {
             // 清理历史遗留的同名重复项（重复种子/重复录入/旧版合并留下的）：
-            // 位置、家当分类、记账分类与账户。
+            // 位置、家当分类、记账分类、账户与纪念日。
             locationRepository.deduplicateLocations()
             categoryRepository.deduplicateCategories()
             ledgerRepository.deduplicateCategories()
             ledgerRepository.deduplicateAssets()
+            anniversaryRepository.deduplicateAnniversaries()
         }
     }
 

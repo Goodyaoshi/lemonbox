@@ -210,6 +210,7 @@ class AppBackupManager @Inject constructor(
             categoryRepository.deduplicateCategories()
             ledgerRepository.deduplicateCategories()
             ledgerRepository.deduplicateAssets()
+            anniversaryRepository.deduplicateAnniversaries()
 
             return BackupMergeResult(
                 itemAdded = itemOutcome.added,

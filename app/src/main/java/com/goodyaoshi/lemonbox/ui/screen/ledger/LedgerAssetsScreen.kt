@@ -61,6 +61,7 @@ import com.goodyaoshi.lemonbox.ui.theme.StatusExpired
 import com.goodyaoshi.lemonbox.ui.theme.TextHint
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
 import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
+import com.goodyaoshi.lemonbox.data.repository.AssetSaveResult
 import com.goodyaoshi.lemonbox.ui.viewmodel.LedgerAssetsViewModel
 import com.goodyaoshi.lemonbox.ui.viewmodel.LEDGER_ASSET_TYPE_CREDIT
 import com.goodyaoshi.lemonbox.ui.viewmodel.LEDGER_ASSET_TYPE_NORMAL
@@ -89,6 +90,7 @@ fun LedgerAssetsScreen(
     var openedAssetId by remember { mutableStateOf<Long?>(null) }
     var pendingDelete by remember { mutableStateOf<LedgerAssetWithBalance?>(null) }
     var deleteBlockedName by remember { mutableStateOf<String?>(null) }
+    var showDuplicateName by remember { mutableStateOf(false) }
 
     val currentType = if (tabIndex == 1) LEDGER_ASSET_TYPE_CREDIT else LEDGER_ASSET_TYPE_NORMAL
     val groupLabel = if (tabIndex == 1) "负债" else "资产"
@@ -237,7 +239,10 @@ fun LedgerAssetsScreen(
                     iconKey = iconKey,
                     initialBalanceCents = initialBalanceCents,
                     type = type
-                ) { showAddDialog = false }
+                ) { result ->
+                    if (result == AssetSaveResult.SAVED) showAddDialog = false
+                    else showDuplicateName = true
+                }
             }
         )
     }
@@ -254,7 +259,10 @@ fun LedgerAssetsScreen(
                     iconKey = iconKey,
                     initialBalanceCents = initialBalanceCents,
                     type = type
-                ) { editingAsset = null }
+                ) { result ->
+                    if (result == AssetSaveResult.SAVED) editingAsset = null
+                    else showDuplicateName = true
+                }
             }
         )
     }
@@ -291,6 +299,22 @@ fun LedgerAssetsScreen(
         ) {
             Text(
                 text = "可以先把相关账单删掉或换到别的账户，再回来删除哦。",
+                color = TextSecondary,
+                fontSize = 14.sp
+            )
+        }
+    }
+
+    if (showDuplicateName) {
+        AppDialog(
+            title = "名称重复了",
+            subtitle = "已经有同名账户了，换个名字再保存吧。",
+            onDismissRequest = { showDuplicateName = false },
+            confirmText = "知道了",
+            dismissText = null
+        ) {
+            Text(
+                text = "账户名称不区分大小写，且不能有前后空格差异的同名项。",
                 color = TextSecondary,
                 fontSize = 14.sp
             )

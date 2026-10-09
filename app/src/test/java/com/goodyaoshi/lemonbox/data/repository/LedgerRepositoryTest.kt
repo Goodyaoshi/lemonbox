@@ -144,6 +144,46 @@ class LedgerRepositoryTest {
         assertNotNull(assetDao.assets.single().deletedAt)
     }
 
+    @Test
+    fun saveAsset_blocksDuplicateNameIgnoringCaseAndPadding() = runTest {
+        val assetDao = FakeLedgerAssetDao()
+        val repository = repository(assetDao = assetDao)
+
+        assertEquals(AssetSaveResult.SAVED, repository.saveAsset(LedgerAsset(name = "cash")))
+        // 大小写不同仍算同名。
+        assertEquals(
+            AssetSaveResult.DUPLICATE_NAME,
+            repository.saveAsset(LedgerAsset(name = "CASH"))
+        )
+        // 前后空格在归一化后也视为同名。
+        assertEquals(
+            AssetSaveResult.DUPLICATE_NAME,
+            repository.saveAsset(LedgerAsset(name = " cash "))
+        )
+
+        assertEquals(1, assetDao.assets.size)
+    }
+
+    @Test
+    fun saveAsset_duplicateGuardIgnoresTombstonesAndSelf() = runTest {
+        val recordDao = FakeLedgerRecordDao()
+        val assetDao = FakeLedgerAssetDao()
+        val repository = repository(recordDao, assetDao = assetDao)
+        val firstId = repository.saveAsset(LedgerAsset(name = "现金")).let {
+            assetDao.assets.single().id
+        }
+        // 软删后同名可以重新建立。
+        repository.deleteAsset(firstId)
+        assertEquals(AssetSaveResult.SAVED, repository.saveAsset(LedgerAsset(name = "现金")))
+
+        // 编辑自己：名称不变应当放行。
+        val newId = assetDao.assets.single { it.deletedAt == null }.id
+        assertEquals(
+            AssetSaveResult.SAVED,
+            repository.saveAsset(assetDao.assets.single { it.id == newId }.copy(name = " 现金 "))
+        )
+    }
+
     // ---------- 预算 ----------
 
     @Test
@@ -312,6 +352,11 @@ class LedgerRepositoryTest {
         }
 
         override suspend fun getById(id: Long): LedgerAsset? = assets.firstOrNull { it.id == id }
+
+        override suspend fun countActiveByName(name: String, excludeId: Long): Int =
+            assets.count {
+                it.deletedAt == null && it.id != excludeId && it.name.equals(name, ignoreCase = true)
+            }
 
         override suspend fun getAllSnapshot(): List<LedgerAsset> = assets.toList()
 
