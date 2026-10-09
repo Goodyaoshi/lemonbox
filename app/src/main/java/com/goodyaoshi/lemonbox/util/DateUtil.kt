@@ -89,6 +89,54 @@ object DateUtil {
             .toEpochMilli()
     }
 
+    // ---- 家当「有效期」快捷选项：编码为「数值 + 单位」，如 7d / 2w / 3m / 1y ----
+
+    /** 有效期快捷项候选（设置页展示与勾选）。 */
+    val EXPIRY_QUICK_CANDIDATES = listOf(
+        "3d", "7d", "15d", "30d", "1w", "2w", "1m", "2m", "3m", "6m", "1y"
+    )
+
+    /** 默认的有效期快捷项，与家当录入页出厂档位一致。 */
+    val DEFAULT_EXPIRY_QUICK_CODES = listOf("7d", "1m", "3m", "6m", "12m")
+
+    private val expiryCodeRegex = Regex("^(\\d{1,3})([dwmy])$")
+
+    /** 校验并归一化有效期快捷项编码：转小写、剔除非法、去重、保持顺序。 */
+    fun normalizeExpiryQuickCodes(codes: List<String>): List<String> = codes
+        .map { it.trim().lowercase() }
+        .filter { code ->
+            val match = expiryCodeRegex.matchEntire(code) ?: return@filter false
+            (match.groupValues[1].toIntOrNull() ?: 0) > 0
+        }
+        .distinct()
+
+    /** 编码 → 展示文案，如 7d →「7天」、3m →「3个月」、1y →「1年」。 */
+    fun expiryQuickLabel(code: String): String {
+        val match = expiryCodeRegex.matchEntire(code.trim().lowercase()) ?: return code
+        val unit = when (match.groupValues[2]) {
+            "d" -> "天"
+            "w" -> "周"
+            "m" -> "个月"
+            "y" -> "年"
+            else -> ""
+        }
+        return match.groupValues[1] + unit
+    }
+
+    /** 编码 → 到期时间戳（以今天为基准）；非法返回 null。 */
+    fun expiryQuickTimestamp(code: String): Long? {
+        val match = expiryCodeRegex.matchEntire(code.trim().lowercase()) ?: return null
+        val value = match.groupValues[1].toLongOrNull() ?: return null
+        if (value <= 0) return null
+        return when (match.groupValues[2]) {
+            "d" -> daysFromNow(value)
+            "w" -> daysFromNow(value * 7)
+            "m" -> monthsFromNow(value)
+            "y" -> monthsFromNow(value * 12)
+            else -> null
+        }
+    }
+
     /** 把上次同步时间换算成「还没有同步过/今天同步过/昨天同步过/已 N 天未同步」。 */
     fun relativeSyncText(timestamp: Long?): String {
         if (timestamp == null) return "还没有同步过"

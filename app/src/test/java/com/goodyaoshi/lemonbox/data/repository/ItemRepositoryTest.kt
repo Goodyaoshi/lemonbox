@@ -276,6 +276,20 @@ private class FakeItemDao(
         }
     }
 
+    override suspend fun consumeOnePiece(id: Long, updatedAt: Long) {
+        items.replaceAll { item ->
+            if (item.id == id) {
+                item.copy(
+                    quantity = item.quantity - 1,
+                    consumedQuantity = item.consumedQuantity + 1,
+                    updatedAt = updatedAt
+                )
+            } else {
+                item
+            }
+        }
+    }
+
     override suspend fun getItemById(id: Long): Item? = items.firstOrNull { it.id == id && it.deletedAt == null }
 
     override suspend fun getAllItemsSnapshot(): List<Item> = snapshot()

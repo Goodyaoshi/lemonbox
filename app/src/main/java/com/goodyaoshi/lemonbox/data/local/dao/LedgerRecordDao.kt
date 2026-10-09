@@ -88,4 +88,16 @@ interface LedgerRecordDao {
             "WHERE deletedAt IS NULL AND (assetId = :assetId OR targetAssetId = :assetId)"
     )
     suspend fun countRecordsByAsset(assetId: Long): Int
+
+    /** 把挂到重复分类上的账单改挂到保留项，供去重清理使用。 */
+    @Query("UPDATE ledger_records SET categoryId = :toId WHERE categoryId = :fromId")
+    suspend fun reassignCategory(fromId: Long, toId: Long)
+
+    /** 把挂到重复账户上的账单改挂到保留项（支出/收入端），供去重清理使用。 */
+    @Query("UPDATE ledger_records SET assetId = :toId WHERE assetId = :fromId")
+    suspend fun reassignAsset(fromId: Long, toId: Long)
+
+    /** 转账账单的转入端账户改挂到保留项，供去重清理使用。 */
+    @Query("UPDATE ledger_records SET targetAssetId = :toId WHERE targetAssetId = :fromId")
+    suspend fun reassignTargetAsset(fromId: Long, toId: Long)
 }

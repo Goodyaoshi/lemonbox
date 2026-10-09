@@ -67,6 +67,9 @@ class SaveViewModel @Inject constructor(
     /** 全局默认的提醒阶梯，用于展示「跟随默认」的说明文案。 */
     val defaultReminderLadder: StateFlow<List<Int>> = appPreferences.reminderLadder
 
+    /** 有效期快捷档位（编码列表，形如 7d/3m），可在设置页自定义。 */
+    val expiryQuickOptions: StateFlow<List<String>> = appPreferences.expiryQuickOptions
+
     val categories: StateFlow<List<Category>> = categoryRepository.getAllCategories()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -230,11 +233,11 @@ class SaveViewModel @Inject constructor(
                 purchaseDate = current.purchaseDate,
                 trackMode = current.trackMode,
                 // 持续使用物品：优先用录入时选定的开始使用时间，否则默认购买日期；
-                // 按件消耗物品：开始使用时间即录入时刻，使用周期从此起算。
+                // 按件消耗物品没有「使用天数」概念，开始使用时间留空。
                 startUseTime = if (current.trackMode == Item.TRACK_DURABLE) {
                     current.startUseTime ?: current.purchaseDate ?: now
                 } else {
-                    now
+                    null
                 }
             )
             itemRepository.insert(item)

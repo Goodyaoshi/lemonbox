@@ -42,6 +42,12 @@ data class Item(
     val categoryId: Long? = null,
     val locationId: Long? = null,
     val quantity: Int = 1,
+    /**
+     * 已消耗数量（仅按件消耗累计）：总量 = quantity(剩余) + consumedQuantity(已用)。
+     * 持续使用型物品不累计。
+     */
+    @ColumnInfo(defaultValue = "0")
+    val consumedQuantity: Int = 0,
     val unit: String = "件",
     val price: Double? = null,
     val expireTime: Long? = null,
@@ -77,6 +83,10 @@ data class Item(
     /** 最近一次修改时间，导入时按“较新者胜”合并；历史数据回退到 createdAt。 */
     val updatedAt: Long? = System.currentTimeMillis()
 ) {
+    /** 累计总量：剩余数量 + 已消耗数量，供「已用 / 共 / 剩余」展示。 */
+    val totalQuantity: Int
+        get() = quantity + consumedQuantity
+
     fun imagePathList(): List<String> {
         return decodeImagePaths(imagePaths, imagePath)
     }

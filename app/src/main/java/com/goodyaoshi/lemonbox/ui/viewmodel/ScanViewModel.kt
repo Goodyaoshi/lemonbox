@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.goodyaoshi.lemonbox.data.local.entity.Item
 import com.goodyaoshi.lemonbox.data.local.entity.ItemDetail
 import com.goodyaoshi.lemonbox.data.repository.ItemRepository
+import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -40,8 +41,12 @@ data class ScanUiState(
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class ScanViewModel @Inject constructor(
-    private val itemRepository: ItemRepository
+    private val itemRepository: ItemRepository,
+    private val appPreferences: AppPreferences
 ) : ViewModel() {
+
+    /** 有效期快捷档位（设置页自定义的 x天/x周/x月/x年），入库弹窗与录入页保持一致。 */
+    val expiryQuickOptions: StateFlow<List<String>> = appPreferences.expiryQuickOptions
 
     private val barcodeFlow = MutableStateFlow("")
     private val templateFlow = MutableStateFlow<Item?>(null)

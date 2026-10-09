@@ -58,6 +58,7 @@ interface LocationDao {
     @Query("UPDATE items SET locationId = :toId WHERE locationId = :fromId")
     suspend fun reassignItemsToLocation(fromId: Long, toId: Long)
 
-    @Query("DELETE FROM locations WHERE id = :id")
-    suspend fun deleteById(id: Long)
+    /** 软删除（写墓碑），去重清理用；保留记录以便把删除同步给其他设备。 */
+    @Query("UPDATE locations SET deletedAt = :deletedAt, updatedAt = :deletedAt WHERE id = :id")
+    suspend fun softDeleteById(id: Long, deletedAt: Long)
 }

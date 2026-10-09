@@ -36,6 +36,13 @@ class SettingsViewModel @Inject constructor(
 
     val budgetReminderEnabled: StateFlow<Boolean> = appPreferences.budgetReminderEnabled
 
+    /** 家当录入页的有效期快捷档位（编码列表），可自定义。 */
+    val expiryQuickOptions: StateFlow<List<String>> = appPreferences.expiryQuickOptions
+
+    fun setExpiryQuickOptions(codes: List<String>) {
+        appPreferences.setExpiryQuickOptions(codes)
+    }
+
     fun setBudgetReminderEnabled(enabled: Boolean) {
         appPreferences.setBudgetReminderEnabled(enabled)
     }

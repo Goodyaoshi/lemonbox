@@ -345,24 +345,32 @@ fun DetailScreen(
                 item.purchaseDate?.let { purchaseDate ->
                     DetailInfoRow("购买日期", DateUtil.formatDate(purchaseDate))
                 }
-                // 使用周期统计：开始用到现在（或结束）的天数，以及平均每天花掉的钱。
-                val usageDayCount = Item.usageDays(
-                    startUseTime = item.startUseTime,
-                    purchaseDate = item.purchaseDate,
-                    createdAt = item.createdAt,
-                    usageEndedAt = item.usageEndedAt,
-                    usageStatus = item.usageStatus,
-                    disposition = item.disposition
-                )
-                if (usageDayCount > 0) {
-                    val ended = Item.isUsageEnded(item.usageStatus, item.disposition)
-                    DetailInfoRow(
-                        label = "使用天数",
-                        value = if (ended) "共使用 $usageDayCount 天" else "已使用 $usageDayCount 天"
+                // 使用统计：持续使用型看「用多少天」，按件消耗型看「已用 / 共 / 剩余」。
+                if (item.trackMode == Item.TRACK_DURABLE) {
+                    val usageDayCount = Item.usageDays(
+                        startUseTime = item.startUseTime,
+                        purchaseDate = item.purchaseDate,
+                        createdAt = item.createdAt,
+                        usageEndedAt = item.usageEndedAt,
+                        usageStatus = item.usageStatus,
+                        disposition = item.disposition
                     )
-                    Item.averageDailyCost(item.price, item.quantity, usageDayCount)?.let { daily ->
-                        DetailInfoRow("平均每天", DateUtil.formatCurrency(daily))
+                    if (usageDayCount > 0) {
+                        val ended = Item.isUsageEnded(item.usageStatus, item.disposition)
+                        DetailInfoRow(
+                            label = "使用天数",
+                            value = if (ended) "共使用 $usageDayCount 天" else "已使用 $usageDayCount 天"
+                        )
+                        Item.averageDailyCost(item.price, item.quantity, usageDayCount)?.let { daily ->
+                            DetailInfoRow("平均每天", DateUtil.formatCurrency(daily))
+                        }
                     }
+                } else if (item.totalQuantity > 1 || item.consumedQuantity > 0) {
+                    DetailInfoRow("剩余数量", "${item.quantity}${item.unit}")
+                    DetailInfoRow(
+                        "已用 / 总量",
+                        "${item.consumedQuantity} / ${item.totalQuantity}${item.unit}"
+                    )
                 }
                 DetailInfoRow("添加时间", DateUtil.formatDateTime(item.createdAt))
                 DetailInfoRow(

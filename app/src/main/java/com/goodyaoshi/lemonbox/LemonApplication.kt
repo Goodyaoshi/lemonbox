@@ -6,7 +6,9 @@ import androidx.core.content.ContextCompat
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
 import com.goodyaoshi.lemonbox.data.repository.AnniversaryRepository
+import com.goodyaoshi.lemonbox.data.repository.CategoryRepository
 import com.goodyaoshi.lemonbox.data.repository.ItemRepository
+import com.goodyaoshi.lemonbox.data.repository.LedgerRepository
 import com.goodyaoshi.lemonbox.data.repository.LocationRepository
 import com.goodyaoshi.lemonbox.data.repository.ReminderRepository
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
@@ -42,6 +44,12 @@ class LemonApplication : Application(), Configuration.Provider {
     lateinit var locationRepository: LocationRepository
 
     @Inject
+    lateinit var categoryRepository: CategoryRepository
+
+    @Inject
+    lateinit var ledgerRepository: LedgerRepository
+
+    @Inject
     lateinit var appPreferences: AppPreferences
 
     @Inject
@@ -70,8 +78,12 @@ class LemonApplication : Application(), Configuration.Provider {
             reminderRepository.purgeDeletedOlderThan(cutoffTime)
         }
         applicationScope.launch {
-            // 清理历史遗留的同名同父级重复位置（重复种子/重复录入/旧版合并留下的）。
+            // 清理历史遗留的同名重复项（重复种子/重复录入/旧版合并留下的）：
+            // 位置、家当分类、记账分类与账户。
             locationRepository.deduplicateLocations()
+            categoryRepository.deduplicateCategories()
+            ledgerRepository.deduplicateCategories()
+            ledgerRepository.deduplicateAssets()
         }
     }
 

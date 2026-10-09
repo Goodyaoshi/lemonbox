@@ -145,7 +145,11 @@ fun ItemCard(
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Text(
-                        text = "数量 ${item.quantity}${item.unit}",
+                        text = if (item.trackMode == Item.TRACK_CONSUMABLE && item.consumedQuantity > 0) {
+                            "剩余 ${item.quantity}${item.unit} · 已用 ${item.consumedQuantity}"
+                        } else {
+                            "数量 ${item.quantity}${item.unit}"
+                        },
                         fontSize = 12.sp,
                         color = TextSecondary
                     )
@@ -158,15 +162,19 @@ fun ItemCard(
                     }
                 }
 
-                // 使用周期：单独占一行，天数和日均不会被数量/价格挤掉。
-                val usageDayCount = Item.usageDays(
-                    startUseTime = item.startUseTime,
-                    purchaseDate = item.purchaseDate,
-                    createdAt = item.createdAt,
-                    usageEndedAt = item.usageEndedAt,
-                    usageStatus = item.usageStatus,
-                    disposition = item.disposition
-                )
+                // 使用周期：只对持续使用型展示「用了多少天 / 日均」，按件消耗型看库存即可。
+                val usageDayCount = if (item.trackMode == Item.TRACK_DURABLE) {
+                    Item.usageDays(
+                        startUseTime = item.startUseTime,
+                        purchaseDate = item.purchaseDate,
+                        createdAt = item.createdAt,
+                        usageEndedAt = item.usageEndedAt,
+                        usageStatus = item.usageStatus,
+                        disposition = item.disposition
+                    )
+                } else {
+                    0
+                }
                 if (usageDayCount > 0) {
                     val dailyCost = Item.averageDailyCost(item.price, item.quantity, usageDayCount)
                     Text(

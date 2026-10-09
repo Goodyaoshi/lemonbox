@@ -68,6 +68,9 @@ class EditViewModel @Inject constructor(
     /** 全局默认的提醒阶梯，用于展示「跟随默认」的说明文案。 */
     val defaultReminderLadder: StateFlow<List<Int>> = appPreferences.reminderLadder
 
+    /** 有效期快捷档位（设置页自定义的 x天/x周/x月/x年），与录入页保持一致。 */
+    val expiryQuickOptions: StateFlow<List<String>> = appPreferences.expiryQuickOptions
+
     val categories: StateFlow<List<Category>> = categoryRepository.getAllCategories()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -211,12 +214,18 @@ class EditViewModel @Inject constructor(
                 categoryId = current.categoryId,
                 locationId = current.locationId,
                 quantity = current.quantity,
+                consumedQuantity = original?.consumedQuantity ?: 0,
                 unit = current.unit,
                 price = current.price.toDoubleOrNull(),
                 expireTime = current.expireTime,
                 reminderDays = Item.encodeReminderDays(current.reminderDays),
                 purchaseDate = current.purchaseDate,
-                startUseTime = current.startUseTime,
+                // 只有持续使用型才有「开始使用/使用天数」的概念，按件消耗型清空该字段。
+                startUseTime = if (current.trackMode == Item.TRACK_DURABLE) {
+                    current.startUseTime
+                } else {
+                    null
+                },
                 usageEndedAt = original?.usageEndedAt,
                 trackMode = current.trackMode,
                 usageStatus = current.usageStatus,

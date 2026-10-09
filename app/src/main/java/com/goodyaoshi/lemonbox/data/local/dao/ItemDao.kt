@@ -250,6 +250,13 @@ interface ItemDao {
     @Query("UPDATE items SET quantity = quantity + :delta, updatedAt = :updatedAt WHERE id = :id")
     suspend fun incrementQuantity(id: Long, delta: Int, updatedAt: Long)
 
+    /** 「用1件」：剩余数量减 1、已消耗数量加 1，用于按件消耗物品的用量统计。 */
+    @Query(
+        "UPDATE items SET quantity = quantity - 1, consumedQuantity = consumedQuantity + 1, " +
+            "updatedAt = :updatedAt WHERE id = :id"
+    )
+    suspend fun consumeOnePiece(id: Long, updatedAt: Long)
+
     @Query("SELECT * FROM items WHERE id = :id AND deletedAt IS NULL")
     suspend fun getItemById(id: Long): Item?
 

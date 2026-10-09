@@ -1,5 +1,6 @@
 package com.goodyaoshi.lemonbox.ui.screen.ledger
 
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -35,7 +36,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -59,6 +62,7 @@ import com.goodyaoshi.lemonbox.ui.theme.TextHint
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
 import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
 import com.goodyaoshi.lemonbox.ui.viewmodel.RecordEditViewModel
+import com.goodyaoshi.lemonbox.util.LedgerMath
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -74,10 +78,23 @@ fun RecordEditScreen(
     val expenseCategories by viewModel.expenseCategories.collectAsState()
     val incomeCategories by viewModel.incomeCategories.collectAsState()
     val assets by viewModel.assets.collectAsState()
+    val continuousEntry by viewModel.continuousEntry.collectAsState()
+    val context = LocalContext.current
     var showDatePicker by remember { mutableStateOf(false) }
 
     LaunchedEffect(expenseCategories, incomeCategories, assets) {
         viewModel.ensureDefaults(expenseCategories, incomeCategories)
+    }
+
+    LaunchedEffect(state.isSaved) {
+        if (!state.isSaved) return@LaunchedEffect
+        if (continuousEntry) {
+            // 连续录入：清空表单留在本页，提示后可以接着记下一笔。
+            Toast.makeText(context, "已记账，继续记下一笔", Toast.LENGTH_SHORT).show()
+            viewModel.resetForNext()
+        } else {
+            onBack()
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -107,6 +124,20 @@ fun RecordEditScreen(
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary
                 )
+                Spacer(modifier = Modifier.weight(1f))
+                if (state.recordId == 0L) {
+                    Text(
+                        text = if (continuousEntry) "连续录入·开" else "连续录入",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (continuousEntry) TagOrangeText else TextSecondary,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(if (continuousEntry) TagOrange else SurfaceWarmDeep)
+                            .clickable { viewModel.toggleContinuousEntry(!continuousEntry) }
+                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                    )
+                }
             }
 
             // 固定切换：账单类型常驻页头下方，表单再长滚动后也能切。
@@ -143,20 +174,38 @@ fun RecordEditScreen(
                             .padding(horizontal = 16.dp, vertical = 14.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "¥",
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TextSecondary
-                        )
-                        Text(
-                            text = state.amountText.ifEmpty { "0" },
-                            fontSize = 32.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TextPrimary,
-                            modifier = Modifier.padding(start = 6.dp)
-                        )
-                        Spacer(modifier = Modifier.weight(1f))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.Bottom) {
+                                Text(
+                                    text = "¥",
+                                    fontSize = 20.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextSecondary
+                                )
+                                Text(
+                                    text = state.amountText.ifEmpty { "0" },
+                                    fontSize = 32.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextPrimary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier
+                                        .padding(start = 6.dp)
+                                        .weight(1f, fill = false)
+                                )
+                            }
+                            val previewCents = state.amountCents
+                            if (state.isExpression && previewCents != null) {
+                                Text(
+                                    text = "= ¥" + LedgerMath.centsToInputText(previewCents),
+                                    fontSize = 13.sp,
+                                    color = TextSecondary,
+                                    maxLines = 1,
+                                    modifier = Modifier.padding(start = 2.dp, top = 2.dp)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(999.dp))
@@ -298,7 +347,7 @@ fun RecordEditScreen(
                 GradientButton(
                     text = "保存",
                     enabled = state.canSave,
-                    onClick = { viewModel.save(onDone = onBack) }
+                    onClick = viewModel::save
                 )
                 Spacer(modifier = Modifier.height(12.dp))
             }

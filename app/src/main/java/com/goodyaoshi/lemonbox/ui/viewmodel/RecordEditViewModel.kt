@@ -12,6 +12,7 @@ import com.goodyaoshi.lemonbox.data.local.entity.LedgerRecord.Companion.TYPE_EXP
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerRecord.Companion.TYPE_INCOME
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerRecord.Companion.TYPE_TRANSFER
 import com.goodyaoshi.lemonbox.data.repository.LedgerRepository
+import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import com.goodyaoshi.lemonbox.util.LedgerMath
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -41,16 +42,26 @@ data class RecordEditState(
     /** 编辑模式下的原记录 id。 */
     val recordId: Long = 0L,
     /** 首次进入时按类型自动选中首个分类/账户，减少点击。 */
-    val initialized: Boolean = false
+    val initialized: Boolean = false,
+    /** 保存成功标记，供界面做收尾（连续录入则清空留在本页）。 */
+    val isSaved: Boolean = false
 ) {
     val amountCents: Long?
         get() = LedgerMath.parseCentsInput(amountText)
+
+    /** 金额输入里是否含运算符（用于展示算式结果预览）。 */
+    val isExpression: Boolean
+        get() = amountText.any { it in OPERATOR_CHARS }
 
     val canSave: Boolean
         get() = (amountCents ?: 0) > 0 && when (type) {
             TYPE_TRANSFER -> assetId != null && targetAssetId != null && assetId != targetAssetId
             else -> assetId != null
         }
+
+    companion object {
+        val OPERATOR_CHARS = setOf('+', '-', '×', '÷')
+    }
 }
 
 @HiltViewModel
@@ -58,7 +69,8 @@ class RecordEditViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val ledgerRepository: LedgerRepository,
     private val itemDao: ItemDao,
-    assetDao: LedgerAssetDao
+    assetDao: LedgerAssetDao,
+    private val appPreferences: AppPreferences
 ) : ViewModel() {
 
     private val recordIdArg: Long = savedStateHandle.get<Long>("recordId") ?: -1L
@@ -68,6 +80,11 @@ class RecordEditViewModel @Inject constructor(
 
     private val _state = MutableStateFlow(RecordEditState())
     val state: StateFlow<RecordEditState> = _state.asStateFlow()
+
+    /** 连续录入开关，与家当录入共用同一份偏好设置。 */
+    val continuousEntry: StateFlow<Boolean> = appPreferences.continuousEntry
+
+    fun toggleContinuousEntry(enabled: Boolean) = appPreferences.setContinuousEntry(enabled)
 
     val assets: StateFlow<List<LedgerAsset>> = assetDao.observeAssets()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -145,23 +162,53 @@ class RecordEditViewModel @Inject constructor(
         )
     }
 
+    /**
+     * 金额键盘输入。支持数字、小数点、四则运算符（+ - × ÷）与退格，
+     * 输入内容允许是一个算式（如 `20×3-5`），保存时按 [LedgerMath.parseCentsInput] 求值。
+     */
     fun onAmountKey(key: String) {
         val current = _state.value.amountText
-        val next = when (key) {
-            "." -> if (current.contains('.')) current else {
-                if (current.isEmpty()) "0." else "$current."
-            }
-
-            "⌫" -> current.dropLast(1)
-            else -> {
-                if (current == "0") key else {
-                    val candidate = current + key
-                    val fenPart = candidate.substringAfter('.', "")
-                    if (fenPart.length > 2 || candidate.length > 11) current else candidate
-                }
-            }
+        val next = when {
+            key == "⌫" -> current.dropLast(1)
+            key == "." -> appendDecimal(current)
+            key.length == 1 && key[0] in RecordEditState.OPERATOR_CHARS -> appendOperator(current, key)
+            key.length == 1 && key[0] in '0'..'9' -> appendDigit(current, key)
+            else -> current
         }
         _state.value = _state.value.copy(amountText = next)
+    }
+
+    /** 当前正在输入的操作数（最后一个运算符之后的部分）。 */
+    private fun currentOperand(text: String): String =
+        text.substring(text.indexOfLast { it in RecordEditState.OPERATOR_CHARS } + 1)
+
+    private fun appendDigit(current: String, digit: String): String {
+        val operand = currentOperand(current)
+        val dotIndex = operand.indexOf('.')
+        val fenLen = if (dotIndex >= 0) operand.length - dotIndex - 1 else 0
+        if (fenLen > 2) return current
+        val intLen = if (dotIndex >= 0) dotIndex else operand.length
+        if (intLen >= 9) return current
+        val base = if (operand == "0") current.dropLast(1) else current
+        return base + digit
+    }
+
+    private fun appendDecimal(current: String): String {
+        val operand = currentOperand(current)
+        if (operand.contains('.')) return current
+        return if (operand.isEmpty()) current + "0." else current + "."
+    }
+
+    private fun appendOperator(current: String, op: String): String {
+        if (current.isEmpty()) return current
+        val last = current.last()
+        return when {
+            // 连着按运算符：直接替换成最后一个。
+            last in RecordEditState.OPERATOR_CHARS -> current.dropLast(1) + op
+            // 「12.」视作 12，再按运算符时丢掉尾部小数点。
+            last == '.' -> current.dropLast(1) + op
+            else -> current + op
+        }
     }
 
     fun selectCategory(id: Long?) {
@@ -184,11 +231,11 @@ class RecordEditViewModel @Inject constructor(
         _state.value = _state.value.copy(remark = text)
     }
 
-    /** 保存账单；成功返回 true（由界面收尾导航）。 */
-    fun save(onDone: () -> Unit): Boolean {
+    /** 保存账单；成功后置 [RecordEditState.isSaved]，由界面决定返回或连续录入。 */
+    fun save() {
         val current = _state.value
-        val cents = current.amountCents ?: return false
-        if (!current.canSave) return false
+        val cents = current.amountCents ?: return
+        if (!current.canSave) return
         val zone = ZoneId.systemDefault()
         val recordTime = current.recordDate
             .atStartOfDay(zone)
@@ -221,8 +268,19 @@ class RecordEditViewModel @Inject constructor(
                 val origin = ledgerRepository.getRecord(current.recordId)
                 ledgerRepository.saveRecord(record.copy(createdAt = origin?.createdAt ?: record.recordTime))
             }
-            onDone()
+            _state.value = _state.value.copy(isSaved = true)
         }
-        return true
+    }
+
+    /**
+     * 连续录入：清空表单留在本页，保留账单类型与记账日期，并重新带出默认分类/账户。
+     */
+    fun resetForNext() {
+        val current = _state.value
+        _state.value = RecordEditState(
+            type = current.type,
+            recordDate = current.recordDate
+        )
+        ensureDefaults(expenseCategories.value, incomeCategories.value)
     }
 }

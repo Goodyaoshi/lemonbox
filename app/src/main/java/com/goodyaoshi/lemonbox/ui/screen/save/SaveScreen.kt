@@ -110,6 +110,7 @@ fun SaveScreen(
     val categories by viewModel.categories.collectAsState()
     val locations by viewModel.locations.collectAsState()
     val defaultReminderLadder by viewModel.defaultReminderLadder.collectAsState()
+    val expiryQuickCodes by viewModel.expiryQuickOptions.collectAsState()
 
     var showAdvanced by remember { mutableStateOf(true) }
     var showDatePicker by remember { mutableStateOf(false) }
@@ -124,14 +125,12 @@ fun SaveScreen(
     val locationNodes = remember(locations) {
         locations.map { TreeNode(id = it.id, parentId = it.parentId, name = it.name) }
     }
-    val expiryQuickOptions = remember {
-        listOf(
-            ExpiryQuickOption("7天", DateUtil.daysFromNow(7)),
-            ExpiryQuickOption("1个月", DateUtil.monthsFromNow(1)),
-            ExpiryQuickOption("3个月", DateUtil.monthsFromNow(3)),
-            ExpiryQuickOption("6个月", DateUtil.monthsFromNow(6)),
-            ExpiryQuickOption("12个月", DateUtil.monthsFromNow(12))
-        )
+    // 快捷档位来自设置页的自定义配置（x天/x周/x月/x年）。
+    val expiryQuickOptions = remember(expiryQuickCodes) {
+        expiryQuickCodes.mapNotNull { code ->
+            val timestamp = DateUtil.expiryQuickTimestamp(code) ?: return@mapNotNull null
+            ExpiryQuickOption(DateUtil.expiryQuickLabel(code), timestamp)
+        }
     }
 
     val scanLauncher = rememberLauncherForActivityResult(

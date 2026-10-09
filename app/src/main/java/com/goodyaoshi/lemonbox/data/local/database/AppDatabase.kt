@@ -38,7 +38,7 @@ import com.goodyaoshi.lemonbox.util.LegacyTextNormalizer
         LedgerAsset::class,
         LedgerBudget::class
     ],
-    version = 25,
+    version = 26,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -625,6 +625,18 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * 按件消耗物品新增「已消耗数量」列：总量 = 剩余(quantity) + 已用(consumedQuantity)。
+         * 历史数据默认为 0，剩余即当前 quantity，总量从当前值起算。
+         */
+        private val MIGRATION_25_26 = object : Migration(25, 26) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE `items` ADD COLUMN `consumedQuantity` INTEGER NOT NULL DEFAULT 0"
+                )
+            }
+        }
+
         fun buildDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -656,7 +668,8 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_21_22,
                         MIGRATION_22_23,
                         MIGRATION_23_24,
-                        MIGRATION_24_25
+                        MIGRATION_24_25,
+                        MIGRATION_25_26
                     )
                     .addCallback(PrepopulateCallback())
                     .build()

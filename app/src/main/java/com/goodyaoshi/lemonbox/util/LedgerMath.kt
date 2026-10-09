@@ -34,11 +34,27 @@ object LedgerMath {
         }
     }
 
-    /** 键盘输入文本 → 分；空、非法或超过两位小数返回 null。 */
+    /**
+     * 键盘输入文本 → 分。
+     * 除纯数字（最多两位小数）外，也支持由 + - × ÷ 组成的算式，
+     * 例如 `12+3.5`、`20×3-5`、`100-8/2`，方便「买多件/有返现/补运费」一次算出净额。
+     * 以「分」做整数运算（除法向下取整）；空、非法、除零或存在未完成运算时返回 null。
+     */
     fun parseCentsInput(text: String): Long? {
         val trimmed = text.trim()
         if (trimmed.isEmpty()) return null
-        val parts = trimmed.split(".")
+        val normalized = trimmed
+            .replace('×', '*')
+            .replace('÷', '/')
+            .replace('X', '*')
+            .replace('x', '*')
+        return AmountExpression(normalized).evaluate()
+    }
+
+    /** 算式里的单个操作数（纯数字文本）→ 分；非法或超过两位小数返回 null。 */
+    private fun parseOperand(text: String): Long? {
+        if (text.isEmpty()) return null
+        val parts = text.split(".")
         if (parts.size > 2) return null
         val yuanPart = parts[0]
         val fenPart = parts.getOrNull(1).orEmpty()
@@ -52,6 +68,69 @@ object LedgerMath {
             else -> fenPart.toLong()
         }
         return yuan * 100 + fen
+    }
+
+    /**
+     * 简易算式求值器：仅支持 + - * /，无括号，乘除优先、同级左结合。
+     * 全程以「分」为单位做整数运算；遇到非法字符、缺少操作数或除零时返回 null。
+     */
+    private class AmountExpression(private val source: String) {
+        private var pos = 0
+
+        fun evaluate(): Long? {
+            val value = parseSum() ?: return null
+            return if (pos == source.length) value else null
+        }
+
+        private fun parseSum(): Long? {
+            var left = parseProduct() ?: return null
+            while (pos < source.length && (source[pos] == '+' || source[pos] == '-')) {
+                val op = source[pos++]
+                val right = parseProduct() ?: return null
+                left = if (op == '+') left + right else left - right
+            }
+            return left
+        }
+
+        private fun parseProduct(): Long? {
+            var left = parseNumber() ?: return null
+            while (pos < source.length && (source[pos] == '*' || source[pos] == '/')) {
+                val op = source[pos++]
+                val right = parseNumber() ?: return null
+                left = if (op == '*') {
+                    left * right
+                } else {
+                    if (right == 0L) return null
+                    left / right
+                }
+            }
+            return left
+        }
+
+        private fun parseNumber(): Long? {
+            val start = pos
+            var dotSeen = false
+            var fenDigits = 0
+            while (pos < source.length) {
+                val c = source[pos]
+                when {
+                    c in '0'..'9' -> {
+                        if (dotSeen) fenDigits++
+                        pos++
+                    }
+
+                    c == '.' && !dotSeen -> {
+                        dotSeen = true
+                        pos++
+                    }
+
+                    else -> break
+                }
+            }
+            if (pos == start) return null
+            if (fenDigits > 2) return null
+            return parseOperand(source.substring(start, pos))
+        }
     }
 
     /**

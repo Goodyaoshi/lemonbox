@@ -12,6 +12,7 @@ import com.goodyaoshi.lemonbox.data.meal.MealDishSpec
 import com.goodyaoshi.lemonbox.data.meal.MealSpec
 import com.goodyaoshi.lemonbox.data.meal.Recipe
 import com.goodyaoshi.lemonbox.data.meal.RecipeIngredient
+import com.goodyaoshi.lemonbox.util.DateUtil
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -166,6 +167,29 @@ class AppPreferences @Inject constructor(
 
     /** 连续录入：开启后保存成功会清空表单并自动唤起相机，方便一次录多件。默认关闭。 */
     val continuousEntry: StateFlow<Boolean> = _continuousEntry.asStateFlow()
+
+    private val _expiryQuickOptions = MutableStateFlow(loadExpiryQuickOptions())
+
+    /**
+     * 家当录入页「有效期」的快捷选项（编码列表，形如 7d/2w/3m/1y），
+     * 可由用户在设置页自定义常用档位。默认 [DateUtil.DEFAULT_EXPIRY_QUICK_CODES]。
+     */
+    val expiryQuickOptions: StateFlow<List<String>> = _expiryQuickOptions.asStateFlow()
+
+    fun setExpiryQuickOptions(codes: List<String>) {
+        val normalized = DateUtil.normalizeExpiryQuickCodes(codes)
+        preferences.edit()
+            .putString(KEY_EXPIRY_QUICK_OPTIONS, normalized.joinToString(EXPIRY_QUICK_SEPARATOR))
+            .apply()
+        _expiryQuickOptions.value = normalized
+    }
+
+    private fun loadExpiryQuickOptions(): List<String> {
+        val stored = preferences.getString(KEY_EXPIRY_QUICK_OPTIONS, null)
+            ?: return DateUtil.DEFAULT_EXPIRY_QUICK_CODES
+        return DateUtil.normalizeExpiryQuickCodes(stored.split(EXPIRY_QUICK_SEPARATOR))
+            .ifEmpty { DateUtil.DEFAULT_EXPIRY_QUICK_CODES }
+    }
 
     private val _keepAliveEnabled = MutableStateFlow(
         preferences.getBoolean(KEY_KEEP_ALIVE_ENABLED, true)
@@ -799,6 +823,8 @@ class AppPreferences @Inject constructor(
         private const val REMINDER_TIME_SEPARATOR = ","
         private const val KEY_DEVICE_ID = "device_id"
         private const val KEY_CONTINUOUS_ENTRY = "continuous_entry"
+        private const val KEY_EXPIRY_QUICK_OPTIONS = "expiry_quick_options"
+        private const val EXPIRY_QUICK_SEPARATOR = ","
         private const val KEY_KEEP_ALIVE_ENABLED = "keep_alive_enabled"
         private const val KEY_CUSTOM_REMINDER_TIMES = "custom_reminder_times"
         private const val KEY_MEAL_PREP_DAY_SHIFT = "meal_prep_day_shift"

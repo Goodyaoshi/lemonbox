@@ -42,4 +42,16 @@ interface CategoryDao {
 
     @Query("DELETE FROM categories")
     suspend fun deleteAll()
+
+    /** 把重复分类的下级分类改挂到保留项，供去重清理使用。 */
+    @Query("UPDATE categories SET parentId = :toId WHERE parentId = :fromId AND id != :toId")
+    suspend fun reassignChildren(fromId: Long, toId: Long)
+
+    /** 把挂在重复分类上的物品改挂到保留项，供去重清理使用。 */
+    @Query("UPDATE items SET categoryId = :toId WHERE categoryId = :fromId")
+    suspend fun reassignItemsToCategory(fromId: Long, toId: Long)
+
+    /** 软删除（写墓碑），去重清理用；保留记录以便把删除同步给其他设备。 */
+    @Query("UPDATE categories SET deletedAt = :deletedAt, updatedAt = :deletedAt WHERE id = :id")
+    suspend fun softDelete(id: Long, deletedAt: Long)
 }

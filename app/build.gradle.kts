@@ -17,8 +17,8 @@ android {
         targetSdk = 35
         // 版本策略：每次对外发布固定 +1（versionCode 只增不减），versionName 用语义化版本。
         // 版本号只在用户明确要求时调整，不自动变更。
-        versionCode = (findProperty("lemonVersionCode") as String?)?.toIntOrNull() ?: 8
-        versionName = (findProperty("lemonVersionName") as String?) ?: "0.0.4"
+        versionCode = (findProperty("lemonVersionCode") as String?)?.toIntOrNull() ?: 9
+        versionName = (findProperty("lemonVersionName") as String?) ?: "0.0.5"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         // 只保留 arm64-v8a：剔除 32 位与 x86 原生库，显著减小包体。

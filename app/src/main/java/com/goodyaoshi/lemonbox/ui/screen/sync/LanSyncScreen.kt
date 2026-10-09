@@ -1,5 +1,6 @@
 package com.goodyaoshi.lemonbox.ui.screen.sync
 
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,6 +22,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -28,6 +30,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -60,6 +63,17 @@ fun LanSyncScreen(
 
     var addressInput by remember { mutableStateOf("") }
     var codeInput by remember { mutableStateOf("") }
+
+    // 作为被连接方：对方合并过来时弹一次提示，避免「对方连了但本机毫无反应」。
+    val context = LocalContext.current
+    var shownSummary by remember { mutableStateOf(incomingSummary) }
+    LaunchedEffect(incomingSummary) {
+        val summary = incomingSummary
+        if (summary != null && summary != shownSummary) {
+            shownSummary = summary
+            Toast.makeText(context, "已合并对方数据：${summary.toUserMessage()}", Toast.LENGTH_LONG).show()
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         AppDecorativeBackground()
@@ -94,7 +108,7 @@ fun LanSyncScreen(
             }
 
             Text(
-                text = "两台设备连同一个 WiFi，用 6 位配对码即可互相补齐数据。仅在局域网内传输，不经过任何服务器。",
+                text = "两台设备连同一个 WiFi：一方「发起共享」，另一方在下方设备列表里点一下即可同步，无需输入配对码与地址。仅在局域网内传输，不经过任何服务器。",
                 fontSize = 12.sp,
                 color = TextSecondary,
                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp)
@@ -136,13 +150,13 @@ fun LanSyncScreen(
                     )
                     Spacer(modifier = Modifier.size(6.dp))
                     Text(
-                        text = "对方地址：${uiState.displayAddress ?: "获取中…"}",
-                        fontSize = 13.sp,
-                        color = TextPrimary
+                        text = "正在等待对方连接；对方在「连接对方」里直接点本机名字即可。",
+                        fontSize = 12.sp,
+                        color = TextSecondary
                     )
                     Text(
-                        text = "对方在「连接对方」里填入上面的地址和配对码即可。",
-                        fontSize = 12.sp,
+                        text = "（对方地址：${uiState.displayAddress ?: "获取中…"}，发现不到设备时可手动输入）",
+                        fontSize = 11.sp,
                         color = TextSecondary
                     )
                     incomingSummary?.let { summary ->
@@ -180,31 +194,36 @@ fun LanSyncScreen(
                 )
                 Spacer(modifier = Modifier.size(6.dp))
                 Text(
-                    text = "输入对方显示的地址与配对码。会自动合并双方数据，不会覆盖任何一方的新增。",
+                    text = "在设备列表里点一下对方即可自动同步（配对码已随广播带过去）。列表为空时可手动输入地址与配对码。会合并双方数据，不会覆盖任何一方的新增。",
                     fontSize = 12.sp,
                     color = TextSecondary
                 )
 
                 if (peers.isNotEmpty()) {
                     Spacer(modifier = Modifier.size(10.dp))
-                    Text(text = "发现同一 WiFi 下的设备", fontSize = 12.sp, color = TextSecondary)
+                    Text(
+                        text = "发现同一 WiFi 下的设备（点击即可同步）",
+                        fontSize = 12.sp,
+                        color = TextSecondary
+                    )
                     peers.forEach { peer ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(top = 6.dp)
-                                .clickable { addressInput = "${peer.host}:${peer.port}" },
+                                .clickable(enabled = !uiState.isBusy) { viewModel.connectToPeer(peer) },
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(text = peer.name, fontSize = 13.sp, color = TextPrimary)
                             Text(
-                                text = "${peer.host}:${peer.port}",
+                                text = if (peer.token.isNullOrBlank()) "需配对码" else "点击同步",
                                 fontSize = 12.sp,
                                 color = OrangeStart
                             )
                         }
                     }
+                    Spacer(modifier = Modifier.size(6.dp))
                 }
 
                 Spacer(modifier = Modifier.size(10.dp))

@@ -75,15 +75,10 @@ fun ScanScreen(
     var checkInQuantity by remember { mutableIntStateOf(1) }
     var checkInExpiry by remember { mutableStateOf<Long?>(null) }
 
-    val quickExpiryOptions = remember {
-        listOf(
-            "不设置" to null,
-            "7天" to DateUtil.daysFromNow(7),
-            "1个月" to DateUtil.monthsFromNow(1),
-            "3个月" to DateUtil.monthsFromNow(3),
-            "6个月" to DateUtil.monthsFromNow(6),
-            "12个月" to DateUtil.monthsFromNow(12)
-        )
+    val quickExpiryCodes by viewModel.expiryQuickOptions.collectAsState()
+    // 「不设置」+ 设置页自定义的快捷档位（x天/x周/x月/x年）。
+    val quickExpiryOptions = remember(quickExpiryCodes) {
+        listOf<String?>(null) + quickExpiryCodes
     }
 
     LaunchedEffect(barcode) { viewModel.setBarcode(barcode) }
@@ -337,10 +332,11 @@ fun ScanScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                quickExpiryOptions.forEach { (label, value) ->
+                quickExpiryOptions.forEach { code ->
+                    val value = code?.let(DateUtil::expiryQuickTimestamp)
                     val selected = checkInExpiry == value
                     PillTag(
-                        text = label,
+                        text = if (code == null) "不设置" else DateUtil.expiryQuickLabel(code),
                         backgroundColor = if (selected) OrangeStart else CardWhite,
                         contentColor = if (selected) Color.White else TextHint,
                         onClick = { checkInExpiry = value }

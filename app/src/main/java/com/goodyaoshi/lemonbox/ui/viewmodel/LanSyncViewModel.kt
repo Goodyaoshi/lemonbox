@@ -89,10 +89,26 @@ class LanSyncViewModel @Inject constructor(
         }
         val host = address.substringBefore(':')
         val port = address.substringAfter(':', "").toIntOrNull() ?: SyncServer.DEFAULT_PORT
+        runSync(host, port, code.trim())
+    }
 
+    /**
+     * 直接连接 mDNS 发现到的设备：配对码随对方广播的 TXT 记录带过来，
+     * 无需先看码再手动输入（类似蓝牙配对，点一下就连）。
+     */
+    fun connectToPeer(peer: SyncPeer) {
+        val token = peer.token
+        if (token.isNullOrBlank()) {
+            showMessage("该设备未开启共享或版本较旧，请在下方手动输入配对码")
+            return
+        }
+        runSync(peer.host, peer.port, token)
+    }
+
+    private fun runSync(host: String, port: Int, token: String) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isBusy = true, message = "正在同步，请保持两台设备在同一 WiFi…")
-            runCatching { syncClient.syncWith(host, port, code.trim()) }
+            runCatching { syncClient.syncWith(host, port, token) }
                 .onSuccess { outcome ->
                     _uiState.value = _uiState.value.copy(
                         isBusy = false,

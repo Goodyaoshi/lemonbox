@@ -204,9 +204,12 @@ class AppBackupManager @Inject constructor(
                 todoReminderScheduler.reschedule()
             }
 
-            // 两台设备各自种子化的默认位置 syncId 不同，按 syncId 对齐后会各留一份，
-            // 合并完统一按「同名同父级路径」收敛，避免选择器出现多个一样的位置。
+            // 两台设备各自种子化的默认分类/位置/记账分类/账户 syncId 不同，按 syncId 对齐后
+            // 会各留一份，合并完统一按「同名同父级路径」收敛，避免选择器出现多个一样的项。
             locationRepository.deduplicateLocations()
+            categoryRepository.deduplicateCategories()
+            ledgerRepository.deduplicateCategories()
+            ledgerRepository.deduplicateAssets()
 
             return BackupMergeResult(
                 itemAdded = itemOutcome.added,
@@ -1432,6 +1435,8 @@ data class ItemSnapshot(
     val categoryId: Long? = null,
     val locationId: Long? = null,
     val quantity: Int,
+    /** 已消耗数量（按件消耗累计）；为 null 表示备份里没有（旧版本）。 */
+    val consumedQuantity: Int? = null,
     val unit: String,
     val price: Double?,
     val expireTime: Long?,
@@ -1476,6 +1481,7 @@ data class ItemSnapshot(
             categoryId = categoryId,
             locationId = locationId,
             quantity = quantity,
+            consumedQuantity = consumedQuantity ?: 0,
             unit = unit,
             price = price,
             expireTime = expireTime,
@@ -1535,6 +1541,7 @@ data class ItemSnapshot(
                 categoryId = item.categoryId,
                 locationId = item.locationId,
                 quantity = item.quantity,
+                consumedQuantity = item.consumedQuantity,
                 unit = item.unit,
                 price = item.price,
                 expireTime = item.expireTime,

@@ -41,11 +41,14 @@ class LocationRepository @Inject constructor(
      * 手动新增位置时重复输入也会留下同名项。
      *
      * 处理方式：按「完整路径名称」分组（祖先同时重复时路径名仍能对齐），
-     * 每组保留一条（优先受保护，其次 id 最小），把下级位置与物品改挂到保留项后删除多余项。
+     * 每组保留一条，把下级位置与物品改挂到保留项后软删除多余项（写墓碑，同步给其他设备）。
+     * 保留项的选择必须与设备无关：优先受保护，其次 syncId 字典序最小 —— 否则两台设备
+     * 各自保留本地副本（数字 id 最小者）会互相把对方的副本删掉，最终两条都不剩。
      * 返回被清理的重复条数。
      */
     suspend fun deduplicateLocations(): Int {
         var removed = 0
+        val now = MonotonicClock.now()
         // 祖先可能同时重复，清理后子孙才归并到一起，故循环到无重复为止（有界防意外）。
         repeat(4) {
             val active = locationDao.getAllLocationsSnapshot().filter { it.deletedAt == null }
@@ -54,13 +57,14 @@ class LocationRepository @Inject constructor(
             val targets = groups.values.filter { it.size > 1 }
             if (targets.isEmpty()) return removed
             targets.forEach { group ->
-                val keeper = group.firstOrNull { it.isProtected } ?: group.minByOrNull { it.id }!!
+                val keeper = group.firstOrNull { it.isProtected }
+                    ?: group.minByOrNull { it.syncId ?: "id:${it.id}" }!!
                 group.forEach { dup ->
                     if (dup.id == keeper.id) return@forEach
-                    // 必须先改挂子级与物品，再删除：parentId 外键为 CASCADE，直接删会连带删掉子级。
+                    // 必须先改挂子级与物品，再软删除：parentId 外键为 CASCADE，硬删会连带删掉子级。
                     locationDao.reassignChildren(fromId = dup.id, toId = keeper.id)
                     locationDao.reassignItemsToLocation(fromId = dup.id, toId = keeper.id)
-                    locationDao.deleteById(dup.id)
+                    locationDao.softDeleteById(dup.id, now)
                     removed++
                 }
             }

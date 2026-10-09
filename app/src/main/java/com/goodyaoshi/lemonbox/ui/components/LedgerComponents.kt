@@ -385,8 +385,9 @@ fun LedgerRankRow(
 }
 
 /**
- * 记账数字键盘：1-9 / 小数点 / 0 / 退格，两列留白排布。
- * 输入文本的拼装逻辑由调用方负责（配合 LedgerMath.parseCentsInput）。
+ * 记账金额键盘：数字 + 小数点 + 四则运算符 + 退格，支持直接输入算式
+ * （买多件相乘、返现相减、补运费相加等）。输入文本的拼装与求值由调用方负责
+ * （配合 [com.goodyaoshi.lemonbox.util.LedgerMath.parseCentsInput]）。
  */
 @Composable
 fun AmountKeyboard(
@@ -395,10 +396,10 @@ fun AmountKeyboard(
     modifier: Modifier = Modifier
 ) {
     val rows = listOf(
-        listOf("1", "2", "3"),
-        listOf("4", "5", "6"),
-        listOf("7", "8", "9"),
-        listOf(".", "0", "⌫")
+        listOf("1", "2", "3", "⌫"),
+        listOf("4", "5", "6", "÷"),
+        listOf("7", "8", "9", "×"),
+        listOf(".", "0", "-", "+")
     )
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -411,6 +412,7 @@ fun AmountKeyboard(
             ) {
                 row.forEach { key ->
                     val interactionSource = remember { MutableInteractionSource() }
+                    val isOperator = key in OPERATOR_KEYS
                     Box(
                         modifier = Modifier
                             .weight(1f)
@@ -435,9 +437,9 @@ fun AmountKeyboard(
                         } else {
                             Text(
                                 text = key,
-                                color = TextPrimary,
+                                color = if (isOperator) OrangeStart else TextPrimary,
                                 fontSize = 20.sp,
-                                fontWeight = FontWeight.Medium
+                                fontWeight = if (isOperator) FontWeight.Bold else FontWeight.Medium
                             )
                         }
                     }
@@ -446,6 +448,9 @@ fun AmountKeyboard(
         }
     }
 }
+
+/** 金额键盘里的运算符键，采用主色高亮区分。 */
+private val OPERATOR_KEYS = setOf("+", "-", "×", "÷")
 
 /** 账单类型配色：支出红 / 收入绿 / 转账青。 */
 fun ledgerTypeColor(type: Int): Color = when (type) {

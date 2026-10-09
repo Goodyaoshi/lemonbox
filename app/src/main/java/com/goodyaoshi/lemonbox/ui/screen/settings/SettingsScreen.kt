@@ -51,11 +51,13 @@ import com.goodyaoshi.lemonbox.data.settings.ThemeMode
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
+import com.goodyaoshi.lemonbox.ui.components.EditorInputBox
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarmDeep
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
 import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
 import com.goodyaoshi.lemonbox.ui.viewmodel.SettingsViewModel
+import com.goodyaoshi.lemonbox.util.DateUtil
 import com.goodyaoshi.lemonbox.util.ReminderReliability
 
 private val themeModeOptions = listOf(
@@ -101,9 +103,11 @@ fun SettingsScreen(
     val mealPrepDayShift by viewModel.mealPrepDayShift.collectAsState()
     val mealPrepFireTime by viewModel.mealPrepFireTime.collectAsState()
     val budgetReminderEnabled by viewModel.budgetReminderEnabled.collectAsState()
+    val expiryQuickOptions by viewModel.expiryQuickOptions.collectAsState()
 
     var showTimePicker by remember { mutableStateOf(false) }
     var showMealPrepTimePicker by remember { mutableStateOf(false) }
+    var showExpiryQuickDialog by remember { mutableStateOf(false) }
 
     // 固定档位 + 用户自定义候选，合并排序后统一展示。
     val allTimeOptions =
@@ -234,6 +238,66 @@ fun SettingsScreen(
                         "尚未选择档位，临期与到期当天仍会提醒"
                     } else {
                         "当前阶梯：${reminderLadder.joinToString("、") { "$it 天" }}"
+                    },
+                    fontSize = 12.sp,
+                    color = OrangeStart,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+
+            AppSurfaceCard(
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                shape = RoundedCornerShape(24.dp),
+                shadowElevation = 12.dp
+            ) {
+                Text(
+                    text = "有效期快捷选项",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+                Spacer(modifier = Modifier.size(6.dp))
+                Text(
+                    text = "家当录入页「有效期」的快捷档位，按自己常买物品的保质期自定义（支持 x天/x周/x月/x年）。",
+                    fontSize = 12.sp,
+                    color = TextSecondary
+                )
+                Spacer(modifier = Modifier.size(12.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val candidates =
+                        (DateUtil.EXPIRY_QUICK_CANDIDATES + expiryQuickOptions).distinct()
+                    candidates.forEach { code ->
+                        val selected = expiryQuickOptions.contains(code)
+                        OptionChip(
+                            label = DateUtil.expiryQuickLabel(code),
+                            selected = selected,
+                            onClick = {
+                                val updated = if (selected) {
+                                    expiryQuickOptions - code
+                                } else {
+                                    expiryQuickOptions + code
+                                }
+                                viewModel.setExpiryQuickOptions(updated)
+                            }
+                        )
+                    }
+                    OptionChip(
+                        label = "自定义…",
+                        selected = false,
+                        onClick = { showExpiryQuickDialog = true }
+                    )
+                }
+                Spacer(modifier = Modifier.size(8.dp))
+                Text(
+                    text = if (expiryQuickOptions.isEmpty()) {
+                        "尚未设置快捷档位，录入时可直接选日期"
+                    } else {
+                        "当前档位：" + expiryQuickOptions.joinToString("、") {
+                            DateUtil.expiryQuickLabel(it)
+                        }
                     },
                     fontSize = 12.sp,
                     color = OrangeStart,
@@ -492,13 +556,98 @@ fun SettingsScreen(
                     }
                 )
             }
+            if (showExpiryQuickDialog) {
+                ExpiryQuickDialog(
+                    onDismiss = { showExpiryQuickDialog = false },
+                    onConfirm = { codes ->
+                        viewModel.setExpiryQuickOptions(codes)
+                        showExpiryQuickDialog = false
+                    }
+                )
+            }
+        }
+    }
+}
+
+/** 有效期快捷档位自定义：输入数值 + 选单位（天/周/月/年），追加到现有档位并去重。 */
+@Composable
+private fun ExpiryQuickDialog(
+    onDismiss: () -> Unit,
+    onConfirm: (List<String>) -> Unit
+) {
+    var amountText by remember { mutableStateOf("") }
+    var unit by remember { mutableStateOf("d") }
+    var added by remember { mutableStateOf(DateUtil.DEFAULT_EXPIRY_QUICK_CODES) }
+    val unitOptions = listOf("d" to "天", "w" to "周", "m" to "月", "y" to "年")
+
+    AppDialog(
+        title = "自定义有效期快捷",
+        onDismissRequest = onDismiss,
+        confirmText = "保存",
+        onConfirm = { onConfirm(added) }
+    ) {
+        Column {
+            Text(
+                text = "输入数值并选择单位，添加到快捷档位。",
+                fontSize = 12.sp,
+                color = TextSecondary
+            )
+            Spacer(modifier = Modifier.size(10.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(modifier = Modifier.weight(1f)) {
+                    EditorInputBox(
+                        value = amountText,
+                        onValueChange = { input ->
+                            amountText = input.filter { it.isDigit() }.take(3)
+                        },
+                        placeholder = "数值"
+                    )
+                }
+                unitOptions.forEach { (code, label) ->
+                    OptionChip(
+                        label = label,
+                        selected = unit == code,
+                        onClick = { unit = code }
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.size(10.dp))
+            val canAdd = (amountText.toIntOrNull() ?: 0) > 0
+            OptionChip(
+                label = if (canAdd) {
+                    "添加：${DateUtil.expiryQuickLabel(amountText.toInt().toString() + unit)}"
+                } else {
+                    "添加"
+                },
+                selected = canAdd,
+                onClick = {
+                    if (!canAdd) return@OptionChip
+                    added = DateUtil.normalizeExpiryQuickCodes(
+                        added + (amountText.toInt().toString() + unit)
+                    )
+                    amountText = ""
+                }
+            )
+            if (added.isNotEmpty()) {
+                Spacer(modifier = Modifier.size(10.dp))
+                Text(
+                    text = "当前档位：" + added.joinToString("、") { DateUtil.expiryQuickLabel(it) },
+                    fontSize = 12.sp,
+                    color = OrangeStart,
+                    fontWeight = FontWeight.Medium
+                )
+            }
         }
     }
 }
 
 /** 时间选择弹窗：24 小时制，确认后以 HH:mm 文本回调。 */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 private fun TimePickerCardDialog(
     title: String,
     initialTime: String,

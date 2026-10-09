@@ -125,14 +125,13 @@ fun EditScreen(
                 ?.let(viewModel::updateBarcode)
         }
     }
-    val expiryQuickOptions = remember {
-        listOf(
-            ExpiryQuickOption("7天", DateUtil.daysFromNow(7)),
-            ExpiryQuickOption("1个月", DateUtil.monthsFromNow(1)),
-            ExpiryQuickOption("3个月", DateUtil.monthsFromNow(3)),
-            ExpiryQuickOption("6个月", DateUtil.monthsFromNow(6)),
-            ExpiryQuickOption("12个月", DateUtil.monthsFromNow(12))
-        )
+    val expiryQuickCodes by viewModel.expiryQuickOptions.collectAsState()
+    // 快捷档位来自设置页的自定义配置（x天/x周/x月/x年），与录入页保持一致。
+    val expiryQuickOptions = remember(expiryQuickCodes) {
+        expiryQuickCodes.mapNotNull { code ->
+            val timestamp = DateUtil.expiryQuickTimestamp(code) ?: return@mapNotNull null
+            ExpiryQuickOption(DateUtil.expiryQuickLabel(code), timestamp)
+        }
     }
 
     LaunchedEffect(itemId) {
@@ -331,24 +330,27 @@ fun EditScreen(
                                 }
                             )
 
-                            Spacer(modifier = Modifier.size(18.dp))
-                            EditorSectionLabel(label = "开始使用")
-                            Spacer(modifier = Modifier.size(8.dp))
-                            EditorInputBox(
-                                value = state.startUseTime?.let(DateUtil::formatDate).orEmpty(),
-                                onValueChange = {},
-                                placeholder = "还没开始用，点击补录",
-                                readOnly = true,
-                                modifier = Modifier.clickable { showStartUseDatePicker = true },
-                                trailingContent = {
-                                    Icon(
-                                        imageVector = Icons.Default.CalendarToday,
-                                        contentDescription = null,
-                                        tint = TextHint,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                            )
+                            // 只有持续使用型才有「开始使用」概念，按件消耗型不展示该字段。
+                            if (state.trackMode == Item.TRACK_DURABLE) {
+                                Spacer(modifier = Modifier.size(18.dp))
+                                EditorSectionLabel(label = "开始使用")
+                                Spacer(modifier = Modifier.size(8.dp))
+                                EditorInputBox(
+                                    value = state.startUseTime?.let(DateUtil::formatDate).orEmpty(),
+                                    onValueChange = {},
+                                    placeholder = "还没开始用，点击补录",
+                                    readOnly = true,
+                                    modifier = Modifier.clickable { showStartUseDatePicker = true },
+                                    trailingContent = {
+                                        Icon(
+                                            imageVector = Icons.Default.CalendarToday,
+                                            contentDescription = null,
+                                            tint = TextHint,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                )
+                            }
 
                             Spacer(modifier = Modifier.size(18.dp))
                             EditorSectionLabel(label = "计量方式")

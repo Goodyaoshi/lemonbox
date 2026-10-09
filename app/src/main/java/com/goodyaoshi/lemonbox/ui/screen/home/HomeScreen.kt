@@ -388,6 +388,16 @@ private fun TodaySection(
     onEventClick: (TodayEvent) -> Unit,
     onComplete: (TodayEvent) -> Unit
 ) {
+    // 事项可能很多（临期/待买一次涌进来几十条），首页只展示前几条，其余折叠起来，
+    // 避免把首页撑得特别长；需要时展开看全部。
+    var expanded by remember { mutableStateOf(false) }
+    val collapsible = events.size > TODAY_EVENT_PREVIEW_COUNT
+    val visibleEvents = if (collapsible && !expanded) {
+        events.take(TODAY_EVENT_PREVIEW_COUNT)
+    } else {
+        events
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -447,16 +457,56 @@ private fun TodaySection(
                 shadowElevation = 12.dp
             ) {
                 Column {
-                    events.forEach { event ->
+                    visibleEvents.forEach { event ->
                         TodayEventRow(
                             event = event,
                             onClick = { onEventClick(event) },
                             onComplete = { onComplete(event) }
                         )
                     }
+                    if (collapsible) {
+                        TodayEventExpandRow(
+                            hiddenCount = events.size - TODAY_EVENT_PREVIEW_COUNT,
+                            expanded = expanded,
+                            onToggle = { expanded = !expanded }
+                        )
+                    }
                 }
             }
         }
+    }
+}
+
+/** 折叠/展开「今天的事」的剩余条目。 */
+@Composable
+private fun TodayEventExpandRow(
+    hiddenCount: Int,
+    expanded: Boolean,
+    onToggle: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(onClick = onToggle)
+            .padding(horizontal = 10.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = if (expanded) "收起" else "还有 $hiddenCount 件，展开查看",
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = OrangeStart
+        )
+        Icon(
+            imageVector = Icons.Default.ChevronRight,
+            contentDescription = null,
+            tint = OrangeStart,
+            modifier = Modifier
+                .size(18.dp)
+                .padding(start = 2.dp)
+        )
     }
 }
 
@@ -760,3 +810,6 @@ private fun MonthSpendingBar(
         )
     }
 }
+
+/** 首页「今天的事」最多直接展示的条数，超出折叠。 */
+private const val TODAY_EVENT_PREVIEW_COUNT = 5

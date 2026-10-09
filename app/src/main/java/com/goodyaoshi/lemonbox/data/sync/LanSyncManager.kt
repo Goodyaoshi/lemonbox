@@ -11,14 +11,16 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.net.Inet4Address
 import java.net.NetworkInterface
+import java.nio.charset.StandardCharsets
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** 局域网内发现到的可同步设备。 */
+/** 局域网内发现到的可同步设备。[token] 来自 mDNS TXT 记录，为空表示对方未开启共享。 */
 data class SyncPeer(
     val name: String,
     val host: String,
-    val port: Int
+    val port: Int,
+    val token: String? = null
 )
 
 /**
@@ -39,6 +41,9 @@ class LanSyncManager @Inject constructor(
     private var multicastLock: WifiManager.MulticastLock? = null
     private var resolving = false
 
+    /** 本机广播的服务名；发现列表里据此排除自己。 */
+    private var ownServiceName: String? = null
+
     private val _peers = MutableStateFlow<List<SyncPeer>>(emptyList())
     val peers: StateFlow<List<SyncPeer>> = _peers.asStateFlow()
 
@@ -46,7 +51,7 @@ class LanSyncManager @Inject constructor(
     fun startHosting(token: String): String? {
         if (!syncServer.start(token)) return null
         acquireMulticastLock()
-        registerService(syncServer.listeningPort)
+        registerService(syncServer.listeningPort, token)
         return localIpAddress()
     }
 
@@ -54,6 +59,7 @@ class LanSyncManager @Inject constructor(
         stopDiscovery()
         registrationListener?.let { listener -> runCatching { nsdManager.unregisterService(listener) } }
         registrationListener = null
+        ownServiceName = null
         syncServer.stop()
         releaseMulticastLock()
     }
@@ -75,7 +81,10 @@ class LanSyncManager @Inject constructor(
             }
 
             override fun onServiceFound(service: NsdServiceInfo?) {
-                service?.let { resolveService(it) }
+                // 自己广播的服务也会被自己发现，跳过，否则列表里会出现本机。
+                val found = service ?: return
+                if (found.serviceName == ownServiceName) return
+                resolveService(found)
             }
 
             override fun onServiceLost(service: NsdServiceInfo?) {
@@ -101,12 +110,18 @@ class LanSyncManager @Inject constructor(
         _peers.value = emptyList()
     }
 
-    private fun registerService(port: Int) {
+    private fun registerService(port: Int, token: String) {
         registrationListener?.let { listener -> runCatching { nsdManager.unregisterService(listener) } }
+        val name = "柠檬百宝箱-${appPreferences.deviceId.take(4)}"
+        ownServiceName = name
         val serviceInfo = NsdServiceInfo().apply {
-            serviceName = "柠檬百宝箱-${appPreferences.deviceId.take(4)}"
+            serviceName = name
             serviceType = SERVICE_TYPE
             this.port = port
+            // 把配对码随 TXT 记录广播出去：同一 WiFi 的设备发现后即可直接连接，
+            // 不必先看码再口头转述（类似蓝牙配对，点一下就连）。
+            setAttribute(ATTR_TOKEN, token)
+            setAttribute(ATTR_DEVICE, appPreferences.deviceId)
         }
         val listener = object : NsdManager.RegistrationListener {
             override fun onServiceRegistered(serviceInfo: NsdServiceInfo?) = Unit
@@ -134,10 +149,15 @@ class LanSyncManager @Inject constructor(
                 resolving = false
                 val resolved = serviceInfo ?: return
                 val host = resolved.host?.hostAddress ?: return
+                // TXT 记录里的配对码可能缺失（对方版本过旧或系统未解析 TXT），此时退回手动输入。
+                val token = resolved.attributes?.get(ATTR_TOKEN)
+                    ?.toString(StandardCharsets.UTF_8)
+                    ?.takeIf { it.isNotBlank() }
                 val peer = SyncPeer(
                     name = resolved.serviceName,
                     host = host,
-                    port = resolved.port
+                    port = resolved.port,
+                    token = token
                 )
                 _peers.value = _peers.value.filterNot { it.name == peer.name } + peer
             }
@@ -164,6 +184,10 @@ class LanSyncManager @Inject constructor(
     companion object {
         /** mDNS 服务类型，两端必须一致。 */
         const val SERVICE_TYPE = "_lemonsync._tcp"
+
+        /** TXT 记录键：配对码 / 设备号。 */
+        private const val ATTR_TOKEN = "token"
+        private const val ATTR_DEVICE = "device"
 
         /** 取本机局域网 IPv4 地址，供对方手动输入兜底。 */
         fun localIpAddress(): String? {
