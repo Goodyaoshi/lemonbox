@@ -1,9 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    仅服务于「局域网同步」：App 只会在同一 WiFi 内以 http 直连配对设备，
-    不访问任何公网服务。Android 的网络安全配置不支持按 IP 段声明放行，
-    因此这里保留明文放行；同时收紧信任锚点，仅信任系统证书、不接受用户
-    手动安装的 CA，以降低中间人攻击面。
+    明文流量策略。
+
+    柠檬百宝箱唯一的明文 HTTP 用途是「局域网同步」：本机与同一 WiFi 下的另一台设备
+    之间互传备份，两端地址是动态的内网 IP。
+
+    说明：Android 的 network-security-config 只支持按「主机名 / 单个 IP」放行明文，
+    无法表达 192.168.0.0/16 这类网段；因此在基线上仍需要 base-config 放行明文，
+    但真正的收敛放在代码层——SyncServer 只接受私网 / 链路本地 / 回环 / IPv6 ULA 来源，
+    对非局域网请求直接返回 403，确保「只与局域网通信、不触达任何互联网明文地址」。
+
+    后续加固方向：为同步链路引入 TLS（自签证书 + 证书指纹校验）或端到端 AES-GCM 加密，
+    届时即可把此处的 cleartextTrafficPermitted 收敛为 false。
 -->
 <network-security-config>
     <base-config cleartextTrafficPermitted="true">

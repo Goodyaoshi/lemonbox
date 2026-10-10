@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Android 12（API 31）及以下的自动备份规则（fullBackupContent）。
+    柠檬百宝箱的核心数据（Room 数据库）与同步状态（配对信息 / 增量水位线偏好）
+    属于高度隐私的本机数据，绝不随系统云端备份外流；
+    换机 / 迁移场景请使用应用内已有的「备份 / 导入」功能承载。
+-->
+<full-backup-content>
+    <!-- Room 数据库：物品、记账、纪念日、提醒等全部业务数据 -->
+    <exclude domain="database" path="." />
+    <!-- 同步水位线与本机偏好：含配对同伴标识，避免被云端备份带走 -->
+    <exclude domain="sharedpref" path="lemon_preferences.xml" />
+    <!-- 应用私有文件（照片等素材）体积大且敏感，交由应用内导出功能处理 -->
+    <exclude domain="file" path="." />
+</full-backup-content>

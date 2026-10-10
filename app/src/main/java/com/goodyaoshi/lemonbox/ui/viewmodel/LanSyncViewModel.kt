@@ -93,13 +93,15 @@ class LanSyncViewModel @Inject constructor(
     }
 
     /**
-     * 直接连接 mDNS 发现到的设备：配对码随对方广播的 TXT 记录带过来，
-     * 无需先看码再手动输入（类似蓝牙配对，点一下就连）。
+     * 连接 mDNS 发现到的设备。
+     * 出于安全考虑，新版本不再通过 TXT 记录广播配对码：对这类设备这里只提示用户在下方
+     * 「手动输入」中填写对方屏幕上显示的 6 位配对码（地址已由界面预填）。
+     * 仅当对方为仍在广播配对码的旧版本时，才直接携带该码发起同步。
      */
     fun connectToPeer(peer: SyncPeer) {
         val token = peer.token
         if (token.isNullOrBlank()) {
-            showMessage("该设备未开启共享或版本较旧，请在下方手动输入配对码")
+            showMessage("请在下方「手动输入」中填写对方屏幕上显示的 6 位配对码")
             return
         }
         runSync(peer.host, peer.port, token)

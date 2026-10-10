@@ -53,6 +53,7 @@ import com.goodyaoshi.lemonbox.ui.components.QuantityStepper
 import com.goodyaoshi.lemonbox.ui.components.SectionHeader
 import com.goodyaoshi.lemonbox.ui.theme.CardWhite
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
+import com.goodyaoshi.lemonbox.ui.theme.SageAccent
 import com.goodyaoshi.lemonbox.ui.theme.TextHint
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
 import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
@@ -168,8 +169,8 @@ fun ScanScreen(
                             detail?.locationName?.let { name ->
                                 PillTag(
                                     text = name,
-                                    backgroundColor = Color(0xFF5A9E8F).copy(alpha = 0.12f),
-                                    contentColor = Color(0xFF5A9E8F)
+                                    backgroundColor = SageAccent.copy(alpha = 0.12f),
+                                    contentColor = SageAccent
                                 )
                             }
                         }

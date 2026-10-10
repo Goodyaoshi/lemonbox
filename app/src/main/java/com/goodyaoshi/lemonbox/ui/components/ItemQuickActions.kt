@@ -68,9 +68,6 @@ data class ItemActionHandlers(
     val onDelete: () -> Unit
 )
 
-/** 「更多」动作用中性灰蓝，与情境动作区分开。 */
-private val MoreActionColor = Color(0xFF6E8A96)
-
 /**
  * 构造左滑露出区的动作：最多一个随物品状态变化的高频动作，外加一个「更多」。
  * 高频动作只在物品还在库时才有意义；已离手（借出/送人/丢弃）的物品只保留「更多」。
@@ -83,6 +80,8 @@ fun buildItemSwipeActions(
 ): List<SwipeActionSpec> {
     val primaryColor = OrangeStart
     val restockColor = LemonStart
+    // 「更多」用语义次级动作色（柔和青绿），与黄/绿的情境动作拉开区别，且随主题一致。
+    val moreColor = SageAccent
 
     // 多件物品「开始用」后可以逐件消耗：先给「用1件」，再给「用完」。
     val contextual = mutableListOf<SwipeActionSpec>()
@@ -122,7 +121,7 @@ fun buildItemSwipeActions(
     return contextual + SwipeActionSpec(
         label = "更多",
         icon = Icons.Default.MoreHoriz,
-        backgroundColor = MoreActionColor,
+        backgroundColor = moreColor,
         onClick = onMore
     )
 }
@@ -217,7 +216,7 @@ fun ItemMoreActionsDialog(
                     MoreActionRow(
                         icon = Icons.Default.Delete,
                         title = "删除",
-                        subtitle = "移入回收站，30 天内可恢复",
+                        subtitle = DeleteCopy.SOFT_ACTION_SUBTITLE,
                         tint = StatusExpired,
                         destructive = true,
                         onClick = {

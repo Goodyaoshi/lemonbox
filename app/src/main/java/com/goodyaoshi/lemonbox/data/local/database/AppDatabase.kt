@@ -594,14 +594,14 @@ abstract class AppDatabase : RoomDatabase() {
 
         /**
          * 纪念日重构为类型制：新增 type 列（0 倒数日 / 1 正数日 / 2 生日）。
-         * 本应用升级一律卸载重装，无需迁移数据，重建空表即可。
+         * 这里必须保留既有纪念日数据，仅重建表结构并回填默认类型，
+         * 绝不能用 DROP TABLE 造成用户数据静默丢失。
          */
         private val MIGRATION_24_25 = object : Migration(24, 25) {
             override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("DROP TABLE IF EXISTS `anniversaries`")
                 db.execSQL(
                     """
-                    CREATE TABLE IF NOT EXISTS `anniversaries` (
+                    CREATE TABLE IF NOT EXISTS `anniversaries_new` (
                         `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
                         `name` TEXT NOT NULL,
                         `note` TEXT NOT NULL,
@@ -622,6 +622,21 @@ abstract class AppDatabase : RoomDatabase() {
                     )
                     """.trimIndent()
                 )
+                // 历史纪念日此前无类型概念，统一归为「倒数日」(0)，其余字段原样保留。
+                db.execSQL(
+                    """
+                    INSERT INTO `anniversaries_new`
+                        (`id`, `name`, `note`, `type`, `date`, `isLunar`, `lunarMonth`, `lunarDay`,
+                         `repeatUnit`, `repeatInterval`, `remindDays`, `lastNotifiedDate`,
+                         `enabled`, `syncId`, `updatedAt`, `deletedAt`, `createdAt`)
+                    SELECT `id`, `name`, `note`, 0, `date`, `isLunar`, `lunarMonth`, `lunarDay`,
+                        `repeatUnit`, `repeatInterval`, `remindDays`, `lastNotifiedDate`,
+                        `enabled`, `syncId`, `updatedAt`, `deletedAt`, `createdAt`
+                    FROM `anniversaries`
+                    """.trimIndent()
+                )
+                db.execSQL("DROP TABLE `anniversaries`")
+                db.execSQL("ALTER TABLE `anniversaries_new` RENAME TO `anniversaries`")
             }
         }
 

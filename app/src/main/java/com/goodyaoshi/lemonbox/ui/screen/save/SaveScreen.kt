@@ -77,6 +77,9 @@ import com.goodyaoshi.lemonbox.ui.components.TreeNode
 import com.goodyaoshi.lemonbox.ui.components.buildTreePathLabel
 import com.goodyaoshi.lemonbox.ui.scan.EXTRA_BARCODE
 import com.goodyaoshi.lemonbox.ui.scan.ScanActivity
+import com.goodyaoshi.lemonbox.ui.theme.CardWhite
+import com.goodyaoshi.lemonbox.ui.theme.DividerSoft
+import com.goodyaoshi.lemonbox.ui.theme.GlassWhite
 import com.goodyaoshi.lemonbox.ui.theme.TextHint
 import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
 import com.goodyaoshi.lemonbox.ui.viewmodel.SaveViewModel
@@ -207,9 +210,11 @@ fun SaveScreen(
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
+                            // 顶部压暗照片（Material 常量黑，与主题无关），
+                            // 下方过渡到语义「磨砂玻璃 / 卡片」色，深色模式下自动转为深底。
                             Color.Black.copy(alpha = 0.28f),
-                            Color(0xCCF7FBF0),
-                            Color(0xEEFFF9F2)
+                            GlassWhite,
+                            CardWhite
                         )
                     )
                 )
@@ -281,7 +286,7 @@ fun SaveScreen(
                             modifier = Modifier
                                 .align(Alignment.CenterHorizontally)
                                 .size(width = 42.dp, height = 4.dp)
-                                .background(Color(0xFFD9E3CF), RoundedCornerShape(999.dp))
+                                .background(DividerSoft, RoundedCornerShape(999.dp))
                         )
                         Spacer(modifier = Modifier.height(14.dp))
 

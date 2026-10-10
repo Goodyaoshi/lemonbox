@@ -1,6 +1,7 @@
 package com.goodyaoshi.lemonbox.ui.components
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -138,7 +139,8 @@ private fun MonthArrow(icon: ImageVector, onClick: () -> Unit) {
             .background(SurfaceWarmDeep)
             .clickable(
                 interactionSource = interactionSource,
-                indication = null,
+                // 月份切换箭头恢复默认涟漪（I3）。
+                indication = LocalIndication.current,
                 onClick = onClick
             ),
         contentAlignment = Alignment.Center
@@ -421,7 +423,8 @@ fun AmountKeyboard(
                             .background(SurfaceWarmDeep)
                             .clickable(
                                 interactionSource = interactionSource,
-                                indication = null
+                                // 金额键盘按键恢复默认涟漪（I3）：此前无任何按压反馈。
+                                indication = LocalIndication.current
                             ) {
                                 if (key == "⌫") onBackspace() else onKey(key)
                             },

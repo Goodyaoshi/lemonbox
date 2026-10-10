@@ -56,6 +56,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.data.backup.toUserMessage
 import com.goodyaoshi.lemonbox.data.sync.SyncPeer
+import com.goodyaoshi.lemonbox.data.sync.SyncServer
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.GradientButton
@@ -202,7 +203,7 @@ fun LanSyncScreen(
                     )
                     Spacer(modifier = Modifier.size(4.dp))
                     Text(
-                        text = "对方在「附近设备」里点一下本机名字即可，无需手动输码。",
+                        text = "让对方在「搜索不到？手动输入」里填上本机地址与这串配对码（出于安全考虑，配对码不会自动广播）。",
                         fontSize = 12.sp,
                         color = TextHint
                     )
@@ -287,7 +288,19 @@ fun LanSyncScreen(
                         DeviceRow(
                             peer = peer,
                             enabled = !uiState.isBusy,
-                            onClick = { viewModel.connectToPeer(peer) }
+                            onClick = {
+                                // 配对码不再随 mDNS 广播：点击设备后预填地址并展开「手动输入」，
+                                // 用户照抄对方屏幕上的 6 位配对码即可；旧版本仍带码则直接同步。
+                                if (peer.token.isNullOrBlank()) {
+                                    addressInput = if (peer.port == SyncServer.DEFAULT_PORT) {
+                                        peer.host
+                                    } else {
+                                        "${peer.host}:${peer.port}"
+                                    }
+                                    showManual = true
+                                }
+                                viewModel.connectToPeer(peer)
+                            }
                         )
                     }
                 }
@@ -396,7 +409,7 @@ fun LanSyncScreen(
     }
 }
 
-/** 附近设备的一行：蓝牙式的圆底图标 + 设备名 + 右侧操作提示，点击即同步。 */
+/** 附近设备的一行：蓝牙式的圆底图标 + 设备名 + 右侧操作提示。点击后填入地址并提示手动输入配对码。 */
 @Composable
 private fun DeviceRow(
     peer: SyncPeer,
@@ -439,7 +452,7 @@ private fun DeviceRow(
         Text(
             text = when {
                 !enabled -> "同步中…"
-                needsCode -> "需配对码"
+                needsCode -> "点此填码"
                 else -> "点击同步"
             },
             fontSize = 12.sp,

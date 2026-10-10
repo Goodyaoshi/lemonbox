@@ -1,5 +1,6 @@
 package com.goodyaoshi.lemonbox.ui.screen.trash
 
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -299,7 +300,8 @@ private fun TrashItemCard(
                     .background(if (selected) OrangeStart else CardWhite)
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
+                        // 勾选控件恢复默认涟漪（I3）：它本身是承载动作的按钮，而非背景热区。
+                        indication = LocalIndication.current,
                         onClick = onToggleSelection
                     ),
                 contentAlignment = Alignment.Center
@@ -370,7 +372,8 @@ private fun TrashActionButton(
             .clickable(
                 enabled = enabled,
                 interactionSource = interactionSource,
-                indication = null,
+                // 「恢复 / 永久删除」按钮恢复默认涟漪（I3）：永久删除为主流程按钮，更需要按压确认。
+                indication = LocalIndication.current,
                 onClick = onClick
             )
             .padding(horizontal = 14.dp, vertical = 12.dp),

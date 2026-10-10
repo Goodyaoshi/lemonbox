@@ -321,11 +321,6 @@ private fun ReminderRow(
                     onClick = onComplete
                 )
                 Spacer(modifier = Modifier.width(6.dp))
-                Switch(
-                    checked = true,
-                    onCheckedChange = { onToggle() },
-                    modifier = Modifier.size(40.dp)
-                )
             } else {
                 IconButton(onClick = onDelete) {
                     Icon(
@@ -335,7 +330,15 @@ private fun ReminderRow(
                         modifier = Modifier.size(20.dp)
                     )
                 }
+                Spacer(modifier = Modifier.width(4.dp))
             }
+            // 开关始终可见并绑定真实启用状态（I4）：此前写死 checked = true，
+            // 用户既无法从界面判断提醒是否启用，点击时开关也不会翻转（"点了没用"的错觉）。
+            Switch(
+                checked = reminder.enabled,
+                onCheckedChange = { onToggle() },
+                modifier = Modifier.size(40.dp)
+            )
         }
     }
 }

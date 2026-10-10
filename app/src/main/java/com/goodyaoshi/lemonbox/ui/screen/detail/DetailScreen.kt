@@ -60,6 +60,7 @@ import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.CategoryTag
+import com.goodyaoshi.lemonbox.ui.components.DeleteCopy
 import com.goodyaoshi.lemonbox.ui.components.GradientButton
 import com.goodyaoshi.lemonbox.ui.components.ImagePreviewOverlay
 import com.goodyaoshi.lemonbox.ui.components.PillTag
@@ -407,10 +408,13 @@ fun DetailScreen(
 
     if (showDeleteDialog) {
         AppDialog(
-            title = "确认删除",
-            subtitle = "删除后不可恢复，相关图片也会一并移除。",
+            title = DeleteCopy.CONFIRM_TITLE,
+            // 与家当 / 待买 / 搜索等入口共用同一份文案（I2）：详情页的删除同样是
+            // 软删除（DetailViewModel.delete -> ItemRepository.moveToTrash），
+            // 旧文案"删除后不可恢复"与实际行为不符，已收敛为"移入回收站、30 天内可恢复"。
+            subtitle = DeleteCopy.SOFT_SUBTITLE,
             onDismissRequest = { showDeleteDialog = false },
-            confirmText = "删除",
+            confirmText = DeleteCopy.SOFT_CONFIRM,
             destructiveConfirm = true,
             onConfirm = {
                 viewModel.delete(item)

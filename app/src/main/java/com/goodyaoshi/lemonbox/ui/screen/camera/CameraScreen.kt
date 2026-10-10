@@ -201,6 +201,8 @@ fun CameraScreen(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
+                    // 相机不可用时的取景兜底底色：取景器恒为暗色（与主题无关），
+                    // 故此处不作为语义色板替换对象，仅保留此说明以便静态检查白名单。
                     .background(Color(0xFF181818))
             ) {
                 if (selectedTab == CameraTab.NO_IMAGE) {
@@ -389,7 +391,8 @@ fun CameraScreen(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(999.dp))
-                            .background(Color(0xFFEFC22E))
+                            // 拍照浮层恒为暗色，主按钮沿用品牌柠檬黄（语义色板取值）。
+                            .background(LemonStart)
                             .clickable {
                                 onPhotoTaken(capturedUris.toList())
                             }
@@ -437,7 +440,7 @@ fun CameraScreen(
                                 .size(width = 24.dp, height = 3.dp)
                                 .clip(RoundedCornerShape(999.dp))
                                 .background(
-                                    if (selectedTab == tab) Color(0xFFEFC22E) else Color.Transparent
+                                    if (selectedTab == tab) LemonStart else Color.Transparent
                                 )
                         )
                     }
@@ -471,7 +474,7 @@ private fun NoImageState(
         Box(
             modifier = Modifier
                 .clip(RoundedCornerShape(999.dp))
-                .background(Color(0xFFEFC22E))
+                .background(LemonStart)
                 .clickable(onClick = onSkipPhoto)
                 .padding(horizontal = 18.dp, vertical = 11.dp)
         ) {

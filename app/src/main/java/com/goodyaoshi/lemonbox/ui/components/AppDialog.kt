@@ -1,5 +1,6 @@
 package com.goodyaoshi.lemonbox.ui.components
 
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -159,7 +160,8 @@ private fun DialogActionButton(
             .clickable(
                 enabled = enabled,
                 interactionSource = interactionSource,
-                indication = null,
+                // 对话框确认 / 取消按钮恢复默认涟漪（I3）：主流程按钮更需要按压确认。
+                indication = LocalIndication.current,
                 onClick = onClick
             )
             .padding(horizontal = 14.dp, vertical = 14.dp),

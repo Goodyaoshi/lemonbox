@@ -50,6 +50,7 @@ import com.goodyaoshi.lemonbox.data.local.entity.LedgerRecord.Companion.TYPE_EXP
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerRecord.Companion.TYPE_INCOME
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerRecord.Companion.TYPE_TRANSFER
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
+import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.EmptyState
 import com.goodyaoshi.lemonbox.ui.components.LedgerAssetChip
@@ -98,6 +99,8 @@ fun LedgerScreen(
     val yearMonth by viewModel.yearMonth.collectAsState()
     val assets by viewModel.assetsWithBalance.collectAsState()
     var openedRecordId by remember { mutableStateOf<Long?>(null) }
+    // 待删除流水：与资产 / 分类等页面保持一致，先弹确认再落库（I1）。
+    var pendingDeleteRecord by remember { mutableStateOf<LedgerRecordUi?>(null) }
 
     val dayGroups = remember(overview.records) {
         overview.records.groupBy { recordUi ->
@@ -240,7 +243,8 @@ fun LedgerScreen(
                                         label = "删除",
                                         icon = Icons.Filled.Delete,
                                         backgroundColor = StatusExpired,
-                                        onClick = { viewModel.deleteRecord(recordUi.record.id) }
+                                        // 不直接删除，改为记录待删项并弹出确认（I1）。
+                                        onClick = { pendingDeleteRecord = recordUi }
                                     )
                                 )
                             ) { _, _ ->
@@ -275,6 +279,28 @@ fun LedgerScreen(
                 tint = OnLemon,
                 modifier = Modifier.size(28.dp)
             )
+        }
+
+        // 删除流水前的二次确认（I1）：与资产 / 分类 / 纪念日等页面的删除体验保持一致。
+        pendingDeleteRecord?.let { target ->
+            AppDialog(
+                title = "删除流水",
+                onDismissRequest = { pendingDeleteRecord = null },
+                confirmText = "删除",
+                destructiveConfirm = true,
+                onConfirm = {
+                    viewModel.deleteRecord(target.record.id)
+                    pendingDeleteRecord = null
+                }
+            ) {
+                Text(
+                    text = target.categoryName
+                        ?.let { "确定要删除「$it」这一笔吗？删除后不可恢复。" }
+                        ?: "确定要删除这一笔吗？删除后不可恢复。",
+                    color = TextSecondary,
+                    fontSize = 14.sp
+                )
+            }
         }
     }
 }

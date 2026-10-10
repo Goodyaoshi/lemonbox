@@ -53,6 +53,7 @@ import com.goodyaoshi.lemonbox.data.local.entity.ItemDetail
 import com.goodyaoshi.lemonbox.data.repository.WeeklyMealDay
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
+import com.goodyaoshi.lemonbox.ui.components.DeleteCopy
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.EmptyState
 import com.goodyaoshi.lemonbox.ui.components.ItemActionHandlers
@@ -148,6 +149,7 @@ fun HomeScreen(
     }
 
     Box(
+        // 点击空白处收起侧滑行的背景热区：此处刻意保留无反馈（I3 白名单例外）。
         modifier = Modifier.clickable(indication = null, interactionSource = null) {
             openedItemId = null
         }
@@ -268,10 +270,10 @@ fun HomeScreen(
 
         pendingDeleteItem?.let { item ->
             AppDialog(
-                title = "确认删除",
-                subtitle = "删除后会先移入回收站，30 天内仍可恢复。",
+                title = DeleteCopy.CONFIRM_TITLE,
+                subtitle = DeleteCopy.SOFT_SUBTITLE,
                 onDismissRequest = { pendingDeleteItem = null },
-                confirmText = "移入回收站",
+                confirmText = DeleteCopy.SOFT_CONFIRM,
                 destructiveConfirm = true,
                 onConfirm = {
                     viewModel.moveToTrash(item)

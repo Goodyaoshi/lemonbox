@@ -15,7 +15,11 @@ import java.nio.charset.StandardCharsets
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** 局域网内发现到的可同步设备。[token] 来自 mDNS TXT 记录，为空表示对方未开启共享。 */
+/**
+ * 局域网内发现到的可同步设备。
+ * [token] 现已不再随 mDNS 广播，恒为 null；仅当对方为仍在广播配对码的旧版本时才可能非空。
+ * 现代版本一律要求用户手动输入对方屏幕上显示的 6 位配对码。
+ */
 data class SyncPeer(
     val name: String,
     val host: String,
@@ -51,7 +55,7 @@ class LanSyncManager @Inject constructor(
     fun startHosting(token: String): String? {
         if (!syncServer.start(token)) return null
         acquireMulticastLock()
-        registerService(syncServer.listeningPort, token)
+        registerService(syncServer.listeningPort)
         return localIpAddress()
     }
 
@@ -110,7 +114,7 @@ class LanSyncManager @Inject constructor(
         _peers.value = emptyList()
     }
 
-    private fun registerService(port: Int, token: String) {
+    private fun registerService(port: Int) {
         registrationListener?.let { listener -> runCatching { nsdManager.unregisterService(listener) } }
         val name = "柠檬百宝箱-${appPreferences.deviceId.take(4)}"
         ownServiceName = name
@@ -118,9 +122,9 @@ class LanSyncManager @Inject constructor(
             serviceName = name
             serviceType = SERVICE_TYPE
             this.port = port
-            // 把配对码随 TXT 记录广播出去：同一 WiFi 的设备发现后即可直接连接，
-            // 不必先看码再口头转述（类似蓝牙配对，点一下就连）。
-            setAttribute(ATTR_TOKEN, token)
+            // 安全考量：TXT 记录只广播设备 ID，绝不广播配对码。
+            // 同一 WiFi 下任何设备都能读到 TXT 记录，广播配对码等于把鉴权秘密公开，
+            // 因此配对码改为由用户从对方屏幕上读取后手动输入（下方「手动输入」）。
             setAttribute(ATTR_DEVICE, appPreferences.deviceId)
         }
         val listener = object : NsdManager.RegistrationListener {
@@ -149,7 +153,7 @@ class LanSyncManager @Inject constructor(
                 resolving = false
                 val resolved = serviceInfo ?: return
                 val host = resolved.host?.hostAddress ?: return
-                // TXT 记录里的配对码可能缺失（对方版本过旧或系统未解析 TXT），此时退回手动输入。
+                // 现代版本不再广播配对码；仅旧版本可能仍带上，读到则沿用，否则由用户手动输入。
                 val token = resolved.attributes?.get(ATTR_TOKEN)
                     ?.toString(StandardCharsets.UTF_8)
                     ?.takeIf { it.isNotBlank() }
@@ -185,7 +189,10 @@ class LanSyncManager @Inject constructor(
         /** mDNS 服务类型，两端必须一致。 */
         const val SERVICE_TYPE = "_lemonsync._tcp"
 
-        /** TXT 记录键：配对码 / 设备号。 */
+        /**
+         * TXT 记录键：设备号 / 配对码。
+         * 本机只广播 [ATTR_DEVICE]；[ATTR_TOKEN] 仅为兼容仍在广播配对码的旧版本而保留「读取」能力。
+         */
         private const val ATTR_TOKEN = "token"
         private const val ATTR_DEVICE = "device"
 

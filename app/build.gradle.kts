@@ -28,8 +28,7 @@ android {
     }
 
     signingConfigs {
-        // 发布签名占位：真实密钥通过本地 gradle.properties / CI Secrets 注入，
-        // 未提供时回退到 debug 签名，保证 assembleRelease 始终能产出可安装的包。
+        // 正式签名：密钥信息通过 local.properties / CI Secrets 注入，绝不写进仓库。
         create("release") {
             val keystorePath = findProperty("LEMON_KEYSTORE_PATH") as String?
             if (keystorePath != null) {
@@ -49,10 +48,12 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // 不再回退 debug 签名：缺签名时保持无签名，
+            // 由文件末尾的任务图校验直接让发布构建失败，杜绝误用调试签名对外发布。
             signingConfig = if (findProperty("LEMON_KEYSTORE_PATH") != null) {
                 signingConfigs.getByName("release")
             } else {
-                signingConfigs.getByName("debug")
+                null
             }
         }
     }
@@ -69,6 +70,18 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+}
+
+// 发布构建签名硬校验：只要本次构建会产出 release 包，就必须提供正式签名，
+// 否则直接失败，杜绝静默使用 debug 签名对外发布。
+gradle.taskGraph.whenReady {
+    val buildingRelease = allTasks.any { it.name == "assembleRelease" || it.name == "bundleRelease" }
+    if (buildingRelease && findProperty("LEMON_KEYSTORE_PATH") == null) {
+        throw GradleException(
+            "缺少发布签名配置：请在 local.properties 或 CI Secrets 中提供 " +
+                "LEMON_KEYSTORE_PATH / LEMON_KEYSTORE_PASSWORD / LEMON_KEY_ALIAS / LEMON_KEY_PASSWORD。"
+        )
     }
 }
 

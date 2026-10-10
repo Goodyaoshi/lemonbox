@@ -16,6 +16,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.io.FilterInputStream
+import java.net.InetAddress
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -89,6 +90,16 @@ class SyncServer @Inject constructor(
     private inner class Impl(port: Int, private val expectedToken: String) : NanoHTTPD(port) {
 
         override fun serve(session: IHTTPSession): Response {
+            // 收敛暴露面：服务端仅接受来自局域网（私网 / 链路本地 / 回环 / IPv6 ULA）的请求。
+            // 明文 HTTP 放行范围无法用 network-security-config 按网段表达，
+            // 因此在这里做运行时兜底：非局域网来源一律拒绝，避免被公网或热点外设备访问。
+            if (!isLanAddress(session.remoteIpAddress)) {
+                return newFixedLengthResponse(
+                    Response.Status.FORBIDDEN,
+                    MIME_PLAINTEXT,
+                    "仅允许局域网设备访问"
+                )
+            }
             val token = session.parameters["token"]?.firstOrNull()
             if (token != expectedToken) {
                 return newFixedLengthResponse(
@@ -187,6 +198,27 @@ class SyncServer @Inject constructor(
         private const val MIME_PLAINTEXT = "text/plain"
         private const val MIME_JSON = "application/json"
         private const val MIME_ZIP = "application/zip"
+
+        /**
+         * 判断对端是否处于局域网：接受 IPv4 私网（10/8、172.16/12、192.168/16）、
+         * 链路本地（169.254/16、fe80::/10）、回环，以及 IPv6 唯一本地地址（fc00::/7）。
+         */
+        private fun isLanAddress(remote: String?): Boolean {
+            if (remote.isNullOrBlank()) return false
+            return runCatching {
+                val address = InetAddress.getByName(remote)
+                address.isSiteLocalAddress ||
+                    address.isLinkLocalAddress ||
+                    address.isLoopbackAddress ||
+                    isUniqueLocalIpv6(address)
+            }.getOrDefault(false)
+        }
+
+        /** IPv6 唯一本地地址：最高 7 位为 1111110，即 fc00::/7。 */
+        private fun isUniqueLocalIpv6(address: InetAddress): Boolean {
+            val bytes = address.address
+            return bytes.size == 16 && (bytes[0].toInt() and 0xfe) == 0xfc
+        }
 
         /** 只读取 content-length 指定的字节数，避免读到下一个请求。 */
         private fun copyExactly(

@@ -54,6 +54,7 @@ import com.goodyaoshi.lemonbox.data.local.entity.ItemDetail
 import com.goodyaoshi.lemonbox.data.local.entity.StatusDimension
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
+import com.goodyaoshi.lemonbox.ui.components.DeleteCopy
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.EmptyState
 import com.goodyaoshi.lemonbox.ui.components.HierarchicalPickerDialog
@@ -75,6 +76,8 @@ import com.goodyaoshi.lemonbox.ui.theme.LemonStart
 import com.goodyaoshi.lemonbox.ui.theme.OnLemon
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarmDeep
+import com.goodyaoshi.lemonbox.ui.theme.TagRed
+import com.goodyaoshi.lemonbox.ui.theme.TagRedText
 import com.goodyaoshi.lemonbox.ui.theme.TextHint
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
 import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
@@ -177,6 +180,7 @@ fun SearchScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
+            // 点击空白处收起侧滑行的背景热区：此处刻意保留无反馈（I3 白名单例外）。
             .clickable(indication = null, interactionSource = null) {
                 openedItemId = null
             }
@@ -355,10 +359,10 @@ fun SearchScreen(
 
         pendingDeleteItem?.let { item ->
             AppDialog(
-                title = "确认删除",
-                subtitle = "删除后会先移入回收站，30 天内仍可恢复。",
+                title = DeleteCopy.CONFIRM_TITLE,
+                subtitle = DeleteCopy.SOFT_SUBTITLE,
                 onDismissRequest = { pendingDeleteItem = null },
-                confirmText = "移入回收站",
+                confirmText = DeleteCopy.SOFT_CONFIRM,
                 destructiveConfirm = true,
                 onConfirm = {
                     viewModel.moveToTrash(item)
@@ -522,14 +526,16 @@ private fun FilterEntryChip(
                     .offset(x = 5.dp, y = (-5).dp)
                     .size(18.dp)
                     .clip(CircleShape)
-                    .background(Color(0xFFE65B5B)),
+                    // 用语义标签红（随主题切换）替代原先写死的 0xFFE65B5B：
+                    // 深色模式下自动转为提亮的红底 + 深色数字，避免浅底刺眼。
+                    .background(TagRedText),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = activeCount.toString(),
                     fontSize = 9.sp,
                     fontWeight = FontWeight.SemiBold,
-                    color = Color.White
+                    color = TagRed
                 )
             }
         }

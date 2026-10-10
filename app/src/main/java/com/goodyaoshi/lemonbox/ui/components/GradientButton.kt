@@ -1,5 +1,6 @@
 package com.goodyaoshi.lemonbox.ui.components
 
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -53,7 +54,9 @@ fun GradientButton(
             )
             .clickable(
                 interactionSource = interactionSource,
-                indication = null,
+                // 主按钮恢复默认涟漪反馈（I3）：此前 indication = null 主动关闭了
+                // 按压反馈，用户点下去毫无视觉确认，容易误以为没点中而重复点击。
+                indication = LocalIndication.current,
                 enabled = enabled,
                 onClick = onClick
             ),

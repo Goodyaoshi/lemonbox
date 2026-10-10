@@ -44,6 +44,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.data.local.entity.Item
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
+import com.goodyaoshi.lemonbox.ui.components.DeleteCopy
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.EditorInputBox
 import com.goodyaoshi.lemonbox.ui.components.EditorPickerField
@@ -100,6 +101,7 @@ fun ToBuyScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
+            // 点击空白处收起侧滑行的背景热区：此处刻意保留无反馈（I3 白名单例外）。
             .clickable(indication = null, interactionSource = null) {
                 openedItemId = null
             }
@@ -260,10 +262,10 @@ fun ToBuyScreen(
 
     pendingDeleteItem?.let { item ->
         AppDialog(
-            title = "确认删除",
-            subtitle = "删除后会先移入回收站，30 天内仍可恢复。",
+            title = DeleteCopy.CONFIRM_TITLE,
+            subtitle = DeleteCopy.SOFT_SUBTITLE,
             onDismissRequest = { pendingDeleteItem = null },
-            confirmText = "移入回收站",
+            confirmText = DeleteCopy.SOFT_CONFIRM,
             destructiveConfirm = true,
             onConfirm = {
                 viewModel.moveToTrash(item)

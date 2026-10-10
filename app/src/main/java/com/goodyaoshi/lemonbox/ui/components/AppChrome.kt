@@ -1,5 +1,6 @@
 package com.goodyaoshi.lemonbox.ui.components
 
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -367,7 +368,8 @@ fun PillTag(
             baseModifier
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
+                    // 可点击胶囊标签恢复默认涟漪（I3）：它承载"点按切换"动作，需要按压反馈。
+                    indication = LocalIndication.current,
                     onClick = onClick
                 )
                 .padding(horizontal = 8.dp, vertical = 3.dp)

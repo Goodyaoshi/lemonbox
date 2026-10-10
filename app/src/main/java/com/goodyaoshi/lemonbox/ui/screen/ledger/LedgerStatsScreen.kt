@@ -32,7 +32,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -50,6 +49,7 @@ import com.goodyaoshi.lemonbox.ui.components.SegmentedTabs
 import com.goodyaoshi.lemonbox.ui.components.ledgerIconFor
 import com.goodyaoshi.lemonbox.ui.theme.LemonSlice
 import com.goodyaoshi.lemonbox.ui.theme.LeafGreen
+import com.goodyaoshi.lemonbox.ui.theme.LightTagPurpleText
 import com.goodyaoshi.lemonbox.ui.theme.MintGreen
 import com.goodyaoshi.lemonbox.ui.theme.SageAccent
 import com.goodyaoshi.lemonbox.ui.theme.StatusExpired
@@ -59,6 +59,7 @@ import com.goodyaoshi.lemonbox.ui.theme.StatusWarning
 import com.goodyaoshi.lemonbox.ui.theme.TextHint
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
 import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
+import com.goodyaoshi.lemonbox.ui.theme.WarmBrownSoft
 import com.goodyaoshi.lemonbox.ui.viewmodel.LedgerStatsViewModel
 import com.goodyaoshi.lemonbox.util.DateUtil
 import com.goodyaoshi.lemonbox.util.LedgerMath
@@ -74,8 +75,8 @@ private val statSliceColors = listOf(
     StatusInfo,
     StatusExpired,
     StatusNormal,
-    Color(0xFF8B6FC4),
-    Color(0xFF5B6B55)
+    LightTagPurpleText,
+    WarmBrownSoft
 )
 
 /** 记账统计：支出/收入切换 + 环形饼图 + 分类排行，分类可点进当月明细。 */
