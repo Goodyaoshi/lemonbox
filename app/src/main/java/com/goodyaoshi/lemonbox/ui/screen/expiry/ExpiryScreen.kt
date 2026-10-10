@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Icon
@@ -64,6 +65,7 @@ private val expiryTabs = listOf(
 fun ExpiryScreen(
     onBack: () -> Unit,
     onNavigateToDetail: (Long) -> Unit,
+    onNavigateToHousehold: () -> Unit = {},
     viewModel: ExpiryViewModel = hiltViewModel()
 ) {
     val expirableItems by viewModel.expirableItems.collectAsState()
@@ -100,7 +102,7 @@ fun ExpiryScreen(
                     )
                 }
                 Text(
-                    text = "即将过期",
+                    text = "到期提醒",
                     fontSize = 24.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary
@@ -118,17 +120,19 @@ fun ExpiryScreen(
             )
 
             if (filteredItems.isEmpty()) {
+                // 空态分两种：压根没登记效期 vs 筛选筛没了（I5）。
+                // 前者给「去家当补效期」的出路，避免有提示却无路可走；后者给「查看全部」一键回到全量。
+                val isAllTab = selectedTab == 0
                 EmptyState(
                     title = "没有效期提醒",
-                    // 空态分两种：筛选筛没了 vs 压根没登记效期（I5）。前者给「查看全部」一键回到全量。
-                    message = if (selectedTab == 0) {
+                    message = if (isAllTab) {
                         "还没有物品登记到期日，给易过期的东西补上效期就会出现在这里。"
                     } else {
                         "当前筛选条件下没有需要优先处理的物品。"
                     },
-                    actionLabel = if (selectedTab == 0) null else "查看全部效期",
-                    actionIcon = Icons.Default.Refresh,
-                    onAction = if (selectedTab == 0) null else ({ selectedTab = 0 }),
+                    actionLabel = if (isAllTab) "去家当给物品补效期" else "查看全部效期",
+                    actionIcon = if (isAllTab) Icons.Default.Add else Icons.Default.Refresh,
+                    onAction = if (isAllTab) onNavigateToHousehold else ({ selectedTab = 0 }),
                     modifier = Modifier.padding(top = 24.dp)
                 )
             } else {

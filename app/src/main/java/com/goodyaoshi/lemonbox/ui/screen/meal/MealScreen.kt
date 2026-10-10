@@ -44,6 +44,7 @@ import com.goodyaoshi.lemonbox.data.meal.MealSpec
 import com.goodyaoshi.lemonbox.data.repository.WeekMenuRepository
 import com.goodyaoshi.lemonbox.data.repository.WeeklyMealDay
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
+import com.goodyaoshi.lemonbox.ui.components.EmptyState
 import com.goodyaoshi.lemonbox.ui.components.HeaderActionPill
 import com.goodyaoshi.lemonbox.ui.theme.TagOrange
 import com.goodyaoshi.lemonbox.ui.theme.TagOrangeText
@@ -204,21 +205,33 @@ fun MealScreen(
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState())
             ) {
-                MissingIngredientsBar(
-                    missing = missingAll,
-                    onClick = onNavigateToToBuy
-                )
-
-                selectedDay?.let { day ->
-                    WeeklyMenuSection(
-                        day = day,
-                        onReroll = viewModel::rerollDay,
-                        onCooked = viewModel::markDayCooked,
-                        onEdit = { editingMealDateKey = it },
-                        onPrepReminder = { prepReminderDateKey = it },
-                        mealPrepDays = mealPrepDays,
-                        onItemClick = { onNavigateToDetail(it.item.id) }
+                // 一周菜单为空（新用户/清空计划）：日期条、菜单区、缺料条都会不渲染，
+                // 这里补一个带入口的空态，避免整页空白、用户无路可走。
+                if (weekPlan.isEmpty()) {
+                    EmptyState(
+                        title = "还没有一周菜单",
+                        message = "先去菜谱库添几道常做的菜，再回来把它们排进这一周。",
+                        icon = Icons.Default.RestaurantMenu,
+                        actionLabel = "去菜谱库添加菜谱",
+                        onAction = onNavigateToRecipeLibrary
                     )
+                } else {
+                    MissingIngredientsBar(
+                        missing = missingAll,
+                        onClick = onNavigateToToBuy
+                    )
+
+                    selectedDay?.let { day ->
+                        WeeklyMenuSection(
+                            day = day,
+                            onReroll = viewModel::rerollDay,
+                            onCooked = viewModel::markDayCooked,
+                            onEdit = { editingMealDateKey = it },
+                            onPrepReminder = { prepReminderDateKey = it },
+                            mealPrepDays = mealPrepDays,
+                            onItemClick = { onNavigateToDetail(it.item.id) }
+                        )
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(110.dp))

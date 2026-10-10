@@ -174,7 +174,9 @@ fun CategoryScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
-                .padding(top = 12.dp, bottom = 102.dp)
+                // 家当设置为二级页，进入后底部导航栏不显示，无需为其预留空间；
+                // 仅留 24.dp 让最后一个条目与屏幕底边保持呼吸感。
+                .padding(top = 12.dp, bottom = 24.dp)
         ) {
             Row(
                 modifier = Modifier

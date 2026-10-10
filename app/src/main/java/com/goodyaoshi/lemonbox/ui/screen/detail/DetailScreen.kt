@@ -242,14 +242,26 @@ fun DetailScreen(
                         )
                 )
 
-                ArrowCircleButton(
-                    icon = Icons.Default.Edit,
-                    contentDescription = "编辑家当",
+                Row(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .statusBarsPadding()
+                        .statusBarsPadding(),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    onEdit(item.id)
+                    // 详情页删除入口：此前 showDeleteDialog 只被读取/置 false，从未置 true，
+                    // 导致下方确认弹窗成为不可达的死代码。这里补上可见入口，点击后弹出确认框，
+                    // 复用同一份 AppDialog 软删除文案与 viewModel.delete 逻辑。
+                    DeleteCircleButton(
+                        contentDescription = "删除物品"
+                    ) {
+                        showDeleteDialog = true
+                    }
+                    ArrowCircleButton(
+                        icon = Icons.Default.Edit,
+                        contentDescription = "编辑家当"
+                    ) {
+                        onEdit(item.id)
+                    }
                 }
 
                 if (pagerState.currentPage > 0) {
@@ -491,6 +503,40 @@ private fun ArrowCircleButton(
             contentDescription = contentDescription,
             tint = Color.White
         )
+    }
+}
+
+@Composable
+private fun DeleteCircleButton(
+    contentDescription: String,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    // 沿用 [ArrowCircleButton] 的圆形浮层样式，仅把图标换成主题语义危险色 StatusExpired，
+    // 与「编辑家当」等中性操作区分。外层 48dp 承载点击区域以满足无障碍最小触控目标，
+    // 内层 42dp 负责视觉，与同排的「编辑家当」按钮保持一致的圆形直径。
+    Box(
+        modifier = modifier
+            .padding(horizontal = 12.dp)
+            .size(48.dp)
+            .clip(CircleShape)
+            .clickable(role = Role.Button, onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .size(42.dp)
+                .clip(CircleShape)
+                .background(Color.Black.copy(alpha = 0.22f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.Delete,
+                // 删除入口无文字标签，必须给出中文描述（F16）。
+                contentDescription = contentDescription,
+                tint = StatusExpired
+            )
+        }
     }
 }
 
