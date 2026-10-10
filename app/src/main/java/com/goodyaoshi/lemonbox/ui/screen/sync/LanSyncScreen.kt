@@ -1,6 +1,5 @@
 package com.goodyaoshi.lemonbox.ui.screen.sync
 
-import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -34,6 +33,7 @@ import androidx.compose.material.icons.filled.Smartphone
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -47,7 +47,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -60,6 +60,7 @@ import com.goodyaoshi.lemonbox.data.sync.SyncServer
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.GradientButton
+import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
 import com.goodyaoshi.lemonbox.ui.theme.CardWhite
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.OrangeTint
@@ -89,14 +90,15 @@ fun LanSyncScreen(
     var codeInput by remember { mutableStateOf("") }
     var showManual by remember { mutableStateOf(false) }
 
-    // 作为被连接方：对方合并过来时弹一次提示，避免「对方连了但本机毫无反应」。
-    val context = LocalContext.current
+    // 作为被连接方：对方合并过来时提示一次，避免「对方连了但本机毫无反应」。
+    // 全局提示通道（I10）：合并结果改走统一 Snackbar。
+    val appSnackbar = LocalAppSnackbar.current
     var shownSummary by remember { mutableStateOf(incomingSummary) }
     LaunchedEffect(incomingSummary) {
         val summary = incomingSummary
         if (summary != null && summary != shownSummary) {
             shownSummary = summary
-            Toast.makeText(context, "已合并对方数据：${summary.toUserMessage()}", Toast.LENGTH_LONG).show()
+            appSnackbar?.showMessage("已合并对方数据：${summary.toUserMessage()}")
         }
     }
 
@@ -209,7 +211,8 @@ fun LanSyncScreen(
                     )
                     Text(
                         text = "地址：${uiState.displayAddress ?: "获取中…"}（发现不到设备时可手动输入）",
-                        fontSize = 11.sp,
+                        // 说明文字走主题字阶（F6）并提到 12sp（F7）。
+                        style = MaterialTheme.typography.bodySmall,
                         color = TextHint,
                         modifier = Modifier.padding(top = 2.dp)
                     )
@@ -243,21 +246,29 @@ fun LanSyncScreen(
                         color = TextPrimary
                     )
                     Spacer(modifier = Modifier.weight(1f))
-                    Text(
-                        text = "刷新",
-                        fontSize = 12.sp,
-                        color = OrangeStart,
+                    // I9：原来「刷新」文字与旁边的刷新图标是两个独立元素，只有文字可点、
+                    // 图标又没有描述，热区既不完整也不明确。这里合并成唯一一个热区，
+                    // 图标 + 文字整体可点，并声明 Button 角色，读屏播报一次「刷新」。
+                    Row(
                         modifier = Modifier
                             .clip(RoundedCornerShape(999.dp))
-                            .clickable { viewModel.refreshDiscovery() }
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                    )
-                    Icon(
-                        imageVector = Icons.Default.Refresh,
-                        contentDescription = null,
-                        tint = OrangeStart,
-                        modifier = Modifier.size(14.dp)
-                    )
+                            .clickable(role = Role.Button) { viewModel.refreshDiscovery() }
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = null,
+                            tint = OrangeStart,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Text(
+                            text = "刷新",
+                            fontSize = 12.sp,
+                            color = OrangeStart
+                        )
+                    }
                 }
 
                 if (peers.isEmpty()) {
@@ -279,7 +290,8 @@ fun LanSyncScreen(
                     Spacer(modifier = Modifier.size(6.dp))
                     Text(
                         text = "让对方也打开这个页面并「开启共享」，稍等片刻即可出现。",
-                        fontSize = 11.sp,
+                        // 说明文字走主题字阶（F6）并提到 12sp（F7）。
+                        style = MaterialTheme.typography.bodySmall,
                         color = TextHint
                     )
                 } else {
@@ -355,7 +367,8 @@ fun LanSyncScreen(
                     Spacer(modifier = Modifier.size(8.dp))
                     Text(
                         text = "地址与配对码可在对方「本机」卡片里看到。",
-                        fontSize = 11.sp,
+                        // 说明文字走主题字阶（F6）并提到 12sp（F7）。
+                        style = MaterialTheme.typography.bodySmall,
                         color = TextHint
                     )
                     Spacer(modifier = Modifier.size(12.dp))
@@ -399,7 +412,8 @@ fun LanSyncScreen(
 
             Text(
                 text = "提示：同步需要「存储/网络」相关权限；若长时间发现不到设备，请确认路由器未开启「AP 隔离」，或用上方的「手动输入」兜底。",
-                fontSize = 11.sp,
+                // 说明文字走主题字阶（F6）并提到 12sp（F7）。
+                style = MaterialTheme.typography.bodySmall,
                 color = OrangeStart,
                 modifier = Modifier
                     .fillMaxWidth()

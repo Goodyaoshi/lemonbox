@@ -41,6 +41,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -117,6 +121,8 @@ fun TrashScreen(
             }
 
             if (deletedItems.isEmpty()) {
+                // 空回收站刻意不给操作按钮（I5 的例外）：这里没有「主操作」可直达，
+                // 且文案本身没有引用屏幕外的位置，因此保留纯说明态即可，避免硬塞一个「返回」按钮。
                 EmptyState(
                     title = "回收站是空的",
                     message = "最近删除的物品会先放在这里，30 天内可以恢复。",
@@ -302,13 +308,21 @@ private fun TrashItemCard(
                         interactionSource = remember { MutableInteractionSource() },
                         // 勾选控件恢复默认涟漪（I3）：它本身是承载动作的按钮，而非背景热区。
                         indication = LocalIndication.current,
+                        // 声明为复选框，读屏会播报「复选框」角色与选中态（F16）。
+                        role = Role.Checkbox,
                         onClick = onToggleSelection
-                    ),
+                    )
+                    // 纯图形勾选框没有文字兜底，补名称与选中状态（F16）。
+                    .semantics {
+                        contentDescription = "选择该家当"
+                        stateDescription = if (selected) "已选中" else "未选中"
+                    },
                 contentAlignment = Alignment.Center
             ) {
                 if (selected) {
                     Icon(
                         imageVector = Icons.Default.Check,
+                        // 选中态已由上方 stateDescription 播报，图标此处留空避免重复播报。
                         contentDescription = null,
                         tint = Color.White,
                         modifier = Modifier.size(16.dp)

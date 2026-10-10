@@ -3,6 +3,7 @@ package com.goodyaoshi.lemonbox.ui.screen.edit
 import android.app.Activity
 import android.content.Intent
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -70,6 +71,7 @@ import com.goodyaoshi.lemonbox.ui.screen.save.SavePhotoMode
 import com.goodyaoshi.lemonbox.ui.theme.TextHint
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
 import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
+import com.goodyaoshi.lemonbox.ui.viewmodel.EditItemState
 import com.goodyaoshi.lemonbox.ui.viewmodel.EditViewModel
 import com.goodyaoshi.lemonbox.util.DateUtil
 import java.time.LocalDate
@@ -102,7 +104,9 @@ fun EditScreen(
     val locations by viewModel.locations.collectAsState()
     val defaultReminderLadder by viewModel.defaultReminderLadder.collectAsState()
 
-    var showAdvanced by remember { mutableStateOf(true) }
+    // 「更多信息」默认折叠，展开后跨会话记住用户的选择（I6），与录入页共用一份。
+    val showAdvanced by viewModel.advancedExpanded.collectAsState()
+    var showDiscardDialog by remember { mutableStateOf(false) }
     var showDatePicker by remember { mutableStateOf(false) }
     var showPurchaseDatePicker by remember { mutableStateOf(false) }
     var showStartUseDatePicker by remember { mutableStateOf(false) }
@@ -179,6 +183,23 @@ fun EditScreen(
         }
     }
 
+    // I6：加载完成后拍一张表单快照当作「未修改」基准，之后只要和它不一致就认为有改动。
+    // 用 itemId 作为 key，切换物品时基准会重新采集。
+    var loadedBaseline by remember(itemId) { mutableStateOf<EditItemState?>(null) }
+    LaunchedEffect(state.isLoaded, state.itemId) {
+        if (state.isLoaded && state.itemId == itemId && loadedBaseline == null) {
+            loadedBaseline = state.copy(isSaving = false, isSaved = false)
+        }
+    }
+    val hasUnsavedInput = loadedBaseline?.let {
+        state.copy(isSaving = false, isSaved = false) != it
+    } ?: false
+    val requestBack: () -> Unit = {
+        if (hasUnsavedInput) showDiscardDialog = true else onBack()
+    }
+    // 系统返回手势/按键与左上角返回走同一套确认逻辑（I6）。
+    BackHandler { requestBack() }
+
     Box(modifier = Modifier.fillMaxSize()) {
         AppDecorativeBackground()
 
@@ -195,7 +216,7 @@ fun EditScreen(
                     .padding(horizontal = 8.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = onBack) {
+                IconButton(onClick = requestBack) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "返回",
@@ -272,7 +293,7 @@ fun EditScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { showAdvanced = !showAdvanced }
+                            .clickable { viewModel.setAdvancedExpanded(!showAdvanced) }
                             .padding(vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center
@@ -525,6 +546,28 @@ fun EditScreen(
                 title = "选择开始使用日期",
                 yearRange = historyYearRange
             )
+        }
+
+        // I6：有未保存内容时返回先确认，避免误触返回键丢掉编辑。
+        if (showDiscardDialog) {
+            AppDialog(
+                title = "放弃修改？",
+                subtitle = "表单里还有没保存的内容，返回就会丢失。",
+                onDismissRequest = { showDiscardDialog = false },
+                confirmText = "放弃修改",
+                destructiveConfirm = true,
+                onConfirm = {
+                    showDiscardDialog = false
+                    onBack()
+                },
+                dismissText = "继续编辑"
+            ) {
+                Text(
+                    text = "确定要离开并丢弃当前的修改吗？",
+                    fontSize = 14.sp,
+                    color = TextSecondary
+                )
+            }
         }
     }
 }

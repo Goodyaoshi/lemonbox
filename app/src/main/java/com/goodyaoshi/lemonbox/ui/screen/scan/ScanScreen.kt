@@ -1,6 +1,5 @@
 package com.goodyaoshi.lemonbox.ui.screen.scan
 
-import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -38,7 +37,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -48,6 +46,7 @@ import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.EditorSectionLabel
 import com.goodyaoshi.lemonbox.ui.components.GradientButton
+import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
 import com.goodyaoshi.lemonbox.ui.components.PillTag
 import com.goodyaoshi.lemonbox.ui.components.QuantityStepper
 import com.goodyaoshi.lemonbox.ui.components.SectionHeader
@@ -69,7 +68,8 @@ fun ScanScreen(
     onNavigateToSaveForBarcode: (String) -> Unit,
     viewModel: ScanViewModel = hiltViewModel()
 ) {
-    val context = LocalContext.current
+    // 全局提示通道（I10）：入库 / 核销等结果改走统一 Snackbar，替代易被忽略的系统 Toast。
+    val appSnackbar = LocalAppSnackbar.current
     val state by viewModel.state.collectAsState()
 
     var showCheckIn by remember { mutableStateOf(false) }
@@ -86,7 +86,7 @@ fun ScanScreen(
 
     LaunchedEffect(state.message) {
         state.message?.let { message ->
-            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+            appSnackbar?.showMessage(message)
             viewModel.consumeMessage()
         }
     }

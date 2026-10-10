@@ -71,6 +71,11 @@ class EditViewModel @Inject constructor(
     /** 有效期快捷档位（设置页自定义的 x天/x周/x月/x年），与录入页保持一致。 */
     val expiryQuickOptions: StateFlow<List<String>> = appPreferences.expiryQuickOptions
 
+    /** 「更多信息」展开态：默认折叠，用户展开后跨会话记住其选择（I6），与录入页共用一份。 */
+    val advancedExpanded: StateFlow<Boolean> = appPreferences.editorAdvancedExpanded
+
+    fun setAdvancedExpanded(expanded: Boolean) = appPreferences.setEditorAdvancedExpanded(expanded)
+
     val categories: StateFlow<List<Category>> = categoryRepository.getAllCategories()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 

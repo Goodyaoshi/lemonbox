@@ -1,6 +1,5 @@
 package com.goodyaoshi.lemonbox.ui.screen.meal
 
-import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -35,12 +34,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import com.goodyaoshi.lemonbox.data.meal.MealSpec
 import com.goodyaoshi.lemonbox.data.repository.WeekMenuRepository
 import com.goodyaoshi.lemonbox.data.repository.WeeklyMealDay
@@ -54,7 +53,10 @@ import com.goodyaoshi.lemonbox.ui.viewmodel.RecipeViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.LocalDate
 import javax.inject.Inject
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 
 /**
  * 吃饭 Tab 的 ViewModel：纯委托 [WeekMenuRepository]，
@@ -67,12 +69,14 @@ class MealViewModel @Inject constructor(
 
     /** 未来 N 天菜单。 */
     val weekPlan: StateFlow<List<WeeklyMealDay>> = weekMenuRepository.weekPlan
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /** 计划天数（1..30）。 */
     val planDays: StateFlow<Int> = weekMenuRepository.planDays
 
     /** 已生成过「提醒准备」的日期集合。 */
     val mealPrepDays: StateFlow<Set<String>> = weekMenuRepository.mealPrepDays
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
 
     /** 备菜提醒默认提前天数（-1 前一天 / 0 当天）。 */
     val mealPrepDefaultDayShift: StateFlow<Int> = weekMenuRepository.mealPrepDefaultDayShift
@@ -82,11 +86,17 @@ class MealViewModel @Inject constructor(
 
     fun setPlanDays(days: Int) = weekMenuRepository.setPlanDays(days)
 
-    fun markDayCooked(dateKey: String) = weekMenuRepository.markDayCooked(dateKey)
+    fun markDayCooked(dateKey: String) {
+        viewModelScope.launch { weekMenuRepository.markDayCooked(dateKey) }
+    }
 
-    fun rerollDay(dateKey: String) = weekMenuRepository.rerollDay(dateKey)
+    fun rerollDay(dateKey: String) {
+        viewModelScope.launch { weekMenuRepository.rerollDay(dateKey) }
+    }
 
-    fun saveDayMeal(dateKey: String, spec: MealSpec) = weekMenuRepository.saveDayMeal(dateKey, spec)
+    fun saveDayMeal(dateKey: String, spec: MealSpec) {
+        viewModelScope.launch { weekMenuRepository.saveDayMeal(dateKey, spec) }
+    }
 
     fun mealPrepTitle(dateKey: String, triggerDateKey: String): String? =
         weekMenuRepository.mealPrepTitle(dateKey, triggerDateKey)
@@ -96,7 +106,11 @@ class MealViewModel @Inject constructor(
         dayShift: Int,
         fireTime: String,
         onResult: (Boolean) -> Unit
-    ) = weekMenuRepository.createMealPrepReminder(dateKey, dayShift, fireTime, onResult)
+    ) {
+        viewModelScope.launch {
+            onResult(weekMenuRepository.createMealPrepReminder(dateKey, dayShift, fireTime))
+        }
+    }
 }
 
 /**
@@ -118,7 +132,6 @@ fun MealScreen(
     val prepFireTime by viewModel.mealPrepDefaultFireTime.collectAsState()
     val recipes by recipeViewModel.recipes.collectAsState()
 
-    val context = LocalContext.current
     var showPlanDays by remember { mutableStateOf(false) }
     var editingMealDateKey by remember { mutableStateOf<String?>(null) }
     var prepReminderDateKey by remember { mutableStateOf<String?>(null) }
@@ -238,6 +251,8 @@ fun MealScreen(
     }
 
     prepReminderDateKey?.let { dateKey ->
+        // 保存失败的就地提示（I10）：留在对话框内显示，用户改完时间即可重试，不靠一闪而过的 Toast。
+        var prepError by remember(dateKey) { mutableStateOf<String?>(null) }
         // 默认触发日按设置页「前一天/当天」换算，并收拢到今天~菜谱日之间。
         val defaultTrigger = remember(dateKey, prepDayShift) {
             val today = LocalDate.now()
@@ -254,6 +269,7 @@ fun MealScreen(
             suggestedTitle = viewModel.mealPrepTitle(dateKey, defaultTrigger.toString()) ?: "提前备菜",
             defaultDayShift = prepDayShift,
             defaultFireTime = prepFireTime,
+            errorMessage = prepError,
             onDismiss = { prepReminderDateKey = null },
             onSuggestTitle = { dayShift ->
                 viewModel.mealPrepTitle(
@@ -263,12 +279,15 @@ fun MealScreen(
                 ) ?: "提前备菜"
             },
             onConfirm = { dayShift, fireTime ->
+                prepError = null
                 viewModel.createMealPrepReminder(dateKey, dayShift, fireTime) { saved ->
-                    if (!saved) {
-                        Toast.makeText(context, "这个时间已经过了，换个时间吧", Toast.LENGTH_SHORT).show()
+                    if (saved) {
+                        prepReminderDateKey = null
+                    } else {
+                        // 保存失败只可能是提醒时刻已经过了：在对话框里就地说明。
+                        prepError = "这个时间已经过了，换个时间吧"
                     }
                 }
-                prepReminderDateKey = null
             }
         )
     }

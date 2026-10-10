@@ -43,6 +43,14 @@ sealed class Screen(val route: String) {
     }
 
     data object Search : Screen("search")
+
+    /**
+     * 底栏「家当」标签的独立路由（I7）。
+     * 与 [Search] 分开：标签、图标与路由三者语义才一致，
+     * 也为将来真正的搜索页保留 [Search] 这条路由。
+     */
+    data object Household : Screen("household")
+
     data object Meal : Screen("meal")
     data object RecipeLibrary : Screen("recipe-library")
     data object Category : Screen("category")

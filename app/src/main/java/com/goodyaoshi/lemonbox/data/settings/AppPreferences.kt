@@ -5,10 +5,6 @@ import android.content.res.Configuration
 import com.goodyaoshi.lemonbox.data.local.entity.ItemStatusCatalog
 import com.goodyaoshi.lemonbox.data.local.entity.ItemStatusOption
 import com.goodyaoshi.lemonbox.data.local.entity.StatusDimension
-import com.goodyaoshi.lemonbox.data.meal.BUILT_IN_RECIPE_MAX_ID
-import com.goodyaoshi.lemonbox.data.meal.DEFAULT_RECIPES
-import com.goodyaoshi.lemonbox.data.meal.DishRole
-import com.goodyaoshi.lemonbox.data.meal.MealDishSpec
 import com.goodyaoshi.lemonbox.data.meal.MealSpec
 import com.goodyaoshi.lemonbox.data.meal.Recipe
 import com.goodyaoshi.lemonbox.data.meal.RecipeIngredient
@@ -17,9 +13,6 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.serialization.decodeFromString
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -168,6 +161,22 @@ class AppPreferences @Inject constructor(
     /** 连续录入：开启后保存成功会清空表单并自动唤起相机，方便一次录多件。默认关闭。 */
     val continuousEntry: StateFlow<Boolean> = _continuousEntry.asStateFlow()
 
+    private val _editorAdvancedExpanded = MutableStateFlow(
+        preferences.getBoolean(KEY_EDITOR_ADVANCED_EXPANDED, false)
+    )
+
+    /**
+     * 物品录入 / 编辑页「更多信息（选填）」是否展开。
+     * 默认折叠，把首屏留给名称、分类、位置这些高频字段；用户手动展开后记住其选择（I6），
+     * 下次进来沿用，避免每次都要重新点开。
+     */
+    val editorAdvancedExpanded: StateFlow<Boolean> = _editorAdvancedExpanded.asStateFlow()
+
+    fun setEditorAdvancedExpanded(expanded: Boolean) {
+        preferences.edit().putBoolean(KEY_EDITOR_ADVANCED_EXPANDED, expanded).apply()
+        _editorAdvancedExpanded.value = expanded
+    }
+
     private val _expiryQuickOptions = MutableStateFlow(loadExpiryQuickOptions())
 
     /**
@@ -302,8 +311,6 @@ class AppPreferences @Inject constructor(
             ?.filter { it.isNotBlank() }
             ?: emptyList()
 
-    private val recipeJson = Json { ignoreUnknownKeys = true }
-
     private val _weeklyMenu = MutableStateFlow(loadWeeklyMenu())
 
     /** 未来一周菜单：日期（yyyy-MM-dd）→ 一餐搭配（主食/蛋白/蔬菜/汤饮）。 */
@@ -311,31 +318,29 @@ class AppPreferences @Inject constructor(
 
     /** 覆盖整周菜单（用于按天分配、手动编辑或「换一道」后持久化）。 */
     fun setWeeklyMenu(menu: Map<String, MealSpec>) {
-        preferences.edit().putString(KEY_WEEKLY_MENU, recipeJson.encodeToString(menu)).apply()
+        preferences.edit()
+            .putString(KEY_WEEKLY_MENU, StructuredPreferenceMigrations.encodeWeeklyMenu(menu))
+            .apply()
         _weeklyMenu.value = menu
     }
 
-    /** 读取整周菜单；兼容旧版「日期 → 单个菜谱 id」的存储格式。 */
+    /**
+     * 读取整周菜单：编解码与旧格式兼容统一走 [StructuredPreferenceMigrations]，
+     * 这里只负责「是否需要按新搭配规则重置」与读写。
+     */
     private fun loadWeeklyMenu(): Map<String, MealSpec> {
         // 默认搭配规则调整（主食固定米饭+白粥、默认不配汤饮）后，旧菜单里可能仍带着旧搭配，
         // 清空一次让新默认重新生成；已「做了」的记录保留。
-        if (preferences.getInt(KEY_MEAL_PLAN_VERSION, 0) < MEAL_PLAN_VERSION) {
+        val storedVersion = preferences.getInt(KEY_MEAL_PLAN_VERSION, 0)
+        if (StructuredPreferenceMigrations.shouldResetWeeklyMenu(storedVersion)) {
             preferences.edit()
-                .putInt(KEY_MEAL_PLAN_VERSION, MEAL_PLAN_VERSION)
+                .putInt(KEY_MEAL_PLAN_VERSION, StructuredPreferenceMigrations.MEAL_PLAN_VERSION)
                 .remove(KEY_WEEKLY_MENU)
                 .apply()
             return emptyMap()
         }
         val stored = preferences.getString(KEY_WEEKLY_MENU, null) ?: return emptyMap()
-        runCatching { recipeJson.decodeFromString<Map<String, MealSpec>>(stored) }
-            .getOrNull()
-            ?.let { return it }
-        return runCatching { recipeJson.decodeFromString<Map<String, Long>>(stored) }
-            .getOrNull()
-            ?.mapValues { (_, id) ->
-                MealSpec(listOf(MealDishSpec(DishRole.PROTEIN.name, id)))
-            }
-            ?: emptyMap()
+        return StructuredPreferenceMigrations.decodeWeeklyMenu(stored)
     }
 
     private val _cookedMenuDates = MutableStateFlow(loadCookedMenuDates())
@@ -532,63 +537,31 @@ class AppPreferences @Inject constructor(
     }
 
     /**
-     * 首次启动种入内置菜谱；升级时把本次新增的内置菜谱补进来（按编号增量合并），
-     * 已存在或被用户删掉的旧菜谱不会重复追加，之后仍以用户编辑过的内容为准。
+     * 读取菜谱库：首次启动种入内置菜谱，升级时按水位线做下架清理 / 定义刷新 / 增量补种。
+     * 具体迁移规则集中在 [StructuredPreferenceMigrations]，这里只负责读取水位线、调用迁移并回写。
      */
     private fun loadRecipes(): List<Recipe> {
-        val stored = preferences.getString(KEY_RECIPES, null)
-        if (stored == null) {
-            preferences.edit()
-                .putString(KEY_RECIPES, encodeRecipes(DEFAULT_RECIPES))
-                .putInt(KEY_RECIPE_SEED_VERSION, BUILT_IN_RECIPE_MAX_ID.toInt())
-                .putInt(KEY_RECIPE_CLEANUP_VERSION, RECIPE_CLEANUP_VERSION)
-                .apply()
-            return DEFAULT_RECIPES
-        }
-        var result = runCatching { recipeJson.decodeFromString<List<Recipe>>(stored) }
-            .getOrElse { return DEFAULT_RECIPES }
-        var changed = false
-
-        // 一次性下架已移除的内置菜谱（按编号，用户自建从 100 起不受影响）。
-        if (preferences.getInt(KEY_RECIPE_CLEANUP_VERSION, 0) < RECIPE_CLEANUP_VERSION) {
-            val filtered = result.filterNot { it.id in REMOVED_BUILT_IN_RECIPE_IDS }
-            if (filtered.size != result.size) {
-                result = filtered
-                changed = true
+        val result = StructuredPreferenceMigrations.migrateRecipes(
+            StructuredPreferenceMigrations.RecipeState(
+                storedJson = preferences.getString(KEY_RECIPES, null),
+                cleanupVersion = preferences.getInt(KEY_RECIPE_CLEANUP_VERSION, 0),
+                refreshVersion = preferences.getInt(KEY_RECIPE_REFRESH_VERSION, 0),
+                seedVersion = preferences.getInt(KEY_RECIPE_SEED_VERSION, 0)
+            )
+        )
+        if (result.writeRecipes || result.writeWatermarks) {
+            val editor = preferences.edit()
+            if (result.writeRecipes) {
+                editor.putString(KEY_RECIPES, encodeRecipes(result.recipes))
             }
-            preferences.edit().putInt(KEY_RECIPE_CLEANUP_VERSION, RECIPE_CLEANUP_VERSION).apply()
-        }
-
-        // 一次性刷新指定内置菜谱的定义（食材标注等基础规则调整）：
-        // 只覆盖仍存在的内置菜谱，已被用户删除或自建的菜谱不受影响。
-        if (preferences.getInt(KEY_RECIPE_REFRESH_VERSION, 0) < RECIPE_REFRESH_VERSION) {
-            val refreshedDefs = DEFAULT_RECIPES
-                .filter { it.id in REFRESHED_BUILT_IN_RECIPE_IDS }
-                .associateBy { it.id }
-            val before = result
-            result = result.map { refreshedDefs[it.id] ?: it }
-            if (result != before) changed = true
-            preferences.edit().putInt(KEY_RECIPE_REFRESH_VERSION, RECIPE_REFRESH_VERSION).apply()
-        }
-
-        // 增量补入新增的内置菜谱：编号大于已种入水位线的才补，避免把用户删掉的旧菜谱又加回来。
-        val seededVersion = preferences.getInt(KEY_RECIPE_SEED_VERSION, 0)
-        if (seededVersion < BUILT_IN_RECIPE_MAX_ID) {
-            val existingIds = result.map { it.id }.toSet()
-            val added = DEFAULT_RECIPES.filter {
-                it.id > seededVersion && it.id !in existingIds
+            if (result.writeWatermarks) {
+                editor.putInt(KEY_RECIPE_CLEANUP_VERSION, result.cleanupVersion)
+                editor.putInt(KEY_RECIPE_REFRESH_VERSION, result.refreshVersion)
+                editor.putInt(KEY_RECIPE_SEED_VERSION, result.seedVersion)
             }
-            if (added.isNotEmpty()) {
-                result = result + added
-                changed = true
-            }
-            preferences.edit().putInt(KEY_RECIPE_SEED_VERSION, BUILT_IN_RECIPE_MAX_ID.toInt()).apply()
+            editor.apply()
         }
-
-        if (changed) {
-            preferences.edit().putString(KEY_RECIPES, encodeRecipes(result)).apply()
-        }
-        return result
+        return result.recipes
     }
 
     private val _mealPlanDays = MutableStateFlow(
@@ -605,7 +578,8 @@ class AppPreferences @Inject constructor(
         _mealPlanDays.value = normalized
     }
 
-    private fun encodeRecipes(recipes: List<Recipe>): String = recipeJson.encodeToString(recipes)
+    private fun encodeRecipes(recipes: List<Recipe>): String =
+        StructuredPreferenceMigrations.encodeRecipes(recipes)
 
     // ---- 备份/同步：偏好内容的导出与合并导入 ----
 
@@ -823,6 +797,7 @@ class AppPreferences @Inject constructor(
         private const val REMINDER_TIME_SEPARATOR = ","
         private const val KEY_DEVICE_ID = "device_id"
         private const val KEY_CONTINUOUS_ENTRY = "continuous_entry"
+        private const val KEY_EDITOR_ADVANCED_EXPANDED = "editor_advanced_expanded"
         private const val KEY_EXPIRY_QUICK_OPTIONS = "expiry_quick_options"
         private const val EXPIRY_QUICK_SEPARATOR = ","
         private const val KEY_KEEP_ALIVE_ENABLED = "keep_alive_enabled"
@@ -849,28 +824,11 @@ class AppPreferences @Inject constructor(
         private const val KEY_BUDGET_REMINDER_ENABLED = "budget_reminder_enabled"
         private const val KEY_LEDGER_MONTH_START_DAY = "ledger_month_start_day"
 
-        /** 内置菜谱下架清理的版本号，每次下架内置菜谱时 +1。 */
-        private const val RECIPE_CLEANUP_VERSION = 3
-
         /**
-         * 已下架的内置菜谱编号：葱油拌面/土豆丝饼/南瓜饼（主食）、红烧鱼/清蒸鱼/土豆炖牛肉（蛋白）。
-         * 另含 42（早期版本的「白粥」草稿，现由 44 取代）。仅按内置编号删除，用户自建菜谱从 100 起，不受影响。
+         * 用户新增菜谱的起始编号，避开内置菜谱占用的编号段。
+         * 注：内置菜谱的下架 / 刷新 / 补种水位线，以及菜单搭配规则版本号，
+         * 已随结构化偏好的迁移逻辑一并移至 [StructuredPreferenceMigrations]。
          */
-        private val REMOVED_BUILT_IN_RECIPE_IDS = setOf(13L, 14L, 17L, 31L, 33L, 34L, 42L)
-
-        /** 内置菜谱定义刷新的版本号，内置菜谱的食材标注等基础规则调整时 +1。 */
-        private const val RECIPE_REFRESH_VERSION = 1
-
-        /**
-         * 升级时用最新定义覆盖的内置菜谱编号（不复活已被用户删除的）：
-         * v1 是「葱姜蒜」分类拆成葱/姜/蒜后，同步更新蒜蓉类菜的食材标注。
-         */
-        private val REFRESHED_BUILT_IN_RECIPE_IDS = setOf(3L, 7L, 21L)
-
-        /** 菜单默认搭配规则的版本号，规则调整时 +1，会清空旧菜单让它按新规则重排。 */
-        private const val MEAL_PLAN_VERSION = 1
-
-        /** 用户新增菜谱的起始编号，避开内置菜谱占用的编号段。 */
         private const val RECIPE_ID_BASE = 100
 
         /** 「未来 N 天菜谱」的默认与边界天数（不再固定一周）。 */

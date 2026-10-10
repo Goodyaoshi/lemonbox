@@ -14,6 +14,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -46,7 +47,13 @@ import com.goodyaoshi.lemonbox.util.DateUtil
 fun ItemCard(
     itemDetail: ItemDetail,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /**
+     * I8：行尾常驻「更多」按钮的回调。滑动不是唯一入口，
+     * 不熟悉手势或使用读屏的用户也能直接打开完整操作面板；
+     * 传 null（如只读的过期列表）时不渲染该按钮。
+     */
+    onMore: (() -> Unit)? = null
 ) {
     val item = itemDetail.item
     val primaryImagePath = item.primaryImagePath()
@@ -248,6 +255,25 @@ fun ItemCard(
             }
 
             Spacer(modifier = Modifier.width(8.dp))
+            // I8：行尾常驻「更多」按钮，与左滑露出的是同一组动作，
+            // 让入口可见、可被读屏聚焦，不再把手势当作唯一通道。
+            onMore?.let { openMore ->
+                Box(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .clip(CircleShape)
+                        .clickable(onClick = openMore),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.MoreHoriz,
+                        contentDescription = "更多操作",
+                        modifier = Modifier.size(18.dp),
+                        tint = TextSecondary
+                    )
+                }
+                Spacer(modifier = Modifier.width(6.dp))
+            }
             Box(
                 modifier = Modifier
                     .size(30.dp)

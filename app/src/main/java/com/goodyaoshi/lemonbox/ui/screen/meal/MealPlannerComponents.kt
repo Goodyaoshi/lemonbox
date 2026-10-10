@@ -25,6 +25,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -57,6 +58,7 @@ import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.EditorSectionLabel
 import com.goodyaoshi.lemonbox.ui.components.EditorSelectionChip
+import com.goodyaoshi.lemonbox.ui.components.InlineNotice
 import com.goodyaoshi.lemonbox.ui.components.PillTag
 import com.goodyaoshi.lemonbox.ui.components.SegmentedTabs
 import com.goodyaoshi.lemonbox.ui.theme.CardWhite
@@ -155,7 +157,8 @@ private fun MealDayTab(
         )
         Text(
             text = day.shortDate,
-            fontSize = 11.sp,
+            // 字号走主题字阶（F6），并满足说明文字 ≥12sp（F7）。
+            style = MaterialTheme.typography.labelMedium,
             color = if (selected) Color.White.copy(alpha = 0.85f) else TextHint,
             modifier = Modifier.padding(top = 1.dp)
         )
@@ -214,7 +217,8 @@ private fun MealDishCard(
     ) {
         Text(
             text = dish.displayRoles.joinToString("·") { it.label },
-            fontSize = 11.sp,
+            // 字号走主题字阶（F6），并满足说明文字 ≥12sp（F7）。
+            style = MaterialTheme.typography.labelMedium,
             fontWeight = FontWeight.SemiBold,
             color = TextSecondary
         )
@@ -246,7 +250,8 @@ private fun MealDishCard(
             )
             else -> Text(
                 text = "缺：${missing.joinToString("、")}",
-                fontSize = 11.sp,
+                // 字号走主题字阶（F6），并满足说明文字 ≥12sp（F7）。
+                style = MaterialTheme.typography.bodySmall,
                 color = TagOrangeText,
                 maxLines = 2
             )
@@ -688,7 +693,8 @@ internal fun MealPrepDialog(
     defaultFireTime: String,
     onDismiss: () -> Unit,
     onSuggestTitle: (dayShift: Int) -> String,
-    onConfirm: (dayShift: Int, fireTime: String) -> Unit
+    onConfirm: (dayShift: Int, fireTime: String) -> Unit,
+    errorMessage: String? = null
 ) {
     var title by remember(dateKey) { mutableStateOf(suggestedTitle) }
     var titleEdited by remember(dateKey) { mutableStateOf(false) }
@@ -753,6 +759,10 @@ internal fun MealPrepDialog(
         confirmEnabled = title.isNotBlank(),
         onConfirm = { onConfirm(dayShift, fireTime) }
     ) {
+        // 保存失败（多半是提醒时刻已过）就地说明，不打断对话框里的输入。
+        if (errorMessage != null) {
+            InlineNotice(message = errorMessage)
+        }
         OutlinedTextField(
             value = title,
             onValueChange = {

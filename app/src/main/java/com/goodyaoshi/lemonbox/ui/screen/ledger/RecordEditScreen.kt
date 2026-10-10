@@ -1,6 +1,6 @@
 package com.goodyaoshi.lemonbox.ui.screen.ledger
 
-import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -36,7 +36,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -46,12 +45,14 @@ import com.goodyaoshi.lemonbox.data.local.entity.LedgerRecord.Companion.TYPE_INC
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerRecord.Companion.TYPE_TRANSFER
 import com.goodyaoshi.lemonbox.ui.components.AmountKeyboard
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
+import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.EditorInputBox
 import com.goodyaoshi.lemonbox.ui.components.EditorSectionLabel
 import com.goodyaoshi.lemonbox.ui.components.EditorSelectionChip
 import com.goodyaoshi.lemonbox.ui.components.ExpiryPickerDialog
 import com.goodyaoshi.lemonbox.ui.components.GradientButton
+import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
 import com.goodyaoshi.lemonbox.ui.components.PillTag
 import com.goodyaoshi.lemonbox.ui.components.SegmentedTabs
 import com.goodyaoshi.lemonbox.ui.components.ledgerIconFor
@@ -61,6 +62,7 @@ import com.goodyaoshi.lemonbox.ui.theme.TagOrangeText
 import com.goodyaoshi.lemonbox.ui.theme.TextHint
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
 import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
+import com.goodyaoshi.lemonbox.ui.viewmodel.RecordEditState
 import com.goodyaoshi.lemonbox.ui.viewmodel.RecordEditViewModel
 import com.goodyaoshi.lemonbox.util.LedgerMath
 import java.time.Instant
@@ -79,8 +81,10 @@ fun RecordEditScreen(
     val incomeCategories by viewModel.incomeCategories.collectAsState()
     val assets by viewModel.assets.collectAsState()
     val continuousEntry by viewModel.continuousEntry.collectAsState()
-    val context = LocalContext.current
+    // 全局提示通道（I10）：保存成功改走统一 Snackbar，替代易被忽略的系统 Toast。
+    val appSnackbar = LocalAppSnackbar.current
     var showDatePicker by remember { mutableStateOf(false) }
+    var showDiscardDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(expenseCategories, incomeCategories, assets) {
         viewModel.ensureDefaults(expenseCategories, incomeCategories)
@@ -90,12 +94,28 @@ fun RecordEditScreen(
         if (!state.isSaved) return@LaunchedEffect
         if (continuousEntry) {
             // 连续录入：清空表单留在本页，提示后可以接着记下一笔。
-            Toast.makeText(context, "已记账，继续记下一笔", Toast.LENGTH_SHORT).show()
+            appSnackbar?.showMessage("已记账，继续记下一笔")
             viewModel.resetForNext()
         } else {
             onBack()
         }
     }
+
+    // I6：默认分类/账户带出后拍一张快照当「未改动」基准；账单保存（含连续录入清空）时基准失效重采。
+    var loadedBaseline by remember(state.recordId, state.isSaved) { mutableStateOf<RecordEditState?>(null) }
+    LaunchedEffect(state.initialized, state.recordId, state.isSaved) {
+        if (state.initialized && !state.isSaved && loadedBaseline == null) {
+            loadedBaseline = state
+        }
+    }
+    val hasUnsavedInput = loadedBaseline?.let { base ->
+        state.copy(isSaved = false) != base
+    } ?: false
+    val requestBack: () -> Unit = {
+        if (hasUnsavedInput) showDiscardDialog = true else onBack()
+    }
+    // 系统返回手势/按键与左上角返回走同一套确认逻辑（I6）。
+    BackHandler { requestBack() }
 
     Box(modifier = Modifier.fillMaxSize()) {
         AppDecorativeBackground()
@@ -111,7 +131,7 @@ fun RecordEditScreen(
                     .padding(horizontal = 12.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = onBack) {
+                IconButton(onClick = requestBack) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "返回",
@@ -373,6 +393,28 @@ fun RecordEditScreen(
             title = "选择记账日期",
             yearRange = (LocalDate.now().year - 8)..(LocalDate.now().year + 1)
         )
+    }
+
+    // I6：有未保存内容时返回先确认，避免误触返回键丢掉这笔账。
+    if (showDiscardDialog) {
+        AppDialog(
+            title = "放弃修改？",
+            subtitle = "这笔账单还没保存，返回就会丢失。",
+            onDismissRequest = { showDiscardDialog = false },
+            confirmText = "放弃",
+            destructiveConfirm = true,
+            onConfirm = {
+                showDiscardDialog = false
+                onBack()
+            },
+            dismissText = "继续填"
+        ) {
+            Text(
+                text = "确定要离开并丢弃当前填写的内容吗？",
+                fontSize = 14.sp,
+                color = TextSecondary
+            )
+        }
     }
 }
 

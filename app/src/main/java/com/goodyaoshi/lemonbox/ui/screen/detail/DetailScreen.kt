@@ -48,6 +48,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -243,6 +244,7 @@ fun DetailScreen(
 
                 ArrowCircleButton(
                     icon = Icons.Default.Edit,
+                    contentDescription = "编辑家当",
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .statusBarsPadding()
@@ -253,6 +255,7 @@ fun DetailScreen(
                 if (pagerState.currentPage > 0) {
                     ArrowCircleButton(
                         icon = Icons.Default.ChevronLeft,
+                        contentDescription = "上一张",
                         modifier = Modifier.align(Alignment.CenterStart)
                     ) {
                         pagerScope.launch { pagerState.animateScrollToPage(pagerState.currentPage - 1) }
@@ -262,6 +265,7 @@ fun DetailScreen(
                 if (pagerState.currentPage < pagerItems.lastIndex) {
                     ArrowCircleButton(
                         icon = Icons.Default.ChevronRight,
+                        contentDescription = "下一张",
                         modifier = Modifier.align(Alignment.CenterEnd)
                     ) {
                         pagerScope.launch { pagerState.animateScrollToPage(pagerState.currentPage + 1) }
@@ -467,6 +471,7 @@ fun DetailScreen(
 @Composable
 private fun ArrowCircleButton(
     icon: ImageVector,
+    contentDescription: String,
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
@@ -476,12 +481,14 @@ private fun ArrowCircleButton(
             .size(42.dp)
             .clip(CircleShape)
             .background(Color.Black.copy(alpha = 0.22f))
-            .clickable(onClick = onClick),
+            // 悬浮在图片上的纯图标按钮，声明 Button 角色（F16）。
+            .clickable(role = Role.Button, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
         Icon(
             imageVector = icon,
-            contentDescription = null,
+            // 图片之上的浮层按钮没有文字，必须给出描述（F16）。
+            contentDescription = contentDescription,
             tint = Color.White
         )
     }

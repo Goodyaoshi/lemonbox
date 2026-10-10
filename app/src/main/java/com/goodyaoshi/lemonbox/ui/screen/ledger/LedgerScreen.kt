@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.Savings
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Wallet
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -218,7 +219,10 @@ fun LedgerScreen(
                     item(key = "empty") {
                         EmptyState(
                             title = "本月还没有账单",
-                            message = "点右下角的「+」记下第一笔吧。",
+                            // 去掉「点右下角」这种屏外指路（I5），直接把「记一笔」放到空态里。
+                            message = "记下第一笔，收支就有了起点。",
+                            actionLabel = "记一笔",
+                            onAction = { onNavigateToRecordEdit(null) },
                             modifier = Modifier.padding(top = 6.dp)
                         )
                     }
@@ -332,7 +336,8 @@ private fun LedgerDayHeader(
         }
         Text(
             text = parts.joinToString("  "),
-            fontSize = 11.sp,
+            // 说明文字走主题字阶（F6）并提到 12sp（F7）。
+            style = MaterialTheme.typography.bodySmall,
             color = TextHint
         )
     }
@@ -409,7 +414,8 @@ internal fun LedgerRecordRow(
             if (subtitle.isNotBlank()) {
                 Text(
                     text = subtitle,
-                    fontSize = 11.sp,
+                    // 说明文字走主题字阶（F6）并提到 12sp（F7）。
+                    style = MaterialTheme.typography.bodySmall,
                     color = TextHint,
                     modifier = Modifier.padding(top = 2.dp)
                 )

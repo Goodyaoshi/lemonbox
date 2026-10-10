@@ -15,17 +15,10 @@ import com.goodyaoshi.lemonbox.data.meal.MealSpec
 import com.goodyaoshi.lemonbox.data.meal.Recipe
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import com.goodyaoshi.lemonbox.util.DateUtil
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
 import java.time.LocalDate
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -67,10 +60,7 @@ class WeekMenuRepository @Inject constructor(
     private val appPreferences: AppPreferences
 ) {
 
-    /** 仓库与进程同寿命，配一个独立作用域跑菜单生成的常驻合并流。 */
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-
-    /** 当前食材池，供搭配与扣减食材复用。 */
+    /** 当前食材池，供搭配与扣减食材复用；随 [weekPlan] 被收集时刷新。 */
     private var mealPool: List<ItemDetail> = emptyList()
 
     /** 食材池物品的分类链文本，用于按分类匹配食材、识别调味品。 */
@@ -79,10 +69,28 @@ class WeekMenuRepository @Inject constructor(
     /** 当前菜谱库，供搭配与扣减复用。 */
     private var recipes: List<Recipe> = emptyList()
 
-    private val _weekPlan = MutableStateFlow<List<WeeklyMealDay>>(emptyList())
+    /** 最近一次菜单计算的快照，供同步文案（如备菜提醒标题）复用。 */
+    private var latestDays: List<WeeklyMealDay> = emptyList()
 
-    /** 未来 N 天菜单：每天默认「米饭+白粥+蛋白菜+清炒时蔬」（不配汤饮），可手动编辑；库存变动后「能用/还差」实时刷新。 */
-    val weekPlan: StateFlow<List<WeeklyMealDay>> = _weekPlan.asStateFlow()
+    /**
+     * 未来 N 天菜单：每天默认「米饭+白粥+蛋白菜+清炒时蔬」（不配汤饮），可手动编辑；库存变动后「能用/还差」实时刷新。
+     * 这是冷流，由各 ViewModel 在自身的 viewModelScope 内收集（仓库不再自建协程作用域）；
+     * 收集过程顺带刷新 [recipes]/[mealPool] 缓存，供扣料、补缺料与备菜文案复用。
+     */
+    val weekPlan: Flow<List<WeeklyMealDay>> = combine(
+        appPreferences.recipes,
+        itemRepository.getActiveItems(),
+        appPreferences.weeklyMenu,
+        appPreferences.cookedMenuDates,
+        appPreferences.mealPlanDays
+    ) { latestRecipes, items, stored, cooked, planDays ->
+        WeeklyInput(latestRecipes, items, stored, cooked, planDays)
+    }.map { input ->
+        recipes = input.recipes
+        mealPool = buildMealPool(input.items)
+        val plan = ensureWeekPlan(input.recipes, input.stored, input.planDays)
+        buildWeekDays(input.recipes, plan, input.cooked).also { latestDays = it }
+    }
 
     /** 菜谱库，供手动编辑某一餐时挑选菜品。 */
     val recipeLibrary: StateFlow<List<Recipe>> = appPreferences.recipes
@@ -90,38 +98,18 @@ class WeekMenuRepository @Inject constructor(
     /** 「未来 N 天菜谱」的天数，用户可自定义（默认一周）。 */
     val planDays: StateFlow<Int> = appPreferences.mealPlanDays
 
-    /** 已经生成过「提醒准备」的菜谱日期集合，周菜谱据此把按钮显示为「已提醒」。 */
-    val mealPrepDays: StateFlow<Set<String>> = reminderRepository.getMealPrepKeys()
+    /** 已经生成过「提醒准备」的菜谱日期集合，周菜谱据此把按钮显示为「已提醒」；由调用方自行 stateIn。 */
+    val mealPrepDays: Flow<Set<String>> = reminderRepository.getMealPrepKeys()
         .map { keys ->
             keys.mapNotNull { key ->
                 key.removePrefix(MEAL_PREP_KEY_PREFIX).takeIf(String::isNotBlank)
             }.toSet()
         }
-        .stateIn(scope, SharingStarted.Eagerly, emptySet())
 
     /** 备菜提醒的默认提前天数（-1 前一天 / 0 当天）与触发时间，在设置页配置。 */
     val mealPrepDefaultDayShift: StateFlow<Int> = appPreferences.mealPrepDayShift
 
     val mealPrepDefaultFireTime: StateFlow<String> = appPreferences.mealPrepFireTime
-
-    init {
-        scope.launch {
-            combine(
-                appPreferences.recipes,
-                itemRepository.getActiveItems(),
-                appPreferences.weeklyMenu,
-                appPreferences.cookedMenuDates,
-                appPreferences.mealPlanDays
-            ) { latestRecipes, items, stored, cooked, planDays ->
-                WeeklyInput(latestRecipes, items, stored, cooked, planDays)
-            }.collect { input ->
-                recipes = input.recipes
-                mealPool = buildMealPool(input.items)
-                val plan = ensureWeekPlan(input.recipes, input.stored, input.planDays)
-                _weekPlan.value = buildWeekDays(input.recipes, plan, input.cooked)
-            }
-        }
-    }
 
     /** 修改计划天数（1..30），菜单会按新天数自动补齐或裁剪。 */
     fun setPlanDays(days: Int) {
@@ -129,22 +117,19 @@ class WeekMenuRepository @Inject constructor(
     }
 
     /** 一餐做完（今天/未来某天）：扣掉这一天所有菜品的食材并标记已做；已做过的不重复扣（幂等）。 */
-    fun markDayCooked(dateKey: String) {
+    suspend fun markDayCooked(dateKey: String) {
         if (dateKey in appPreferences.cookedMenuDates.value) return
-        val day = _weekPlan.value.firstOrNull { it.dateKey == dateKey } ?: return
+        val day = latestDays.firstOrNull { it.dateKey == dateKey } ?: return
         // 扣不扣只看食材所属分类（主食粮油/调味品不扣），与菜品本身是主食还是蛋白无关。
-        val recipeIds = day.combo.dishes
-            .mapNotNull { it.recipeId }
-        scope.launch {
-            recipeIds.forEach { id ->
-                recipes.firstOrNull { it.id == id }?.let { deductRecipeIngredients(it) }
-            }
-            appPreferences.markMenuCooked(dateKey)
+        val recipeIds = day.combo.dishes.mapNotNull { it.recipeId }
+        recipeIds.forEach { id ->
+            recipes.firstOrNull { it.id == id }?.let { deductRecipeIngredients(it) }
         }
+        appPreferences.markMenuCooked(dateKey)
     }
 
     /** 换一天：给指定日期整套换一份不与其它天重复的搭配，并照旧把缺的主料补进待买。 */
-    fun rerollDay(dateKey: String) {
+    suspend fun rerollDay(dateKey: String) {
         val plan = appPreferences.weeklyMenu.value
         val allRecipes = appPreferences.recipes.value
         if (allRecipes.isEmpty()) return
@@ -156,14 +141,14 @@ class WeekMenuRepository @Inject constructor(
         val ranked = rankedAll.filterNot { it.id in usedElsewhere }
         val spec = MealPlanner.planWeek(ranked.ifEmpty { rankedAll }, 1).firstOrNull() ?: return
         appPreferences.setWeeklyMenu(plan + (dateKey to spec))
-        scope.launch { addMissingIngredientsToBuy(spec) }
+        addMissingIngredientsToBuy(spec)
     }
 
     /** 手动保存某天的一餐：覆盖菜单，并把仍然缺的主料自动加入待买清单。 */
-    fun saveDayMeal(dateKey: String, spec: MealSpec) {
+    suspend fun saveDayMeal(dateKey: String, spec: MealSpec) {
         if (dateKey.isBlank() || spec.dishes.isEmpty()) return
         appPreferences.setWeeklyMenu(appPreferences.weeklyMenu.value + (dateKey to spec))
-        scope.launch { addMissingIngredientsToBuy(spec) }
+        addMissingIngredientsToBuy(spec)
     }
 
     /**
@@ -173,7 +158,7 @@ class WeekMenuRepository @Inject constructor(
      * 就要说「明天要做」而不是「后天要做」，否则触发时读者会理解错日子。
      */
     fun mealPrepTitle(dateKey: String, triggerDateKey: String): String? {
-        val day = _weekPlan.value.firstOrNull { it.dateKey == dateKey } ?: return null
+        val day = latestDays.firstOrNull { it.dateKey == dateKey } ?: return null
         val proteinDishes = day.combo.dishes.filter { DishRole.PROTEIN in it.displayRoles }
         val proteinRecipes = proteinDishes
             .mapNotNull { it.recipeId }
@@ -204,35 +189,23 @@ class WeekMenuRepository @Inject constructor(
      * 为某天的一餐生成备菜提醒（一次性）：[dayShift] 相对菜谱日（-1 前一天、0 当天）。
      * 一天最多一条（sourceKey 去重）；时刻已过时返回 false 由页面提示。
      */
-    fun createMealPrepReminder(
-        dateKey: String,
-        dayShift: Int,
-        fireTime: String,
-        onResult: (Boolean) -> Unit
-    ) {
+    suspend fun createMealPrepReminder(dateKey: String, dayShift: Int, fireTime: String): Boolean {
         val targetDate = runCatching {
             LocalDate.parse(dateKey).plusDays(dayShift.toLong()).toString()
         }.getOrNull()
-        val title = mealPrepTitle(dateKey, targetDate ?: dateKey)
-        if (title == null) {
-            onResult(false)
-            return
-        }
-        val note = _weekPlan.value.firstOrNull { it.dateKey == dateKey }?.title.orEmpty()
-        scope.launch {
-            val saved = reminderRepository.create(
-                Reminder(
-                    title = title,
-                    note = note,
-                    repeatType = ReminderRepeatType.ONCE.name,
-                    fireTime = fireTime,
-                    targetDate = targetDate,
-                    source = ReminderSource.MEAL_PREP.name,
-                    sourceKey = MEAL_PREP_KEY_PREFIX + dateKey
-                )
+        val title = mealPrepTitle(dateKey, targetDate ?: dateKey) ?: return false
+        val note = latestDays.firstOrNull { it.dateKey == dateKey }?.title.orEmpty()
+        return reminderRepository.create(
+            Reminder(
+                title = title,
+                note = note,
+                repeatType = ReminderRepeatType.ONCE.name,
+                fireTime = fireTime,
+                targetDate = targetDate,
+                source = ReminderSource.MEAL_PREP.name,
+                sourceKey = MEAL_PREP_KEY_PREFIX + dateKey
             )
-            onResult(saved)
-        }
+        )
     }
 
     /** 把一餐里还缺的主料写入待买清单，已经在待买里的不重复添加（采购闭环第一环）。 */

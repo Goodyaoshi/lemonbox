@@ -7,10 +7,14 @@ import com.goodyaoshi.lemonbox.data.backup.BackupMergeResult
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import dagger.hilt.android.qualifiers.ApplicationContext
 import fi.iki.elonen.NanoHTTPD
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -44,6 +48,12 @@ class SyncServer @Inject constructor(
 ) {
 
     private val json = Json { ignoreUnknownKeys = true }
+
+    /**
+     * 备份 / 合并都是磁盘密集型任务，统一在独立的 IO 调度器上执行（F12）。
+     * 用 IO 池承载阻塞等待，而不是让 NanoHTTPD 的工作线程在自己的事件循环里空转。
+     */
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 
     private var server: Impl? = null
 
@@ -87,6 +97,21 @@ class SyncServer @Inject constructor(
         _incomingSummary.value = null
     }
 
+    /**
+     * 把挂起式的备份 / 合并桥接到 NanoHTTPD 的同步响应模型（F12）。
+     *
+     * NanoHTTPD 的 `serve()` 必须同步返回 `Response`，「等待结果」这一步无法取消；
+     * 但旧实现直接在 `serve()` 里 `runBlocking`，会带来三个问题：
+     *  1) 阻塞发生在请求线程自身的事件循环上，请求一多就相互挤占，只能排队甚至超时；
+     *  2) 完全没有超时，备份 / 合并一旦卡住，请求会一直悬挂，界面表现为「同步没反应」；
+     *  3) 异常被笼统地包成 500，客户端拿不到可判断的原因。
+     *
+     * 现在把桥接收敛到这一个入口：固定跑在 IO 池上并统一加超时，
+     * 超时由调用方翻译成明确的响应码（不再让请求无限期挂着）。
+     */
+    private fun <T> awaitSync(block: suspend () -> T): T =
+        runBlocking(ioDispatcher) { withTimeout(SYNC_TIMEOUT_MS) { block() } }
+
     private inner class Impl(port: Int, private val expectedToken: String) : NanoHTTPD(port) {
 
         override fun serve(session: IHTTPSession): Response {
@@ -120,10 +145,13 @@ class SyncServer @Inject constructor(
                     )
                 }
             }.getOrElse { error ->
+                // 超时单独识别：客户端据此提示“对端响应超时，请重试”，
+                // 而不是和普通异常一样笼统当成服务端 500（F12）。
+                val timedOut = error is TimeoutCancellationException
                 newFixedLengthResponse(
-                    Response.Status.INTERNAL_ERROR,
+                    if (timedOut) Response.Status.REQUEST_TIMEOUT else Response.Status.INTERNAL_ERROR,
                     MIME_PLAINTEXT,
-                    error.message ?: "同步失败"
+                    if (timedOut) "同步超时，请重试" else error.message ?: "同步失败"
                 )
             }
         }
@@ -139,7 +167,8 @@ class SyncServer @Inject constructor(
 
         private fun serveBackup(session: IHTTPSession): Response {
             val since = session.parameters["since"]?.firstOrNull()?.toLongOrNull()
-            val archive = runBlocking { backupManager.createBackupZip(since) }
+            // 走 awaitSync：在 IO 池上等待并带超时，避免请求线程被长时间占用（F12）
+            val archive = awaitSync { backupManager.createBackupZip(since) }
             // 流式发出，读完即删除临时文件
             val stream = object : FilterInputStream(archive.file.inputStream()) {
                 override fun close() {
@@ -172,7 +201,7 @@ class SyncServer @Inject constructor(
                 tempFile.outputStream().use { output ->
                     copyExactly(session.inputStream, output, contentLength)
                 }
-                val result = runBlocking {
+                val result = awaitSync {
                     backupManager.importBackup(Uri.fromFile(tempFile))
                 }
                 _incomingSummary.value = result
@@ -191,6 +220,13 @@ class SyncServer @Inject constructor(
     companion object {
         /** 首选监听端口，便于对方直接输入 IP。 */
         const val DEFAULT_PORT = 8737
+
+        /**
+         * 单次同步请求的最长等待时间（F12）。
+         * 备份 / 合并涉及大量磁盘读写与数据库事务，正常耗时在秒级；
+         * 给到 30s 是为了容忍大库首次全量，同时避免请求无限期挂起。
+         */
+        private const val SYNC_TIMEOUT_MS = 30_000L
 
         /** `/backup` 响应头：本次备份的 exportedAt，对方据此更新拉取水位线。 */
         const val HEADER_EXPORTED_AT = "X-Exported-At"

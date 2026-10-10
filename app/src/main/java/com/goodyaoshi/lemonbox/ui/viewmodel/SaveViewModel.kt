@@ -64,6 +64,11 @@ class SaveViewModel @Inject constructor(
 
     fun toggleContinuousEntry(enabled: Boolean) = appPreferences.setContinuousEntry(enabled)
 
+    /** 「更多信息」展开态：默认折叠，用户展开后跨会话记住其选择（I6）。 */
+    val advancedExpanded: StateFlow<Boolean> = appPreferences.editorAdvancedExpanded
+
+    fun setAdvancedExpanded(expanded: Boolean) = appPreferences.setEditorAdvancedExpanded(expanded)
+
     /** 全局默认的提醒阶梯，用于展示「跟随默认」的说明文案。 */
     val defaultReminderLadder: StateFlow<List<Int>> = appPreferences.reminderLadder
 

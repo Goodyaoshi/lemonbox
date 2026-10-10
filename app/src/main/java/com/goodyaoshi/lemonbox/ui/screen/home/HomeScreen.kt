@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.QrCodeScanner
@@ -36,6 +37,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -87,8 +89,9 @@ import com.goodyaoshi.lemonbox.ui.viewmodel.TodayEventKind
 import com.goodyaoshi.lemonbox.ui.viewmodel.TodayEventTarget
 import com.goodyaoshi.lemonbox.util.DateUtil
 import com.goodyaoshi.lemonbox.util.LedgerMath
+import kotlinx.coroutines.delay
 import java.time.LocalDate
-import java.util.Calendar
+import java.time.LocalTime
 
 /**
  * 今日页只回答三件事：今天有什么要办的、今天吃什么、这个月花了多少。
@@ -209,6 +212,10 @@ fun HomeScreen(
                         EmptyState(
                             title = "没有找到匹配物品",
                             message = "换个关键词试试，或者去家当用筛选条件查找。",
+                            // 搜索空结果最容易卡死（I5）：给一个「清空关键词」一键退回浏览态。
+                            actionLabel = "清空关键词",
+                            actionIcon = Icons.Default.Close,
+                            onAction = { viewModel.updateSearchQuery("") },
                             modifier = Modifier.padding(top = 6.dp)
                         )
                     }
@@ -316,22 +323,16 @@ private fun HomeItemRow(
             onClick = {
                 closeActions()
                 onClick()
-            }
+            },
+            // I8：行尾「更多」按钮与左滑入口等价，保证动作入口始终可见。
+            onMore = onMore
         )
     }
 }
 
 @Composable
 private fun HeroHeader() {
-    val greeting = remember {
-        when (Calendar.getInstance().get(Calendar.HOUR_OF_DAY)) {
-            in 0..5 -> "夜深了"
-            in 6..10 -> "早上好"
-            in 11..13 -> "中午好"
-            in 14..17 -> "下午好"
-            else -> "晚上好"
-        }
-    }
+    val greeting = rememberGreeting()
 
     Box(
         modifier = Modifier
@@ -381,6 +382,35 @@ private fun HeroHeader() {
             )
         }
     }
+}
+
+/**
+ * 问候语随当前时段变化（F14）。
+ *
+ * 原来用 `remember { … }` 只算一次，`remember` 只保证重组间不复算、并不会随时间失效，
+ * 于是早上打开后一直显示「早上好」。这里用分钟级 tick 驱动：每跨过一分钟就比对一次小时数，
+ * 时段变了才更新状态、触发重组，避免无谓刷新。
+ */
+@Composable
+private fun rememberGreeting(): String {
+    val hour by produceState(initialValue = LocalTime.now().hour) {
+        while (true) {
+            val now = LocalTime.now()
+            // 对齐到下一分钟的 0 秒再刷新，避免固定 60s 累积漂移。
+            delay((60 - now.second) * 1000L - now.nano / 1_000_000L)
+            value = LocalTime.now().hour
+        }
+    }
+    return remember(hour) { greetingFor(hour) }
+}
+
+/** 按小时段落映射问候语，语义比 Calendar 取值更清晰。 */
+private fun greetingFor(hour: Int): String = when (hour) {
+    in 0..5 -> "夜深了"
+    in 6..10 -> "早上好"
+    in 11..13 -> "中午好"
+    in 14..17 -> "下午好"
+    else -> "晚上好"
 }
 
 /** 「今天的事」：提醒待办 + 临期家当 + 待买的统一清单，空态一句话，能办的直接勾掉。 */

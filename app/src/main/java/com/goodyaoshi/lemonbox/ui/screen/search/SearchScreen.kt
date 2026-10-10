@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -172,7 +173,9 @@ fun SearchScreen(
                 onClick = {
                     closeActions()
                     onNavigateToDetail(itemDetail.item.id, filter)
-                }
+                },
+                // I8：行尾「更多」按钮同样打开完整操作面板，作为滑动之外的可见入口。
+                onMore = { moreItemId = itemDetail.item.id }
             )
         }
     }
@@ -284,6 +287,13 @@ fun SearchScreen(
                         "当前筛选条件下还没有物品，可以放宽一些条件。"
                     } else {
                         "可以更换关键词，或者去掉部分筛选条件。"
+                    },
+                    // 家当页空结果往往是自己把筛选收窄了（I5）：给一键「重置」，清关键词 + 恢复默认筛选。
+                    actionLabel = "重置筛选条件",
+                    actionIcon = Icons.Default.Close,
+                    onAction = {
+                        viewModel.updateQuery("")
+                        viewModel.resetFilter()
                     },
                     modifier = Modifier.padding(top = 24.dp)
                 )
@@ -533,7 +543,8 @@ private fun FilterEntryChip(
             ) {
                 Text(
                     text = activeCount.toString(),
-                    fontSize = 9.sp,
+                    // 数量角标走主题字阶（F6）：labelSmall 为 11sp，是标签字号下限（F7）。
+                    style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.SemiBold,
                     color = TagRed
                 )

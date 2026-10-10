@@ -21,7 +21,10 @@ android {
         versionName = (findProperty("lemonVersionName") as String?) ?: "0.0.6"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        // 只保留 arm64-v8a：剔除 32 位与 x86 原生库，显著减小包体。
+        // 原生库 ABI 收敛（F17）：本应用以「直接分发 APK」为主（见文件末尾的 copyReleaseApkForDistribution），
+        // 走不了应用商店的 ABI 分包。产品上不需要兼容 32 位老机型，故只保留 arm64-v8a：
+        // 包体最小、体积收益最大，且 64 位机型覆盖当下的绝大多数在售设备。
+        // 若日后改为上架应用商店，建议改发布 AAB（bundleRelease），由商店按设备下发对应 ABI。
         ndk {
             abiFilters += "arm64-v8a"
         }

@@ -3,12 +3,15 @@ package com.goodyaoshi.lemonbox.ui.navigation
 import android.app.Activity
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -16,20 +19,23 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Restaurant
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Inventory2
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.ReceiptLong
 import androidx.compose.material.icons.outlined.Restaurant
-import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -42,9 +48,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -54,7 +60,10 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.goodyaoshi.lemonbox.data.local.entity.Item
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerCategory
+import com.goodyaoshi.lemonbox.ui.components.AppSnackbarHost
+import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.GlassPanel
+import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
 import com.goodyaoshi.lemonbox.ui.screen.anniversary.AnniversaryEditScreen
 import com.goodyaoshi.lemonbox.ui.screen.anniversary.AnniversaryScreen
 import com.goodyaoshi.lemonbox.ui.screen.camera.CameraScreen
@@ -84,6 +93,7 @@ import com.goodyaoshi.lemonbox.ui.screen.tobuy.ToBuyScreen
 import com.goodyaoshi.lemonbox.ui.screen.trash.TrashScreen
 import com.goodyaoshi.lemonbox.ui.scan.EXTRA_BARCODE
 import com.goodyaoshi.lemonbox.ui.scan.ScanActivity
+import com.goodyaoshi.lemonbox.ui.theme.CardWhite
 import com.goodyaoshi.lemonbox.ui.theme.GlassWhite
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.TextHint
@@ -107,7 +117,8 @@ private val bottomNavItems = listOf(
         Icons.Outlined.ReceiptLong
     ),
     BottomNavItem(Screen.Meal.route, "吃饭", Icons.Filled.Restaurant, Icons.Outlined.Restaurant),
-    BottomNavItem(Screen.Search.route, "家当", Icons.Filled.Search, Icons.Outlined.Search),
+    // 「家当」用独立路由与箱柜图标（I7），不再复用搜索的放大镜。
+    BottomNavItem(Screen.Household.route, "家当", Icons.Filled.Inventory2, Icons.Outlined.Inventory2),
     BottomNavItem(Screen.Profile.route, "我的", Icons.Filled.Person, Icons.Outlined.Person)
 )
 
@@ -165,7 +176,7 @@ fun AppNavGraph() {
         Screen.Home.route,
         Screen.Ledger.route,
         Screen.Meal.route,
-        Screen.Search.route,
+        Screen.Household.route,
         Screen.Profile.route
     ) && !cameraExitGuard
 
@@ -360,7 +371,7 @@ fun AppNavGraph() {
                     )
                 }
 
-                composable(Screen.Search.route) {
+                composable(Screen.Household.route) {
                     SearchScreen(
                         onNavigateToDetail = { id, filter ->
                             navController.navigate(Screen.Detail.createRoute(id, filter.toDetailScope()))
@@ -415,6 +426,10 @@ fun AppNavGraph() {
                             navController.navigate(
                                 Screen.LedgerCategoryDetail.createRoute(kind, categoryId, monthKey)
                             )
+                        },
+                        // 统计页空态「记一笔」直达记账编辑（I5），与记账主页 FAB 同一跳转。
+                        onNavigateToRecordEdit = { recordId ->
+                            navController.navigate(Screen.RecordEdit.createRoute(recordId = recordId))
                         }
                     )
                 }
@@ -640,6 +655,21 @@ fun AppNavGraph() {
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             )
         }
+
+        // 全局提示宿主（I10）：所有页面的成功 / 中性反馈共用这一条通道，贴底居中；
+        // 有底部导航时上抬（> 导航栏高度），避免提示被导航栏遮住。
+        LocalAppSnackbar.current?.let { snackbar ->
+            AppSnackbarHost(
+                state = snackbar,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(
+                        horizontal = 16.dp,
+                        vertical = if (showBottomBar) 92.dp else 16.dp
+                    )
+            )
+        }
     }
 }
 
@@ -685,6 +715,8 @@ private sealed interface CameraReturnTarget {
 
 /**
  * 底部导航：5 个 Tab 平铺一行；录入家当入口在「家当」页的悬浮按钮里。
+ * 玻璃胶囊是本 App 的视觉标识，但实时模糊在低版本系统（无 RenderEffect）上代价高、效果差，
+ * 这类设备降级为不透明表面（F15）；热区高度对齐 M3 规范（≥64dp），造型不牺牲可点性。
  */
 @Composable
 private fun LemonBottomBar(
@@ -693,18 +725,12 @@ private fun LemonBottomBar(
     hazeState: HazeState,
     modifier: Modifier = Modifier
 ) {
-    GlassPanel(
-        modifier = modifier.fillMaxWidth(),
-        hazeState = hazeState,
-        shape = RoundedCornerShape(26.dp),
-        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 7.dp),
-        containerColor = GlassWhite,
-        borderColor = GlassWhite,
-        shadowElevation = 20.dp,
-        blurAlpha = 0.6f
-    ) {
+    val glassEnabled = rememberGlassEnabled()
+    val barContent: @Composable ColumnScope.() -> Unit = {
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .sizeIn(minHeight = 64.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -717,6 +743,46 @@ private fun LemonBottomBar(
                 )
             }
         }
+    }
+    if (glassEnabled) {
+        GlassPanel(
+            modifier = modifier.fillMaxWidth(),
+            hazeState = hazeState,
+            shape = RoundedCornerShape(26.dp),
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 7.dp),
+            containerColor = GlassWhite,
+            borderColor = GlassWhite,
+            shadowElevation = 20.dp,
+            blurAlpha = 0.6f,
+            content = barContent
+        )
+    } else {
+        AppSurfaceCard(
+            modifier = modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(26.dp),
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 7.dp),
+            containerColor = CardWhite,
+            shadowElevation = 12.dp,
+            content = barContent
+        )
+    }
+}
+
+/**
+ * 是否启用实时模糊（F15）：RenderEffect 需要 Android 12（API 31）起；
+ * 当系统关闭动画（animator_duration_scale == 0，含开发者选项/辅助功能里的「移除动画」）时也一并降级，
+ * 既避免无效合成，也顺带满足「减少动效」的诉求。
+ */
+@Composable
+private fun rememberGlassEnabled(): Boolean {
+    val context = LocalContext.current
+    return remember(context) {
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            Settings.Global.getFloat(
+                context.contentResolver,
+                Settings.Global.ANIMATOR_DURATION_SCALE,
+                1f
+            ) > 0f
     }
 }
 
@@ -731,20 +797,25 @@ private fun BottomItem(
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(20.dp))
-            .clickable(onClick = onClick)
+            // 命中区兜底到 48dp（F7）：视觉尺寸可以小巧，热区不能缩水。
+            .minimumInteractiveComponentSize()
+            // 声明为 Tab 角色，读屏可正确播报「标签页」（F16）。
+            .clickable(role = Role.Tab, onClick = onClick)
             .padding(vertical = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Icon(
             imageVector = if (selected) item.selectedIcon else item.unselectedIcon,
-            contentDescription = item.label,
+            // 图标紧邻文字标签，语义由标签承载，此处留空避免读屏重复播报。
+            contentDescription = null,
             tint = color,
-            modifier = Modifier.size(18.dp)
+            modifier = Modifier.size(20.dp)
         )
         Text(
             text = item.label,
             color = color,
-            fontSize = 10.sp,
+            // 导航标签走主题字阶（F6）且不低于 11sp（F7）：labelMedium 为 12sp。
+            style = MaterialTheme.typography.labelMedium,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
             modifier = Modifier.padding(top = 2.dp)
         )

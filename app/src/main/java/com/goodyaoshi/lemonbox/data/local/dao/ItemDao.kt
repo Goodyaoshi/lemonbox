@@ -10,53 +10,47 @@ import com.goodyaoshi.lemonbox.data.local.entity.Item
 import com.goodyaoshi.lemonbox.data.local.entity.ItemDetail
 import kotlinx.coroutines.flow.Flow
 
+/**
+ * 家当查询的统一投影（F8）。
+ *
+ * 改动前：每个需要分类名/分类图标/存放地名的查询都要把
+ * `SELECT items.*, categories.name, categories.icon, locations.name FROM items LEFT JOIN …`
+ * 整段重抄一遍，同样的 JOIN 块在文件里出现了近二十次，只有 WHERE 不同。
+ * 结果是物品表一旦增删字段或调整关联，就得同步改十几处 SQL，漏改即运行期「列缺失 / 映射异常」。
+ *
+ * 改动后：把这段联查收敛成单一常量 [ITEM_WITH_META]，各查询只声明自己的 WHERE / ORDER BY，
+ * 投影与筛选彻底解耦；字段增删只改这一处，其余查询自动跟随。
+ */
+private const val ITEM_WITH_META = """
+SELECT items.*,
+       categories.name AS categoryName,
+       categories.icon AS categoryIcon,
+       locations.name AS locationName
+FROM items
+LEFT JOIN categories ON items.categoryId = categories.id
+LEFT JOIN locations ON items.locationId = locations.id
+"""
+
 @Dao
 interface ItemDao {
 
+    /** 在用中的家当列表。 */
     @Query(
-        """
-        SELECT items.*,
-               categories.name AS categoryName,
-               categories.icon AS categoryIcon,
-               locations.name AS locationName
-        FROM items
-        LEFT JOIN categories ON items.categoryId = categories.id
-        LEFT JOIN locations ON items.locationId = locations.id
-        WHERE items.disposition = 0
-          AND items.deletedAt IS NULL
-        ORDER BY items.createdAt DESC
-        """
+        "$ITEM_WITH_META WHERE items.disposition = 0 AND items.deletedAt IS NULL " +
+            "ORDER BY items.createdAt DESC"
     )
     fun getActiveItems(): Flow<List<ItemDetail>>
 
+    /** 全部未删除家当（含已用完 / 已借出 / 已送人 / 已丢弃）。 */
     @Query(
-        """
-        SELECT items.*,
-               categories.name AS categoryName,
-               categories.icon AS categoryIcon,
-               locations.name AS locationName
-        FROM items
-        LEFT JOIN categories ON items.categoryId = categories.id
-        LEFT JOIN locations ON items.locationId = locations.id
-        WHERE items.deletedAt IS NULL
-        ORDER BY items.createdAt DESC
-        """
+        "$ITEM_WITH_META WHERE items.deletedAt IS NULL ORDER BY items.createdAt DESC"
     )
     fun getAllItems(): Flow<List<ItemDetail>>
 
+    /** 按使用进度筛选（未使用 / 使用中 / 已用完）。 */
     @Query(
-        """
-        SELECT items.*,
-               categories.name AS categoryName,
-               categories.icon AS categoryIcon,
-               locations.name AS locationName
-        FROM items
-        LEFT JOIN categories ON items.categoryId = categories.id
-        LEFT JOIN locations ON items.locationId = locations.id
-        WHERE items.usageStatus = :usageStatus
-          AND items.deletedAt IS NULL
-        ORDER BY items.createdAt DESC
-        """
+        "$ITEM_WITH_META WHERE items.usageStatus = :usageStatus AND items.deletedAt IS NULL " +
+            "ORDER BY items.createdAt DESC"
     )
     fun getItemsByUsageStatus(usageStatus: Int): Flow<List<ItemDetail>>
 
@@ -65,19 +59,8 @@ interface ItemDao {
 
     /** 待买清单：勾选了「需要补货」且尚未丢弃的物品。 */
     @Query(
-        """
-        SELECT items.*,
-               categories.name AS categoryName,
-               categories.icon AS categoryIcon,
-               locations.name AS locationName
-        FROM items
-        LEFT JOIN categories ON items.categoryId = categories.id
-        LEFT JOIN locations ON items.locationId = locations.id
-        WHERE items.needRestock = 1
-          AND items.disposition <> 3
-          AND items.deletedAt IS NULL
-        ORDER BY items.createdAt DESC
-        """
+        "$ITEM_WITH_META WHERE items.needRestock = 1 AND items.disposition <> 3 " +
+            "AND items.deletedAt IS NULL ORDER BY items.createdAt DESC"
     )
     fun getToBuyItems(): Flow<List<ItemDetail>>
 
@@ -102,126 +85,48 @@ interface ItemDao {
     )
     suspend fun getToBuyNames(): List<String>
 
-    @Query(
-        """
-        SELECT items.*,
-               categories.name AS categoryName,
-               categories.icon AS categoryIcon,
-               locations.name AS locationName
-        FROM items
-        LEFT JOIN categories ON items.categoryId = categories.id
-        LEFT JOIN locations ON items.locationId = locations.id
-        WHERE items.id = :id
-          AND items.deletedAt IS NULL
-        """
-    )
+    @Query("$ITEM_WITH_META WHERE items.id = :id AND items.deletedAt IS NULL")
     fun getItemDetailById(id: Long): Flow<ItemDetail?>
 
     @Query(
-        """
-        SELECT items.*,
-               categories.name AS categoryName,
-               categories.icon AS categoryIcon,
-               locations.name AS locationName
-        FROM items
-        LEFT JOIN categories ON items.categoryId = categories.id
-        LEFT JOIN locations ON items.locationId = locations.id
-        WHERE items.disposition = 0
-          AND items.deletedAt IS NULL
-          AND items.expireTime IS NOT NULL
-          AND items.expireTime <= :thresholdTime
-          AND items.expireTime > 0
-        ORDER BY items.expireTime ASC
-        """
+        "$ITEM_WITH_META WHERE items.disposition = 0 AND items.deletedAt IS NULL " +
+            "AND items.expireTime IS NOT NULL AND items.expireTime <= :thresholdTime " +
+            "AND items.expireTime > 0 ORDER BY items.expireTime ASC"
     )
     fun getExpiringItems(thresholdTime: Long): Flow<List<ItemDetail>>
 
     @Query(
-        """
-        SELECT items.*,
-               categories.name AS categoryName,
-               categories.icon AS categoryIcon,
-               locations.name AS locationName
-        FROM items
-        LEFT JOIN categories ON items.categoryId = categories.id
-        LEFT JOIN locations ON items.locationId = locations.id
-        WHERE items.disposition = 0
-          AND items.deletedAt IS NULL
-          AND (
-              items.name LIKE '%' || :query || '%'
-              OR categories.name LIKE '%' || :query || '%'
-              OR locations.name LIKE '%' || :query || '%'
-              OR items.note LIKE '%' || :query || '%'
-          )
-        ORDER BY items.createdAt DESC
-        """
+        "$ITEM_WITH_META WHERE items.disposition = 0 AND items.deletedAt IS NULL AND (" +
+            "items.name LIKE '%' || :query || '%' " +
+            "OR categories.name LIKE '%' || :query || '%' " +
+            "OR locations.name LIKE '%' || :query || '%' " +
+            "OR items.note LIKE '%' || :query || '%') " +
+            "ORDER BY items.createdAt DESC"
     )
     fun searchItems(query: String): Flow<List<ItemDetail>>
 
     @Query(
-        """
-        SELECT items.*,
-               categories.name AS categoryName,
-               categories.icon AS categoryIcon,
-               locations.name AS locationName
-        FROM items
-        LEFT JOIN categories ON items.categoryId = categories.id
-        LEFT JOIN locations ON items.locationId = locations.id
-        WHERE items.disposition = 0
-          AND items.deletedAt IS NULL
-          AND items.categoryId = :categoryId
-        ORDER BY items.createdAt DESC
-        """
+        "$ITEM_WITH_META WHERE items.disposition = 0 AND items.deletedAt IS NULL " +
+            "AND items.categoryId = :categoryId ORDER BY items.createdAt DESC"
     )
     fun getItemsByCategory(categoryId: Long): Flow<List<ItemDetail>>
 
     @Query(
-        """
-        SELECT items.*,
-               categories.name AS categoryName,
-               categories.icon AS categoryIcon,
-               locations.name AS locationName
-        FROM items
-        LEFT JOIN categories ON items.categoryId = categories.id
-        LEFT JOIN locations ON items.locationId = locations.id
-        WHERE items.disposition = 0
-          AND items.deletedAt IS NULL
-          AND items.locationId = :locationId
-        ORDER BY items.createdAt DESC
-        """
+        "$ITEM_WITH_META WHERE items.disposition = 0 AND items.deletedAt IS NULL " +
+            "AND items.locationId = :locationId ORDER BY items.createdAt DESC"
     )
     fun getItemsByLocation(locationId: Long): Flow<List<ItemDetail>>
 
     @Query(
-        """
-        SELECT items.*,
-               categories.name AS categoryName,
-               categories.icon AS categoryIcon,
-               locations.name AS locationName
-        FROM items
-        LEFT JOIN categories ON items.categoryId = categories.id
-        LEFT JOIN locations ON items.locationId = locations.id
-        WHERE items.disposition = 0
-          AND items.deletedAt IS NULL
-          AND items.barcode = :barcode
-        ORDER BY (items.expireTime IS NULL), items.expireTime ASC, items.createdAt DESC
-        """
+        "$ITEM_WITH_META WHERE items.disposition = 0 AND items.deletedAt IS NULL " +
+            "AND items.barcode = :barcode " +
+            "ORDER BY (items.expireTime IS NULL), items.expireTime ASC, items.createdAt DESC"
     )
     fun getActiveItemsByBarcode(barcode: String): Flow<List<ItemDetail>>
 
     @Query(
-        """
-        SELECT items.*,
-               categories.name AS categoryName,
-               categories.icon AS categoryIcon,
-               locations.name AS locationName
-        FROM items
-        LEFT JOIN categories ON items.categoryId = categories.id
-        LEFT JOIN locations ON items.locationId = locations.id
-        WHERE items.deletedAt IS NULL
-          AND items.barcode = :barcode
-        ORDER BY items.disposition ASC, items.createdAt DESC
-        """
+        "$ITEM_WITH_META WHERE items.deletedAt IS NULL AND items.barcode = :barcode " +
+            "ORDER BY items.disposition ASC, items.createdAt DESC"
     )
     fun getItemsByBarcode(barcode: String): Flow<List<ItemDetail>>
 
@@ -363,19 +268,10 @@ interface ItemDao {
     )
     fun getCountByLocation(locationId: Long): Flow<Int>
 
+    /** 回收站列表：按删除时间倒序。 */
     @Query(
-        """
-        SELECT items.*,
-               categories.name AS categoryName,
-               categories.icon AS categoryIcon,
-               locations.name AS locationName
-        FROM items
-        LEFT JOIN categories ON items.categoryId = categories.id
-        LEFT JOIN locations ON items.locationId = locations.id
-        WHERE items.deletedAt IS NOT NULL
-          AND items.deletedAt >= :cutoffTime
-        ORDER BY items.deletedAt DESC
-        """
+        "$ITEM_WITH_META WHERE items.deletedAt IS NOT NULL AND items.deletedAt >= :cutoffTime " +
+            "ORDER BY items.deletedAt DESC"
     )
     fun getRecycleItems(cutoffTime: Long): Flow<List<ItemDetail>>
 
@@ -397,23 +293,12 @@ interface ItemDao {
     @Query("DELETE FROM items")
     suspend fun deleteAll()
 
+    /** 未来一段时间内即将到期：用于通知与首页提醒。 */
     @Query(
-        """
-        SELECT items.*,
-               categories.name AS categoryName,
-               categories.icon AS categoryIcon,
-               locations.name AS locationName
-        FROM items
-        LEFT JOIN categories ON items.categoryId = categories.id
-        LEFT JOIN locations ON items.locationId = locations.id
-        WHERE items.disposition = 0
-          AND items.deletedAt IS NULL
-          AND items.expireTime IS NOT NULL
-          AND items.expireTime <= :thresholdTime
-          AND items.expireTime > 0
-          AND items.expireTime > :currentTime
-        ORDER BY items.expireTime ASC
-        """
+        "$ITEM_WITH_META WHERE items.disposition = 0 AND items.deletedAt IS NULL " +
+            "AND items.expireTime IS NOT NULL AND items.expireTime <= :thresholdTime " +
+            "AND items.expireTime > 0 AND items.expireTime > :currentTime " +
+            "ORDER BY items.expireTime ASC"
     )
     fun getExpiringItemsInRange(currentTime: Long, thresholdTime: Long): Flow<List<ItemDetail>>
 }

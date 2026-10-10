@@ -45,13 +45,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
-import android.widget.Toast
 import com.goodyaoshi.lemonbox.data.local.entity.Reminder
 import com.goodyaoshi.lemonbox.data.local.entity.ReminderRepeatType
 import com.goodyaoshi.lemonbox.data.local.entity.ReminderSource
@@ -61,6 +59,7 @@ import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.EditorSelectionChip
 import com.goodyaoshi.lemonbox.ui.components.EmptyState
+import com.goodyaoshi.lemonbox.ui.components.InlineNotice
 import com.goodyaoshi.lemonbox.ui.components.PillTag
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarmDeep
@@ -162,7 +161,10 @@ fun RemindersScreen(
             if (reminders.isEmpty()) {
                 EmptyState(
                     title = "还没有提醒",
-                    message = "点右上角 + 新建，或在首页菜谱的某天点「提醒准备」自动生成。",
+                    // 去掉「点右上角 +」这种屏外指路（I5），空态直接给「新建提醒」按钮。
+                    message = "新建一条提醒，或在首页菜谱的某天点「提醒准备」自动生成。",
+                    actionLabel = "新建提醒",
+                    onAction = { showAddDialog = true },
                     modifier = Modifier.padding(top = 24.dp)
                 )
             } else {
@@ -199,10 +201,16 @@ fun RemindersScreen(
     }
 
     if (showAddDialog) {
-        val context = LocalContext.current
+        // 保存失败时的就地提示（I10）：留在对话框内显示，不再用一闪而过的 Toast。
+        var addError by remember { mutableStateOf<String?>(null) }
         AddReminderDialog(
-            onDismissRequest = { showAddDialog = false },
+            errorMessage = addError,
+            onDismissRequest = {
+                addError = null
+                showAddDialog = false
+            },
             onConfirm = { reminder ->
+                addError = null
                 viewModel.create(
                     title = reminder.title,
                     note = reminder.note,
@@ -215,8 +223,8 @@ fun RemindersScreen(
                     if (saved) {
                         showAddDialog = false
                     } else {
-                        // 保存失败只可能是提醒时刻已经过了。
-                        Toast.makeText(context, "这个时间已经过了，换个时间吧", Toast.LENGTH_SHORT).show()
+                        // 保存失败只可能是提醒时刻已经过了：在对话框里就地说明。
+                        addError = "这个时间已经过了，换个时间吧"
                     }
                 }
             }
@@ -348,7 +356,8 @@ private fun ReminderRow(
 @Composable
 private fun AddReminderDialog(
     onDismissRequest: () -> Unit,
-    onConfirm: (Reminder) -> Unit
+    onConfirm: (Reminder) -> Unit,
+    errorMessage: String? = null
 ) {
     var title by remember { mutableStateOf("") }
     var repeatType by remember { mutableStateOf(ReminderRepeatType.ONCE) }
@@ -407,6 +416,10 @@ private fun AddReminderDialog(
             )
         }
     ) {
+        // 保存失败的就地提示（I10）：出现在对话框内、紧邻输入项，用户改完时间即可重试。
+        if (errorMessage != null) {
+            InlineNotice(message = errorMessage)
+        }
         OutlinedTextField(
             value = title,
             onValueChange = { title = it },

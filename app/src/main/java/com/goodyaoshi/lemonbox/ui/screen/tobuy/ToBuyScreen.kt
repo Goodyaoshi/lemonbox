@@ -23,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -178,7 +179,10 @@ fun ToBuyScreen(
             if (items.isEmpty()) {
                 EmptyState(
                     title = "还没有要买的",
-                    message = "物品用完会自动记到这里，也可以点右上角手动添加。",
+                    // 原文案让用户去点「右上角」（I5），改为空态里直接给「手动添加」按钮。
+                    message = "物品用完会自动记到这里，也可以手动添加一条。",
+                    actionLabel = "手动添加",
+                    onAction = { showAddDialog = true },
                     modifier = Modifier.padding(top = 24.dp)
                 )
             } else {
@@ -201,7 +205,11 @@ fun ToBuyScreen(
                         item {
                             EmptyState(
                                 title = "这个分类下暂时没有要买的",
-                                message = "换个分类看看，或点「全部」查看所有待买项。",
+                                message = "换个分类看看，或回到「全部」查看所有待买项。",
+                                // 分类筛选筛空时给一键退回「全部」（I5）。
+                                actionLabel = "查看全部",
+                                actionIcon = Icons.Default.Close,
+                                onAction = { viewModel.setFilterCategory(null) },
                                 modifier = Modifier.padding(top = 6.dp)
                             )
                         }

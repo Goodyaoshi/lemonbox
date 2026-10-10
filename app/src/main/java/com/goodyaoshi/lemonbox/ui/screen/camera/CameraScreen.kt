@@ -3,7 +3,6 @@ package com.goodyaoshi.lemonbox.ui.screen.camera
 import android.Manifest
 import android.content.Context
 import android.net.Uri
-import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.Camera
@@ -66,6 +65,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil.compose.AsyncImage
+import com.goodyaoshi.lemonbox.ui.components.InlineNotice
 import com.goodyaoshi.lemonbox.ui.theme.LemonEnd
 import com.goodyaoshi.lemonbox.ui.theme.LemonStart
 import java.io.File
@@ -98,13 +98,15 @@ fun CameraScreen(
     var focusMarkerStamp by remember { mutableLongStateOf(0L) }
     var selectedTab by remember { mutableStateOf(CameraTab.CAMERA) }
     val capturedUris = remember { mutableStateListOf<Uri>() }
+    // 相机页失败的统一落点（I10）：权限被拒 / 拍照失败都走页面内联提示，不再用易被忽略的 Toast。
+    var cameraNotice by remember { mutableStateOf<String?>(null) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         hasCameraPermission = granted
         if (!granted) {
-            Toast.makeText(context, "需要相机权限才能拍照录入", Toast.LENGTH_SHORT).show()
+            cameraNotice = "需要相机权限才能拍照录入"
         }
     }
 
@@ -134,6 +136,14 @@ fun CameraScreen(
         if (focusMarkerStamp == 0L) return@LaunchedEffect
         kotlinx.coroutines.delay(900)
         focusMarker = null
+    }
+
+    // 内联提示自动消失：避免失败文案长期占着取景界面。
+    LaunchedEffect(cameraNotice) {
+        if (cameraNotice != null) {
+            kotlinx.coroutines.delay(3200)
+            cameraNotice = null
+        }
     }
 
     DisposableEffect(Unit) {
@@ -304,6 +314,17 @@ fun CameraScreen(
             }
         }
 
+        // 失败提示（I10）：内联在取景界面顶部，与取景器同屏可见、无需切页。
+        cameraNotice?.let { notice ->
+            InlineNotice(
+                message = notice,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .statusBarsPadding()
+                    .padding(top = 64.dp, start = 16.dp, end = 16.dp)
+            )
+        }
+
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -325,7 +346,11 @@ fun CameraScreen(
                             .background(Color.White.copy(alpha = 0.2f))
                             .border(2.dp, Color.White.copy(alpha = 0.78f), CircleShape)
                             .clickable {
-                                takePhoto(context, imageCapture) { uri ->
+                                takePhoto(
+                                    context = context,
+                                    imageCapture = imageCapture,
+                                    onError = { cameraNotice = it }
+                                ) { uri ->
                                     capturedUris.add(uri)
                                 }
                             },
@@ -529,9 +554,14 @@ private fun EmptyGalleryState(
 private fun takePhoto(
     context: Context,
     imageCapture: ImageCapture?,
+    onError: (String) -> Unit,
     onResult: (Uri) -> Unit
 ) {
-    val capture = imageCapture ?: return
+    // 相机未就绪时也走内联提示，避免按了快门却毫无反应。
+    val capture = imageCapture ?: run {
+        onError("相机还没准备好，稍等一下再拍")
+        return
+    }
     val imagesDir = File(context.filesDir, "images")
     if (!imagesDir.exists()) imagesDir.mkdirs()
 
@@ -547,7 +577,7 @@ private fun takePhoto(
             }
 
             override fun onError(exception: ImageCaptureException) {
-                Toast.makeText(context, "拍照失败：${exception.message}", Toast.LENGTH_SHORT).show()
+                onError("拍照失败：${exception.message}")
             }
         }
     )

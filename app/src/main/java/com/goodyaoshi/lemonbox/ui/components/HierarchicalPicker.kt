@@ -35,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -271,12 +272,14 @@ private fun PickerTreeRow(
         if (row.hasChildren) {
             Icon(
                 imageVector = if (row.expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                contentDescription = null,
+                // 展开箭头是独立的可点目标，没有文字兜底，需报出当前状态（F16）。
+                contentDescription = if (row.expanded) "收起子分类" else "展开子分类",
                 tint = TextHint,
                 modifier = Modifier
                     .size(20.dp)
                     .clip(CircleShape)
-                    .clickable(onClick = onToggleExpand)
+                    // 声明 Button 角色，读屏才会播报「按钮」（F16）。
+                    .clickable(role = Role.Button, onClick = onToggleExpand)
             )
         } else {
             Spacer(modifier = Modifier.size(20.dp))

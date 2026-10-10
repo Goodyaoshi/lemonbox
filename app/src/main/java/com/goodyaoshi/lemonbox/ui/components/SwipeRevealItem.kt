@@ -34,9 +34,14 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
@@ -68,6 +73,7 @@ fun SwipeRevealItem(
 ) {
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
+    val haptic = LocalHapticFeedback.current
     val actionWidthPx = with(density) { actionWidth.toPx() }
     val visibleActions = actions
     val revealWidthPx = visibleActions.size * actionWidthPx
@@ -87,6 +93,8 @@ fun SwipeRevealItem(
     }
 
     fun openActions() {
+        // I8：滑出动作面板是纯手势触发，没有任何视觉焦点变化，补一次轻触觉反馈让用户确认「滑到位了」。
+        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
         onOpenedItemChange(itemKey)
         scope.launch {
             offsetX.animateTo(-maxSlidePx, tween(durationMillis = 180))
@@ -127,6 +135,17 @@ fun SwipeRevealItem(
                 .fillMaxWidth()
                 .onSizeChanged { contentHeightPx = it.height }
                 .offset { IntOffset(offsetX.value.roundToInt(), 0) }
+                // I8：滑动手势对读屏用户不可用，把同一组动作暴露成语义自定义操作（CustomActions），
+                // 让 TalkBack 等辅助功能能通过「操作菜单」直接触发，而不必依赖滑出。
+                .semantics {
+                    customActions = visibleActions.map { action ->
+                        CustomAccessibilityAction(action.label) {
+                            closeActions()
+                            action.onClick()
+                            true
+                        }
+                    }
+                }
                 .pointerInput(actions.size) {
                     detectHorizontalDragGestures(
                         onHorizontalDrag = { _, dragAmount ->

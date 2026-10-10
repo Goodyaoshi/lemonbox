@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -161,7 +162,8 @@ fun AppSplashScreen(darkTheme: Boolean = false) {
             Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = if (versionName.isBlank()) "柠檬百宝箱" else "柠檬百宝箱 · v$versionName",
-                fontSize = 11.sp,
+                // 字号走主题字阶（F6），并满足说明文字 ≥12sp（F7）。
+                style = MaterialTheme.typography.labelMedium,
                 letterSpacing = 0.5.sp,
                 color = if (darkTheme) TextHint else WarmHint
             )

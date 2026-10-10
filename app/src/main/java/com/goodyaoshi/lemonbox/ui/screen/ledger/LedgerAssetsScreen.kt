@@ -26,6 +26,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -158,7 +159,8 @@ fun LedgerAssetsScreen(
                     if (assets.any { it.type == LEDGER_ASSET_TYPE_CREDIT }) {
                         Text(
                             text = "信用卡的欠款已算进总负债",
-                            fontSize = 11.sp,
+                            // 说明文字走主题字阶（F6）并提到 12sp（F7）。
+                            style = MaterialTheme.typography.bodySmall,
                             color = TextHint,
                             modifier = Modifier.padding(top = 8.dp)
                         )
@@ -181,11 +183,14 @@ fun LedgerAssetsScreen(
                     item(key = "empty") {
                         EmptyState(
                             title = "还没有${groupLabel}账户",
+                            // 去掉「点下方按钮」这种屏外指路（I5），空态本身给「添加资产/负债」。
                             message = if (tabIndex == 1) {
                                 "有信用卡的话登记进来，欠款会自动算进负债。"
                             } else {
-                                "点下方按钮，把现金、银行卡都登记进来吧。"
+                                "把现金、银行卡都登记进来，净资产才算得准。"
                             },
+                            actionLabel = "添加$groupLabel",
+                            onAction = { showAddDialog = true },
                             modifier = Modifier.padding(top = 6.dp)
                         )
                     }
@@ -380,7 +385,8 @@ private fun SummaryItem(
     Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
             text = label,
-            fontSize = 11.sp,
+            // 字号走主题字阶（F6），并满足说明文字 ≥12sp（F7）。
+            style = MaterialTheme.typography.labelMedium,
             color = TextHint
         )
         Text(

@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
@@ -224,7 +225,8 @@ private fun StatusOptionRow(
         if (!option.isBuiltIn) {
             Text(
                 text = "自定义",
-                fontSize = 11.sp,
+                // 字号走主题字阶（F6），并满足标签 ≥12sp（F7）。
+                style = MaterialTheme.typography.labelMedium,
                 color = TextSecondary,
                 modifier = Modifier.padding(start = 8.dp)
             )

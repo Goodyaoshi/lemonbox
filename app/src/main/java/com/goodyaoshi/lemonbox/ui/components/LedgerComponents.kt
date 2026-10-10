@@ -38,6 +38,7 @@ import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.filled.Work
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -49,6 +50,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -66,7 +68,7 @@ import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
 
 // ============================================================
 // 记账图标目录：key 与数据库 ledger_categories.icon / ledger_assets.icon 对应，
-// 种子数据（SeedHelper.ensureLedgerSeedData）写入的 key 必须都在这里。
+// 种子数据（SeedDataProvider.ensureLedgerSeedData）写入的 key 必须都在这里。
 // ============================================================
 
 data class LedgerIconOption(
@@ -116,7 +118,11 @@ fun LedgerMonthBar(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        MonthArrow(icon = Icons.AutoMirrored.Filled.KeyboardArrowLeft, onClick = onPrev)
+        MonthArrow(
+            icon = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+            contentDescription = "上个月",
+            onClick = onPrev
+        )
         Text(
             text = "${year}年${month}月",
             color = TextPrimary,
@@ -125,12 +131,16 @@ fun LedgerMonthBar(
             textAlign = TextAlign.Center,
             modifier = Modifier.weight(1f)
         )
-        MonthArrow(icon = Icons.AutoMirrored.Filled.KeyboardArrowRight, onClick = onNext)
+        MonthArrow(
+            icon = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = "下个月",
+            onClick = onNext
+        )
     }
 }
 
 @Composable
-private fun MonthArrow(icon: ImageVector, onClick: () -> Unit) {
+private fun MonthArrow(icon: ImageVector, contentDescription: String, onClick: () -> Unit) {
     val interactionSource = remember { MutableInteractionSource() }
     Box(
         modifier = Modifier
@@ -141,13 +151,16 @@ private fun MonthArrow(icon: ImageVector, onClick: () -> Unit) {
                 interactionSource = interactionSource,
                 // 月份切换箭头恢复默认涟漪（I3）。
                 indication = LocalIndication.current,
+                // 纯图标按钮声明 Button 角色，读屏才会播报「按钮」（F16）。
+                role = Role.Button,
                 onClick = onClick
             ),
         contentAlignment = Alignment.Center
     ) {
         Icon(
             imageVector = icon,
-            contentDescription = null,
+            // 箭头是唯一的可点内容，没有文字兜底，必须给出描述（F16）。
+            contentDescription = contentDescription,
             tint = TextSecondary,
             modifier = Modifier.size(20.dp)
         )
@@ -261,7 +274,12 @@ fun LedgerAssetChip(
             modifier = Modifier.size(18.dp)
         )
         Column(modifier = Modifier.padding(start = 8.dp)) {
-            Text(text = name, color = TextSecondary, fontSize = 11.sp)
+            Text(
+                text = name,
+                color = TextSecondary,
+                // 字号走主题字阶（F6），并满足说明文字 ≥12sp（F7）。
+                style = MaterialTheme.typography.labelMedium
+            )
             Text(
                 text = balanceText,
                 color = TextPrimary,

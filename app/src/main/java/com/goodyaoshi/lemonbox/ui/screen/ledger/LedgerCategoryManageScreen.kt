@@ -27,6 +27,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -259,7 +260,8 @@ private fun LedgerCategoryRow(
         } else {
             Text(
                 text = "点击编辑",
-                fontSize = 11.sp,
+                // 说明文字走主题字阶（F6）并提到 12sp（F7）。
+                style = MaterialTheme.typography.bodySmall,
                 color = TextHint
             )
         }

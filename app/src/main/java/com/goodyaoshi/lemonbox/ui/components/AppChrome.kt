@@ -24,7 +24,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -39,7 +41,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.HazeStyle
 import dev.chrisbanes.haze.HazeTint
@@ -251,13 +252,16 @@ fun SegmentedTabs(
                     .weight(1f)
                     .clip(RoundedCornerShape(18.dp))
                     .background(if (selected) CardWhite else Color.Transparent)
+                    // 触达面积达标（F7）：分段标签原本仅约 34dp 高，补足到 48dp 最小可点区。
+                    .minimumInteractiveComponentSize()
                     .clickable { onSelect(index) }
                     .padding(vertical = 8.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = label,
-                    fontSize = 13.sp,
+                    // 字号走主题字阶（F6）：labelLarge 为 14sp，满足正文 ≥12sp（F7）。
+                    style = MaterialTheme.typography.labelLarge,
                     fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
                     color = if (selected) OrangeStart else TextHint
                 )
@@ -281,15 +285,17 @@ fun SectionHeader(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = title,
+                // 走主题字阶（F6）：titleLarge 为 18sp，与设计稿一级标题一致。
+                style = MaterialTheme.typography.titleLarge,
                 color = TextPrimary,
-                fontSize = 18.sp,
                 fontWeight = FontWeight.Bold
             )
             subtitle?.let {
                 Text(
                     text = it,
+                    // 走主题字阶（F6）：bodySmall 为 12sp，满足说明文字 ≥12sp（F7）。
+                    style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary,
-                    fontSize = 12.sp,
                     modifier = Modifier.padding(top = 2.dp)
                 )
             }
@@ -298,14 +304,17 @@ fun SectionHeader(
             val actionModifier = if (onActionClick != null) {
                 Modifier
                     .clip(RoundedCornerShape(8.dp))
+                    // 触达面积达标（F7）：纯文字操作入口补足到 48dp 最小可点区。
+                    .minimumInteractiveComponentSize()
                     .clickable(onClick = onActionClick)
             } else {
                 Modifier
             }
             Text(
                 text = it,
+                // 走主题字阶（F6）：labelLarge 为 14sp。
+                style = MaterialTheme.typography.labelLarge,
                 color = OrangeStart,
-                fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,
                 modifier = actionModifier.padding(start = 8.dp)
             )
@@ -326,6 +335,8 @@ fun HeaderActionPill(
 ) {
     Row(
         modifier = modifier
+            // 触达面积达标（F7）：胶囊仅约 30dp 高，先撑出 48dp 最小可点区，再绘制胶囊本身，视觉尺寸不变。
+            .minimumInteractiveComponentSize()
             .clip(RoundedCornerShape(999.dp))
             .background(SurfaceWarmDeep)
             .clickable(onClick = onClick)
@@ -341,8 +352,8 @@ fun HeaderActionPill(
         Spacer(modifier = Modifier.width(4.dp))
         Text(
             text = label,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Medium,
+            // 字号走主题字阶（F6）：labelMedium 为 12sp，满足 ≥12sp（F7）。
+            style = MaterialTheme.typography.labelMedium,
             color = TextSecondary
         )
     }
@@ -357,15 +368,19 @@ fun PillTag(
     onClick: (() -> Unit)? = null
 ) {
     val shape = RoundedCornerShape(999.dp)
-    val baseModifier = modifier
-        .clip(shape)
-        .background(backgroundColor)
 
     Box(
         modifier = if (onClick == null) {
-            baseModifier.padding(horizontal = 8.dp, vertical = 3.dp)
+            modifier
+                .clip(shape)
+                .background(backgroundColor)
+                .padding(horizontal = 8.dp, vertical = 3.dp)
         } else {
-            baseModifier
+            modifier
+                // 触达面积达标（F7）：先撑出 48dp 最小可点区，再绘制胶囊本身，视觉尺寸不变。
+                .minimumInteractiveComponentSize()
+                .clip(shape)
+                .background(backgroundColor)
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     // 可点击胶囊标签恢复默认涟漪（I3）：它承载"点按切换"动作，需要按压反馈。
@@ -377,8 +392,8 @@ fun PillTag(
     ) {
         Text(
             text = text,
-            fontSize = 10.sp,
-            fontWeight = FontWeight.Medium,
+            // 字号走主题字阶（F6）：labelSmall 为 11sp，满足标签不低于 11sp（F7）。
+            style = MaterialTheme.typography.labelSmall,
             color = contentColor
         )
     }
@@ -399,14 +414,16 @@ fun StatTile(
     ) {
         Text(
             text = value,
+            // 走主题字阶（F6）：headlineSmall 为 24sp。
+            style = MaterialTheme.typography.headlineSmall,
             color = accent,
-            fontSize = 24.sp,
             fontWeight = FontWeight.Bold
         )
         Text(
             text = label,
+            // 走主题字阶（F6）：bodySmall 为 12sp，满足说明文字 ≥12sp（F7）。
+            style = MaterialTheme.typography.bodySmall,
             color = TextSecondary,
-            fontSize = 12.sp,
             modifier = Modifier.padding(top = 4.dp)
         )
     }

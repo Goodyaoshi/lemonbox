@@ -23,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -84,6 +85,8 @@ private val statSliceColors = listOf(
 fun LedgerStatsScreen(
     onBack: () -> Unit,
     onOpenCategory: (kind: Int, categoryId: Long?, monthKey: String) -> Unit,
+    // 统计页自身没有记一笔入口（I5）：空态需要一条直达记账的通道，故从导航层传入。
+    onNavigateToRecordEdit: (Long?) -> Unit,
     viewModel: LedgerStatsViewModel = hiltViewModel()
 ) {
     val stats by viewModel.stats.collectAsState()
@@ -151,7 +154,10 @@ fun LedgerStatsScreen(
                 if (slices.isEmpty()) {
                     EmptyState(
                         title = "本月还没有${kindLabel}记录",
-                        message = "回记账页记一笔，这里就会亮起来。",
+                        // 原文案让用户「回记账页」却没有入口（I5），改为直接给按钮并改掉屏外引用。
+                        message = "记一笔${kindLabel}，这里就会亮起来。",
+                        actionLabel = "记一笔",
+                        onAction = { onNavigateToRecordEdit(null) },
                         modifier = Modifier.padding(top = 6.dp)
                     )
                 } else {
@@ -174,7 +180,8 @@ fun LedgerStatsScreen(
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                     Text(
                                         text = kindLabel,
-                                        fontSize = 11.sp,
+                                        // 标签文字走主题字阶（F6）并提到 12sp（F7）。
+                                        style = MaterialTheme.typography.labelMedium,
                                         color = TextHint
                                     )
                                     Text(
@@ -216,7 +223,8 @@ fun LedgerStatsScreen(
                                         )
                                         Text(
                                             text = "${(slice.ratio * 100).roundToInt()}%",
-                                            fontSize = 11.sp,
+                                            // 标签文字走主题字阶（F6）并提到 12sp（F7）。
+                                            style = MaterialTheme.typography.labelMedium,
                                             color = TextHint
                                         )
                                     }
@@ -224,7 +232,8 @@ fun LedgerStatsScreen(
                                 if (slices.size > 5) {
                                     Text(
                                         text = "其他 ${slices.size - 5} 项分类",
-                                        fontSize = 11.sp,
+                                        // 说明文字走主题字阶（F6）并提到 12sp（F7）。
+                                        style = MaterialTheme.typography.bodySmall,
                                         color = TextHint,
                                         modifier = Modifier.padding(top = 4.dp)
                                     )

@@ -31,8 +31,10 @@ import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -147,7 +149,11 @@ fun RecipeLibraryScreen(
                         editorTarget = recipe
                         showEditor = true
                     },
-                    onDelete = { pendingDelete = it }
+                    onDelete = { pendingDelete = it },
+                    onAdd = {
+                        editorTarget = null
+                        showEditor = true
+                    }
                 )
                 Spacer(modifier = Modifier.height(120.dp))
             }
@@ -227,7 +233,8 @@ private fun RecipeLibraryContent(
     selectedTab: Int,
     ingredientGroups: List<IngredientGroup>,
     onEdit: (Recipe) -> Unit,
-    onDelete: (Recipe) -> Unit
+    onDelete: (Recipe) -> Unit,
+    onAdd: () -> Unit
 ) {
     val visibleRecipes = remember(recipes, selectedTab) {
         recipes.filterByRole(RecipeTab.entries[selectedTab].role)
@@ -244,11 +251,16 @@ private fun RecipeLibraryContent(
         when {
             recipes.isEmpty() -> EmptyState(
                 title = "还没有菜谱",
-                message = "点右下角的「+」，把常做的菜记下来吧。"
+                // 去掉「点右下角」这种屏外指路（I5），空态直接给「添加菜谱」。
+                message = "把常做的菜记下来，配餐时就能直接选。",
+                actionLabel = "添加菜谱",
+                onAction = onAdd
             )
             visibleRecipes.isEmpty() -> EmptyState(
                 title = "这个分类下还没有菜谱",
-                message = "换个标签看看，或点「+」加一道。"
+                message = "换个标签看看，或在这里再加一道。",
+                actionLabel = "添加菜谱",
+                onAction = onAdd
             )
             else -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 visibleRecipes.forEach { recipe ->
@@ -330,7 +342,8 @@ private fun RecipeCard(
             groupIngredients(recipe.ingredients, groupIndex).forEach { (group, groupItems) ->
                 Text(
                     text = group,
-                    fontSize = 11.sp,
+                    // 字号走主题字阶（F6），并满足说明文字 ≥12sp（F7）。
+                    style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.SemiBold,
                     color = TextHint,
                     modifier = Modifier.padding(top = 4.dp)
@@ -543,6 +556,8 @@ private fun IngredientEditorRow(
         Box(
             modifier = Modifier
                 .padding(start = 6.dp)
+                // 触达面积达标（F7）：可选/必选切换热区补足到 48dp，视觉尺寸不变。
+                .minimumInteractiveComponentSize()
                 .clip(RoundedCornerShape(999.dp))
                 .background(if (ingredient.optional) TagOrange else SurfaceWarmDeep)
                 .clickable(onClick = onToggleOptional)
@@ -550,8 +565,8 @@ private fun IngredientEditorRow(
         ) {
             Text(
                 text = if (ingredient.optional) "可选" else "必选",
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Medium,
+                // 字号走主题字阶（F6）：labelMedium 为 12sp，满足 ≥12sp（F7）。
+                style = MaterialTheme.typography.labelMedium,
                 color = if (ingredient.optional) TagOrangeText else TextSecondary
             )
         }

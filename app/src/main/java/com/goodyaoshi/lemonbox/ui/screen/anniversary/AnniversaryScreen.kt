@@ -109,7 +109,8 @@ fun AnniversaryScreen(
                     onToggle = { row, enabled ->
                         viewModel.setEnabled(row.anniversary, enabled)
                     },
-                    onOpen = { onOpenEdit(it.anniversary.id) }
+                    onOpen = { onOpenEdit(it.anniversary.id) },
+                    onAdd = { onOpenEdit(null) }
                 )
                 Spacer(modifier = Modifier.height(120.dp))
             }
@@ -143,7 +144,8 @@ fun AnniversaryScreen(
 private fun AnniversaryContent(
     rows: List<AnniversaryRow>,
     onToggle: (AnniversaryRow, Boolean) -> Unit,
-    onOpen: (AnniversaryRow) -> Unit
+    onOpen: (AnniversaryRow) -> Unit,
+    onAdd: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -154,7 +156,10 @@ private fun AnniversaryContent(
         if (rows.isEmpty()) {
             EmptyState(
                 title = "还没有纪念日",
-                message = "点右下角的「+」，把在一起的日子、生日和要倒数的事记下来。"
+                // 去掉「点右下角」这种屏外指路（I5），空态里直接给「添加纪念日」。
+                message = "把在一起的日子、生日和要倒数的事记下来，往后就不会错过。",
+                actionLabel = "添加纪念日",
+                onAction = onAdd
             )
         } else {
             rows.forEach { row ->

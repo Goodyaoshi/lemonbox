@@ -1,5 +1,6 @@
 package com.goodyaoshi.lemonbox.ui.screen.anniversary
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -26,6 +27,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -133,6 +135,7 @@ fun AnniversaryEditScreen(
     var showLunarPicker by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf(false) }
     var duplicateName by remember { mutableStateOf(false) }
+    var showDiscardDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(loaded) {
         val a = loaded ?: return@LaunchedEffect
@@ -158,6 +161,25 @@ fun AnniversaryEditScreen(
         remindDays = Anniversary.decodeReminderDays(a.remindDays).toSet()
         enabled = a.enabled
     }
+
+    // I6：把表单关键字段打包成快照，返回时与当前值比对，判断有没有未保存的改动。
+    fun formSnapshot(): List<Any?> = listOf(
+        name, note, type, isLunar, solarDate, lunarYear, lunarMonth, lunarDay,
+        repeatUnit, repeatInterval, remindDays, enabled
+    )
+    // 新增模式用初始默认值当基准；编辑模式等数据回填完成（initialized）后再采，避免把回填误判成改动。
+    var discardBaseline by remember { mutableStateOf<List<Any?>?>(null) }
+    LaunchedEffect(initialized, viewModel.isEditMode) {
+        if (discardBaseline == null && (!viewModel.isEditMode || initialized)) {
+            discardBaseline = formSnapshot()
+        }
+    }
+    val hasUnsavedInput = discardBaseline?.let { it != formSnapshot() } ?: false
+    val requestBack: () -> Unit = {
+        if (hasUnsavedInput) showDiscardDialog = true else onBack()
+    }
+    // 系统返回手势/按键与左上角返回走同一套确认逻辑（I6）。
+    BackHandler { requestBack() }
 
     // 各类型的有效周期：生日固定每年，正数日固定不重复，倒数日听用户的（默认不重复）。
     val effectiveUnit = when (type) {
@@ -252,7 +274,7 @@ fun AnniversaryEditScreen(
                     .padding(horizontal = 12.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = onBack) {
+                IconButton(onClick = requestBack) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "返回",
@@ -309,7 +331,8 @@ fun AnniversaryEditScreen(
                     Spacer(modifier = Modifier.size(4.dp))
                     Text(
                         text = typeHint(type),
-                        fontSize = 11.sp,
+                        // 说明文字走主题字阶（F6）并提到 12sp（F7）。
+                        style = MaterialTheme.typography.bodySmall,
                         color = TextHint
                     )
                     Spacer(modifier = Modifier.size(10.dp))
@@ -437,7 +460,8 @@ fun AnniversaryEditScreen(
                         Spacer(modifier = Modifier.size(4.dp))
                         Text(
                             text = "不重复数完就算；吃药复查这类可选每 N 天再来一遍",
-                            fontSize = 11.sp,
+                            // 说明文字走主题字阶（F6）并提到 12sp（F7）。
+                            style = MaterialTheme.typography.bodySmall,
                             color = TextHint
                         )
                         Spacer(modifier = Modifier.size(10.dp))
@@ -524,7 +548,8 @@ fun AnniversaryEditScreen(
                             } else {
                                 "怕忘的话提前几天就开始念叨"
                             },
-                            fontSize = 11.sp,
+                            // 说明文字走主题字阶（F6）并提到 12sp（F7）。
+                            style = MaterialTheme.typography.bodySmall,
                             color = TextHint
                         )
                         Spacer(modifier = Modifier.size(10.dp))
@@ -696,6 +721,28 @@ fun AnniversaryEditScreen(
         ) {
             Text(
                 text = "确定要删除「${name}」吗？",
+                fontSize = 14.sp,
+                color = TextSecondary
+            )
+        }
+    }
+
+    // I6：有未保存内容时返回先确认，避免误触返回键丢掉这枚纪念日。
+    if (showDiscardDialog) {
+        AppDialog(
+            title = "放弃修改？",
+            subtitle = "这枚纪念日还没保存，返回就会丢失。",
+            onDismissRequest = { showDiscardDialog = false },
+            confirmText = "放弃",
+            destructiveConfirm = true,
+            onConfirm = {
+                showDiscardDialog = false
+                onBack()
+            },
+            dismissText = "继续编辑"
+        ) {
+            Text(
+                text = "确定要离开并丢弃当前的填写内容吗？",
                 fontSize = 14.sp,
                 color = TextSecondary
             )

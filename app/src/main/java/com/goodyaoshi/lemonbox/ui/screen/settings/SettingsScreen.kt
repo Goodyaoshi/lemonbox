@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -40,6 +41,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -83,6 +85,41 @@ private fun OptionChip(
             fontSize = 13.sp,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
             color = if (selected) Color.White else TextSecondary
+        )
+    }
+}
+
+/**
+ * 动作胶囊按钮：立刻触发一个动作（如「一键允许」「去设置」）。
+ * I9：此前这两个动作借 OptionChip(selected = true) 渲染，把「可选项」的视觉语言
+ * 用在了「按钮」上，用户难以分辨哪些是配置项、哪些会立即执行。
+ * 这里单独抽一个动作按钮：浅色底 + 品牌色文字 + 尾部箭头，并声明 Button 角色。
+ */
+@Composable
+private fun ActionPillButton(
+    label: String,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(OrangeStart.copy(alpha = 0.14f))
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(start = 14.dp, end = 10.dp, top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        Text(
+            text = label,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = OrangeStart
+        )
+        Icon(
+            imageVector = Icons.Default.ChevronRight,
+            contentDescription = null,
+            tint = OrangeStart,
+            modifier = Modifier.size(16.dp)
         )
     }
 }
@@ -504,9 +541,9 @@ private fun ReliabilityItem(
                 color = OrangeStart
             )
         } else {
-            OptionChip(
+            // I9：这里「一键允许」「去设置」是动作而非可选项，改用专门的动作按钮渲染。
+            ActionPillButton(
                 label = actionLabel,
-                selected = true,
                 onClick = onAction
             )
         }

@@ -83,6 +83,7 @@ class HomeViewModel @Inject constructor(
 
     /** 未来 N 天菜单（今天吃什么卡要用今天那天），生成与扣料逻辑都在 WeekMenuRepository。 */
     val weekPlan: StateFlow<List<WeeklyMealDay>> = weekMenuRepository.weekPlan
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /** 首页「纪念日」速览：最近的 1-2 条（未到的按剩余天数升序，累计的在一起越久越靠前）。 */
     val anniversaryHighlights: StateFlow<List<AnniversaryRow>> =
@@ -101,7 +102,9 @@ class HomeViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /** 一餐做完：仓库内幂等（已做不重复扣料）。 */
-    fun markDayCooked(dateKey: String) = weekMenuRepository.markDayCooked(dateKey)
+    fun markDayCooked(dateKey: String) {
+        viewModelScope.launch { weekMenuRepository.markDayCooked(dateKey) }
+    }
 
     /** 今天（含已提醒还没完成）的提醒待办。 */
     val todayReminders: StateFlow<List<Reminder>> = reminderRepository.getActiveReminders()

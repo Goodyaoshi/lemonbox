@@ -37,7 +37,8 @@ import com.goodyaoshi.lemonbox.util.LedgerMath
 @Composable
 fun LedgerCategoryDetailScreen(
     onBack: () -> Unit,
-    onNavigateToRecordEdit: (Long) -> Unit,
+    // 允许传 null 表示「新建」：分类明细空态需要一条「记一笔」直达入口（I5）。
+    onNavigateToRecordEdit: (Long?) -> Unit,
     viewModel: LedgerCategoryDetailViewModel = hiltViewModel()
 ) {
     val detail by viewModel.detail.collectAsState()
@@ -82,6 +83,8 @@ fun LedgerCategoryDetailScreen(
                 EmptyState(
                     title = "这个月还没有记录",
                     message = "「${detail.categoryName}」本月还没有账单，记一笔就会出现在这里。",
+                    actionLabel = "记一笔",
+                    onAction = { onNavigateToRecordEdit(null) },
                     modifier = Modifier.padding(top = 6.dp)
                 )
             } else {

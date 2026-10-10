@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -119,7 +120,15 @@ fun ExpiryScreen(
             if (filteredItems.isEmpty()) {
                 EmptyState(
                     title = "没有效期提醒",
-                    message = "当前筛选条件下没有需要优先处理的物品。",
+                    // 空态分两种：筛选筛没了 vs 压根没登记效期（I5）。前者给「查看全部」一键回到全量。
+                    message = if (selectedTab == 0) {
+                        "还没有物品登记到期日，给易过期的东西补上效期就会出现在这里。"
+                    } else {
+                        "当前筛选条件下没有需要优先处理的物品。"
+                    },
+                    actionLabel = if (selectedTab == 0) null else "查看全部效期",
+                    actionIcon = Icons.Default.Refresh,
+                    onAction = if (selectedTab == 0) null else ({ selectedTab = 0 }),
                     modifier = Modifier.padding(top = 24.dp)
                 )
             } else {

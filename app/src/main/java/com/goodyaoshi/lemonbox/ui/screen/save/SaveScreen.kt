@@ -3,7 +3,7 @@ package com.goodyaoshi.lemonbox.ui.screen.save
 import android.app.Activity
 import android.content.Intent
 import android.net.Uri
-import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -70,6 +70,7 @@ import com.goodyaoshi.lemonbox.ui.components.EditorSelectionChip
 import com.goodyaoshi.lemonbox.ui.components.GradientButton
 import com.goodyaoshi.lemonbox.ui.components.HierarchicalPickerDialog
 import com.goodyaoshi.lemonbox.ui.components.ItemImageGallery
+import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
 import com.goodyaoshi.lemonbox.ui.components.QuantityStepper
 import com.goodyaoshi.lemonbox.ui.components.ReminderLadderPicker
 import com.goodyaoshi.lemonbox.ui.components.UnitPickerRow
@@ -82,6 +83,7 @@ import com.goodyaoshi.lemonbox.ui.theme.DividerSoft
 import com.goodyaoshi.lemonbox.ui.theme.GlassWhite
 import com.goodyaoshi.lemonbox.ui.theme.TextHint
 import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
+import com.goodyaoshi.lemonbox.ui.viewmodel.SaveItemState
 import com.goodyaoshi.lemonbox.ui.viewmodel.SaveViewModel
 import com.goodyaoshi.lemonbox.util.DateUtil
 import java.time.LocalDate
@@ -108,6 +110,8 @@ fun SaveScreen(
     viewModel: SaveViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
+    // 全局提示通道（I10）：保存成功改走统一 Snackbar，替代易被忽略的系统 Toast。
+    val appSnackbar = LocalAppSnackbar.current
     val state by viewModel.state.collectAsState()
     val continuousEntry by viewModel.continuousEntry.collectAsState()
     val categories by viewModel.categories.collectAsState()
@@ -115,7 +119,9 @@ fun SaveScreen(
     val defaultReminderLadder by viewModel.defaultReminderLadder.collectAsState()
     val expiryQuickCodes by viewModel.expiryQuickOptions.collectAsState()
 
-    var showAdvanced by remember { mutableStateOf(true) }
+    // 「更多信息」默认折叠，展开后跨会话记住用户的选择（I6）。
+    val showAdvanced by viewModel.advancedExpanded.collectAsState()
+    var showDiscardDialog by remember { mutableStateOf(false) }
     var showDatePicker by remember { mutableStateOf(false) }
     var showPurchaseDatePicker by remember { mutableStateOf(false) }
     var showStartUseDatePicker by remember { mutableStateOf(false) }
@@ -182,7 +188,7 @@ fun SaveScreen(
         if (state.isSaved) {
             if (continuousEntry) {
                 // 连续录入：留在本页清空表单，提示后直接再拍一张。
-                Toast.makeText(context, "已存入，再来一件", Toast.LENGTH_SHORT).show()
+                appSnackbar?.showMessage("已存入，再来一件")
                 viewModel.reset()
                 onOpenCamera(SavePhotoMode.REPLACE_PRIMARY)
             } else {
@@ -191,6 +197,15 @@ fun SaveScreen(
             }
         }
     }
+
+    // I6：与「空白默认表单」逐字段比对（忽略保存态的瞬时标记）判断有没有未保存内容。
+    // 拍照/选图会写进 imagePaths，所以拍完照直接返回同样会触发确认，避免白拍一张。
+    val hasUnsavedInput = state.copy(isSaving = false, isSaved = false) != SaveItemState()
+    val requestBack: () -> Unit = {
+        if (hasUnsavedInput) showDiscardDialog = true else onBack()
+    }
+    // 系统返回手势/按键与左上角返回走同一套确认逻辑（I6）。
+    BackHandler { requestBack() }
 
     Box(modifier = Modifier.fillMaxSize()) {
         if (state.imagePaths.isNotEmpty()) {
@@ -233,7 +248,7 @@ fun SaveScreen(
                     .padding(horizontal = 8.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = onBack) {
+                IconButton(onClick = requestBack) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "返回",
@@ -340,7 +355,7 @@ fun SaveScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { showAdvanced = !showAdvanced }
+                                .clickable { viewModel.setAdvancedExpanded(!showAdvanced) }
                                 .padding(vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.Center
@@ -590,6 +605,28 @@ fun SaveScreen(
                 title = "选择开始使用日期",
                 yearRange = purchaseYearRange
             )
+        }
+
+        // I6：有未保存内容时返回先确认，避免误触返回键丢表单。
+        if (showDiscardDialog) {
+            AppDialog(
+                title = "放弃修改？",
+                subtitle = "表单里还有没保存的内容，返回就会丢失。",
+                onDismissRequest = { showDiscardDialog = false },
+                confirmText = "放弃修改",
+                destructiveConfirm = true,
+                onConfirm = {
+                    showDiscardDialog = false
+                    onBack()
+                },
+                dismissText = "继续编辑"
+            ) {
+                Text(
+                    text = "确定要离开并丢弃当前的录入内容吗？",
+                    fontSize = 14.sp,
+                    color = TextSecondary
+                )
+            }
         }
     }
 }
