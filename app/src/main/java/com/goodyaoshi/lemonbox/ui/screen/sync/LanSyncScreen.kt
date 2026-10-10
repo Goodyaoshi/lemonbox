@@ -22,9 +22,9 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.BluetoothSearching
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.BluetoothConnected
-import androidx.compose.material.icons.filled.BluetoothSearching
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
@@ -275,7 +275,7 @@ fun LanSyncScreen(
                     Spacer(modifier = Modifier.size(12.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
-                            imageVector = Icons.Default.BluetoothSearching,
+                            imageVector = Icons.AutoMirrored.Filled.BluetoothSearching,
                             contentDescription = null,
                             tint = TextHint,
                             modifier = Modifier.size(18.dp)
@@ -289,7 +289,7 @@ fun LanSyncScreen(
                     }
                     Spacer(modifier = Modifier.size(6.dp))
                     Text(
-                        text = "让对方也打开这个页面并「开启共享」，稍等片刻即可出现。",
+                        text = "让对方也打开这个页面并「开启共享」，你稍等片刻就会出现。",
                         // 说明文字走主题字阶（F6）并提到 12sp（F7）。
                         style = MaterialTheme.typography.bodySmall,
                         color = TextHint
@@ -411,7 +411,7 @@ fun LanSyncScreen(
             }
 
             Text(
-                text = "提示：同步需要「存储/网络」相关权限；若长时间发现不到设备，请确认路由器未开启「AP 隔离」，或用上方的「手动输入」兜底。",
+                text = "提示：同步要用到「存储/网络」权限；要是很久都找不到设备，你确认下路由器有没有开「AP 隔离」，或者用上面的「手动输入」兜底。",
                 // 说明文字走主题字阶（F6）并提到 12sp（F7）。
                 style = MaterialTheme.typography.bodySmall,
                 color = OrangeStart,

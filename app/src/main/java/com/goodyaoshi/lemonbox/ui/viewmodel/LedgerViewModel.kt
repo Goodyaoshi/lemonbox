@@ -133,4 +133,9 @@ class LedgerViewModel @Inject constructor(
     fun deleteRecord(id: Long) {
         viewModelScope.launch { ledgerRepository.deleteRecord(id) }
     }
+
+    /** 撤销删除：把刚移入回收站的账单恢复回来。 */
+    fun restoreRecord(id: Long) {
+        viewModelScope.launch { ledgerRepository.restoreRecord(id) }
+    }
 }

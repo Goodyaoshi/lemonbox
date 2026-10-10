@@ -75,6 +75,10 @@ interface LedgerRecordDao {
     @Query("UPDATE ledger_records SET deletedAt = :deletedAt, updatedAt = :deletedAt WHERE id = :id")
     suspend fun softDelete(id: Long, deletedAt: Long)
 
+    /** 从回收站恢复一条账单（清空 deletedAt），配合删除后的「撤销」使用。 */
+    @Query("UPDATE ledger_records SET deletedAt = NULL, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun restoreFromTrash(id: Long, updatedAt: Long)
+
     /** 全量快照（含墓碑），供备份/同步合并使用。 */
     @Query("SELECT * FROM ledger_records ORDER BY id ASC")
     suspend fun getAllSnapshot(): List<LedgerRecord>

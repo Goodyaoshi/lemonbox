@@ -60,6 +60,7 @@ import com.goodyaoshi.lemonbox.data.local.entity.StatusDimension
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.DeleteCopy
+import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.EmptyState
 import com.goodyaoshi.lemonbox.ui.components.HeaderActionPill
@@ -132,6 +133,7 @@ fun SearchScreen(
     var openedItemId by remember { mutableStateOf<Long?>(null) }
     var moreItemId by remember { mutableStateOf<Long?>(null) }
     var pendingDeleteItem by remember { mutableStateOf<Item?>(null) }
+    val appSnackbar = LocalAppSnackbar.current
     var showFilterSheet by remember { mutableStateOf(false) }
     var pickerTarget by remember { mutableStateOf<PickerTarget?>(null) }
 
@@ -423,6 +425,10 @@ fun SearchScreen(
                 destructiveConfirm = true,
                 onConfirm = {
                     viewModel.moveToTrash(item)
+                    // 软删除后给一次反悔机会（I10）：底部提示带「撤销」，点了就恢复。
+                    appSnackbar?.showUndo(DeleteCopy.UNDO_MESSAGE, DeleteCopy.UNDO_ACTION) {
+                        viewModel.restoreFromTrash(item.id)
+                    }
                     pendingDeleteItem = null
                 }
             ) {

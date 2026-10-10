@@ -53,6 +53,8 @@ import com.goodyaoshi.lemonbox.data.local.entity.LedgerRecord.Companion.TYPE_INC
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerRecord.Companion.TYPE_TRANSFER
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
+import com.goodyaoshi.lemonbox.ui.components.DeleteCopy
+import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.EmptyState
 import com.goodyaoshi.lemonbox.ui.components.LedgerAssetChip
@@ -104,6 +106,7 @@ fun LedgerScreen(
     var openedRecordId by remember { mutableStateOf<Long?>(null) }
     // 待删除流水：与资产 / 分类等页面保持一致，先弹确认再落库（I1）。
     var pendingDeleteRecord by remember { mutableStateOf<LedgerRecordUi?>(null) }
+    val appSnackbar = LocalAppSnackbar.current
 
     val dayGroups = remember(overview.records) {
         overview.records.groupBy { recordUi ->
@@ -306,13 +309,17 @@ fun LedgerScreen(
                 destructiveConfirm = true,
                 onConfirm = {
                     viewModel.deleteRecord(target.record.id)
+                    // 软删除后给一次反悔机会（I10）：底部提示带「撤销」，点了就恢复。
+                    appSnackbar?.showUndo(DeleteCopy.UNDO_MESSAGE, DeleteCopy.UNDO_ACTION) {
+                        viewModel.restoreRecord(target.record.id)
+                    }
                     pendingDeleteRecord = null
                 }
             ) {
                 Text(
                     text = target.categoryName
-                        ?.let { "确定要删除「$it」这一笔吗？删除后不可恢复。" }
-                        ?: "确定要删除这一笔吗？删除后不可恢复。",
+                        ?.let { "确定要删除「$it」这一笔吗？删除后仍可撤销。" }
+                        ?: "确定要删除这一笔吗？删除后仍可撤销。",
                     color = TextSecondary,
                     fontSize = 14.sp
                 )

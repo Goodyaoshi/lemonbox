@@ -115,7 +115,7 @@ fun ItemImageGallery(
 
     Column(modifier = modifier) {
         Text(
-            text = "长按图片可拖动调整顺序，第一张默认为主图",
+            text = "长按图片拖动就能调整顺序，第一张默认为你的主图",
             color = TextHint,
             fontSize = 12.sp
         )

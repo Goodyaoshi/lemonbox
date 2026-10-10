@@ -230,7 +230,7 @@ fun ScanScreen(
                                 color = TextPrimary
                             )
                             Text(
-                                text = "该物品此前已用完或已丢弃，可再次入库。",
+                                text = "这件东西之前已经用完或丢掉了，你可以再次入库。",
                                 fontSize = 12.sp,
                                 color = TextSecondary,
                                 modifier = Modifier.padding(top = 4.dp)

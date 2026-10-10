@@ -62,6 +62,7 @@ import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.CategoryTag
 import com.goodyaoshi.lemonbox.ui.components.DeleteCopy
+import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
 import com.goodyaoshi.lemonbox.ui.components.GradientButton
 import com.goodyaoshi.lemonbox.ui.components.ImagePreviewOverlay
 import com.goodyaoshi.lemonbox.ui.components.PillTag
@@ -101,6 +102,7 @@ fun DetailScreen(
     val categories by viewModel.categories.collectAsState()
     val locations by viewModel.locations.collectAsState()
     var showDeleteDialog by rememberSaveable { mutableStateOf(false) }
+    val appSnackbar = LocalAppSnackbar.current
     /** 当前正在编辑的状态维度名（null 表示弹窗关闭）。 */
     var statusPickerDimensionName by rememberSaveable { mutableStateOf<String?>(null) }
     var previewImageIndex by rememberSaveable { mutableStateOf<Int?>(null) }
@@ -434,6 +436,10 @@ fun DetailScreen(
             destructiveConfirm = true,
             onConfirm = {
                 viewModel.delete(item)
+                // 详情页删除后会立即返回上一页，撤销提示由应用级作用域承载，退栈后仍可见可点。
+                appSnackbar?.showUndo(DeleteCopy.UNDO_MESSAGE, DeleteCopy.UNDO_ACTION) {
+                    viewModel.restoreFromTrash(item.id)
+                }
                 showDeleteDialog = false
                 onBack()
             }

@@ -18,15 +18,16 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Backspace
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Apartment
-import androidx.compose.material.icons.filled.Backspace
 import androidx.compose.material.icons.filled.CardGiftcard
 import androidx.compose.material.icons.filled.Category
-import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.MedicalServices
@@ -35,7 +36,6 @@ import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material.icons.filled.ShoppingBag
 import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.material.icons.filled.SwapHoriz
-import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.filled.Work
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -87,8 +87,8 @@ val ledgerIconOptions: List<LedgerIconOption> = listOf(
     LedgerIconOption("other", Icons.Filled.Category),
     LedgerIconOption("salary", Icons.Filled.Work),
     LedgerIconOption("redpacket", Icons.Filled.CardGiftcard),
-    LedgerIconOption("invest", Icons.Filled.TrendingUp),
-    LedgerIconOption("wechat", Icons.Filled.Chat),
+    LedgerIconOption("invest", Icons.AutoMirrored.Filled.TrendingUp),
+    LedgerIconOption("wechat", Icons.AutoMirrored.Filled.Chat),
     LedgerIconOption("alipay", Icons.Filled.AccountBalanceWallet),
     LedgerIconOption("cash", Icons.Filled.Payments),
     LedgerIconOption("bank", Icons.Filled.AccountBalance)
@@ -450,7 +450,7 @@ fun AmountKeyboard(
                     ) {
                         if (key == "⌫") {
                             Icon(
-                                imageVector = Icons.Filled.Backspace,
+                                imageVector = Icons.AutoMirrored.Filled.Backspace,
                                 contentDescription = "退格",
                                 tint = TextPrimary,
                                 modifier = Modifier.size(22.dp)

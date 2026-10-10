@@ -199,7 +199,7 @@ fun CategoryScreen(
                 )
             }
             Text(
-                text = "物品分类、存放位置、状态选项，以及有效期快捷与到期提醒，都在这里维护；查看物品请到家当筛选。",
+                text = "分类、存放位置、状态选项，还有有效期快捷和到期提醒，都在这里维护；想看具体物品，你到家当里筛选。",
                 fontSize = 13.sp,
                 color = TextSecondary,
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)

@@ -64,6 +64,9 @@ class LedgerRepository @Inject constructor(
 
     suspend fun deleteRecord(id: Long) = recordDao.softDelete(id, MonotonicClock.now())
 
+    /** 撤销删除：把账单从回收站恢复（清空 deletedAt），供删除后的「撤销」使用。 */
+    suspend fun restoreRecord(id: Long) = recordDao.restoreFromTrash(id, MonotonicClock.now())
+
     /** 某账期支出/收入汇总（分）。 */
     suspend fun monthSums(start: Long, end: Long): Map<Int, Long> =
         recordDao.sumByTypeBetween(start, end)

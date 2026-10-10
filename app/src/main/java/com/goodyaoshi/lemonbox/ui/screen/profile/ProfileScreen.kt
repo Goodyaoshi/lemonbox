@@ -52,6 +52,7 @@ import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.PillTag
+import com.goodyaoshi.lemonbox.ui.components.UserCopy
 import com.goodyaoshi.lemonbox.ui.theme.DividerSoft
 import com.goodyaoshi.lemonbox.ui.theme.LemonEnd
 import com.goodyaoshi.lemonbox.ui.theme.LemonStart
@@ -64,6 +65,7 @@ import com.goodyaoshi.lemonbox.ui.theme.TextHint
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
 import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
 import com.goodyaoshi.lemonbox.ui.viewmodel.ProfileViewModel
+import com.goodyaoshi.lemonbox.util.BrandCopy
 
 @Composable
 fun ProfileScreen(
@@ -139,7 +141,7 @@ fun ProfileScreen(
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = "柠",
+                                text = UserCopy.NICKNAME_INITIAL,
                                 color = OnLemon,
                                 fontSize = 21.sp,
                                 fontWeight = FontWeight.Bold
@@ -148,7 +150,7 @@ fun ProfileScreen(
                         Spacer(modifier = Modifier.size(12.dp))
                         Column {
                             Text(
-                                text = "柠檬",
+                                text = UserCopy.NICKNAME,
                                 fontSize = 22.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = OnLemon
@@ -232,7 +234,7 @@ fun ProfileScreen(
             }
 
             Text(
-                text = "柠檬百宝箱 · 为你而做",
+                text = "${BrandCopy.APP_NAME} · 为你而做",
                 fontSize = 12.sp,
                 color = TextSecondary,
                 modifier = Modifier

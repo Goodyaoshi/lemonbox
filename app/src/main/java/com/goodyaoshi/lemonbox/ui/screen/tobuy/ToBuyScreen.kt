@@ -46,6 +46,7 @@ import com.goodyaoshi.lemonbox.data.local.entity.Item
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.DeleteCopy
+import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.EditorInputBox
 import com.goodyaoshi.lemonbox.ui.components.EditorPickerField
@@ -82,6 +83,7 @@ fun ToBuyScreen(
     var showAddDialog by remember { mutableStateOf(false) }
     var openedItemId by remember { mutableStateOf<Long?>(null) }
     var pendingDeleteItem by remember { mutableStateOf<Item?>(null) }
+    val appSnackbar = LocalAppSnackbar.current
 
     // 分类筛选项：只列出当前待买项真正用到的分类，避免一整棵分类树挤在顶部。
     val filterOptions = remember(items) {
@@ -277,6 +279,10 @@ fun ToBuyScreen(
             destructiveConfirm = true,
             onConfirm = {
                 viewModel.moveToTrash(item)
+                // 软删除后给一次反悔机会（I10）：底部提示带「撤销」，点了就恢复。
+                appSnackbar?.showUndo(DeleteCopy.UNDO_MESSAGE, DeleteCopy.UNDO_ACTION) {
+                    viewModel.restoreFromTrash(item.id)
+                }
                 pendingDeleteItem = null
             }
         ) {

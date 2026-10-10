@@ -17,6 +17,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
@@ -72,7 +73,9 @@ class MainActivity : ComponentActivity() {
             LemonTheme(darkTheme = darkTheme) {
                 var showSplash by remember { mutableStateOf(true) }
                 // 全局提示通道（I10）：成功 / 中性结果统一走底部 Snackbar，宿主挂在导航容器最外层。
-                val appSnackbar = remember { AppSnackbarState(SnackbarHostState()) }
+                // 作用域取 Activity 级（随整个会话存活），使「撤销」提示在页面退栈后依然有效。
+                val appSnackbarScope = rememberCoroutineScope()
+                val appSnackbar = remember { AppSnackbarState(SnackbarHostState(), appSnackbarScope) }
                 val customStatuses by appPreferences.customStatuses.collectAsState()
                 val statusCatalog = remember(customStatuses) {
                     ItemStatusCatalogState(

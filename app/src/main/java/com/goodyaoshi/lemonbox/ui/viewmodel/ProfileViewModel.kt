@@ -70,7 +70,7 @@ class ProfileViewModel @Inject constructor(
                 .onFailure { error ->
                     _backupState.value = _backupState.value.copy(
                         isBusy = false,
-                        message = error.message ?: "导入失败，请稍后再试"
+                        message = error.message ?: "导入失败了，你待会儿再试一次"
                     )
                 }
         }
@@ -92,7 +92,7 @@ class ProfileViewModel @Inject constructor(
             .onFailure { error ->
                 _backupState.value = _backupState.value.copy(
                     isBusy = false,
-                    message = error.message ?: "操作失败，请稍后再试"
+                    message = error.message ?: "操作没成功，你待会儿再试一次"
                 )
             }
     }

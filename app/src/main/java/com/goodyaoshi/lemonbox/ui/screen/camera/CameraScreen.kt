@@ -491,7 +491,7 @@ private fun NoImageState(
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = "直接进入录入阶段，后续仍可补拍图片",
+            text = "直接进入录入，之后你还能补拍图片",
             color = Color.White.copy(alpha = 0.72f),
             fontSize = 13.sp
         )

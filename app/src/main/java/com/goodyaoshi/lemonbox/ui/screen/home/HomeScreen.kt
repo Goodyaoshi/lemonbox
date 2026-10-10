@@ -56,6 +56,7 @@ import com.goodyaoshi.lemonbox.data.repository.WeeklyMealDay
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.DeleteCopy
+import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.EmptyState
 import com.goodyaoshi.lemonbox.ui.components.ItemActionHandlers
@@ -87,6 +88,7 @@ import com.goodyaoshi.lemonbox.ui.viewmodel.MonthSpending
 import com.goodyaoshi.lemonbox.ui.viewmodel.TodayEvent
 import com.goodyaoshi.lemonbox.ui.viewmodel.TodayEventKind
 import com.goodyaoshi.lemonbox.ui.viewmodel.TodayEventTarget
+import com.goodyaoshi.lemonbox.util.BrandCopy
 import com.goodyaoshi.lemonbox.util.DateUtil
 import com.goodyaoshi.lemonbox.util.LedgerMath
 import kotlinx.coroutines.delay
@@ -120,6 +122,7 @@ fun HomeScreen(
     var openedItemId by remember { mutableStateOf<Long?>(null) }
     var moreItemId by remember { mutableStateOf<Long?>(null) }
     var pendingDeleteItem by remember { mutableStateOf<Item?>(null) }
+    val appSnackbar = LocalAppSnackbar.current
     val todayKey = remember { LocalDate.now().toString() }
     val todayMeal = remember(weekPlan, todayKey) {
         weekPlan.firstOrNull { it.dateKey == todayKey }
@@ -284,6 +287,10 @@ fun HomeScreen(
                 destructiveConfirm = true,
                 onConfirm = {
                     viewModel.moveToTrash(item)
+                    // 软删除后给一次反悔机会（I10）：底部提示带「撤销」，点了就恢复。
+                    appSnackbar?.showUndo(DeleteCopy.UNDO_MESSAGE, DeleteCopy.UNDO_ACTION) {
+                        viewModel.restoreFromTrash(item.id)
+                    }
                     pendingDeleteItem = null
                 }
             ) {
@@ -362,14 +369,16 @@ private fun HeroHeader() {
                 .statusBarsPadding()
                 .padding(horizontal = 20.dp, vertical = 16.dp)
         ) {
+            // 问候语只留时段词，不再拼昵称：下一行就是产品名「柠檬百宝箱」，
+            // 两行连着出现「柠檬」读起来像在重复念叨。昵称的正式使用位置在「我的」页。
             Text(
-                text = "$greeting，柠檬",
+                text = greeting,
                 color = OnLemonSoft,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Medium
             )
             Text(
-                text = "柠檬百宝箱",
+                text = BrandCopy.APP_NAME,
                 color = OnLemon,
                 fontSize = 34.sp,
                 fontWeight = FontWeight.Bold

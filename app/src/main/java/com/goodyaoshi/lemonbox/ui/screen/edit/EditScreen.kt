@@ -268,7 +268,7 @@ fun EditScreen(
                     EditorInputBox(
                         value = state.name,
                         onValueChange = viewModel::updateName,
-                        placeholder = "请输入物品名称"
+                        placeholder = "给这件东西起个名字吧"
                     )
 
                     Spacer(modifier = Modifier.size(16.dp))
@@ -468,7 +468,7 @@ fun EditScreen(
                     )
                     Spacer(modifier = Modifier.size(8.dp))
                     Text(
-                        text = "修改后会同步更新首页、家当和分类结果。",
+                        text = "改完会同步更新你的首页、家当和分类。",
                         fontSize = 12.sp,
                         color = TextHint,
                         modifier = Modifier.align(Alignment.CenterHorizontally)

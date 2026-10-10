@@ -192,6 +192,8 @@ fun SaveScreen(
                 viewModel.reset()
                 onOpenCamera(SavePhotoMode.REPLACE_PRIMARY)
             } else {
+                // 普通保存：本页随即返回，提示交给应用级作用域，避免随退栈被取消（I10）。
+                appSnackbar?.postMessage("已存入家当")
                 onSaved()
                 viewModel.reset()
             }
@@ -330,7 +332,7 @@ fun SaveScreen(
                         EditorInputBox(
                             value = state.name,
                             onValueChange = viewModel::updateName,
-                            placeholder = "请输入物品名称"
+                            placeholder = "给这件东西起个名字吧"
                         )
 
                         Spacer(modifier = Modifier.height(16.dp))

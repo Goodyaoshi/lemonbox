@@ -107,7 +107,7 @@ object NotificationHelper {
         val todayCount = items.count { it.daysLeft == 0L }
         val soonCount = items.size - expiredCount - todayCount
 
-        val title = "柠檬百宝箱 · ${items.size} 件物品需要留意"
+        val title = "${BrandCopy.APP_NAME} · ${items.size} 件物品需要留意"
         val summaryText = buildString {
             if (expiredCount > 0) append("$expiredCount 件已过期")
             if (todayCount > 0) {
@@ -167,7 +167,7 @@ object NotificationHelper {
         }
 
         val todayCount = items.count { it.lineText == "就是今天" }
-        val title = "柠檬百宝箱 · ${items.size} 个纪念日要记着"
+        val title = "${BrandCopy.APP_NAME} · ${items.size} 个纪念日要记着"
         val summaryText = if (todayCount > 0) {
             "今天就是 $todayCount 个，别忘了准备"
         } else {

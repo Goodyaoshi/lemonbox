@@ -151,7 +151,7 @@ class SyncServer @Inject constructor(
                 newFixedLengthResponse(
                     if (timedOut) Response.Status.REQUEST_TIMEOUT else Response.Status.INTERNAL_ERROR,
                     MIME_PLAINTEXT,
-                    if (timedOut) "同步超时，请重试" else error.message ?: "同步失败"
+                    if (timedOut) "同步超时了，你再试一次" else error.message ?: "同步失败"
                 )
             }
         }

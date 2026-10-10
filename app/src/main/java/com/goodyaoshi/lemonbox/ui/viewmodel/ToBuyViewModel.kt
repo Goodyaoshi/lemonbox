@@ -69,6 +69,13 @@ class ToBuyViewModel @Inject constructor(
         }
     }
 
+    /** 撤销删除：把刚移入回收站的待买项恢复回来。 */
+    fun restoreFromTrash(id: Long) {
+        viewModelScope.launch {
+            itemRepository.restoreFromTrash(id)
+        }
+    }
+
     /** 手动添加待买项：名称 + 数量 + 单位，可选关联分类。 */
     fun addToBuy(name: String, quantity: Int, unit: String, categoryId: Long?) {
         val normalizedName = name.trim()

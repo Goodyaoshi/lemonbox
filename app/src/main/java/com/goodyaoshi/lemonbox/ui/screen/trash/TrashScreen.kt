@@ -113,7 +113,7 @@ fun TrashScreen(
                         color = TextPrimary
                     )
                     Text(
-                        text = "删除后 30 天内可恢复，过期会自动清理",
+                        text = "删除后 30 天内你都能恢复，过期会自动清理",
                         fontSize = 12.sp,
                         color = TextSecondary
                     )
@@ -147,7 +147,7 @@ fun TrashScreen(
                                 color = TextPrimary
                             )
                             Text(
-                                text = "支持批量恢复与永久删除",
+                                text = "可以批量恢复，也能永久删除",
                                 fontSize = 12.sp,
                                 color = TextSecondary,
                                 modifier = Modifier.padding(top = 3.dp)
@@ -215,7 +215,7 @@ fun TrashScreen(
         val isBatchDelete = pendingDeleteIds.size > 1
         AppDialog(
             title = if (isBatchDelete) "永久删除选中的 ${pendingDeleteIds.size} 项？" else "永久删除这个物品？",
-            subtitle = "永久删除后会立即清空回收站记录和对应图片，无法恢复。",
+            subtitle = "永久删除后，回收站记录和对应图片会立即清空，就找不回来了。",
             onDismissRequest = { pendingDeleteIds = emptyList() },
             confirmText = "永久删除",
             dismissText = "取消",

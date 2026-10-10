@@ -337,6 +337,13 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    /** 撤销删除：把刚移入回收站的物品恢复回来。 */
+    fun restoreFromTrash(id: Long) {
+        viewModelScope.launch {
+            itemRepository.restoreFromTrash(id)
+        }
+    }
+
     fun markAsUsed(id: Long) {
         viewModelScope.launch {
             itemRepository.markAsUsed(id)

@@ -7,6 +7,14 @@ import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,15 +30,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ReceiptLong
+import androidx.compose.material.icons.automirrored.outlined.ReceiptLong
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Inventory2
 import androidx.compose.material.icons.outlined.Person
-import androidx.compose.material.icons.outlined.ReceiptLong
 import androidx.compose.material.icons.outlined.Restaurant
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -113,8 +121,8 @@ private val bottomNavItems = listOf(
     BottomNavItem(
         Screen.Ledger.route,
         "记账",
-        Icons.Filled.ReceiptLong,
-        Icons.Outlined.ReceiptLong
+        Icons.AutoMirrored.Filled.ReceiptLong,
+        Icons.AutoMirrored.Outlined.ReceiptLong
     ),
     BottomNavItem(Screen.Meal.route, "吃饭", Icons.Filled.Restaurant, Icons.Outlined.Restaurant),
     // 「家当」用独立路由与箱柜图标（I7），不再复用搜索的放大镜。
@@ -138,6 +146,8 @@ fun AppNavGraph() {
     var pendingCameraReturn by remember { mutableStateOf<CameraReturnTarget?>(null) }
     val hazeState = remember { HazeState() }
     val context = LocalContext.current
+    // 页面转场动效开关：跟随系统「关闭动画」设置，关闭时退化为无转场（不堆砌动效）。
+    val motionEnabled = rememberMotionEnabled()
 
     val scanLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -189,7 +199,11 @@ fun AppNavGraph() {
             NavHost(
                 navController = navController,
                 startDestination = Screen.Home.route,
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier.fillMaxSize(),
+                enterTransition = { if (motionEnabled) navForwardEnter() else EnterTransition.None },
+                exitTransition = { if (motionEnabled) navForwardExit() else ExitTransition.None },
+                popEnterTransition = { if (motionEnabled) navBackEnter() else EnterTransition.None },
+                popExitTransition = { if (motionEnabled) navBackExit() else ExitTransition.None }
             ) {
                 composable(Screen.Home.route) {
                     HomeScreen(
@@ -771,6 +785,57 @@ private fun LemonBottomBar(
         )
     }
 }
+
+/**
+ * 是否启用页面转场动效：跟系统「关闭动画」（animator_duration_scale == 0，含开发者选项 /
+ * 辅助功能里的「移除动画」）联动，关闭时退化为无转场，尊重用户的减少动效诉求。
+ * 与 [rememberGlassEnabled] 分开的原因：转场不依赖 API 31，低版本同样可用。
+ */
+@Composable
+private fun rememberMotionEnabled(): Boolean {
+    val context = LocalContext.current
+    return remember(context) {
+        Settings.Global.getFloat(
+            context.contentResolver,
+            Settings.Global.ANIMATOR_DURATION_SCALE,
+            1f
+        ) > 0f
+    }
+}
+
+/** 转场时长：轻量、不拖沓，约 260ms，避免动效喧宾夺主。 */
+private const val NAV_TRANSITION_DURATION_MS = 260
+
+/** 位移只用屏宽的 1/10，配合淡入淡出，营造「轻推一页」的层次感而不产生眩晕。 */
+private const val NAV_TRANSITION_SLIDE_FRACTION = 10
+
+/** 前进：新页自右侧轻推入并淡入。 */
+private fun navForwardEnter(): EnterTransition =
+    slideInHorizontally(
+        animationSpec = tween(NAV_TRANSITION_DURATION_MS, easing = FastOutSlowInEasing),
+        initialOffsetX = { fullWidth -> fullWidth / NAV_TRANSITION_SLIDE_FRACTION }
+    ) + fadeIn(animationSpec = tween(NAV_TRANSITION_DURATION_MS))
+
+/** 前进：旧页向左轻移并淡出。 */
+private fun navForwardExit(): ExitTransition =
+    slideOutHorizontally(
+        animationSpec = tween(NAV_TRANSITION_DURATION_MS, easing = FastOutSlowInEasing),
+        targetOffsetX = { fullWidth -> -fullWidth / NAV_TRANSITION_SLIDE_FRACTION }
+    ) + fadeOut(animationSpec = tween(NAV_TRANSITION_DURATION_MS))
+
+/** 返回：上一页自左侧轻推入并淡入。 */
+private fun navBackEnter(): EnterTransition =
+    slideInHorizontally(
+        animationSpec = tween(NAV_TRANSITION_DURATION_MS, easing = FastOutSlowInEasing),
+        initialOffsetX = { fullWidth -> -fullWidth / NAV_TRANSITION_SLIDE_FRACTION }
+    ) + fadeIn(animationSpec = tween(NAV_TRANSITION_DURATION_MS))
+
+/** 返回：当前页向右轻移并淡出。 */
+private fun navBackExit(): ExitTransition =
+    slideOutHorizontally(
+        animationSpec = tween(NAV_TRANSITION_DURATION_MS, easing = FastOutSlowInEasing),
+        targetOffsetX = { fullWidth -> fullWidth / NAV_TRANSITION_SLIDE_FRACTION }
+    ) + fadeOut(animationSpec = tween(NAV_TRANSITION_DURATION_MS))
 
 /**
  * 是否启用实时模糊（F15）：RenderEffect 需要 Android 12（API 31）起；

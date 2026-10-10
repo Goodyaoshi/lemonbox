@@ -64,7 +64,7 @@ class LanSyncViewModel @Inject constructor(
             pairingCode = code,
             localIp = ip,
             port = syncServer.listeningPort,
-            message = if (ip == null) "已开启共享，但未取到局域网地址，请确认已连接 WiFi" else null
+            message = if (ip == null) "已开启共享，但没拿到局域网地址，你确认一下 Wi-Fi 是否已连接" else null
         )
         lanSyncManager.startDiscovery()
     }
@@ -80,7 +80,7 @@ class LanSyncViewModel @Inject constructor(
     fun connect(rawAddress: String, code: String) {
         val address = rawAddress.trim().removePrefix("http://")
         if (address.isBlank()) {
-            showMessage("请输入对方的地址")
+            showMessage("先填上对方的地址吧")
             return
         }
         if (code.trim().length != 6) {
@@ -101,7 +101,7 @@ class LanSyncViewModel @Inject constructor(
     fun connectToPeer(peer: SyncPeer) {
         val token = peer.token
         if (token.isNullOrBlank()) {
-            showMessage("请在下方「手动输入」中填写对方屏幕上显示的 6 位配对码")
+            showMessage("你在下方「手动输入」里填上对方屏幕上那 6 位配对码")
             return
         }
         runSync(peer.host, peer.port, token)
@@ -109,7 +109,7 @@ class LanSyncViewModel @Inject constructor(
 
     private fun runSync(host: String, port: Int, token: String) {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isBusy = true, message = "正在同步，请保持两台设备在同一 WiFi…")
+            _uiState.value = _uiState.value.copy(isBusy = true, message = "正在同步，你把两台设备留在同一个 Wi-Fi 下就行…")
             runCatching { syncClient.syncWith(host, port, token) }
                 .onSuccess { outcome ->
                     _uiState.value = _uiState.value.copy(
@@ -125,7 +125,7 @@ class LanSyncViewModel @Inject constructor(
                 .onFailure { error ->
                     _uiState.value = _uiState.value.copy(
                         isBusy = false,
-                        message = error.message ?: "同步失败，请检查两台设备是否在同一 WiFi"
+                        message = error.message ?: "同步失败了，你看看两台设备是不是连的同一个 Wi-Fi"
                     )
                 }
         }

@@ -24,4 +24,10 @@ object DeleteCopy {
 
     /** 「更多操作」列表中删除项的副标题。 */
     const val SOFT_ACTION_SUBTITLE = "移入回收站，30 天内可恢复"
+
+    /** 删除成功后底部提示的文案（第二人称），配合 Snackbar 的动作按钮一起出现。 */
+    const val UNDO_MESSAGE = "已移入回收站"
+
+    /** 删除成功提示里动作按钮的文案。 */
+    const val UNDO_ACTION = "撤销"
 }

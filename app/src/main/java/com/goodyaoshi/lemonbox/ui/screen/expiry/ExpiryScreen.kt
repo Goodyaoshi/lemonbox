@@ -184,7 +184,7 @@ fun ExpiryScreen(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "建议优先使用即将到期的物品，减少浪费。",
+                            text = "建议你优先用掉快到期的东西，少浪费。",
                             fontSize = 12.sp,
                             color = TextHint,
                             modifier = Modifier.padding(top = 2.dp)

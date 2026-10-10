@@ -97,6 +97,8 @@ fun RecordEditScreen(
             appSnackbar?.showMessage("已记账，继续记下一笔")
             viewModel.resetForNext()
         } else {
+            // 普通保存：本页随即返回，提示交给应用级作用域，避免随退栈被取消（I10）。
+            appSnackbar?.postMessage("已记好这笔账")
             onBack()
         }
     }

@@ -4,7 +4,10 @@ import android.content.Context
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.net.wifi.WifiManager
+import android.os.Build
+import androidx.core.content.ContextCompat
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
+import com.goodyaoshi.lemonbox.util.BrandCopy
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -12,6 +15,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import java.net.Inet4Address
 import java.net.NetworkInterface
 import java.nio.charset.StandardCharsets
+import java.util.concurrent.Executor
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -39,6 +43,9 @@ class LanSyncManager @Inject constructor(
 ) {
 
     private val nsdManager = context.getSystemService(Context.NSD_SERVICE) as NsdManager
+
+    /** 供 Android 14+ 的 ServiceInfoCallback 回调使用。 */
+    private val mainExecutor: Executor = ContextCompat.getMainExecutor(context)
 
     private var registrationListener: NsdManager.RegistrationListener? = null
     private var discoveryListener: NsdManager.DiscoveryListener? = null
@@ -116,7 +123,7 @@ class LanSyncManager @Inject constructor(
 
     private fun registerService(port: Int) {
         registrationListener?.let { listener -> runCatching { nsdManager.unregisterService(listener) } }
-        val name = "柠檬百宝箱-${appPreferences.deviceId.take(4)}"
+        val name = "${BrandCopy.APP_NAME}-${appPreferences.deviceId.take(4)}"
         ownServiceName = name
         val serviceInfo = NsdServiceInfo().apply {
             serviceName = name
@@ -144,6 +151,39 @@ class LanSyncManager @Inject constructor(
         // resolveService 不支持并发，逐个解析
         if (resolving) return
         resolving = true
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            resolveServiceWithCallback(service)
+        } else {
+            resolveServiceLegacy(service)
+        }
+    }
+
+    /** Android 14 起 resolveService 已废弃，改用官方推荐的 ServiceInfoCallback。 */
+    private fun resolveServiceWithCallback(service: NsdServiceInfo) {
+        val callback = object : NsdManager.ServiceInfoCallback {
+            override fun onServiceInfoCallbackRegistrationFailed(errorCode: Int) {
+                resolving = false
+            }
+
+            override fun onServiceInfoCallbackUnregistered() = Unit
+
+            override fun onServiceLost() {
+                resolving = false
+            }
+
+            override fun onServiceUpdated(serviceInfo: NsdServiceInfo) {
+                resolving = false
+                publishPeer(serviceInfo)
+            }
+        }
+        runCatching {
+            nsdManager.registerServiceInfoCallback(service, mainExecutor, callback)
+        }.onFailure { resolving = false }
+    }
+
+    /** API 26–33 上系统只提供已废弃的 resolveService，故仅在此分支屏蔽其废弃告警。 */
+    @Suppress("DEPRECATION")
+    private fun resolveServiceLegacy(service: NsdServiceInfo) {
         val listener = object : NsdManager.ResolveListener {
             override fun onResolveFailed(serviceInfo: NsdServiceInfo?, errorCode: Int) {
                 resolving = false
@@ -151,24 +191,37 @@ class LanSyncManager @Inject constructor(
 
             override fun onServiceResolved(serviceInfo: NsdServiceInfo?) {
                 resolving = false
-                val resolved = serviceInfo ?: return
-                val host = resolved.host?.hostAddress ?: return
-                // 现代版本不再广播配对码；仅旧版本可能仍带上，读到则沿用，否则由用户手动输入。
-                val token = resolved.attributes?.get(ATTR_TOKEN)
-                    ?.toString(StandardCharsets.UTF_8)
-                    ?.takeIf { it.isNotBlank() }
-                val peer = SyncPeer(
-                    name = resolved.serviceName,
-                    host = host,
-                    port = resolved.port,
-                    token = token
-                )
-                _peers.value = _peers.value.filterNot { it.name == peer.name } + peer
+                publishPeer(serviceInfo ?: return)
             }
         }
         runCatching { nsdManager.resolveService(service, listener) }
             .onFailure { resolving = false }
     }
+
+    /** 把解析结果落成 [SyncPeer]；新旧系统取主机地址的入口不同。 */
+    private fun publishPeer(resolved: NsdServiceInfo) {
+        val host = hostAddressOf(resolved) ?: return
+        // 现代版本不再广播配对码；仅旧版本可能仍带上，读到则沿用，否则由用户手动输入。
+        val token = resolved.attributes?.get(ATTR_TOKEN)
+            ?.toString(StandardCharsets.UTF_8)
+            ?.takeIf { it.isNotBlank() }
+        val peer = SyncPeer(
+            name = resolved.serviceName,
+            host = host,
+            port = resolved.port,
+            token = token
+        )
+        _peers.value = _peers.value.filterNot { it.name == peer.name } + peer
+    }
+
+    /** getHost() 自 Android 14 起废弃，14+ 读 getHostAddresses()，低版本仍只能读 getHost()。 */
+    @Suppress("DEPRECATION")
+    private fun hostAddressOf(info: NsdServiceInfo): String? =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            info.hostAddresses.firstOrNull()?.hostAddress
+        } else {
+            info.host?.hostAddress
+        }
 
     private fun acquireMulticastLock() {
         if (multicastLock?.isHeld == true) return

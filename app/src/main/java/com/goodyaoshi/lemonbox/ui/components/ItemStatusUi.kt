@@ -157,7 +157,7 @@ fun StatusPickerDialog(
                     color = TextPrimary
                 )
                 Text(
-                    text = "选中后立即保存。更多选项可在「我的 - 分类与状态」里自定义。",
+                    text = "选中后立即保存。想调整更多选项，去「我的 - 分类与状态」里自定义。",
                     fontSize = 13.sp,
                     color = TextSecondary,
                     modifier = Modifier.padding(top = 6.dp)

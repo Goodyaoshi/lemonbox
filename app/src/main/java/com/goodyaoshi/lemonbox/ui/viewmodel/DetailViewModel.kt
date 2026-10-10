@@ -68,4 +68,11 @@ class DetailViewModel @Inject constructor(
             itemRepository.moveToTrash(item)
         }
     }
+
+    /** 撤销删除：把刚移入回收站的物品恢复回来（详情页删除后返回，仍可撤销）。 */
+    fun restoreFromTrash(id: Long) {
+        viewModelScope.launch {
+            itemRepository.restoreFromTrash(id)
+        }
+    }
 }

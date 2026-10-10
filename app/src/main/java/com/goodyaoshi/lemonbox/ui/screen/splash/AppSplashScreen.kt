@@ -50,6 +50,7 @@ import com.goodyaoshi.lemonbox.ui.theme.WarmBrown
 import com.goodyaoshi.lemonbox.ui.theme.WarmBrownDeep
 import com.goodyaoshi.lemonbox.ui.theme.WarmBrownSoft
 import com.goodyaoshi.lemonbox.ui.theme.WarmHint
+import com.goodyaoshi.lemonbox.util.BrandCopy
 
 /**
  * 开屏页。背景用奶油白→淡柠檬黄的微渐变托底，图标放在白色底盘上并带暖色投影，
@@ -107,7 +108,7 @@ fun AppSplashScreen(darkTheme: Boolean = false) {
             Spacer(modifier = Modifier.height(34.dp))
 
             Text(
-                text = "柠檬百宝箱",
+                text = BrandCopy.APP_NAME,
                 fontSize = 32.sp,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 3.sp,
@@ -161,7 +162,7 @@ fun AppSplashScreen(darkTheme: Boolean = false) {
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = if (versionName.isBlank()) "柠檬百宝箱" else "柠檬百宝箱 · v$versionName",
+                text = if (versionName.isBlank()) BrandCopy.APP_NAME else "${BrandCopy.APP_NAME} · v$versionName",
                 // 字号走主题字阶（F6），并满足说明文字 ≥12sp（F7）。
                 style = MaterialTheme.typography.labelMedium,
                 letterSpacing = 0.5.sp,

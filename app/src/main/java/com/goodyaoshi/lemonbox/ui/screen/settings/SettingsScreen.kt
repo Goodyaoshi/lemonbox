@@ -58,6 +58,7 @@ import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarmDeep
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
 import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
 import com.goodyaoshi.lemonbox.ui.viewmodel.SettingsViewModel
+import com.goodyaoshi.lemonbox.util.BrandCopy
 import com.goodyaoshi.lemonbox.util.ReminderReliability
 
 private val themeModeOptions = listOf(
@@ -239,7 +240,7 @@ fun SettingsScreen(
                 )
                 Spacer(modifier = Modifier.size(6.dp))
                 Text(
-                    text = "可多选。每天在这些时间点各检查一次，命中提醒阶梯的物品会收到汇总通知（系统可能略有延迟）。",
+                    text = "可以多选。每天到这些时间点各检查一次，命中提醒阶梯的物品会给你汇总通知（系统可能略有延迟）。",
                     fontSize = 12.sp,
                     color = TextSecondary
                 )
@@ -422,7 +423,7 @@ fun SettingsScreen(
                 )
                 ReliabilityItem(
                     title = "自启动权限",
-                    subtitle = "点亮柠檬百宝箱的自启动开关",
+                    subtitle = "点亮${BrandCopy.APP_NAME}的自启动开关",
                     done = false,
                     actionLabel = "去设置",
                     onAction = {

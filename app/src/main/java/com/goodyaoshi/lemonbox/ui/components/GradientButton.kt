@@ -17,6 +17,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -34,6 +36,7 @@ fun GradientButton(
     enabled: Boolean = true
 ) {
     val interactionSource = remember { MutableInteractionSource() }
+    val haptic = LocalHapticFeedback.current
 
     Box(
         modifier = modifier
@@ -58,7 +61,11 @@ fun GradientButton(
                 // 按压反馈，用户点下去毫无视觉确认，容易误以为没点中而重复点击。
                 indication = LocalIndication.current,
                 enabled = enabled,
-                onClick = onClick
+                onClick = {
+                    // 轻触感：主按钮按下时给一次很轻的触觉反馈，确认「点中了」，不喧宾夺主。
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onClick()
+                }
             ),
         contentAlignment = Alignment.Center
     ) {
