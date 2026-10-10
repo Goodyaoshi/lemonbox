@@ -377,7 +377,12 @@ fun AppNavGraph() {
                             navController.navigate(Screen.Detail.createRoute(id, filter.toDetailScope()))
                         },
                         onNavigateToEdit = { id -> navController.navigate(Screen.Edit.createRoute(id)) },
-                        onNavigateToSave = { navController.navigate(Screen.Save.createRoute()) }
+                        onNavigateToSave = { navController.navigate(Screen.Save.createRoute()) },
+                        // 家当域的子页面（家当设置 / 待买 / 到期 / 回收站）从「我的」迁回本 Tab 根（I9）。
+                        onNavigateToCategory = { navController.navigate(Screen.Category.route) },
+                        onNavigateToToBuy = { navController.navigate(Screen.ToBuy.route) },
+                        onNavigateToExpiry = { navController.navigate(Screen.Expiry.route) },
+                        onNavigateToTrash = { navController.navigate(Screen.Trash.route) }
                     )
                 }
 
@@ -386,6 +391,12 @@ fun AppNavGraph() {
                         onNavigateToStats = { navController.navigate(Screen.LedgerStats.route) },
                         onNavigateToBudget = { navController.navigate(Screen.LedgerBudget.route) },
                         onNavigateToAssets = { navController.navigate(Screen.LedgerAssets.route) },
+                        // 记账分类管理原本挂在「我的」，属记账域，收拢到记账页页头（I10）。
+                        onNavigateToCategories = {
+                            navController.navigate(
+                                Screen.LedgerCategoryManage.createRoute(LedgerCategory.KIND_EXPENSE)
+                            )
+                        },
                         onNavigateToRecordEdit = { recordId ->
                             navController.navigate(Screen.RecordEdit.createRoute(recordId = recordId))
                         },
@@ -500,7 +511,9 @@ fun AppNavGraph() {
                 composable(Screen.Expiry.route) {
                     ExpiryScreen(
                         onBack = { navController.popBackStack() },
-                        onNavigateToDetail = { id -> navController.navigate(Screen.Detail.createRoute(id)) }
+                        onNavigateToDetail = { id -> navController.navigate(Screen.Detail.createRoute(id)) },
+                        // 空态「去家当」：切回家当 Tab 根（而不是层层 popBackStack），动线更短（I11）。
+                        onNavigateToHousehold = { navigateToTopLevel(Screen.Household.route) }
                     )
                 }
 
@@ -593,18 +606,9 @@ fun AppNavGraph() {
 
                 composable(Screen.Profile.route) {
                     ProfileScreen(
-                        onOpenTrash = { navController.navigate(Screen.Trash.route) },
                         onOpenSettings = { navController.navigate(Screen.Settings.route) },
                         onOpenLanSync = { navController.navigate(Screen.LanSync.route) },
-                        onOpenCategory = { navController.navigate(Screen.Category.route) },
-                        onOpenLedgerCategories = {
-                            navController.navigate(
-                                Screen.LedgerCategoryManage.createRoute(LedgerCategory.KIND_EXPENSE)
-                            )
-                        },
                         onOpenReminders = { navController.navigate(Screen.Reminders.route) },
-                        onOpenToBuy = { navController.navigate(Screen.ToBuy.route) },
-                        onOpenExpiry = { navController.navigate(Screen.Expiry.route) },
                         onOpenAnniversaries = { navController.navigate(Screen.Anniversaries.route) }
                     )
                 }

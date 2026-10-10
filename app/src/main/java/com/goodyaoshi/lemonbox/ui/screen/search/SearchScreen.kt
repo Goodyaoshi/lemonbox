@@ -28,7 +28,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Widgets
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -58,6 +62,7 @@ import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.DeleteCopy
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.EmptyState
+import com.goodyaoshi.lemonbox.ui.components.HeaderActionPill
 import com.goodyaoshi.lemonbox.ui.components.HierarchicalPickerDialog
 import com.goodyaoshi.lemonbox.ui.components.ItemActionHandlers
 import com.goodyaoshi.lemonbox.ui.components.ItemCard
@@ -107,6 +112,10 @@ fun SearchScreen(
     onNavigateToDetail: (Long, LibraryFilter) -> Unit,
     onNavigateToEdit: (Long) -> Unit,
     onNavigateToSave: () -> Unit = {},
+    onNavigateToCategory: () -> Unit = {},
+    onNavigateToToBuy: () -> Unit = {},
+    onNavigateToExpiry: () -> Unit = {},
+    onNavigateToTrash: () -> Unit = {},
     viewModel: SearchViewModel = hiltViewModel()
 ) {
     val query by viewModel.query.collectAsState()
@@ -116,6 +125,10 @@ fun SearchScreen(
     val presetCounts by viewModel.presetCounts.collectAsState()
     val categories by viewModel.categories.collectAsState()
     val locations by viewModel.locations.collectAsState()
+    // 家当域的计数（待买 / 临期 / 回收站）与入口同源，均在本页 ViewModel（I9）。
+    val toBuyCount by viewModel.toBuyCount.collectAsState()
+    val expiringCount by viewModel.expiringCount.collectAsState()
+    val trashCount by viewModel.trashCount.collectAsState()
     var openedItemId by remember { mutableStateOf<Long?>(null) }
     var moreItemId by remember { mutableStateOf<Long?>(null) }
     var pendingDeleteItem by remember { mutableStateOf<Item?>(null) }
@@ -207,8 +220,42 @@ fun SearchScreen(
                     text = "搜索与筛选都在这里，条件可以自由叠加。",
                     fontSize = 13.sp,
                     color = TextSecondary,
-                    modifier = Modifier.padding(top = 4.dp, bottom = 14.dp)
+                    modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
                 )
+                // 家当域入口行（I9）：把「家当」的子页面收拢回它所属的 Tab 根。
+                // 用暖色弱化胶囊承载「导航」，与下方白底/选中态的筛选胶囊区分，避免两类语义混淆。
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(bottom = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    HeaderActionPill(
+                        icon = Icons.Default.Widgets,
+                        label = "家当设置",
+                        onClick = onNavigateToCategory
+                    )
+                    HeaderActionPill(
+                        icon = Icons.Default.ShoppingCart,
+                        label = "待买",
+                        badge = toBuyCount,
+                        onClick = onNavigateToToBuy
+                    )
+                    HeaderActionPill(
+                        icon = Icons.Default.Notifications,
+                        label = "到期",
+                        badge = expiringCount,
+                        onClick = onNavigateToExpiry
+                    )
+                    HeaderActionPill(
+                        icon = Icons.Default.History,
+                        label = "回收站",
+                        badge = trashCount,
+                        onClick = onNavigateToTrash
+                    )
+                }
                 SearchBar(
                     value = query,
                     onValueChange = viewModel::updateQuery,

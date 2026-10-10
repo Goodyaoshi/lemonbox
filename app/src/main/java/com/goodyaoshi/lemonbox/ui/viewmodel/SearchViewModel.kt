@@ -2,6 +2,7 @@ package com.goodyaoshi.lemonbox.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.goodyaoshi.lemonbox.data.local.dao.ItemDao
 import com.goodyaoshi.lemonbox.data.local.entity.Category
 import com.goodyaoshi.lemonbox.data.local.entity.Item
 import com.goodyaoshi.lemonbox.data.local.entity.ItemDetail
@@ -11,12 +12,15 @@ import com.goodyaoshi.lemonbox.data.repository.ItemRepository
 import com.goodyaoshi.lemonbox.data.repository.LocationRepository
 import com.goodyaoshi.lemonbox.data.search.SearchCriteria
 import com.goodyaoshi.lemonbox.data.search.SearchEngine
+import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -141,14 +145,41 @@ enum class LibraryPreset(val label: String) {
     }
 }
 
+@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class SearchViewModel @Inject constructor(
     private val itemRepository: ItemRepository,
     categoryRepository: CategoryRepository,
-    locationRepository: LocationRepository
+    locationRepository: LocationRepository,
+    itemDao: ItemDao,
+    appPreferences: AppPreferences
 ) : ViewModel() {
 
     private val searchEngine = SearchEngine()
+
+    /** 回收站口径：与原先「我的」页一致，30 天内可恢复。 */
+    private val thirtyDaysMs = 30L * 24 * 60 * 60 * 1000
+
+    /**
+     * 家当域的域入口角标：待买 / 临期 / 回收站。
+     * 计数随「家当域」一起从 ProfileViewModel 迁到这里，保证入口与数据同源（原则 3）。
+     */
+    val toBuyCount: StateFlow<Int> = itemDao
+        .getToBuyCount()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    /** 临期数量：阈值与「到期提醒」口径一致（取设置里的提醒天数）。 */
+    val expiringCount: StateFlow<Int> = appPreferences.reminderDays
+        .flatMapLatest { days ->
+            itemDao.getExpiringCount(
+                System.currentTimeMillis() + days * 24L * 60 * 60 * 1000
+            )
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    val trashCount: StateFlow<Int> = itemDao
+        .getRecycleCount(System.currentTimeMillis() - thirtyDaysMs)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     private val _query = MutableStateFlow("")
     val query: StateFlow<String> = _query.asStateFlow()

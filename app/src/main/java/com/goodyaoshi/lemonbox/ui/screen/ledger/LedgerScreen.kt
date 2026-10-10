@@ -23,6 +23,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PieChart
@@ -92,6 +93,7 @@ fun LedgerScreen(
     onNavigateToStats: () -> Unit,
     onNavigateToBudget: () -> Unit,
     onNavigateToAssets: () -> Unit,
+    onNavigateToCategories: () -> Unit,
     onNavigateToRecordEdit: (Long?) -> Unit,
     onNavigateToItemDetail: (Long) -> Unit,
     viewModel: LedgerViewModel = hiltViewModel()
@@ -119,30 +121,40 @@ fun LedgerScreen(
                 .fillMaxSize()
                 .statusBarsPadding()
         ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+                    .padding(top = 10.dp)
+            ) {
+                Text(
+                    text = "记账",
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+                Text(
+                    text = "每一笔都算数",
+                    fontSize = 12.sp,
+                    color = TextSecondary
+                )
+            }
+
+            // 页头胶囊行独立成行并横向可滚：窄屏下四枚胶囊不挤压标题（I10）。
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 10.dp),
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp)
+                    .padding(top = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "记账",
-                        fontSize = 24.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimary
-                    )
-                    Text(
-                        text = "每一笔都算数",
-                        fontSize = 12.sp,
-                        color = TextSecondary
-                    )
-                }
                 HeaderActionPill(icon = Icons.Filled.Savings, label = "预算", onClick = onNavigateToBudget)
-                Spacer(modifier = Modifier.width(8.dp))
                 HeaderActionPill(icon = Icons.Filled.PieChart, label = "统计", onClick = onNavigateToStats)
-                Spacer(modifier = Modifier.width(8.dp))
-                HeaderActionPill(icon = Icons.Filled.Wallet, label = "资产", onClick = onNavigateToAssets)
+                // 「资产」改名「资产负债」，与目标页标题/语义对齐（I10）。
+                HeaderActionPill(icon = Icons.Filled.Wallet, label = "资产负债", onClick = onNavigateToAssets)
+                HeaderActionPill(icon = Icons.Filled.Category, label = "分类", onClick = onNavigateToCategories)
             }
 
             // 固定月份条：翻流水时也能随时换月（与统计页一致，不嵌在滚动列表里）。

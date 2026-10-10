@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -54,6 +55,8 @@ import com.goodyaoshi.lemonbox.ui.theme.OrangeGlow
 import com.goodyaoshi.lemonbox.ui.theme.OrangeLight
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarmDeep
+import com.goodyaoshi.lemonbox.ui.theme.TagRed
+import com.goodyaoshi.lemonbox.ui.theme.TagRedText
 import com.goodyaoshi.lemonbox.ui.theme.TextHint
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
 import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
@@ -324,13 +327,15 @@ fun SectionHeader(
 
 /**
  * 页头右侧的弱化入口胶囊：图标 + 文字，用于低频辅助功能的跳转
- * （记账页的预算/统计、吃饭页的菜谱库），位置与样式全 App 统一。
+ * （记账页的预算/统计/分类、吃饭页的菜谱库、家当页的域入口），位置与样式全 App 统一。
+ * [badge] 大于 0 时在文字右侧追加计数角标，配色与筛选胶囊的角标一致。
  */
 @Composable
 fun HeaderActionPill(
     icon: ImageVector,
     label: String,
     onClick: () -> Unit,
+    badge: Int = 0,
     modifier: Modifier = Modifier
 ) {
     Row(
@@ -356,6 +361,27 @@ fun HeaderActionPill(
             style = MaterialTheme.typography.labelMedium,
             color = TextSecondary
         )
+        if (badge > 0) {
+            Spacer(modifier = Modifier.width(5.dp))
+            Box(
+                // 角标随位数自然变宽（最小 16dp 圆形），避免两位数被裁切。
+                modifier = Modifier
+                    .sizeIn(minWidth = 16.dp, minHeight = 16.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    // 语义标签红（随主题切换）：深色模式下自动提亮，避免浅底刺眼。
+                    .background(TagRedText)
+                    .padding(horizontal = 4.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = badge.toString(),
+                    // 数量角标走主题字阶（F6）：labelSmall 为 11sp，是标签字号下限（F7）。
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = TagRed
+                )
+            }
+        }
     }
 }
 

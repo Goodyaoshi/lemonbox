@@ -5,17 +5,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.goodyaoshi.lemonbox.data.backup.AppBackupManager
 import com.goodyaoshi.lemonbox.data.backup.toUserMessage
-import com.goodyaoshi.lemonbox.data.local.dao.ItemDao
 import com.goodyaoshi.lemonbox.data.repository.AnniversaryRepository
 import com.goodyaoshi.lemonbox.data.repository.ReminderRepository
-import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -28,35 +24,14 @@ data class BackupUiState(
     val message: String? = null
 )
 
-@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class ProfileViewModel @Inject constructor(
-    itemDao: ItemDao,
     private val backupManager: AppBackupManager,
-    appPreferences: AppPreferences,
     reminderRepository: ReminderRepository,
     anniversaryRepository: AnniversaryRepository
 ) : ViewModel() {
 
-    private val thirtyDaysMs = 30L * 24 * 60 * 60 * 1000
-
-    val trashCount: StateFlow<Int> = itemDao
-        .getRecycleCount(System.currentTimeMillis() - thirtyDaysMs)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
-
-    /** 待买数量：「常用」组待买清单的徽标。 */
-    val toBuyCount: StateFlow<Int> = itemDao
-        .getToBuyCount()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
-
-    /** 临期数量：阈值与「即将过期」口径一致（提醒阶梯的最大天数）。 */
-    val expiringCount: StateFlow<Int> = appPreferences.reminderDays
-        .flatMapLatest { days ->
-            itemDao.getExpiringCount(
-                System.currentTimeMillis() + days * 24L * 60 * 60 * 1000
-            )
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+    // 家当域的计数（待买 / 临期 / 回收站）已随「家当域」迁到 SearchViewModel，此处不再保留。
 
     /** 今天（含已提醒还没完成）的待办数量：与首页「今天的事」的提醒口径一致。 */
     val dueReminderCount: StateFlow<Int> = reminderRepository.getActiveReminders()

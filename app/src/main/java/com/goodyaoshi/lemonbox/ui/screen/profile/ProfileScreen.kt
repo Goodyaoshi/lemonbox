@@ -20,17 +20,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Alarm
-import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.Sync
-import androidx.compose.material.icons.filled.Widgets
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -72,20 +67,12 @@ import com.goodyaoshi.lemonbox.ui.viewmodel.ProfileViewModel
 
 @Composable
 fun ProfileScreen(
-    onOpenTrash: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenLanSync: () -> Unit = {},
-    onOpenCategory: () -> Unit = {},
-    onOpenLedgerCategories: () -> Unit = {},
     onOpenReminders: () -> Unit = {},
-    onOpenToBuy: () -> Unit = {},
-    onOpenExpiry: () -> Unit = {},
     onOpenAnniversaries: () -> Unit = {},
     viewModel: ProfileViewModel = hiltViewModel()
 ) {
-    val trashCount by viewModel.trashCount.collectAsState()
-    val toBuyCount by viewModel.toBuyCount.collectAsState()
-    val expiringCount by viewModel.expiringCount.collectAsState()
     val dueReminderCount by viewModel.dueReminderCount.collectAsState()
     val anniversaryCount by viewModel.anniversaryCount.collectAsState()
     val backupState by viewModel.backupState.collectAsState()
@@ -177,66 +164,8 @@ fun ProfileScreen(
             }
 
             SectionTitle(
-                title = "家当",
-                modifier = Modifier.padding(start = 24.dp, top = 10.dp, bottom = 8.dp)
-            )
-            AppSurfaceCard(
-                modifier = Modifier.padding(horizontal = 20.dp),
-                shape = RoundedCornerShape(24.dp),
-                shadowElevation = 12.dp
-            ) {
-                MenuRow(
-                    icon = Icons.Default.Widgets,
-                    title = "家当设置",
-                    subtitle = "分类、存放位置、状态选项与有效期提醒",
-                    onClick = onOpenCategory
-                )
-                DividerSpacer()
-                MenuRow(
-                    icon = Icons.Default.ShoppingCart,
-                    title = "待买清单",
-                    subtitle = "要补要买的东西，买完顺手记一笔",
-                    badge = toBuyCount.takeIf { it > 0 }?.toString(),
-                    onClick = onOpenToBuy
-                )
-                DividerSpacer()
-                MenuRow(
-                    icon = Icons.Default.Notifications,
-                    title = "到期提醒",
-                    subtitle = "快过期的东西，先吃先用别浪费",
-                    badge = expiringCount.takeIf { it > 0 }?.toString(),
-                    onClick = onOpenExpiry
-                )
-                DividerSpacer()
-                MenuRow(
-                    icon = Icons.Default.History,
-                    title = "回收站",
-                    subtitle = if (trashCount > 0) "当前有 $trashCount 项可在 30 天内恢复" else "30 天内可恢复最近删除的物品",
-                    badge = trashCount.takeIf { it > 0 }?.toString(),
-                    onClick = onOpenTrash
-                )
-            }
-
-            SectionTitle(
-                title = "记账",
-                modifier = Modifier.padding(start = 24.dp, top = 18.dp, bottom = 8.dp)
-            )
-            AppSurfaceCard(
-                modifier = Modifier.padding(horizontal = 20.dp),
-                shape = RoundedCornerShape(24.dp),
-                shadowElevation = 12.dp
-            ) {
-                MenuRow(
-                    icon = Icons.Default.Category,
-                    title = "记账分类",
-                    subtitle = "支出 / 收入分类的增删改",
-                    onClick = onOpenLedgerCategories
-                )
-            }
-
-            SectionTitle(
                 title = "提醒与纪念日",
-                modifier = Modifier.padding(start = 24.dp, top = 18.dp, bottom = 8.dp)
+                modifier = Modifier.padding(start = 24.dp, top = 10.dp, bottom = 8.dp)
             )
             AppSurfaceCard(
                 modifier = Modifier.padding(horizontal = 20.dp),
