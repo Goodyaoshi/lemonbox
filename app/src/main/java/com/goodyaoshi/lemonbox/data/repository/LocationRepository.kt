@@ -57,8 +57,13 @@ class LocationRepository @Inject constructor(
             val targets = groups.values.filter { it.size > 1 }
             if (targets.isEmpty()) return removed
             targets.forEach { group ->
-                val keeper = group.firstOrNull { it.isProtected }
-                    ?: group.minByOrNull { it.syncId ?: "id:${it.id}" }!!
+                // 优先受保护，其次 syncId 字典序最小：必须是全序且与设备无关。
+                // 不能写成 firstOrNull { isProtected } —— 多条都受保护时它会返回任意一条
+                // （取决于本地 DB 顺序），两台设备各留不同副本后会互相软删对方的副本。
+                val keeper = group.minWithOrNull(
+                    compareByDescending<Location> { it.isProtected }
+                        .thenBy { it.syncId ?: "id:${it.id}" }
+                )!!
                 group.forEach { dup ->
                     if (dup.id == keeper.id) return@forEach
                     // 必须先改挂子级与物品，再软删除：parentId 外键为 CASCADE，硬删会连带删掉子级。

@@ -11,7 +11,6 @@ import com.goodyaoshi.lemonbox.data.repository.CategoryRepository
 import com.goodyaoshi.lemonbox.data.repository.ItemRepository
 import com.goodyaoshi.lemonbox.data.repository.LocationRepository
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
-import com.goodyaoshi.lemonbox.util.DateUtil
 import com.goodyaoshi.lemonbox.util.ImageUtil
 import com.goodyaoshi.lemonbox.util.MonotonicClock
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -36,8 +35,10 @@ data class SaveItemState(
     val imagePaths: List<String> = emptyList(),
     /** 该物品单独的到期提醒阶梯（天）；为空表示跟随全局默认阶梯。 */
     val reminderDays: List<Int> = emptyList(),
-    /** 购买日期，默认今天，可改可清空。 */
-    val purchaseDate: Long? = DateUtil.daysFromNow(0),
+    /** 购买日期，可选；未填为 null。 */
+    val purchaseDate: Long? = null,
+    /** 生产日期，可选；未填为 null。 */
+    val productionDate: Long? = null,
     /** 开始使用时间；持续使用物品可在录入时自定义，为空则默认购买日期。 */
     val startUseTime: Long? = null,
     /** 计量方式：按件消耗 / 持续使用（耐用品）。 */
@@ -106,14 +107,17 @@ class SaveViewModel @Inject constructor(
         )
     }
 
-    fun replacePrimaryPhoto(context: Context, uri: Uri) {
-        val savedPath = ImageUtil.saveImageToInternal(context, uri) ?: return
+    fun replacePrimaryPhoto(context: Context, uris: List<Uri>) {
+        val savedPaths = uris.mapNotNull { ImageUtil.saveImageToInternal(context, it) }
+        if (savedPaths.isEmpty()) return
         val currentPaths = _state.value.imagePaths.toMutableList()
         currentPaths.firstOrNull()?.let(ImageUtil::deleteImage)
         if (currentPaths.isEmpty()) {
-            currentPaths += savedPath
+            currentPaths += savedPaths
         } else {
-            currentPaths[0] = savedPath
+            // 一次连拍多张：第一张替换原主图，其余顺延为细节图。
+            currentPaths[0] = savedPaths.first()
+            currentPaths += savedPaths.drop(1)
         }
         _state.value = _state.value.copy(imagePaths = currentPaths.distinct())
     }
@@ -185,6 +189,10 @@ class SaveViewModel @Inject constructor(
         _state.value = _state.value.copy(purchaseDate = time)
     }
 
+    fun updateProductionDate(time: Long?) {
+        _state.value = _state.value.copy(productionDate = time)
+    }
+
     /** 持续使用物品的开始使用时间；清空后保存时回退为购买日期。 */
     fun updateStartUseTime(time: Long?) {
         _state.value = _state.value.copy(startUseTime = time)
@@ -238,7 +246,10 @@ class SaveViewModel @Inject constructor(
                 imagePaths = Item.encodeImagePaths(normalizedImages),
                 reminderDays = Item.encodeReminderDays(current.reminderDays),
                 purchaseDate = current.purchaseDate,
+                productionDate = current.productionDate,
                 trackMode = current.trackMode,
+                // 刚录入的物品还没开始用：按件消耗默认「未使用」，持续使用默认「使用中」。
+                usageStatus = Item.defaultUsageStatusForNewItem(current.trackMode),
                 // 持续使用物品：优先用录入时选定的开始使用时间，否则默认购买日期；
                 // 按件消耗物品没有「使用天数」概念，开始使用时间留空。
                 startUseTime = if (current.trackMode == Item.TRACK_DURABLE) {

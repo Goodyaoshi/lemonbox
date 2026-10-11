@@ -114,6 +114,7 @@ fun EditScreen(
     var showDiscardDialog by remember { mutableStateOf(false) }
     var showDatePicker by remember { mutableStateOf(false) }
     var showPurchaseDatePicker by remember { mutableStateOf(false) }
+    var showProductionDatePicker by remember { mutableStateOf(false) }
     var showStartUseDatePicker by remember { mutableStateOf(false) }
     var showCategoryPicker by remember { mutableStateOf(false) }
     var showLocationPicker by remember { mutableStateOf(false) }
@@ -151,8 +152,12 @@ fun EditScreen(
 
     LaunchedEffect(pendingImageUri, pendingImageUris, pendingPhotoMode) {
         when {
-            pendingPhotoMode == SavePhotoMode.REPLACE_PRIMARY && pendingImageUri != null -> {
-                viewModel.replacePrimaryPhoto(context, pendingImageUri)
+            pendingPhotoMode == SavePhotoMode.REPLACE_PRIMARY &&
+                (pendingImageUri != null || pendingImageUris.isNotEmpty()) -> {
+                viewModel.replacePrimaryPhoto(
+                    context,
+                    pendingImageUris.ifEmpty { listOfNotNull(pendingImageUri) }
+                )
             }
 
             pendingImageUris.isNotEmpty() -> {
@@ -167,8 +172,12 @@ fun EditScreen(
 
     LaunchedEffect(resultImageUri, resultImageUris, resultPhotoMode) {
         when {
-            resultPhotoMode == SavePhotoMode.REPLACE_PRIMARY && resultImageUri != null -> {
-                viewModel.replacePrimaryPhoto(context, resultImageUri)
+            resultPhotoMode == SavePhotoMode.REPLACE_PRIMARY &&
+                (resultImageUri != null || resultImageUris.isNotEmpty()) -> {
+                viewModel.replacePrimaryPhoto(
+                    context,
+                    resultImageUris.ifEmpty { listOfNotNull(resultImageUri) }
+                )
             }
 
             resultImageUris.isNotEmpty() -> {
@@ -353,12 +362,31 @@ fun EditScreen(
                             )
 
                             Spacer(modifier = Modifier.size(18.dp))
+                            EditorSectionLabel(label = "生产日期")
+                            Spacer(modifier = Modifier.size(8.dp))
+                            EditorInputBox(
+                                value = state.productionDate?.let(DateUtil::formatDate).orEmpty(),
+                                onValueChange = {},
+                                placeholder = "点击选择日期（可不填）",
+                                readOnly = true,
+                                modifier = Modifier.clickable { showProductionDatePicker = true },
+                                trailingContent = {
+                                    Icon(
+                                        imageVector = Icons.Default.CalendarToday,
+                                        contentDescription = null,
+                                        tint = TextHint,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            )
+
+                            Spacer(modifier = Modifier.size(18.dp))
                             EditorSectionLabel(label = "购买日期")
                             Spacer(modifier = Modifier.size(8.dp))
                             EditorInputBox(
                                 value = state.purchaseDate?.let(DateUtil::formatDate).orEmpty(),
                                 onValueChange = {},
-                                placeholder = "点击选择日期",
+                                placeholder = "点击选择日期（可不填）",
                                 readOnly = true,
                                 modifier = Modifier.clickable { showPurchaseDatePicker = true },
                                 trailingContent = {
@@ -543,6 +571,23 @@ fun EditScreen(
                     showPurchaseDatePicker = false
                 },
                 title = "选择购买日期",
+                yearRange = historyYearRange
+            )
+        }
+
+        if (showProductionDatePicker) {
+            ExpiryPickerDialog(
+                selectedDateMillis = state.productionDate,
+                onDismissRequest = { showProductionDatePicker = false },
+                onClear = {
+                    viewModel.updateProductionDate(null)
+                    showProductionDatePicker = false
+                },
+                onConfirm = { selectedMillis ->
+                    viewModel.updateProductionDate(selectedMillis)
+                    showProductionDatePicker = false
+                },
+                title = "选择生产日期",
                 yearRange = historyYearRange
             )
         }

@@ -4,15 +4,20 @@ import android.content.Context
 import android.net.Uri
 import com.goodyaoshi.lemonbox.data.backup.AppBackupManager
 import com.goodyaoshi.lemonbox.data.backup.BackupMergeResult
+import com.goodyaoshi.lemonbox.data.backup.BackupPreview
+import com.goodyaoshi.lemonbox.data.backup.SyncScope
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import dagger.hilt.android.qualifiers.ApplicationContext
 import fi.iki.elonen.NanoHTTPD
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.Serializable
@@ -21,24 +26,72 @@ import kotlinx.serialization.json.Json
 import java.io.File
 import java.io.FilterInputStream
 import java.net.InetAddress
+import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** 同步握手信息：对方据此知道用哪个 peerId 记录水位线。 */
+/** 客户端发起配对时提交的本机信息。 */
 @Serializable
-data class PeerInfo(val deviceId: String)
+data class PairRequestBody(
+    val deviceId: String,
+    val deviceName: String,
+    val deviceModel: String
+)
+
+/** 配对响应：会话号（后续请求的凭证）、双方要对照的匹配码、以及本机标识。 */
+@Serializable
+data class PairResponse(
+    val sessionId: String,
+    val matchCode: String,
+    val hostDeviceId: String,
+    val hostName: String,
+    val hostModel: String
+)
+
+/** 配对会话状态查询结果；[hostMerge] 仅在服务端已应用对方数据后给出。 */
+@Serializable
+data class PairStatus(
+    val state: String,
+    val hostMerge: BackupMergeResult? = null
+)
 
 /**
- * 局域网同步的服务端：只监听内网端口，用 6 位配对码鉴权。
+ * `/ping` 的应答：只暴露「我是谁」，用于子网扫描时辨认对端。
+ * 不含配对码等鉴权信息，因此对局域网匿名开放也不会降低安全性。
+ */
+@Serializable
+data class PingResponse(
+    val deviceId: String,
+    val deviceName: String,
+    val deviceModel: String
+)
+
+/** 供界面展示的一次待处理配对会话（含对照用的匹配码）。 */
+data class SyncPairRequest(
+    val sessionId: String,
+    val deviceId: String,
+    val deviceName: String,
+    val deviceModel: String,
+    val matchCode: String
+)
+
+/**
+ * 局域网同步的服务端：只监听内网端口。
  *
- * 只提供三个端点，复用手动导入导出已有的能力：
- *  - `GET  /info?token=`   返回本机 deviceId，供对方作为水位线的键
- *  - `GET  /backup?token=&since=` 返回本机备份 ZIP（since 非空则为增量），
- *    响应头 `X-Exported-At` 告知对方本次导出的时间戳（对方存为拉取水位线）
- *  - `POST /merge?token=`  接收对方备份 ZIP 并合并，返回合并统计
+ * 采用「像蓝牙一样」的配对流程，不再一收到请求就直接合并：
+ *  1. `POST /pair` 客户端发起，服务端生成会话并返回匹配码；本机界面弹出「是否接受」；
+ *  2. 两端分别确认匹配码一致（本机点接受、对方点确认），双方都确认后才进入数据交换；
+ *  3. `POST /stage` 客户端上传本机 ZIP，服务端只暂存并算出预览（不改库）；
+ *  4. `GET  /backup` 客户端拉取本机 ZIP，用于在自己一侧预览；
+ *  5. 两端各自选范围（全部/只新增/不删除）后分别落地；
+ *  6. `POST /pair/close` 收尾清理。
  *
- * 水位线存在发起方（客户端）一侧，服务端无状态。若两台设备交换发起角色，
- * 新发起方本地没有水位线时会自动走一次全量，之后恢复增量。
+ * 只有 `GET /backup`（数据出口）与配对相关端点需要会话语义，会话号是一次性随机 UUID，
+ * 起到能力凭证的作用；`/pair` 本身对局域网开放，这是蓝牙式「可被发现」的前提，
+ * 真正的安全边界是两端的匹配码人工对照 + 本机显式接受。
+ *
+ * 另有 `GET /ping`：不带任何鉴权，仅返回本机设备号/型号，供对方在「子网扫描」时
+ * 辨认「这个 IP 上到底是不是一台柠檬百宝箱」，是 mDNS 失效（AP 隔离 / 热点）时的兜底发现手段。
  */
 @Singleton
 class SyncServer @Inject constructor(
@@ -55,7 +108,42 @@ class SyncServer @Inject constructor(
      */
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 
+    /** 服务端侧异步落地（应用对方暂存数据）用的作用域。 */
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     private var server: Impl? = null
+
+    /** 本次开启共享时的匹配码：客户端 `/pair` 时回给它，供两端人工对照。 */
+    private var matchCode: String = ""
+
+    /** 当前待处理的配对会话；同一时刻只保留一个。 */
+    @Volatile
+    private var session: PairSession? = null
+
+    private val _pairRequest = MutableStateFlow<SyncPairRequest?>(null)
+
+    /** 待处理的配对请求；本机界面据此弹出「是否接受」。 */
+    val pairRequest: StateFlow<SyncPairRequest?> = _pairRequest.asStateFlow()
+
+    private val _hostAccepted = MutableStateFlow(false)
+
+    /** 本机是否已确认匹配（点了「接受」）。 */
+    val hostAccepted: StateFlow<Boolean> = _hostAccepted.asStateFlow()
+
+    private val _stagedPreview = MutableStateFlow<BackupPreview?>(null)
+
+    /** 对方数据合并到本机的预览；本机界面据此展示新增/修改/删除并选择范围。 */
+    val stagedPreview: StateFlow<BackupPreview?> = _stagedPreview.asStateFlow()
+
+    private val _hostMergeResult = MutableStateFlow<BackupMergeResult?>(null)
+
+    /** 本机落地对方数据后的统计结果。 */
+    val hostMergeResult: StateFlow<BackupMergeResult?> = _hostMergeResult.asStateFlow()
+
+    private val _hostError = MutableStateFlow<String?>(null)
+
+    /** 本机落地对方数据时的错误信息。 */
+    val hostError: StateFlow<String?> = _hostError.asStateFlow()
 
     private val _incomingSummary = MutableStateFlow<BackupMergeResult?>(null)
 
@@ -71,9 +159,10 @@ class SyncServer @Inject constructor(
 
     fun start(token: String): Boolean {
         if (isRunning) return true
+        matchCode = token
         // 先用固定端口，方便对方手动输入 IP；被占用时退回系统分配的随机端口
-        if (tryStart(Impl(DEFAULT_PORT, token))) return true
-        return tryStart(Impl(0, token))
+        if (tryStart(Impl(DEFAULT_PORT))) return true
+        return tryStart(Impl(0))
     }
 
     private fun tryStart(instance: Impl): Boolean {
@@ -90,10 +179,64 @@ class SyncServer @Inject constructor(
     fun stop() {
         server?.stop()
         server = null
-        _incomingSummary.value = null
+        clearSession()
     }
 
     fun clearIncomingSummary() {
+        _incomingSummary.value = null
+    }
+
+    /** 本机界面：接受这次配对。 */
+    fun acceptPairing() {
+        session?.hostAccepted = true
+        _hostAccepted.value = true
+    }
+
+    /** 本机界面：拒绝这次配对。 */
+    fun rejectPairing() {
+        session?.rejected = true
+        clearSession()
+    }
+
+    /**
+     * 本机界面：按选定范围把对方暂存的数据合并进本机。
+     * 落地完成后 [hostMergeResult] 会给出统计，客户端轮询状态即可拿到。
+     */
+    fun applyIncoming(scope: SyncScope) {
+        val active = session ?: return
+        val file = active.stagedFile ?: run {
+            _hostError.value = "还没收到对方数据，先等一下"
+            return
+        }
+        appScope.launch {
+            runCatching {
+                withTimeout(SYNC_TIMEOUT_MS) {
+                    backupManager.importBackup(Uri.fromFile(file), scope)
+                }
+            }.onSuccess { result ->
+                active.hostMerge = result
+                active.applied = true
+                _hostMergeResult.value = result
+                _incomingSummary.value = result
+                appPreferences.setLastSyncAt(System.currentTimeMillis())
+            }.onFailure { error ->
+                _hostError.value = error.message ?: "合并对方数据失败了"
+            }
+        }
+    }
+
+    fun clearHostError() {
+        _hostError.value = null
+    }
+
+    private fun clearSession() {
+        session?.stagedFile?.let { runCatching { it.delete() } }
+        session = null
+        _pairRequest.value = null
+        _hostAccepted.value = false
+        _stagedPreview.value = null
+        _hostMergeResult.value = null
+        _hostError.value = null
         _incomingSummary.value = null
     }
 
@@ -112,12 +255,10 @@ class SyncServer @Inject constructor(
     private fun <T> awaitSync(block: suspend () -> T): T =
         runBlocking(ioDispatcher) { withTimeout(SYNC_TIMEOUT_MS) { block() } }
 
-    private inner class Impl(port: Int, private val expectedToken: String) : NanoHTTPD(port) {
+    private inner class Impl(port: Int) : NanoHTTPD(port) {
 
         override fun serve(session: IHTTPSession): Response {
             // 收敛暴露面：服务端仅接受来自局域网（私网 / 链路本地 / 回环 / IPv6 ULA）的请求。
-            // 明文 HTTP 放行范围无法用 network-security-config 按网段表达，
-            // 因此在这里做运行时兜底：非局域网来源一律拒绝，避免被公网或热点外设备访问。
             if (!isLanAddress(session.remoteIpAddress)) {
                 return newFixedLengthResponse(
                     Response.Status.FORBIDDEN,
@@ -125,19 +266,15 @@ class SyncServer @Inject constructor(
                     "仅允许局域网设备访问"
                 )
             }
-            val token = session.parameters["token"]?.firstOrNull()
-            if (token != expectedToken) {
-                return newFixedLengthResponse(
-                    Response.Status.UNAUTHORIZED,
-                    MIME_PLAINTEXT,
-                    "配对码不正确"
-                )
-            }
             return runCatching {
                 when {
-                    session.uri == "/info" && session.method == Method.GET -> serveInfo()
+                    session.uri == "/ping" && session.method == Method.GET -> servePing()
+                    session.uri == "/pair" && session.method == Method.POST -> servePair(session)
+                    session.uri == "/pair/confirm" && session.method == Method.POST -> serveConfirm(session)
+                    session.uri == "/pair/status" && session.method == Method.GET -> serveStatus(session)
+                    session.uri == "/pair/close" && session.method == Method.POST -> serveClose(session)
+                    session.uri == "/stage" && session.method == Method.POST -> serveStage(session)
                     session.uri == "/backup" && session.method == Method.GET -> serveBackup(session)
-                    session.uri == "/merge" && session.method == Method.POST -> serveMerge(session)
                     else -> newFixedLengthResponse(
                         Response.Status.NOT_FOUND,
                         MIME_PLAINTEXT,
@@ -156,17 +293,89 @@ class SyncServer @Inject constructor(
             }
         }
 
-        private fun serveInfo(): Response {
-            val info = PeerInfo(deviceId = appPreferences.deviceId)
-            return newFixedLengthResponse(
-                Response.Status.OK,
-                MIME_JSON,
-                json.encodeToString(info)
+        /** 轻量应答：不需要会话语义，供局域网子网扫描时辨认对端。 */
+        private fun servePing(): Response {
+            val model = android.os.Build.MODEL?.takeIf { it.isNotBlank() } ?: "本机"
+            val response = PingResponse(
+                deviceId = appPreferences.deviceId,
+                deviceName = model,
+                deviceModel = model
             )
+            return newFixedLengthResponse(Response.Status.OK, MIME_JSON, json.encodeToString(response))
         }
 
-        private fun serveBackup(session: IHTTPSession): Response {
-            val since = session.parameters["since"]?.firstOrNull()?.toLongOrNull()
+        private fun servePair(httpSession: IHTTPSession): Response {
+            val body = readBodyText(httpSession) ?: return badRequest("缺少请求内容")
+            val request = runCatching { json.decodeFromString<PairRequestBody>(body) }
+                .getOrElse { return badRequest("配对请求格式不对") }
+            // 同一时刻只保留一个会话：新请求顶掉旧的未完成会话。
+            session?.stagedFile?.let { runCatching { it.delete() } }
+            val id = UUID.randomUUID().toString()
+            val pairRequest = SyncPairRequest(
+                sessionId = id,
+                deviceId = request.deviceId,
+                deviceName = request.deviceName.ifBlank { "对方的设备" },
+                deviceModel = request.deviceModel.ifBlank { request.deviceName },
+                matchCode = matchCode
+            )
+            session = PairSession(id, pairRequest)
+            _pairRequest.value = pairRequest
+            _hostAccepted.value = false
+            _stagedPreview.value = null
+            _hostMergeResult.value = null
+            _hostError.value = null
+            val response = PairResponse(
+                sessionId = id,
+                matchCode = matchCode,
+                hostDeviceId = appPreferences.deviceId,
+                hostName = android.os.Build.MODEL ?: "本机",
+                hostModel = android.os.Build.MODEL ?: "本机"
+            )
+            return newFixedLengthResponse(Response.Status.OK, MIME_JSON, json.encodeToString(response))
+        }
+
+        private fun serveConfirm(httpSession: IHTTPSession): Response {
+            val active = requireSession(httpSession) ?: return sessionNotFound()
+            active.clientConfirmed = true
+            return statusResponse(active)
+        }
+
+        private fun serveStatus(httpSession: IHTTPSession): Response {
+            val active = requireSession(httpSession) ?: return sessionNotFound()
+            return statusResponse(active)
+        }
+
+        private fun serveClose(httpSession: IHTTPSession): Response {
+            val id = httpSession.parameters["sessionId"]?.firstOrNull()
+            if (session?.id == id) clearSession()
+            return newFixedLengthResponse(Response.Status.OK, MIME_PLAINTEXT, "ok")
+        }
+
+        private fun serveStage(httpSession: IHTTPSession): Response {
+            val active = requireSession(httpSession) ?: return sessionNotFound()
+            val contentLength = httpSession.headers["content-length"]?.toLongOrNull()
+                ?: return badRequest("缺少 content-length")
+            val tempFile = File(context.cacheDir, "sync-stage-${active.id}.zip")
+            try {
+                // 只按 content-length 读完请求体，绝不能关闭 session.inputStream：
+                // 它底层是 socket 的输入流，关闭会连带关闭整个 socket。
+                tempFile.outputStream().use { output ->
+                    copyExactly(httpSession.inputStream, output, contentLength)
+                }
+                active.stagedFile?.delete()
+                active.stagedFile = tempFile
+                val preview = awaitSync { backupManager.previewBackup(Uri.fromFile(tempFile)) }
+                _stagedPreview.value = preview
+                return newFixedLengthResponse(Response.Status.OK, MIME_JSON, json.encodeToString(preview))
+            } catch (e: Exception) {
+                tempFile.delete()
+                throw e
+            }
+        }
+
+        private fun serveBackup(httpSession: IHTTPSession): Response {
+            requireSession(httpSession) ?: return sessionNotFound()
+            val since = httpSession.parameters["since"]?.firstOrNull()?.toLongOrNull()
             // 走 awaitSync：在 IO 池上等待并带超时，避免请求线程被长时间占用（F12）
             val archive = awaitSync { backupManager.createBackupZip(since) }
             // 流式发出，读完即删除临时文件
@@ -186,34 +395,54 @@ class SyncServer @Inject constructor(
             }
         }
 
-        private fun serveMerge(session: IHTTPSession): Response {
-            val contentLength = session.headers["content-length"]?.toLongOrNull()
-                ?: return newFixedLengthResponse(
-                    Response.Status.BAD_REQUEST,
-                    MIME_PLAINTEXT,
-                    "缺少 content-length"
-                )
-            val tempFile = File(context.cacheDir, "sync-in-${System.currentTimeMillis()}.zip")
-            try {
-                // 只按 content-length 读完请求体，绝不能关闭 session.inputStream：
-                // 它底层是 socket 的输入流，关闭会连带关闭整个 socket，
-                // 导致 NanoHTTPD 无法把响应写回，客户端报 "unexpected end of stream"。
-                tempFile.outputStream().use { output ->
-                    copyExactly(session.inputStream, output, contentLength)
-                }
-                val result = awaitSync {
-                    backupManager.importBackup(Uri.fromFile(tempFile))
-                }
-                _incomingSummary.value = result
-                appPreferences.setLastSyncAt(System.currentTimeMillis())
-                return newFixedLengthResponse(
-                    Response.Status.OK,
-                    MIME_JSON,
-                    json.encodeToString(result)
-                )
-            } finally {
-                tempFile.delete()
-            }
+        private fun requireSession(httpSession: IHTTPSession): PairSession? {
+            val id = httpSession.parameters["sessionId"]?.firstOrNull() ?: return null
+            val active = session ?: return null
+            return active.takeIf { it.id == id && !it.rejected }
+        }
+
+        private fun statusResponse(active: PairSession): Response {
+            val status = PairStatus(
+                state = active.stateName(),
+                hostMerge = if (active.applied) active.hostMerge else null
+            )
+            return newFixedLengthResponse(Response.Status.OK, MIME_JSON, json.encodeToString(status))
+        }
+
+        private fun sessionNotFound(): Response =
+            newFixedLengthResponse(Response.Status.CONFLICT, MIME_PLAINTEXT, "配对会话已结束")
+
+        private fun badRequest(message: String): Response =
+            newFixedLengthResponse(Response.Status.BAD_REQUEST, MIME_PLAINTEXT, message)
+
+        /** 读取请求体文本（按 content-length，避免读到下一个请求）。 */
+        private fun readBodyText(httpSession: IHTTPSession): String? {
+            val contentLength = httpSession.headers["content-length"]?.toLongOrNull()
+                ?: return null
+            val buffer = java.io.ByteArrayOutputStream()
+            copyExactly(httpSession.inputStream, buffer, contentLength)
+            return buffer.toString(Charsets.UTF_8.name())
+        }
+    }
+
+    /** 一次配对会话的运行时状态。 */
+    private class PairSession(
+        val id: String,
+        val request: SyncPairRequest
+    ) {
+        @Volatile var hostAccepted = false
+        @Volatile var clientConfirmed = false
+        @Volatile var rejected = false
+        @Volatile var stagedFile: File? = null
+        @Volatile var applied = false
+        @Volatile var hostMerge: BackupMergeResult? = null
+
+        fun stateName(): String = when {
+            rejected -> "REJECTED"
+            applied -> "APPLIED"
+            !hostAccepted -> "WAITING_HOST"
+            !clientConfirmed -> "WAITING_CLIENT"
+            else -> "READY"
         }
     }
 

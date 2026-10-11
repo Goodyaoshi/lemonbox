@@ -67,6 +67,8 @@ data class Item(
     val reminderDays: String? = null,
     /** 购买日期（天精度）；未记录为 null。 */
     val purchaseDate: Long? = null,
+    /** 生产日期（天精度）；未记录为 null，仅作参考，不参与提醒/统计。 */
+    val productionDate: Long? = null,
     /** 开始使用时间；进入使用中时自动落值，可手动补录。 */
     val startUseTime: Long? = null,
     /** 使用结束时间；进入用完/送人/丢弃等非可用状态时自动落值。 */
@@ -143,6 +145,14 @@ data class Item(
 
         /** 这些顶级分类下的新物品默认按「持续使用」计量；录入时可手动改。 */
         val durableTopCategoryNames = setOf("家电", "数码", "厨具", "衣物", "工具")
+
+        /**
+         * 新获得物品（录入 / 扫码入库）的默认使用进度：
+         * 按件消耗（零食、酱油等）刚到手还没拆封，默认「未使用」；
+         * 持续使用（电器等）默认已在用，「使用中」。
+         */
+        fun defaultUsageStatusForNewItem(trackMode: Int): Int =
+            if (trackMode == TRACK_DURABLE) USAGE_IN_USE else USAGE_UNUSED
 
         /** 该物品是否已进入非可用状态（已用完/已送人/已丢弃）；借出是暂时的，不算结束。 */
         fun isUsageEnded(usageStatus: Int, disposition: Int): Boolean =

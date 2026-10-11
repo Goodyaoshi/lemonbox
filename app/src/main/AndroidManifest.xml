@@ -38,6 +38,15 @@
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
 
+    <!-- 在线更新：从 GitHub Release 下载 APK 后调起系统安装器 -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+    <!--
+        开机自启：设备重启后重排待办提醒的精确闹钟（系统重启会清空 AlarmManager 全部闹钟），
+        否则重启后提醒会一直静默到用户下次打开应用。
+    -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
     <application
         android:name=".LemonApplication"
         android:allowBackup="true"
@@ -68,6 +77,17 @@
                 tools:node="remove" />
         </provider>
 
+        <!-- 在线更新：把下载到 cache/update 的 APK 共享给系统安装器 -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -94,6 +114,18 @@
         <receiver
             android:name=".util.TodoCompleteReceiver"
             android:exported="false" />
+
+        <!-- 开机后重排待办提醒闹钟，保证重启后提醒仍准点（系统会清空全部闹钟） -->
+        <receiver
+            android:name=".util.BootReceiver"
+            android:enabled="true"
+            android:exported="true"
+            android:directBootAware="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
+        </receiver>
 
         <!-- 提醒保活前台服务：常驻通知占住前台身份，防止划卡清理连带杀掉提醒闹钟 -->
         <service

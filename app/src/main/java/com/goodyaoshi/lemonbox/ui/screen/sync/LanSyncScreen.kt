@@ -19,25 +19,30 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.BluetoothSearching
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.BluetoothConnected
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Smartphone
+import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -48,19 +53,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.goodyaoshi.lemonbox.data.backup.SyncScope
 import com.goodyaoshi.lemonbox.data.backup.toUserMessage
 import com.goodyaoshi.lemonbox.data.sync.SyncPeer
-import com.goodyaoshi.lemonbox.data.sync.SyncServer
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.GradientButton
@@ -69,11 +74,19 @@ import com.goodyaoshi.lemonbox.ui.theme.CardWhite
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.OrangeTint
 import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarmDeep
+import com.goodyaoshi.lemonbox.ui.theme.StatusExpired
+import com.goodyaoshi.lemonbox.ui.theme.StatusNormal
 import com.goodyaoshi.lemonbox.ui.theme.TextHint
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
 import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
+import com.goodyaoshi.lemonbox.ui.viewmodel.HostPairPrompt
 import com.goodyaoshi.lemonbox.ui.viewmodel.LanSyncMode
 import com.goodyaoshi.lemonbox.ui.viewmodel.LanSyncViewModel
+import com.goodyaoshi.lemonbox.ui.viewmodel.MatchCodePrompt
+import com.goodyaoshi.lemonbox.ui.viewmodel.ScopePrompt
+import com.goodyaoshi.lemonbox.ui.viewmodel.SyncStepStatus
+import com.goodyaoshi.lemonbox.ui.viewmodel.SyncStepUi
+import com.goodyaoshi.lemonbox.ui.viewmodel.SyncTransferUi
 import com.goodyaoshi.lemonbox.util.DateUtil
 
 /**
@@ -87,11 +100,12 @@ fun LanSyncScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val peers by viewModel.peers.collectAsState()
+    val scanning by viewModel.scanning.collectAsState()
+    val scanProgress by viewModel.scanProgress.collectAsState()
     val incomingSummary by viewModel.incomingSummary.collectAsState()
     val lastSyncAt by viewModel.lastSyncAt.collectAsState()
 
     var addressInput by remember { mutableStateOf("") }
-    var codeInput by remember { mutableStateOf("") }
     var showManual by remember { mutableStateOf(false) }
 
     // 作为被连接方：对方合并过来时提示一次，避免「对方连了但本机毫无反应」。
@@ -107,6 +121,14 @@ fun LanSyncScreen(
     }
 
     val hosting = uiState.mode == LanSyncMode.HOSTING
+
+    // 同步（含配对/等待）期间保持屏幕常亮：传输依赖前台网络，熄屏会切到省电模式，
+    // 轻则连接中断、重则同步异常。离开本页或不再忙碌时自动恢复系统默认行为。
+    val view = LocalView.current
+    DisposableEffect(uiState.isBusy, hosting) {
+        view.keepScreenOn = uiState.isBusy || hosting
+        onDispose { view.keepScreenOn = false }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         AppDecorativeBackground()
@@ -140,7 +162,7 @@ fun LanSyncScreen(
             }
 
             Text(
-                text = "两台设备连同一个 WiFi，一方开启共享，另一方在设备列表里点一下就连上，跟配蓝牙一样简单。只在局域网内传输，不经过任何服务器。",
+                text = "两台设备连同一个 WiFi（没有 WiFi 时，也可以用一台手机开「个人热点」，另一台连上它），一方开启共享，另一方在设备列表里点一下就连上，双方核对同一个匹配码后就完成同步。只在局域网内传输，不经过任何服务器。",
                 style = MaterialTheme.typography.bodySmall,
                 color = TextSecondary,
                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 2.dp)
@@ -172,13 +194,18 @@ fun LanSyncScreen(
                     Spacer(modifier = Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "本机",
+                            text = "本机 · ${viewModel.localDeviceModel}",
                             fontSize = 16.sp,
                             fontWeight = FontWeight.Bold,
                             color = TextPrimary
                         )
                         Text(
-                            text = if (hosting) "正在等待对方连接…" else "开启后，这台设备会出现在对方的设备列表里",
+                            text = when {
+                                uiState.hostScopePrompt != null -> "对方数据已收到，请选择同步范围"
+                                uiState.hostAccepted -> "已接受，等待对方确认并传输…"
+                                hosting -> "正在等待对方连接…"
+                                else -> "开启后，这台设备会出现在对方的设备列表里"
+                            },
                             fontSize = 12.sp,
                             color = TextSecondary
                         )
@@ -202,7 +229,7 @@ fun LanSyncScreen(
                     AutoSizePairingCode(code = uiState.pairingCode)
                     Spacer(modifier = Modifier.size(4.dp))
                     Text(
-                        text = "让对方在「搜索不到？手动输入」里填上本机地址与这串配对码（出于安全考虑，配对码不会自动广播）。",
+                        text = "配对码相当于临时的共享暗号：对方连接后，两边屏幕会弹出同一个码，核对一致、双方都点确认才继续同步（出于安全考虑，配对码不会自动广播）。",
                         fontSize = 12.sp,
                         color = TextHint
                     )
@@ -226,6 +253,29 @@ fun LanSyncScreen(
                 } else {
                     Spacer(modifier = Modifier.size(14.dp))
                     GradientButton(text = "开启共享", onClick = viewModel::startHosting)
+                }
+            }
+
+            // 一·B、同步进度：把原来只显示「同步中…」的黑盒细化成一步步的进度，
+            // 同步过程中屏幕保持常亮（见上方 keepScreenOn），避免熄屏打断传输。
+            if (uiState.syncSteps.isNotEmpty()) {
+                AppSurfaceCard(
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                    shape = RoundedCornerShape(24.dp),
+                    shadowElevation = 12.dp
+                ) {
+                    Text(
+                        text = if (uiState.isBusy) "同步进度" else "上次同步进度",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
+                    Spacer(modifier = Modifier.size(8.dp))
+                    uiState.syncSteps.forEach { step -> SyncStepRow(step) }
+                    uiState.transfer?.let { transfer ->
+                        Spacer(modifier = Modifier.size(10.dp))
+                        SyncTransferRow(transfer)
+                    }
                 }
             }
 
@@ -286,7 +336,7 @@ fun LanSyncScreen(
                     }
                     Spacer(modifier = Modifier.size(6.dp))
                     Text(
-                        text = "让对方也打开这个页面并「开启共享」，你稍等片刻就会出现。",
+                        text = "让对方也打开这个页面并「开启共享」；一直不出现就点下面的「扫描整个局域网」。",
                         // 说明文字走主题字阶（F6）并提到 12sp（F7）。
                         style = MaterialTheme.typography.bodySmall,
                         color = TextHint
@@ -297,22 +347,54 @@ fun LanSyncScreen(
                         DeviceRow(
                             peer = peer,
                             enabled = !uiState.isBusy,
-                            onClick = {
-                                // 配对码不再随 mDNS 广播：点击设备后预填地址并展开「手动输入」，
-                                // 用户照抄对方屏幕上的 6 位配对码即可；旧版本仍带码则直接同步。
-                                if (peer.token.isNullOrBlank()) {
-                                    addressInput = if (peer.port == SyncServer.DEFAULT_PORT) {
-                                        peer.host
-                                    } else {
-                                        "${peer.host}:${peer.port}"
-                                    }
-                                    showManual = true
-                                }
-                                viewModel.connectToPeer(peer)
-                            }
+                            onClick = { viewModel.connectToPeer(peer) }
                         )
                     }
                 }
+
+                Spacer(modifier = Modifier.size(10.dp))
+                // 兜底发现：mDNS 依赖组播，路由器开 AP 隔离或手机开个人热点时会失效，
+                // 这个按钮改成扫描整个网段，不依赖任何发现协议，只要同网段就找得到。
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(OrangeStart.copy(alpha = 0.14f))
+                        .clickable(enabled = !scanning && !uiState.isBusy, role = Role.Button) {
+                            viewModel.scanLan()
+                        }
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    if (scanning) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(14.dp),
+                            strokeWidth = 2.dp,
+                            color = OrangeStart
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Filled.Wifi,
+                            contentDescription = null,
+                            tint = OrangeStart,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = if (scanning) "扫描中… $scanProgress%" else "扫描整个局域网",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = OrangeStart
+                    )
+                }
+                Spacer(modifier = Modifier.size(4.dp))
+                Text(
+                    text = "搜不到对方时点它：直接扫描同网段，不依赖组播，路由器开了 AP 隔离或走个人热点也能找到。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextHint
+                )
             }
 
             // 三、手动连接（兜底，默认折叠）
@@ -326,7 +408,7 @@ fun LanSyncScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "搜索不到？手动输入地址与配对码",
+                    text = "搜索不到？手动输入地址",
                     fontSize = 12.sp,
                     color = TextSecondary,
                     modifier = Modifier.weight(1f)
@@ -353,17 +435,8 @@ fun LanSyncScreen(
                         modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(modifier = Modifier.size(8.dp))
-                    OutlinedTextField(
-                        value = codeInput,
-                        onValueChange = { input -> codeInput = input.filter { it.isDigit() }.take(6) },
-                        label = { Text("6 位配对码") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(modifier = Modifier.size(8.dp))
                     Text(
-                        text = "地址与配对码可在对方「本机」卡片里看到。",
+                        text = "地址可在对方「本机」卡片里看到；连上后两边会弹出匹配码，核对一致再继续。",
                         // 说明文字走主题字阶（F6）并提到 12sp（F7）。
                         style = MaterialTheme.typography.bodySmall,
                         color = TextHint
@@ -372,7 +445,7 @@ fun LanSyncScreen(
                     GradientButton(
                         text = if (uiState.isBusy) "同步中…" else "开始同步",
                         enabled = !uiState.isBusy,
-                        onClick = { viewModel.connect(addressInput, codeInput) }
+                        onClick = { viewModel.connect(addressInput) }
                     )
                 }
             }
@@ -408,7 +481,7 @@ fun LanSyncScreen(
             }
 
             Text(
-                text = "提示：同步要用到「存储/网络」权限；要是很久都找不到设备，你确认下路由器有没有开「AP 隔离」，或者用上面的「手动输入」兜底。",
+                text = "提示：同步要用到「存储/网络」权限；要是很久都找不到设备，先点「扫描整个局域网」——它不依赖组播，AP 隔离或热点下同样有效；再不行就用「手动输入」兜底。",
                 // 说明文字走主题字阶（F6）并提到 12sp（F7）。
                 style = MaterialTheme.typography.bodySmall,
                 color = OrangeStart,
@@ -417,7 +490,204 @@ fun LanSyncScreen(
                     .padding(horizontal = 36.dp, vertical = 4.dp)
             )
         }
+
+        // 配对/范围对话框统一浮在内容之上：发起方核对匹配码 → 选范围；
+        // 被连接方确认配对 → 选范围。双方都确认匹配码一致才会真正传输。
+        uiState.matchCodePrompt?.let { prompt ->
+            MatchCodeDialog(
+                prompt = prompt,
+                onConfirm = { viewModel.confirmMatch(true) },
+                onCancel = { viewModel.confirmMatch(false) }
+            )
+        }
+        uiState.hostPairPrompt?.let { prompt ->
+            HostPairDialog(
+                prompt = prompt,
+                onAccept = viewModel::acceptHostPair,
+                onReject = viewModel::rejectHostPair
+            )
+        }
+        uiState.clientScopePrompt?.let { prompt ->
+            ScopeChoiceDialog(
+                prompt = prompt,
+                onChoose = { viewModel.chooseScope(it) },
+                onDismiss = { viewModel.chooseScope(null) }
+            )
+        }
+        uiState.hostScopePrompt?.let { prompt ->
+            ScopeChoiceDialog(
+                prompt = prompt,
+                onChoose = viewModel::applyHostScope,
+                onDismiss = null
+            )
+        }
     }
+}
+
+/**
+ * 发起方核对匹配码：把本端生成的码显示出来，让对方屏幕上的数字与之对照。
+ * 只有双方都确认一致，配对才会继续，避免连到陌生设备。
+ */
+@Composable
+private fun MatchCodeDialog(
+    prompt: MatchCodePrompt,
+    onConfirm: () -> Unit,
+    onCancel: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onCancel,
+        title = { Text(text = "核对匹配码", fontWeight = FontWeight.Bold) },
+        text = {
+            Column {
+                Text(
+                    text = "请和「${prompt.peerLabel}」屏幕上的数字对照，确认是同一个再继续：",
+                    fontSize = 13.sp,
+                    color = TextSecondary
+                )
+                Spacer(modifier = Modifier.size(10.dp))
+                Text(
+                    text = prompt.matchCode,
+                    fontSize = 34.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 8.sp,
+                    color = OrangeStart,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.size(6.dp))
+                Text(
+                    text = "数字一致说明连的就是对面那台设备；不一致就不要继续，避免同步到陌生设备。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextHint
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(text = "一致，继续")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onCancel) {
+                Text(text = "不一致", color = TextSecondary)
+            }
+        }
+    )
+}
+
+/**
+ * 被连接方确认配对：对方是谁、匹配码是多少，核对后才接受，
+ * 避免开着共享就被不认识的人直接同步走数据。
+ */
+@Composable
+private fun HostPairDialog(
+    prompt: HostPairPrompt,
+    onAccept: () -> Unit,
+    onReject: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onReject,
+        title = { Text(text = "有设备请求同步", fontWeight = FontWeight.Bold) },
+        text = {
+            Column {
+                Text(
+                    text = "「${prompt.deviceModel.ifBlank { prompt.peerLabel }}」想和你同步数据。",
+                    fontSize = 14.sp,
+                    color = TextPrimary
+                )
+                Spacer(modifier = Modifier.size(10.dp))
+                Text(
+                    text = "对方屏幕上的匹配码应该是：",
+                    fontSize = 13.sp,
+                    color = TextSecondary
+                )
+                Spacer(modifier = Modifier.size(6.dp))
+                Text(
+                    text = prompt.matchCode,
+                    fontSize = 34.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 8.sp,
+                    color = OrangeStart,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.size(6.dp))
+                Text(
+                    text = "核对无误再点「接受配对」；不确定就拒绝。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextHint
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onAccept) {
+                Text(text = "接受配对")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onReject) {
+                Text(text = "拒绝", color = TextSecondary)
+            }
+        }
+    )
+}
+
+/**
+ * 选择同步范围：先展示「新增 / 修改 / 删除」数量，再让用户选全部同步或只同步一部分。
+ * 主客两侧共用；被连接方必选（onDismiss=null），发起方取消即中止同步。
+ */
+@Composable
+private fun ScopeChoiceDialog(
+    prompt: ScopePrompt,
+    onChoose: (SyncScope) -> Unit,
+    onDismiss: (() -> Unit)?
+) {
+    val preview = prompt.preview
+    AlertDialog(
+        onDismissRequest = { onDismiss?.invoke() },
+        title = { Text(text = "选择同步范围", fontWeight = FontWeight.Bold) },
+        text = {
+            Column {
+                Text(
+                    text = "与「${prompt.peerLabel}」的数据对比：",
+                    fontSize = 13.sp,
+                    color = TextSecondary
+                )
+                Spacer(modifier = Modifier.size(6.dp))
+                Text(
+                    text = "新增 ${preview.added} 项 · 修改 ${preview.updated} 项 · 删除 ${preview.deleted} 项",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = TextPrimary
+                )
+                Spacer(modifier = Modifier.size(4.dp))
+                Text(
+                    text = "可以全部同步，也可以只同步其中一部分（比如只接收新增，不删除本机已有的）。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextHint
+                )
+                Spacer(modifier = Modifier.size(12.dp))
+                SyncScope.entries.forEach { scope ->
+                    TextButton(
+                        onClick = { onChoose(scope) },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(text = scope.label, color = OrangeStart)
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = if (onDismiss != null) {
+            {
+                TextButton(onClick = onDismiss) {
+                    Text(text = "取消", color = TextSecondary)
+                }
+            }
+        } else {
+            null
+        }
+    )
 }
 
 /**
@@ -463,14 +733,13 @@ private const val MAX_PAIRING_CODE_SP = 38f
 /** 配对码字号下限：再小也保证可读，仅极窄屏才会触底。 */
 private const val MIN_PAIRING_CODE_SP = 20f
 
-/** 附近设备的一行：蓝牙式的圆底图标 + 设备名 + 右侧操作提示。点击后填入地址并提示手动输入配对码。 */
+/** 附近设备的一行：蓝牙式的圆底图标 + 设备名 + 右侧操作提示。点击后进入配对确认。 */
 @Composable
 private fun DeviceRow(
     peer: SyncPeer,
     enabled: Boolean,
     onClick: () -> Unit
 ) {
-    val needsCode = peer.token.isNullOrBlank()
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -496,21 +765,23 @@ private fun DeviceRow(
             )
         }
         Spacer(modifier = Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = peer.model ?: peer.name,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = TextPrimary
+            )
+            Text(
+                text = peer.host,
+                fontSize = 11.sp,
+                color = TextHint
+            )
+        }
         Text(
-            text = peer.name,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = TextPrimary,
-            modifier = Modifier.weight(1f)
-        )
-        Text(
-            text = when {
-                !enabled -> "同步中…"
-                needsCode -> "点此填码"
-                else -> "点击同步"
-            },
+            text = if (enabled) "点击同步" else "同步中…",
             fontSize = 12.sp,
-            color = if (needsCode && enabled) TextHint else OrangeStart
+            color = if (enabled) OrangeStart else TextHint
         )
     }
 }
@@ -536,3 +807,109 @@ private fun IconBubble(
         )
     }
 }
+
+/** 同步进度的一行：左侧状态指示（转圈/对勾/叉/待开始），右侧步骤名。 */
+@Composable
+private fun SyncStepRow(step: SyncStepUi) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        when (step.status) {
+            SyncStepStatus.RUNNING -> CircularProgressIndicator(
+                modifier = Modifier.size(16.dp),
+                strokeWidth = 2.dp,
+                color = OrangeStart
+            )
+
+            SyncStepStatus.DONE -> Icon(
+                imageVector = Icons.Default.Check,
+                contentDescription = null,
+                tint = StatusNormal,
+                modifier = Modifier.size(16.dp)
+            )
+
+            SyncStepStatus.FAILED -> Icon(
+                imageVector = Icons.Default.Close,
+                contentDescription = null,
+                tint = StatusExpired,
+                modifier = Modifier.size(16.dp)
+            )
+
+            SyncStepStatus.PENDING -> Box(
+                modifier = Modifier
+                    .size(16.dp)
+                    .clip(CircleShape)
+                    .background(SurfaceWarmDeep)
+            )
+        }
+        Spacer(modifier = Modifier.width(10.dp))
+        Text(
+            text = when (step.status) {
+                SyncStepStatus.RUNNING -> "${step.label}…"
+                SyncStepStatus.FAILED -> "${step.label}（失败）"
+                else -> step.label
+            },
+            fontSize = 13.sp,
+            color = when (step.status) {
+                SyncStepStatus.PENDING -> TextHint
+                SyncStepStatus.FAILED -> StatusExpired
+                else -> TextPrimary
+            }
+        )
+    }
+}
+
+/** 传输进度明细：正在传什么，以及进度条 +「已传 / 总量（百分比）」。 */
+@Composable
+private fun SyncTransferRow(transfer: SyncTransferUi) {
+    val percent = transfer.percent
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = transfer.label,
+                fontSize = 13.sp,
+                color = TextPrimary,
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                text = if (percent != null) {
+                    "${formatTransferSize(transfer.done)} / ${formatTransferSize(transfer.total)}（$percent%）"
+                } else {
+                    "已传 ${formatTransferSize(transfer.done)}"
+                },
+                fontSize = 12.sp,
+                color = TextHint
+            )
+        }
+        Spacer(modifier = Modifier.size(6.dp))
+        if (percent != null) {
+            LinearProgressIndicator(
+                progress = { percent / 100f },
+                modifier = Modifier.fillMaxWidth(),
+                color = OrangeStart,
+                trackColor = SurfaceWarmDeep
+            )
+        } else {
+            LinearProgressIndicator(
+                modifier = Modifier.fillMaxWidth(),
+                color = OrangeStart,
+                trackColor = SurfaceWarmDeep
+            )
+        }
+    }
+}
+
+/** 把传输字节数按 KB/MB 友好展示。 */
+private fun formatTransferSize(bytes: Long): String =
+    if (bytes >= 1024 * 1024) {
+        "%.1f MB".format(bytes / 1024.0 / 1024.0)
+    } else {
+        "%.0f KB".format(bytes / 1024.0)
+    }

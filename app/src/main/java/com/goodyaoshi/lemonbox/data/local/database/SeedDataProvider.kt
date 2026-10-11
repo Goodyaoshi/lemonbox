@@ -65,13 +65,57 @@ internal object SeedDataProvider {
 
     private val roomHierarchy = linkedMapOf(
         "厨房" to listOf("冰箱", "橱柜", "台面"),
-        "客厅" to listOf("电视柜", "茶几", "书架"),
         "卧室" to listOf("衣柜", "床头柜", "梳妆台"),
         "卫生间" to listOf("洗手台", "淋浴间"),
-        "阳台" to listOf("储物柜"),
-        "书房" to listOf("书桌", "书柜"),
-        "储物间" to listOf("收纳架")
+        "阳台" to listOf("储物柜")
     )
+
+    /**
+     * 早期版本默认种下的多余房间（客厅/书房/储物间）：现行家居布局只有
+     * 卧室/卫生间/厨房/阳台，升级时把这些房间连同其子位置下线。
+     */
+    private val obsoleteRooms = listOf("客厅", "书房", "储物间")
+
+    /**
+     * 下线多余房间及其子位置：用软删除写墓碑（删除可随备份/同步传递）。
+     * 只在这些位置整棵子树都没有物品时才处理，避免误删用户已归置的物品。
+     */
+    fun pruneObsoleteRooms(db: SupportSQLiteDatabase) {
+        obsoleteRooms.forEach { room ->
+            val roomId = db.query(
+                "SELECT id FROM locations WHERE name = '${room.sql()}' " +
+                    "AND parentId IS NOT NULL AND deletedAt IS NULL LIMIT 1"
+            ).useCursor { cursor ->
+                if (cursor.moveToFirst()) cursor.getLong(0) else null
+            } ?: return@forEach
+
+            val ids = collectLocationSubtreeIds(db, roomId)
+            val inClause = ids.joinToString(",")
+            val itemCount = db.query(
+                "SELECT COUNT(*) FROM items WHERE locationId IN ($inClause) AND deletedAt IS NULL"
+            ).useCursor { cursor ->
+                cursor.moveToFirst()
+                cursor.getInt(0)
+            }
+            if (itemCount > 0) return@forEach
+
+            db.execSQL("UPDATE locations SET deletedAt = $nowMillisSql WHERE id IN ($inClause)")
+        }
+    }
+
+    /** 收集某个位置及其全部下级位置的 id（按 parentId 逐层展开）。 */
+    private fun collectLocationSubtreeIds(db: SupportSQLiteDatabase, rootId: Long): List<Long> {
+        val ids = mutableListOf<Long>()
+        val pending = ArrayDeque<Long>().apply { add(rootId) }
+        while (pending.isNotEmpty()) {
+            val id = pending.removeFirst()
+            if (!ids.add(id)) continue
+            db.query("SELECT id FROM locations WHERE parentId = $id").useCursor { cursor ->
+                while (cursor.moveToNext()) pending.add(cursor.getLong(0))
+            }
+        }
+        return ids
+    }
 
     fun ensureSeedData(db: SupportSQLiteDatabase) {
         ensureSeedCategories(db)
@@ -86,9 +130,13 @@ internal object SeedDataProvider {
     }
 
     /**
-     * 受保护的基础数据（依赖 isProtected 列，只在 v14+ 的建库/迁移里调用）：
+     * 受保护的基础数据（依赖 isProtected 列）。
      * 补种「食品 → 子分类 → 具体分类」三级结构并把整棵树标为受保护，
      * 同时把「冰箱」位置标为受保护。
+     *
+     * 该方法设计为**可重复执行**：既在 v14+ 的建库/迁移里调用，也在每次
+     * 备份导入 / 局域网同步合并后调用一次，确保内置食材分类在任何情况下
+     * 丢失（被同步改写、被误删）都能自动补齐，而不依赖远端是否还带着它们。
      */
     fun ensureProtectedSeedData(db: SupportSQLiteDatabase) {
         val foodId = ensureProtectedCategory(db, "食品", null)
@@ -104,8 +152,8 @@ internal object SeedDataProvider {
             ensureProtectedCategory(db, leaf, snackId)
         }
         db.execSQL(
-            "UPDATE locations SET isProtected = 1 " +
-                "WHERE name = '${MEAL_LOCATION.sql()}' AND deletedAt IS NULL"
+            "UPDATE locations SET isProtected = 1, deletedAt = NULL " +
+                "WHERE name = '${MEAL_LOCATION.sql()}'"
         )
         inheritCategoryIcons(db)
     }
@@ -314,8 +362,15 @@ internal object SeedDataProvider {
     }
 
     /**
-     * 按「名称 + 父级」查找或创建受保护分类；已存在时只补上保护位。
+     * 按「名称 + 父级」查找或创建受保护分类；已存在时补上保护位并清除墓碑。
      * 返回该分类的 id，便于继续挂子分类。
+     *
+     * 该方法必须可重复执行（同步/导入后无条件补种一次），否则内置食材分类一旦被
+     * 同步合并改写或软删就再也回不来：
+     *  - 精确命中（同名同父级）：补保护位 + 清墓碑（复活被误删的内置分类）；
+     *  - 未精确命中但存在同名「孤立」分类（同步时先以一级分类落库、父级还没修正）：
+     *    重新挂回正确父级，避免留下顶级孤儿的「番茄」；
+     *  - 都找不到才插入新记录兜底。
      */
     private fun ensureProtectedCategory(
         db: SupportSQLiteDatabase,
@@ -329,8 +384,27 @@ internal object SeedDataProvider {
             if (cursor.moveToFirst()) cursor.getLong(0) else null
         }
         if (existing != null) {
-            db.execSQL("UPDATE categories SET isProtected = 1 WHERE id = $existing")
+            db.execSQL(
+                "UPDATE categories SET isProtected = 1, deletedAt = NULL WHERE id = $existing"
+            )
             return existing
+        }
+        // 同步合并时缺失的分类会先以一级分类（parentId = NULL）落库，随后才修正父级；
+        // 此处按名称找这类孤立分类重新挂回正确父级。排除 parentId 自身，防止自环。
+        if (parentId != null) {
+            val orphanId = db.query(
+                "SELECT id FROM categories WHERE name = '${name.sql()}' " +
+                    "AND parentId IS NULL AND id <> $parentId LIMIT 1"
+            ).useCursor { cursor ->
+                if (cursor.moveToFirst()) cursor.getLong(0) else null
+            }
+            if (orphanId != null) {
+                db.execSQL(
+                    "UPDATE categories SET parentId = $parentId, isProtected = 1, " +
+                        "deletedAt = NULL, updatedAt = $nowMillisSql WHERE id = $orphanId"
+                )
+                return orphanId
+            }
         }
         val parentSql = parentId?.toString() ?: "NULL"
         db.execSQL(

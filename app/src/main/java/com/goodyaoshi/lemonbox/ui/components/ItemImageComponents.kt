@@ -181,25 +181,31 @@ fun ItemImageGallery(
                     }
                 )
             }
-            item {
-                ActionImageSlot(
-                    title = "补拍细节",
-                    subtitle = "继续添加图片",
-                    icon = Icons.Default.Add,
-                    onClick = onCaptureDetail,
-                    modifier = Modifier.size(width = 120.dp, height = 120.dp)
-                )
-            }
+        }
+
+        // 图片多的时候，操作入口不再塞进横向滚动列表，改为固定在下方一行，
+        // 免去「扫码关联」被推到最右边、要一直往右滑才能点到。
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            ActionImageSlot(
+                title = "补拍细节",
+                subtitle = "继续添加图片",
+                icon = Icons.Default.Add,
+                onClick = onCaptureDetail,
+                modifier = Modifier.weight(1f)
+            )
             if (scanBarcodeAction != null) {
-                item {
-                    ActionImageSlot(
-                        title = "扫码关联",
-                        subtitle = "扫描条码或二维码",
-                        icon = Icons.Default.QrCodeScanner,
-                        onClick = scanBarcodeAction,
-                        modifier = Modifier.size(width = 120.dp, height = 120.dp)
-                    )
-                }
+                ActionImageSlot(
+                    title = "扫码关联",
+                    subtitle = "扫描条码或二维码",
+                    icon = Icons.Default.QrCodeScanner,
+                    onClick = scanBarcodeAction,
+                    modifier = Modifier.weight(1f)
+                )
             }
         }
     }

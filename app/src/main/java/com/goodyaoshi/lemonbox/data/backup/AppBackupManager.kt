@@ -2,6 +2,8 @@ package com.goodyaoshi.lemonbox.data.backup
 
 import android.content.Context
 import android.net.Uri
+import com.goodyaoshi.lemonbox.data.local.database.AppDatabase
+import com.goodyaoshi.lemonbox.data.local.database.SeedDataProvider
 import com.goodyaoshi.lemonbox.data.repository.AnniversaryRepository
 import com.goodyaoshi.lemonbox.data.repository.CategoryRepository
 import com.goodyaoshi.lemonbox.data.repository.ItemRepository
@@ -11,6 +13,8 @@ import com.goodyaoshi.lemonbox.data.repository.ReminderRepository
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import com.goodyaoshi.lemonbox.util.TodoReminderScheduler
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -86,6 +90,37 @@ data class BackupArchive(
 )
 
 /**
+ * 同步范围：让用户自己决定这次把对方数据合并进来时做到什么程度。
+ *  - [ALL] 全部同步：新增、修改、删除都接受；
+ *  - [ADD_ONLY] 只同步新增：只在本地没有对应记录时插入，忽略对方的修改与删除；
+ *  - [NO_DELETE] 同步但不删除：接受新增与修改，忽略对方的删除墓碑。
+ */
+enum class SyncScope(val label: String) {
+    ALL("全部同步"),
+    ADD_ONLY("只同步新增"),
+    NO_DELETE("同步但不删除")
+}
+
+/** 合并预览：对方数据合并到本机后预计发生的变化（用户据此选范围）。 */
+@Serializable
+data class BackupPreview(
+    val added: Int = 0,
+    val updated: Int = 0,
+    val deleted: Int = 0
+) {
+    val hasChanges: Boolean
+        get() = added + updated + deleted > 0
+}
+
+/** 预览用的行视图：只保留计数需要的最小字段。 */
+private data class PreviewRow(
+    val key: String,
+    val updatedAt: Long?,
+    val deletedAt: Long?,
+    val protected: Boolean = false
+)
+
+/**
  * 备份导出与局域网合并导入的入口。
  *
  * 自身只保留「导出 / 导入编排 + ZIP 打包解包」（F9）：合并策略见 `BackupMergeStrategy.kt`，
@@ -102,7 +137,8 @@ class AppBackupManager @Inject constructor(
     internal val anniversaryRepository: AnniversaryRepository,
     internal val reminderRepository: ReminderRepository,
     private val todoReminderScheduler: TodoReminderScheduler,
-    private val appPreferences: AppPreferences
+    private val appPreferences: AppPreferences,
+    internal val appDatabase: AppDatabase
 ) {
 
     private val json = Json {
@@ -122,10 +158,36 @@ class AppBackupManager @Inject constructor(
     }
 
     /**
+     * 补种受保护的内置分类与位置（食品食材子树、零食、冰箱）。可重复执行：
+     * 精确命中则补保护位并清墓碑，孤立项重新挂回父级，缺失项插入兜底。
+     */
+    private suspend fun seedProtectedData() {
+        withContext(Dispatchers.IO) {
+            SeedDataProvider.ensureProtectedSeedData(appDatabase.openHelper.writableDatabase)
+        }
+    }
+
+    /**
+     * 恢复内置分类：手动入口用。把内置食材/零食分类补齐、复活被误删项、修复孤立父级，
+     * 再统一去重收敛，让「同步后少了的食材分类」能一键找回来。
+     */
+    suspend fun restoreBuiltInData() {
+        seedProtectedData()
+        categoryRepository.deduplicateCategories()
+        locationRepository.deduplicateLocations()
+    }
+
+    /**
      * 合并导入：不再整库替换。以 syncId 对齐同一条记录，按 updatedAt「较新者胜」，
      * 删除通过软删除时间戳传递。这样双方各自编辑后互相导入不会丢数据。
+     *
+     * [scope] 允许调用方限定本次合并的范围（全部 / 只新增 / 不删除）：
+     * 在合并前先把远端快照按范围过滤，因此无需改动各实体的合并规则。
      */
-    suspend fun importBackup(sourceUri: Uri): BackupMergeResult {
+    suspend fun importBackup(
+        sourceUri: Uri,
+        scope: SyncScope = SyncScope.ALL
+    ): BackupMergeResult {
         val workingDir = File(context.cacheDir, "backup-import-${System.currentTimeMillis()}.apply").apply {
             mkdirs()
         }
@@ -137,8 +199,9 @@ class AppBackupManager @Inject constructor(
 
             unzip(backupZip, workingDir)
             val payload = File(workingDir, BACKUP_MANIFEST_NAME).readText()
-            val backup = json.decodeFromString<AppBackupPayload>(payload)
-            val useSyncIds = backup.syncVersion >= SYNC_ID_VERSION
+            val raw = json.decodeFromString<AppBackupPayload>(payload)
+            val useSyncIds = raw.syncVersion >= SYNC_ID_VERSION
+            val backup = filterByScope(raw, scope, useSyncIds)
 
             val categoryOutcome = mergeCategories(backup.categories, useSyncIds)
             val locationOutcome = mergeLocations(backup.locations, useSyncIds)
@@ -194,6 +257,10 @@ class AppBackupManager @Inject constructor(
                 todoReminderScheduler.reschedule()
             }
 
+            // 内置受保护分类/位置（食材子树、零食、冰箱）是菜谱与「今天吃什么」的基础规则：
+            // 无论本次合并怎么改写，合并后都无条件补齐一次，保证丢失的内置分类一定能回来，
+            // 随后再按路径统一去重收敛重复项。
+            seedProtectedData()
             // 两台设备各自种子化的默认分类/位置/记账分类/账户 syncId 不同，按 syncId 对齐后
             // 会各留一份，合并完统一按「同名同父级路径」收敛，避免选择器出现多个一样的项。
             locationRepository.deduplicateLocations()
@@ -223,6 +290,188 @@ class AppBackupManager @Inject constructor(
         } finally {
             workingDir.deleteRecursively()
         }
+    }
+
+    /**
+     * 预演合并：只统计「对方数据合并到本机」将带来的新增 / 修改 / 删除数量，不改动数据库。
+     * 局域网同步用它把「会同步哪些内容」先展示给用户，由用户决定是否继续、以及同步范围。
+     */
+    suspend fun previewBackup(sourceUri: Uri): BackupPreview {
+        val workingDir = File(context.cacheDir, "backup-preview-${System.currentTimeMillis()}.apply").apply {
+            mkdirs()
+        }
+        val backupZip = File(workingDir, "backup.zip")
+        try {
+            context.contentResolver.openInputStream(sourceUri)?.use { input ->
+                backupZip.outputStream().use { output -> input.copyTo(output) }
+            } ?: error("无法读取备份文件")
+
+            unzip(backupZip, workingDir)
+            val payload = File(workingDir, BACKUP_MANIFEST_NAME).readText()
+            val backup = json.decodeFromString<AppBackupPayload>(payload)
+            return computePreview(backup, backup.syncVersion >= SYNC_ID_VERSION)
+        } finally {
+            workingDir.deleteRecursively()
+        }
+    }
+
+    /** 按范围过滤远端快照：只新增会在合并前丢弃已存在记录与墓碑，不删除只丢弃墓碑。 */
+    private suspend fun filterByScope(
+        backup: AppBackupPayload,
+        scope: SyncScope,
+        useSyncIds: Boolean
+    ): AppBackupPayload {
+        if (scope == SyncScope.ALL) return backup
+        val categoryKeys = categoryRepository.getAllCategoriesSnapshot()
+            .map { keyOf(it.syncId, it.id, useSyncIds) }.toSet()
+        val locationKeys = locationRepository.getAllLocationsSnapshot()
+            .map { keyOf(it.syncId, it.id, useSyncIds) }.toSet()
+        val itemKeys = itemRepository.getAllItemsSnapshot()
+            .map { keyOf(it.syncId, it.id, useSyncIds) }.toSet()
+        val ledgerAssetKeys = ledgerRepository.getAllAssetsSnapshot()
+            .map { keyOf(it.syncId, it.id, useSyncIds) }.toSet()
+        val ledgerCategoryKeys = ledgerRepository.getAllCategoriesSnapshot()
+            .map { keyOf(it.syncId, it.id, useSyncIds) }.toSet()
+        val ledgerRecordKeys = ledgerRepository.getAllRecordsSnapshot()
+            .map { keyOf(it.syncId, it.id, useSyncIds) }.toSet()
+        val ledgerBudgetKeys = ledgerRepository.getAllBudgetsSnapshot()
+            .map { keyOf(it.syncId, it.id, useSyncIds) }.toSet()
+        val anniversaryKeys = anniversaryRepository.getAllSnapshot()
+            .map { keyOf(it.syncId, it.id, useSyncIds) }.toSet()
+        val reminderKeys = reminderRepository.getAllSnapshot()
+            .map { keyOf(it.syncId, it.id, useSyncIds) }.toSet()
+
+        fun keep(key: String, deletedAt: Long?, localKeys: Set<String>): Boolean = when (scope) {
+            SyncScope.ADD_ONLY -> key !in localKeys && deletedAt == null
+            SyncScope.NO_DELETE -> deletedAt == null
+            SyncScope.ALL -> true
+        }
+
+        return backup.copy(
+            categories = backup.categories.filter {
+                keep(keyOf(it.syncId, it.id, useSyncIds), it.deletedAt, categoryKeys)
+            },
+            locations = backup.locations.filter {
+                keep(keyOf(it.syncId, it.id, useSyncIds), it.deletedAt, locationKeys)
+            },
+            items = backup.items.filter {
+                keep(keyOf(it.syncId, it.id, useSyncIds), it.deletedAt, itemKeys)
+            },
+            ledgerAssets = backup.ledgerAssets.filter {
+                keep(keyOf(it.syncId, it.id, useSyncIds), it.deletedAt, ledgerAssetKeys)
+            },
+            ledgerCategories = backup.ledgerCategories.filter {
+                keep(keyOf(it.syncId, it.id, useSyncIds), it.deletedAt, ledgerCategoryKeys)
+            },
+            ledgerRecords = backup.ledgerRecords.filter {
+                keep(keyOf(it.syncId, it.id, useSyncIds), it.deletedAt, ledgerRecordKeys)
+            },
+            ledgerBudgets = backup.ledgerBudgets.filter {
+                keep(keyOf(it.syncId, it.id, useSyncIds), it.deletedAt, ledgerBudgetKeys)
+            },
+            anniversaries = backup.anniversaries.filter {
+                keep(keyOf(it.syncId, it.id, useSyncIds), it.deletedAt, anniversaryKeys)
+            },
+            reminders = backup.reminders.filter {
+                keep(keyOf(it.syncId, it.id, useSyncIds), it.deletedAt, reminderKeys)
+            }
+        )
+    }
+
+    private suspend fun computePreview(backup: AppBackupPayload, useSyncIds: Boolean): BackupPreview {
+        var added = 0
+        var updated = 0
+        var deleted = 0
+
+        fun accumulate(rows: List<PreviewRow>, local: Map<String, PreviewRow>) {
+            val counts = countChanges(rows, local)
+            added += counts[0]
+            updated += counts[1]
+            deleted += counts[2]
+        }
+
+        val localCategories = categoryRepository.getAllCategoriesSnapshot()
+        accumulate(
+            previewRows(backup.categories, useSyncIds, { it.syncId }, { it.id }, { it.updatedAt }, { it.deletedAt }),
+            previewRows(localCategories, useSyncIds, { it.syncId }, { it.id }, { it.updatedAt }, { it.deletedAt }, { it.isProtected }).associateBy { it.key }
+        )
+        val localLocations = locationRepository.getAllLocationsSnapshot()
+        accumulate(
+            previewRows(backup.locations, useSyncIds, { it.syncId }, { it.id }, { it.updatedAt }, { it.deletedAt }),
+            previewRows(localLocations, useSyncIds, { it.syncId }, { it.id }, { it.updatedAt }, { it.deletedAt }, { it.isProtected }).associateBy { it.key }
+        )
+        val localItems = itemRepository.getAllItemsSnapshot()
+        accumulate(
+            previewRows(backup.items, useSyncIds, { it.syncId }, { it.id }, { it.updatedAt ?: it.createdAt }, { it.deletedAt }),
+            previewRows(localItems, useSyncIds, { it.syncId }, { it.id }, { it.updatedAt ?: it.createdAt }, { it.deletedAt }).associateBy { it.key }
+        )
+        val localAssets = ledgerRepository.getAllAssetsSnapshot()
+        accumulate(
+            previewRows(backup.ledgerAssets, useSyncIds, { it.syncId }, { it.id }, { it.updatedAt }, { it.deletedAt }),
+            previewRows(localAssets, useSyncIds, { it.syncId }, { it.id }, { it.updatedAt }, { it.deletedAt }).associateBy { it.key }
+        )
+        val localLedgerCategories = ledgerRepository.getAllCategoriesSnapshot()
+        accumulate(
+            previewRows(backup.ledgerCategories, useSyncIds, { it.syncId }, { it.id }, { it.updatedAt }, { it.deletedAt }),
+            previewRows(localLedgerCategories, useSyncIds, { it.syncId }, { it.id }, { it.updatedAt }, { it.deletedAt }, { it.isProtected }).associateBy { it.key }
+        )
+        val localRecords = ledgerRepository.getAllRecordsSnapshot()
+        accumulate(
+            previewRows(backup.ledgerRecords, useSyncIds, { it.syncId }, { it.id }, { it.updatedAt ?: it.createdAt }, { it.deletedAt }),
+            previewRows(localRecords, useSyncIds, { it.syncId }, { it.id }, { it.updatedAt ?: it.createdAt }, { it.deletedAt }).associateBy { it.key }
+        )
+        val localBudgets = ledgerRepository.getAllBudgetsSnapshot()
+        accumulate(
+            previewRows(backup.ledgerBudgets, useSyncIds, { it.syncId }, { it.id }, { it.updatedAt }, { it.deletedAt }),
+            previewRows(localBudgets, useSyncIds, { it.syncId }, { it.id }, { it.updatedAt }, { it.deletedAt }).associateBy { it.key }
+        )
+        val localAnniversaries = anniversaryRepository.getAllSnapshot()
+        accumulate(
+            previewRows(backup.anniversaries, useSyncIds, { it.syncId }, { it.id }, { it.updatedAt ?: it.createdAt }, { it.deletedAt }),
+            previewRows(localAnniversaries, useSyncIds, { it.syncId }, { it.id }, { it.updatedAt ?: it.createdAt }, { it.deletedAt }).associateBy { it.key }
+        )
+        val localReminders = reminderRepository.getAllSnapshot()
+        accumulate(
+            previewRows(backup.reminders, useSyncIds, { it.syncId }, { it.id }, { it.updatedAt ?: it.createdAt }, { it.deletedAt }),
+            previewRows(localReminders, useSyncIds, { it.syncId }, { it.id }, { it.updatedAt ?: it.createdAt }, { it.deletedAt }).associateBy { it.key }
+        )
+
+        return BackupPreview(added = added, updated = updated, deleted = deleted)
+    }
+
+    /** 返回 [added, updated, deleted]；与合并策略同口径：受保护记录不改、远端较新才动。 */
+    private fun countChanges(rows: List<PreviewRow>, local: Map<String, PreviewRow>): IntArray {
+        var added = 0
+        var updated = 0
+        var deleted = 0
+        rows.forEach { remote ->
+            val existing = local[remote.key]
+            if (existing == null) {
+                if (remote.deletedAt == null) added++
+            } else {
+                if (existing.protected) return@forEach
+                if (!isRemoteNewer(remote.updatedAt, existing.updatedAt)) return@forEach
+                if (remote.deletedAt != null && existing.deletedAt == null) deleted++ else updated++
+            }
+        }
+        return intArrayOf(added, updated, deleted)
+    }
+
+    private fun <T> previewRows(
+        items: List<T>,
+        useSyncIds: Boolean,
+        syncId: (T) -> String?,
+        id: (T) -> Long,
+        updatedAt: (T) -> Long?,
+        deletedAt: (T) -> Long?,
+        protected: (T) -> Boolean = { false }
+    ): List<PreviewRow> = items.map {
+        PreviewRow(
+            key = keyOf(syncId(it), id(it), useSyncIds),
+            updatedAt = updatedAt(it),
+            deletedAt = deletedAt(it),
+            protected = protected(it)
+        )
     }
 
     /**

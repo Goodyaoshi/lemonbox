@@ -116,7 +116,8 @@ class ScanViewModel @Inject constructor(
                         id = 0,
                         quantity = quantity,
                         expireTime = expireTime,
-                        usageStatus = Item.USAGE_IN_USE,
+                        // 刚扫码入库的批次还没开始用：按件消耗默认「未使用」。
+                        usageStatus = Item.defaultUsageStatusForNewItem(template.trackMode),
                         disposition = Item.DISPOSITION_IN_STOCK,
                         needRestock = false,
                         rating = null,

@@ -102,6 +102,18 @@ class ProfileViewModel @Inject constructor(
         _backupState.value = _backupState.value.copy(message = null, isError = false)
     }
 
+    /** 恢复内置分类：补齐食材/零食等受保护分类并去重，用于同步后分类缺失时手动找回。 */
+    fun restoreBuiltInData() {
+        viewModelScope.launch {
+            runBackupAction(
+                successMessage = "内置分类已补齐，去「分类」里看看",
+                busyLabel = "正在恢复内置分类…"
+            ) {
+                backupManager.restoreBuiltInData()
+            }
+        }
+    }
+
     private suspend fun runBackupAction(
         successMessage: String,
         busyLabel: String,

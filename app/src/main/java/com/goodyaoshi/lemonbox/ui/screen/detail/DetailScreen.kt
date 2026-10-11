@@ -391,6 +391,9 @@ fun DetailScreen(
                 item.price?.let { price ->
                     DetailInfoRow("价格", DateUtil.formatCurrency(price))
                 }
+                item.productionDate?.let { productionDate ->
+                    DetailInfoRow("生产日期", DateUtil.formatDate(productionDate))
+                }
                 item.purchaseDate?.let { purchaseDate ->
                     DetailInfoRow("购买日期", DateUtil.formatDate(purchaseDate))
                 }

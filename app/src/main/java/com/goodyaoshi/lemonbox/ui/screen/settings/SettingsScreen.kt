@@ -22,9 +22,12 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -49,11 +52,13 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import com.goodyaoshi.lemonbox.BuildConfig
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import com.goodyaoshi.lemonbox.data.settings.ThemeMode
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
+import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarmDeep
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
@@ -140,6 +145,10 @@ fun SettingsScreen(
     val mealPrepDayShift by viewModel.mealPrepDayShift.collectAsState()
     val mealPrepFireTime by viewModel.mealPrepFireTime.collectAsState()
     val budgetReminderEnabled by viewModel.budgetReminderEnabled.collectAsState()
+    val updateState by viewModel.updateState.collectAsState()
+
+    // 应用级提示通道：用于「临时关闭后台」等结果的反馈。
+    val appSnackbar = LocalAppSnackbar.current
 
     var showTimePicker by remember { mutableStateOf(false) }
     var showMealPrepTimePicker by remember { mutableStateOf(false) }
@@ -403,7 +412,7 @@ fun SettingsScreen(
                 )
                 Spacer(modifier = Modifier.size(6.dp))
                 Text(
-                    text = "小米等手机把应用划出最近任务时会强制停止并取消全部提醒。完成下面两项设置后，提醒就能稳定准点触发。",
+                    text = "小米等手机把应用划出最近任务时会强制停止并取消全部提醒。完成下面几项设置后，提醒就能稳定准点触发。",
                     fontSize = 12.sp,
                     color = TextSecondary
                 )
@@ -450,7 +459,7 @@ fun SettingsScreen(
                             color = TextPrimary
                         )
                         Text(
-                            text = "通知栏常驻一条无声通知，防止划卡清理杀掉提醒",
+                            text = "开启后通知栏常驻一条无声通知、进程保持前台状态（会占用少量内存）；关掉能更省内存，但划卡后提醒可能失效",
                             fontSize = 12.sp,
                             color = TextSecondary
                         )
@@ -459,6 +468,116 @@ fun SettingsScreen(
                         checked = keepAliveEnabled,
                         onCheckedChange = { viewModel.setKeepAliveEnabled(it) }
                     )
+                }
+                // 临时关闭后台（问题9）：立即释放前台服务占用的内存，不改动上面的开关，
+                // 下次打开应用会按开关状态自动恢复，对应「临时完全关闭、后面再自启动」。
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "临时关闭后台",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = TextPrimary
+                        )
+                        Text(
+                            text = "点一下立即释放后台内存（含那条常驻通知），适合临时不用提醒、想让手机更省电的时候；下次打开应用会自动恢复",
+                            fontSize = 12.sp,
+                            color = TextSecondary
+                        )
+                    }
+                    ActionPillButton(
+                        label = "释放",
+                        onClick = {
+                            viewModel.releaseBackgroundNow()
+                            appSnackbar?.postMessage("已临时关闭后台，下次打开应用会自动恢复")
+                        }
+                    )
+                }
+            }
+
+            AppSurfaceCard(
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                shape = RoundedCornerShape(24.dp),
+                shadowElevation = 12.dp
+            ) {
+                Text(
+                    text = "关于与更新",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+                Spacer(modifier = Modifier.size(6.dp))
+                Text(
+                    text = "有新版本时可在这里直接下载安装：WiFi 下直接下载；移动数据会先提示，确认后再用流量下载。",
+                    fontSize = 12.sp,
+                    color = TextSecondary
+                )
+                Spacer(modifier = Modifier.size(12.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "版本 v${BuildConfig.VERSION_NAME}",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = TextPrimary
+                        )
+                        Text(
+                            text = when {
+                                updateState.downloading -> "正在下载新版本…"
+                                updateState.checking -> "正在检查更新…"
+                                else -> "从 GitHub Release 获取最新版本"
+                            },
+                            fontSize = 12.sp,
+                            color = TextSecondary
+                        )
+                    }
+                    if (updateState.checking) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(22.dp),
+                            strokeWidth = 2.dp,
+                            color = OrangeStart
+                        )
+                    } else {
+                        ActionPillButton(
+                            label = "检查更新",
+                            onClick = { viewModel.checkForUpdate() }
+                        )
+                    }
+                }
+                updateState.message?.let { message ->
+                    Spacer(modifier = Modifier.size(4.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = message,
+                            fontSize = 12.sp,
+                            color = OrangeStart,
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(
+                            onClick = { viewModel.consumeUpdateMessage() },
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "关闭提示",
+                                tint = TextSecondary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
                 }
             }
 
@@ -482,6 +601,68 @@ fun SettingsScreen(
                         viewModel.setMealPrepFireTime(time)
                         showMealPrepTimePicker = false
                     }
+                )
+            }
+
+            updateState.available?.let { info ->
+                AppDialog(
+                    title = "发现新版本 v${info.versionName}",
+                    onDismissRequest = { viewModel.dismissUpdateDialog() },
+                    subtitle = buildString {
+                        append("安装包约 ")
+                        append(formatSize(info.sizeBytes))
+                        if (info.notes.isNotBlank()) {
+                            append("\n\n")
+                            append(info.notes)
+                        }
+                    },
+                    confirmText = if (updateState.downloading) "下载中…" else "下载并安装",
+                    onConfirm = { viewModel.downloadAndInstallUpdate() },
+                    confirmEnabled = !updateState.downloading,
+                    dismissText = "稍后"
+                ) {
+                    if (updateState.downloading) {
+                        val progress = updateState.progress
+                        if (progress >= 0f) {
+                            LinearProgressIndicator(
+                                progress = { progress },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        } else {
+                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        }
+                        Spacer(modifier = Modifier.size(8.dp))
+                        Text(
+                            text = if (progress >= 0f) {
+                                "已下载 ${(progress * 100).toInt()}%"
+                            } else {
+                                "正在下载…"
+                            },
+                            fontSize = 12.sp,
+                            color = TextSecondary
+                        )
+                    }
+                }
+            }
+
+            if (updateState.awaitingDataConfirm) {
+                AppDialog(
+                    title = "用移动数据下载？",
+                    onDismissRequest = { viewModel.dismissDataConfirm() },
+                    subtitle = "当前不在 WiFi 下，下载安装包会消耗移动数据流量。确认后将继续下载。",
+                    confirmText = "继续下载",
+                    onConfirm = { viewModel.confirmDownloadOverData() },
+                    dismissText = "取消"
+                )
+            }
+
+            if (updateState.needInstallPermission) {
+                AppDialog(
+                    title = "需要先允许安装",
+                    onDismissRequest = { viewModel.dismissInstallPermissionHint() },
+                    subtitle = "系统默认禁止从${BrandCopy.APP_NAME}直接安装应用。到设置里允许后回到这里，再点一次「下载并安装」即可。",
+                    confirmText = "去开启",
+                    onConfirm = { viewModel.openInstallPermission() }
                 )
             }
         }
@@ -554,5 +735,16 @@ private fun ReliabilityItem(
                 onClick = onAction
             )
         }
+    }
+}
+
+/** 把字节数按 KB/MB 友好展示；未知大小时给出「未知」占位。 */
+private fun formatSize(bytes: Long): String {
+    if (bytes <= 0) return "未知大小"
+    val mb = bytes / 1024.0 / 1024.0
+    return if (mb >= 1.0) {
+        "%.1f MB".format(mb)
+    } else {
+        "%.0f KB".format(bytes / 1024.0)
     }
 }

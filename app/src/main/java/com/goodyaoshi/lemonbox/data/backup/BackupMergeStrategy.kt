@@ -95,7 +95,13 @@ internal suspend fun AppBackupManager.mergeCategories(
         val key = keyOf(snapshot.syncId, snapshot.id, useSyncIds)
         val localId = idByKey[key] ?: return@forEach
         val local = localById[localId] ?: return@forEach
+        // 受保护分类（食品及其食材子树）是菜谱匹配与默认规则的基础：本地已存在的
+        // 受保护分类无论远端是什么状态，都不允许被同步改写名称/父级，也不允许被
+        // 远端的墓碑（deletedAt）软删。
+        // 但本轮新插入的受保护分类必须例外：它刚以 parentId = null 落库，仍需在这一遍
+        // 修正父级，否则「番茄」会停留在顶级成为孤儿、与本地同名项无法按路径对齐。
         val isNew = key in insertedKeys
+        if (local.isProtected && !isNew) return@forEach
         if (!isNew && !isRemoteNewer(snapshot.updatedAt, local.updatedAt)) {
             return@forEach
         }
@@ -165,7 +171,11 @@ internal suspend fun AppBackupManager.mergeLocations(
         val key = keyOf(snapshot.syncId, snapshot.id, useSyncIds)
         val localId = idByKey[key] ?: return@forEach
         val local = localById[localId] ?: return@forEach
+        // 受保护位置（冰箱）是「今天吃什么」取材规则的基础：本地已存在的受保护位置
+        // 无论远端是什么状态，都不允许被同步改写名称/父级，也不允许被远端的墓碑软删。
+        // 同理，本轮新插入的受保护位置仍需修正父级，故仅在非新插入时才跳过。
         val isNew = key in insertedKeys
+        if (local.isProtected && !isNew) return@forEach
         if (!isNew && !isRemoteNewer(snapshot.updatedAt, local.updatedAt)) {
             return@forEach
         }
@@ -298,6 +308,8 @@ internal suspend fun AppBackupManager.mergeLedgerCategories(
             added++
         } else {
             idByKey[key] = local.id
+            // 受保护记账分类是账目统计的基础，不允许被同步改写或软删。
+            if (local.isProtected) return@forEach
             if (!isRemoteNewer(snapshot.updatedAt, local.updatedAt)) return@forEach
             ledgerRepository.updateSyncedCategory(
                 local.copy(

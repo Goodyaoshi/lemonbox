@@ -37,6 +37,8 @@ data class EditItemState(
     val reminderDays: List<Int> = emptyList(),
     /** 购买日期；未记录为 null。 */
     val purchaseDate: Long? = null,
+    /** 生产日期；未记录为 null，仅作参考。 */
+    val productionDate: Long? = null,
     /** 开始使用时间；可手动补录，为 null 表示还没开始用。 */
     val startUseTime: Long? = null,
     /** 计量方式：按件消耗 / 持续使用（耐用品）。 */
@@ -100,6 +102,7 @@ class EditViewModel @Inject constructor(
                 imagePaths = item.imagePathList(),
                 reminderDays = Item.decodeReminderDays(item.reminderDays),
                 purchaseDate = item.purchaseDate,
+                productionDate = item.productionDate,
                 startUseTime = item.startUseTime,
                 trackMode = item.trackMode,
                 rating = item.rating,
@@ -122,14 +125,17 @@ class EditViewModel @Inject constructor(
         )
     }
 
-    fun replacePrimaryPhoto(context: Context, uri: Uri) {
-        val savedPath = ImageUtil.saveImageToInternal(context, uri) ?: return
+    fun replacePrimaryPhoto(context: Context, uris: List<Uri>) {
+        val savedPaths = uris.mapNotNull { ImageUtil.saveImageToInternal(context, it) }
+        if (savedPaths.isEmpty()) return
         val currentPaths = _state.value.imagePaths.toMutableList()
         currentPaths.firstOrNull()?.let(ImageUtil::deleteImage)
         if (currentPaths.isEmpty()) {
-            currentPaths += savedPath
+            currentPaths += savedPaths
         } else {
-            currentPaths[0] = savedPath
+            // 一次连拍多张：第一张替换原主图，其余顺延为细节图。
+            currentPaths[0] = savedPaths.first()
+            currentPaths += savedPaths.drop(1)
         }
         _state.value = _state.value.copy(imagePaths = currentPaths.distinct())
     }
@@ -191,6 +197,10 @@ class EditViewModel @Inject constructor(
         _state.value = _state.value.copy(purchaseDate = time)
     }
 
+    fun updateProductionDate(time: Long?) {
+        _state.value = _state.value.copy(productionDate = time)
+    }
+
     /** 补录/修改开始使用时间；清空表示还没开始用。 */
     fun updateStartUseTime(time: Long?) {
         _state.value = _state.value.copy(startUseTime = time)
@@ -227,6 +237,7 @@ class EditViewModel @Inject constructor(
                 expireTime = current.expireTime,
                 reminderDays = Item.encodeReminderDays(current.reminderDays),
                 purchaseDate = current.purchaseDate,
+                productionDate = current.productionDate,
                 // 只有持续使用型才有「开始使用/使用天数」的概念，按件消耗型清空该字段。
                 startUseTime = if (current.trackMode == Item.TRACK_DURABLE) {
                     current.startUseTime

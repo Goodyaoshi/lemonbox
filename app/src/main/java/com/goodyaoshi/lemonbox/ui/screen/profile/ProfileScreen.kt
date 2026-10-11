@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.CircularProgressIndicator
@@ -246,6 +247,13 @@ fun ProfileScreen(
                     onClick = {
                         importLauncher.launch(arrayOf("application/zip", "*/*"))
                     }
+                )
+                DividerSpacer()
+                MenuRow(
+                    icon = Icons.Default.Refresh,
+                    title = "恢复内置分类",
+                    subtitle = "补齐食材/零食等内置分类，误删或同步后丢失也能找回",
+                    onClick = viewModel::restoreBuiltInData
                 )
             }
 

@@ -80,17 +80,20 @@ class LedgerRepository @Inject constructor(
 
     suspend fun getCategory(id: Long): LedgerCategory? = categoryDao.getById(id)
 
-    /** 新增或更新记账分类；返回分类 id。 */
-    suspend fun saveCategory(category: LedgerCategory): Long = if (category.id == 0L) {
-        categoryDao.insert(
-            category.copy(
-                syncId = category.syncId ?: UUID.randomUUID().toString(),
-                updatedAt = MonotonicClock.now()
+    /** 新增或更新记账分类；返回分类 id。内置保护分类不允许改写，直接返回原 id。 */
+    suspend fun saveCategory(category: LedgerCategory): Long {
+        if (category.id == 0L) {
+            return categoryDao.insert(
+                category.copy(
+                    syncId = category.syncId ?: UUID.randomUUID().toString(),
+                    updatedAt = MonotonicClock.now()
+                )
             )
-        )
-    } else {
+        }
+        val origin = categoryDao.getById(category.id)
+        if (origin?.isProtected == true) return category.id
         categoryDao.update(category.copy(updatedAt = MonotonicClock.now()))
-        category.id
+        return category.id
     }
 
     /**
@@ -206,8 +209,12 @@ class LedgerRepository @Inject constructor(
         val now = MonotonicClock.now()
         var removed = 0
         groups.forEach { group ->
-            val keeper = group.firstOrNull { it.isProtected }
-                ?: group.minByOrNull { it.syncId ?: "id:${it.id}" }!!
+            // 优先受保护，其次 syncId 字典序最小：必须是全序且与设备无关，避免多保护项时
+            // 各设备保留本地副本后互相软删。
+            val keeper = group.minWithOrNull(
+                compareByDescending<LedgerCategory> { it.isProtected }
+                    .thenBy { it.syncId ?: "id:${it.id}" }
+            )!!
             group.forEach { dup ->
                 if (dup.id == keeper.id) return@forEach
                 recordDao.reassignCategory(dup.id, keeper.id)

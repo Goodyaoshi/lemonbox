@@ -299,6 +299,21 @@ class AppPreferences @Inject constructor(
         _autoStartConfirmed.value = confirmed
     }
 
+    private val _lastMaintenanceAt = MutableStateFlow(
+        preferences.getLong(KEY_LAST_MAINTENANCE_AT, 0L)
+    )
+
+    /**
+     * 上次执行「后台维护」（去重 / 清理墓碑）的时间戳（毫秒）。
+     * 冷启动时据此判断是否已经算过，避免每次打开都重复跑这些重活。
+     */
+    val lastMaintenanceAt: StateFlow<Long> = _lastMaintenanceAt.asStateFlow()
+
+    fun setLastMaintenanceAt(timestamp: Long) {
+        preferences.edit().putLong(KEY_LAST_MAINTENANCE_AT, timestamp).apply()
+        _lastMaintenanceAt.value = timestamp
+    }
+
     /** 新增自定义提醒时间点并自动勾选；已是固定档位或已存在的自定义值时只勾选。 */
     fun addCustomReminderTime(time: String) {
         if (!time.matches(TIME_FORMAT)) return
@@ -843,6 +858,7 @@ class AppPreferences @Inject constructor(
         private const val EXPIRY_QUICK_SEPARATOR = ","
         private const val KEY_KEEP_ALIVE_ENABLED = "keep_alive_enabled"
         private const val KEY_AUTO_START_CONFIRMED = "auto_start_confirmed"
+        private const val KEY_LAST_MAINTENANCE_AT = "last_maintenance_at"
         private const val KEY_CUSTOM_REMINDER_TIMES = "custom_reminder_times"
         private const val KEY_MEAL_PREP_DAY_SHIFT = "meal_prep_day_shift"
         private const val KEY_MEAL_PREP_FIRE_TIME = "meal_prep_fire_time"

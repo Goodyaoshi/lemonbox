@@ -617,6 +617,27 @@ internal object Migrations {
             }
         }
 
+        /**
+         * 家居布局收敛为「厨房 / 卧室 / 卫生间 / 阳台」四间：
+         * 早期版本默认种下的客厅 / 书房 / 储物间（及其子位置）在整棵子树内
+         * 没有物品时下线（软删除写墓碑，删除可随备份/同步传递）；
+         * 若用户已往里归置过物品则保留，避免误删。
+         */
+        private val MIGRATION_27_28 = object : Migration(27, 28) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                SeedDataProvider.pruneObsoleteRooms(db)
+            }
+        }
+
+        /**
+         * 物品新增「生产日期」：只加列不回填，历史记录保持 null（未记录）。
+         */
+        private val MIGRATION_28_29 = object : Migration(28, 29) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `items` ADD COLUMN `productionDate` INTEGER")
+            }
+        }
+
     /** 按版本顺序排列的全部迁移，供 [AppDatabase] 一次性装配。 */
     val ALL: Array<Migration> = arrayOf(
         MIGRATION_1_2,
@@ -644,6 +665,8 @@ internal object Migrations {
         MIGRATION_23_24,
         MIGRATION_24_25,
         MIGRATION_25_26,
-        MIGRATION_26_27
+        MIGRATION_26_27,
+        MIGRATION_27_28,
+        MIGRATION_28_29
     )
 }

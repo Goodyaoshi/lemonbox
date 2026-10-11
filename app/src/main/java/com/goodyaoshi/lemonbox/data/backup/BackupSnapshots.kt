@@ -423,6 +423,8 @@ data class ItemSnapshot(
     val needRestock: Boolean? = null,
     /** 购买日期；使用周期统计，为 null 表示备份里没有。 */
     val purchaseDate: Long? = null,
+    /** 生产日期；仅作参考，为 null 表示备份里没有。 */
+    val productionDate: Long? = null,
     /** 开始使用时间；使用周期统计，为 null 表示备份里没有。 */
     val startUseTime: Long? = null,
     /** 使用结束时间；使用周期统计，为 null 表示备份里没有。 */
@@ -464,6 +466,7 @@ data class ItemSnapshot(
             disposition = state.disposition,
             needRestock = state.needRestock,
             purchaseDate = purchaseDate,
+            productionDate = productionDate,
             startUseTime = startUseTime,
             usageEndedAt = usageEndedAt,
             trackMode = trackMode ?: Item.TRACK_CONSUMABLE,
@@ -525,6 +528,7 @@ data class ItemSnapshot(
                 disposition = item.disposition,
                 needRestock = item.needRestock,
                 purchaseDate = item.purchaseDate,
+                productionDate = item.productionDate,
                 startUseTime = item.startUseTime,
                 usageEndedAt = item.usageEndedAt,
                 trackMode = item.trackMode,

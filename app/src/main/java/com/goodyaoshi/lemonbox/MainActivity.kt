@@ -1,6 +1,7 @@
 package com.goodyaoshi.lemonbox
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -33,6 +34,7 @@ import com.goodyaoshi.lemonbox.ui.components.LocalItemStatusOptions
 import com.goodyaoshi.lemonbox.ui.navigation.AppNavGraph
 import com.goodyaoshi.lemonbox.ui.screen.splash.AppSplashScreen
 import com.goodyaoshi.lemonbox.ui.theme.LemonTheme
+import com.goodyaoshi.lemonbox.util.TodoKeepAliveService
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -61,6 +63,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         requestNotificationPermission()
+        startKeepAliveIfEnabled()
         setContent {
             val themeMode by appPreferences.themeMode.collectAsState()
             val systemDark = isSystemInDarkTheme()
@@ -114,6 +117,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestNotificationPermission() {
+        // POST_NOTIFICATIONS 仅在 Android 13（API 33）及以上存在，低版本无需申请。
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(
                     this,
@@ -122,6 +126,20 @@ class MainActivity : ComponentActivity() {
             ) {
                 notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
             }
+        }
+    }
+
+    /**
+     * 仅在用户主动打开应用时拉起前台保活服务（问题9）：把常驻服务启动时机从
+     * Application.onCreate 收敛到「用户进入前台」，从而降低后台常驻内存占用。
+     */
+    private fun startKeepAliveIfEnabled() {
+        if (!appPreferences.keepAliveEnabled.value) return
+        val intent = Intent(this, TodoKeepAliveService::class.java)
+        try {
+            ContextCompat.startForegroundService(this, intent)
+        } catch (_: Exception) {
+            // 系统限制拉起前台服务时忽略；下次进入前台再尝试。
         }
     }
 
