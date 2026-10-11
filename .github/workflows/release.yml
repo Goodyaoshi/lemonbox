@@ -92,8 +92,13 @@ jobs:
             -PlemonVersionCode="${{ steps.version.outputs.code }}" \
             -PlemonApkOutputDir="$RUNNER_TEMP/dist" 2>&1 | tee "$RUNNER_TEMP/build.log"
           status=${PIPESTATUS[0]}
-          # 把构建日志尾部写入 Job Summary：该摘要在公开仓库无需登录即可查看，
+          # 失败时把日志尾部作为 error 注解输出：注解在公开仓库无需登录即可通过 API 读取，
           # 便于在无法读取受保护日志时定位失败原因。
+          if [ "$status" -ne 0 ]; then
+            tail -n 80 "$RUNNER_TEMP/build.log" > "$RUNNER_TEMP/tail.log" || true
+            MSG=$(sed ':a;N;$!ba;s/\n/%0A/g' "$RUNNER_TEMP/tail.log")
+            echo "::error title=Gradle build failed::$MSG"
+          fi
           {
             echo '## Gradle build log (tail)'
             echo '```text'
