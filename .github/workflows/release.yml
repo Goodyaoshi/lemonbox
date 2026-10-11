@@ -86,35 +86,28 @@ jobs:
           ORG_GRADLE_PROJECT_LEMON_KEY_ALIAS: ${{ secrets.LEMON_KEY_ALIAS }}
           ORG_GRADLE_PROJECT_LEMON_KEY_PASSWORD: ${{ secrets.LEMON_KEY_PASSWORD }}
         run: |
-          set +e
           chmod +x ./gradlew
           ./gradlew assembleRelease --no-daemon --console=plain \
             -PlemonVersionName="${{ steps.version.outputs.name }}" \
             -PlemonVersionCode="${{ steps.version.outputs.code }}" \
-            -PlemonApkOutputDir="$RUNNER_TEMP/dist" 2>&1 | tee "$RUNNER_TEMP/build.log"
-          status=${PIPESTATUS[0]}
-          # 失败时把日志尾部作为 error 注解输出：注解在公开仓库无需登录即可通过 API 读取，
-          # 便于在无法读取受保护日志时定位失败原因。
-          if [ "$status" -ne 0 ]; then
-            tail -n 80 "$RUNNER_TEMP/build.log" > "$RUNNER_TEMP/tail.log" || true
-            MSG=$(sed ':a;N;$!ba;s/\n/%0A/g' "$RUNNER_TEMP/tail.log")
-            echo "::error title=Gradle build failed::$MSG"
-          fi
-          {
-            echo '## Gradle build log (tail)'
-            echo '```text'
-            tail -n 200 "$RUNNER_TEMP/build.log"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-          exit $status
+            -PlemonApkOutputDir="$RUNNER_TEMP/dist"
 
-      - name: Rename APK to Chinese name
-        run: cp app/build/outputs/apk/release/app-release.apk "柠檬百宝箱.apk"
+      - name: Rename APK to versioned ASCII name
+        # 用纯 ASCII 文件名（lemonbox-<版本>.apk）：GitHub 会重写含非 ASCII 字符的资产名，
+        # 之前「柠檬百宝箱.apk」被服务端改成了 default.apk，故改用 ASCII 命名固定下载名。
+        run: cp app/build/outputs/apk/release/app-release.apk "lemonbox-${{ steps.version.outputs.name }}.apk"
+
+      - name: Delete existing release for this tag
+        # 对同一 tag 重新发布时，先删除旧 Release 及其资产（例如曾被 GitHub 改名的 default.apk），
+        # 避免新旧资产并存；首次发布时为 no-op。用 runner 自带 GITHUB_TOKEN，无需本地凭据。
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release delete "$GITHUB_REF_NAME" --yes || true
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: 柠檬百宝箱.apk
+          files: lemonbox-${{ steps.version.outputs.name }}.apk
           generate_release_notes: true
           draft: false
           prerelease: false
