@@ -111,22 +111,29 @@ fun SearchBar(
         }
 
         if (value.isNotEmpty()) {
+            // 清空热区对齐 48dp（视觉圆点仍 24dp），避免小圆点难以点中。
             Box(
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
-                    .padding(end = 12.dp)
-                    .size(24.dp)
+                    .size(48.dp)
                     .clip(CircleShape)
-                    .background(OrangeTint)
                     .clickable { onValueChange("") },
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    imageVector = Icons.Default.Close,
-                    contentDescription = "清空",
-                    modifier = Modifier.size(14.dp),
-                    tint = TextHint
-                )
+                Box(
+                    modifier = Modifier
+                        .size(24.dp)
+                        .clip(CircleShape)
+                        .background(OrangeTint),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "清空",
+                        modifier = Modifier.size(14.dp),
+                        tint = TextHint
+                    )
+                }
             }
         } else if (showMagicIconWhenEmpty) {
             Icon(

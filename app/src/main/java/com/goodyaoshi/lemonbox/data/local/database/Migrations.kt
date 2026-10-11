@@ -607,6 +607,16 @@ internal object Migrations {
             }
         }
 
+        /**
+         * 待买项新增「给谁的」可选归属列：存码值（self/partner/shared），
+         * null 表示未标注。历史数据一律为 null，界面不展示标签。
+         */
+        private val MIGRATION_26_27 = object : Migration(26, 27) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `items` ADD COLUMN `forWhom` TEXT")
+            }
+        }
+
     /** 按版本顺序排列的全部迁移，供 [AppDatabase] 一次性装配。 */
     val ALL: Array<Migration> = arrayOf(
         MIGRATION_1_2,
@@ -633,6 +643,7 @@ internal object Migrations {
         MIGRATION_22_23,
         MIGRATION_23_24,
         MIGRATION_24_25,
-        MIGRATION_25_26
+        MIGRATION_25_26,
+        MIGRATION_26_27
     )
 }

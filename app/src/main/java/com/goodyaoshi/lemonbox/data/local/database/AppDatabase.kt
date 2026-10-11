@@ -43,7 +43,7 @@ import com.goodyaoshi.lemonbox.data.local.entity.Reminder
         LedgerAsset::class,
         LedgerBudget::class
     ],
-    version = 26,
+    version = 27,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {

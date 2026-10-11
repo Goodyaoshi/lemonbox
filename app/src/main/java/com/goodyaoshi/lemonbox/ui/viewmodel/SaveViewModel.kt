@@ -216,14 +216,16 @@ class SaveViewModel @Inject constructor(
 
     fun save() {
         val current = _state.value
-        if (current.name.isBlank() || current.isSaving) return
+        // 校验前先 trim：全是空格的名字不算「填了」，也不会被当成长度有效存进库。
+        val trimmedName = current.name.trim()
+        if (trimmedName.isBlank() || current.isSaving) return
 
         _state.value = current.copy(isSaving = true)
         viewModelScope.launch {
             val now = MonotonicClock.now()
             val normalizedImages = current.imagePaths.distinct()
             val item = Item(
-                name = current.name,
+                name = trimmedName,
                 barcode = current.barcode,
                 categoryId = current.categoryId,
                 locationId = current.locationId,
@@ -231,7 +233,7 @@ class SaveViewModel @Inject constructor(
                 unit = current.unit,
                 price = current.price.toDoubleOrNull(),
                 expireTime = current.expireTime,
-                note = current.note,
+                note = current.note.trim(),
                 imagePath = normalizedImages.firstOrNull().orEmpty(),
                 imagePaths = Item.encodeImagePaths(normalizedImages),
                 reminderDays = Item.encodeReminderDays(current.reminderDays),

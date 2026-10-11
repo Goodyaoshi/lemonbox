@@ -2,6 +2,7 @@ package com.goodyaoshi.lemonbox.ui.screen.tobuy
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,8 +26,10 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -38,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -47,6 +51,7 @@ import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.DeleteCopy
 import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
+import com.goodyaoshi.lemonbox.ui.components.PillTag
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.EditorInputBox
 import com.goodyaoshi.lemonbox.ui.components.EditorPickerField
@@ -56,12 +61,14 @@ import com.goodyaoshi.lemonbox.ui.components.EmptyState
 import com.goodyaoshi.lemonbox.ui.components.HierarchicalPickerDialog
 import com.goodyaoshi.lemonbox.ui.components.QuantityStepper
 import com.goodyaoshi.lemonbox.ui.components.SectionHeader
+import com.goodyaoshi.lemonbox.ui.components.SkeletonList
 import com.goodyaoshi.lemonbox.ui.components.SwipeActionSpec
 import com.goodyaoshi.lemonbox.ui.components.SwipeRevealItem
 import com.goodyaoshi.lemonbox.ui.components.TreeNode
 import com.goodyaoshi.lemonbox.ui.components.UnitPickerRow
 import com.goodyaoshi.lemonbox.ui.components.buildTreePathLabel
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
+import com.goodyaoshi.lemonbox.ui.theme.OrangeTint
 import com.goodyaoshi.lemonbox.ui.theme.StatusExpired
 import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarmDeep
 import com.goodyaoshi.lemonbox.ui.theme.TextHint
@@ -77,10 +84,13 @@ fun ToBuyScreen(
     viewModel: ToBuyViewModel = hiltViewModel()
 ) {
     val items by viewModel.items.collectAsState()
+    val isLoading by viewModel.isLoading.collectAsState()
     val filteredItems by viewModel.filteredItems.collectAsState()
     val categories by viewModel.categories.collectAsState()
     val filterCategoryId by viewModel.filterCategoryId.collectAsState()
+    val nickname by viewModel.nickname.collectAsState()
     var showAddDialog by remember { mutableStateOf(false) }
+    var editingItem by remember { mutableStateOf<Item?>(null) }
     var openedItemId by remember { mutableStateOf<Long?>(null) }
     var pendingDeleteItem by remember { mutableStateOf<Item?>(null) }
     val appSnackbar = LocalAppSnackbar.current
@@ -104,9 +114,10 @@ fun ToBuyScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            // 点击空白处收起侧滑行的背景热区：此处刻意保留无反馈（I3 白名单例外）。
-            .clickable(indication = null, interactionSource = null) {
-                openedItemId = null
+            // 点击空白处收起侧滑行的背景热区：用 pointerInput 而非 clickable，
+            // 这样只接管触摸、不向无障碍树暴露一个无标签的“整屏可点”节点。
+            .pointerInput(Unit) {
+                detectTapGestures(onTap = { openedItemId = null })
             }
     ) {
         AppDecorativeBackground()
@@ -132,13 +143,12 @@ fun ToBuyScreen(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "待买清单",
-                        fontSize = 24.sp,
-                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.headlineMedium,
                         color = TextPrimary
                     )
                     Text(
                         text = "用完的、想补的，都记在这",
-                        fontSize = 12.sp,
+                        style = MaterialTheme.typography.bodySmall,
                         color = TextSecondary
                     )
                 }
@@ -178,7 +188,10 @@ fun ToBuyScreen(
                 )
             }
 
-            if (items.isEmpty()) {
+            if (isLoading) {
+                // 首帧：待买列表还没读到，先画骨架，别让「还没加载」看起来像「清单被清空了」。
+                SkeletonList(itemCount = 3, showHeader = false)
+            } else if (items.isEmpty()) {
                 EmptyState(
                     title = "还没有要买的",
                     // 原文案让用户去点「右上角」（I5），改为空态里直接给「手动添加」按钮。
@@ -234,6 +247,7 @@ fun ToBuyScreen(
                                     name = itemDetail.item.name,
                                     quantity = itemDetail.item.quantity,
                                     unit = itemDetail.item.unit,
+                                    forWhomLabel = forWhomLabel(itemDetail.item.forWhom, nickname),
                                     subtitle = listOfNotNull(
                                         itemDetail.categoryName,
                                         itemDetail.locationName
@@ -249,7 +263,9 @@ fun ToBuyScreen(
                                             ),
                                             itemDetail.item.name
                                         )
-                                    }
+                                    },
+                                    // 之前待买项只能删不能改，写错名字/数量只能删掉重建；这里补一个编辑入口。
+                                    onEdit = { editingItem = itemDetail.item }
                                 )
                             }
                         }
@@ -260,12 +276,27 @@ fun ToBuyScreen(
     }
 
     if (showAddDialog) {
-        AddToBuyDialog(
+        ToBuyEditorDialog(
             categoryNodes = categoryNodes,
+            existing = null,
+            nickname = nickname,
             onDismiss = { showAddDialog = false },
-            onConfirm = { name, quantity, unit, categoryId ->
-                viewModel.addToBuy(name, quantity, unit, categoryId)
+            onConfirm = { name, quantity, unit, categoryId, forWhom ->
+                viewModel.addToBuy(name, quantity, unit, categoryId, forWhom)
                 showAddDialog = false
+            }
+        )
+    }
+
+    editingItem?.let { editing ->
+        ToBuyEditorDialog(
+            categoryNodes = categoryNodes,
+            existing = editing,
+            nickname = nickname,
+            onDismiss = { editingItem = null },
+            onConfirm = { name, quantity, unit, categoryId, forWhom ->
+                viewModel.updateToBuy(editing, name, quantity, unit, categoryId, forWhom)
+                editingItem = null
             }
         )
     }
@@ -324,43 +355,71 @@ private fun CategoryFilterRow(
     }
 }
 
+/** 归属码值 → 展示文案；null / 未知码值不展示。「给她」随当前昵称变化。 */
+private fun forWhomLabel(code: String?, nickname: String): String? = when (code) {
+    Item.FOR_WHOM_SELF -> "给自己"
+    Item.FOR_WHOM_PARTNER -> "给$nickname"
+    Item.FOR_WHOM_SHARED -> "家里共用"
+    else -> null
+}
+
 @Composable
 private fun ToBuyItemCard(
     name: String,
     quantity: Int,
     unit: String,
+    forWhomLabel: String?,
     subtitle: String,
-    onBought: () -> Unit
+    onBought: () -> Unit,
+    onEdit: () -> Unit
 ) {
     AppSurfaceCard(
         shape = RoundedCornerShape(22.dp),
-        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 14.dp),
+        contentPadding = PaddingValues(start = 14.dp, top = 14.dp, bottom = 14.dp, end = 6.dp),
         shadowElevation = 12.dp
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
+                // 热区对齐 48dp（视觉圆仍 34dp），便于点按。
                 modifier = Modifier
-                    .size(34.dp)
+                    .size(48.dp)
                     .clip(CircleShape)
-                    .background(SurfaceWarmDeep)
                     .clickable(onClick = onBought),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    imageVector = Icons.Default.Check,
-                    contentDescription = "已买到",
-                    tint = OrangeStart,
-                    modifier = Modifier.size(18.dp)
-                )
+                Box(
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(CircleShape)
+                        .background(SurfaceWarmDeep),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = "已买到",
+                        tint = OrangeStart,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
             }
             Spacer(modifier = Modifier.size(12.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = name,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextPrimary
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = name,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
+                    if (forWhomLabel != null) {
+                        Spacer(modifier = Modifier.size(8.dp))
+                        PillTag(
+                            text = forWhomLabel,
+                            backgroundColor = OrangeTint,
+                            contentColor = OrangeStart
+                        )
+                    }
+                }
                 Text(
                     text = "数量 $quantity$unit · $subtitle",
                     fontSize = 12.sp,
@@ -368,29 +427,46 @@ private fun ToBuyItemCard(
                     modifier = Modifier.padding(top = 3.dp)
                 )
             }
+            IconButton(onClick = onEdit) {
+                Icon(
+                    imageVector = Icons.Default.Edit,
+                    contentDescription = "编辑",
+                    tint = TextHint,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
         }
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun AddToBuyDialog(
+private fun ToBuyEditorDialog(
     categoryNodes: List<TreeNode>,
+    existing: Item?,
+    nickname: String,
     onDismiss: () -> Unit,
-    onConfirm: (name: String, quantity: Int, unit: String, categoryId: Long?) -> Unit
+    onConfirm: (name: String, quantity: Int, unit: String, categoryId: Long?, forWhom: String?) -> Unit
 ) {
-    var name by remember { mutableStateOf("") }
-    var unit by remember { mutableStateOf("件") }
-    var quantity by remember { mutableIntStateOf(1) }
-    var categoryId by remember { mutableStateOf<Long?>(null) }
+    var name by remember(existing) { mutableStateOf(existing?.name.orEmpty()) }
+    var unit by remember(existing) { mutableStateOf(existing?.unit ?: "件") }
+    var quantity by remember(existing) { mutableIntStateOf(existing?.quantity ?: 1) }
+    var categoryId by remember(existing) { mutableStateOf(existing?.categoryId) }
+    var forWhom by remember(existing) { mutableStateOf(existing?.forWhom) }
     var showCategoryPicker by remember { mutableStateOf(false) }
+    val isEditing = existing != null
 
     AppDialog(
-        title = "添加待买",
-        subtitle = "记下名字和数量，还能选单位、关联分类，买到后归位到家当。",
+        title = if (isEditing) "编辑待买" else "添加待买",
+        subtitle = if (isEditing) {
+            "改完名字、数量或分类，买到后仍会归位到家当。"
+        } else {
+            "记下名字和数量，还能选单位、关联分类，买到后归位到家当。"
+        },
         onDismissRequest = onDismiss,
-        confirmText = "添加",
+        confirmText = if (isEditing) "保存" else "添加",
         confirmEnabled = name.isNotBlank(),
-        onConfirm = { onConfirm(name, quantity, unit, categoryId) }
+        onConfirm = { onConfirm(name, quantity, unit, categoryId, forWhom) }
     ) {
         EditorInputBox(
             value = name,
@@ -419,6 +495,27 @@ private fun AddToBuyDialog(
                 placeholder = "点击选择分类（可选）",
                 onClick = { showCategoryPicker = true }
             )
+        }
+        Column {
+            EditorSectionLabel(label = "给谁的")
+            Spacer(modifier = Modifier.size(8.dp))
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                EditorSelectionChip(
+                    text = "不标注",
+                    selected = forWhom == null,
+                    onClick = { forWhom = null }
+                )
+                Item.FOR_WHOM_CODES.forEach { code ->
+                    EditorSelectionChip(
+                        text = forWhomLabel(code, nickname).orEmpty(),
+                        selected = forWhom == code,
+                        onClick = { forWhom = code }
+                    )
+                }
+            }
         }
     }
 

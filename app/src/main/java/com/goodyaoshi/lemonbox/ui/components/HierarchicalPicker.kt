@@ -43,6 +43,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.OrangeTint
+import com.goodyaoshi.lemonbox.ui.theme.ScrimSoft
 import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarm
 import com.goodyaoshi.lemonbox.ui.theme.TextHint
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
@@ -140,7 +141,7 @@ fun HierarchicalPickerDialog(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.24f)),
+                .background(ScrimSoft),
             contentAlignment = Alignment.Center
         ) {
             AppSurfaceCard(

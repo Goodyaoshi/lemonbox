@@ -1,7 +1,10 @@
 package com.goodyaoshi.lemonbox.ui.screen.home
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,8 +35,10 @@ import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.TaskAlt
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -45,6 +50,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -119,6 +126,8 @@ fun HomeScreen(
     val monthSpending by viewModel.monthSpending.collectAsState()
     val weekPlan by viewModel.weekPlan.collectAsState()
     val anniversaryRows by viewModel.anniversaryHighlights.collectAsState()
+    val togetherDays by viewModel.togetherDays.collectAsState()
+    val nickname by viewModel.nickname.collectAsState()
     var openedItemId by remember { mutableStateOf<Long?>(null) }
     var moreItemId by remember { mutableStateOf<Long?>(null) }
     var pendingDeleteItem by remember { mutableStateOf<Item?>(null) }
@@ -155,15 +164,16 @@ fun HomeScreen(
     }
 
     Box(
-        // 点击空白处收起侧滑行的背景热区：此处刻意保留无反馈（I3 白名单例外）。
-        modifier = Modifier.clickable(indication = null, interactionSource = null) {
-            openedItemId = null
+        // 点击空白处收起侧滑行的背景热区：用 pointerInput 而非 clickable，
+        // 这样只接管触摸、不向无障碍树暴露一个无标签的“整屏可点”节点。
+        modifier = Modifier.pointerInput(Unit) {
+            detectTapGestures(onTap = { openedItemId = null })
         }
     ) {
         AppDecorativeBackground()
 
         Column(modifier = Modifier.fillMaxSize()) {
-            HeroHeader()
+            HeroHeader(togetherLabel = togetherDays, nickname = nickname)
 
             // 固定搜索行：搜索框与扫码常驻，结果再多也不用滚回顶部改关键词。
             Row(
@@ -338,8 +348,12 @@ private fun HomeItemRow(
 }
 
 @Composable
-private fun HeroHeader() {
-    val greeting = rememberGreeting()
+private fun HeroHeader(togetherLabel: String?, nickname: String) {
+    val hour = rememberCurrentHour()
+    val lateNight = isLateNight(hour)
+    // 称呼直接拼进问候，如「柠檬，早上好」：产品名「柠檬百宝箱」与昵称「柠檬」都含同一个词，
+    // 这是产品设定（给柠檬做的百宝箱），不是需要回避的重复。
+    val greeting = "$nickname，${greetingFor(hour)}"
 
     Box(
         modifier = Modifier
@@ -369,39 +383,50 @@ private fun HeroHeader() {
                 .statusBarsPadding()
                 .padding(horizontal = 20.dp, vertical = 16.dp)
         ) {
-            // 问候语只留时段词，不再拼昵称：下一行就是产品名「柠檬百宝箱」，
-            // 两行连着出现「柠檬」读起来像在重复念叨。昵称的正式使用位置在「我的」页。
-            Text(
-                text = greeting,
-                color = OnLemonSoft,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = greeting,
+                    color = OnLemonSoft,
+                    style = MaterialTheme.typography.labelMedium
+                )
+                // 只有你们懂的数字：建过累计型纪念日（如「在一起」）才会出现，否则 Hero 保持原样。
+                if (togetherLabel != null) {
+                    Spacer(modifier = Modifier.weight(1f))
+                    Text(
+                        text = togetherLabel,
+                        color = OnLemonSoft,
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50))
+                            .background(Color.White.copy(alpha = 0.18f))
+                            .padding(horizontal = 10.dp, vertical = 4.dp)
+                    )
+                }
+            }
             Text(
                 text = BrandCopy.APP_NAME,
                 color = OnLemon,
-                fontSize = 34.sp,
-                fontWeight = FontWeight.Bold
+                style = MaterialTheme.typography.displaySmall
             )
             Text(
-                text = "账、饭、家当，我都替你记着",
+                text = if (lateNight) "都收好了，早点睡吧" else "账、饭、家当，我都替你记着",
                 color = OnLemonSoft,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium
+                style = MaterialTheme.typography.labelLarge
             )
         }
     }
 }
 
 /**
- * 问候语随当前时段变化（F14）。
- *
- * 原来用 `remember { … }` 只算一次，`remember` 只保证重组间不复算、并不会随时间失效，
- * 于是早上打开后一直显示「早上好」。这里用分钟级 tick 驱动：每跨过一分钟就比对一次小时数，
+ * 当前小时数（F14）。原来用 `remember { … }` 只算一次，`remember` 只保证重组间不复算、并不会
+ * 随时间失效，于是早上打开后一直显示「早上好」。这里用分钟级 tick 驱动：每跨过一分钟就比对一次，
  * 时段变了才更新状态、触发重组，避免无谓刷新。
  */
 @Composable
-private fun rememberGreeting(): String {
+private fun rememberCurrentHour(): Int {
     val hour by produceState(initialValue = LocalTime.now().hour) {
         while (true) {
             val now = LocalTime.now()
@@ -410,12 +435,15 @@ private fun rememberGreeting(): String {
             value = LocalTime.now().hour
         }
     }
-    return remember(hour) { greetingFor(hour) }
+    return hour
 }
 
-/** 按小时段落映射问候语，语义比 Calendar 取值更清晰。 */
+/** 23:00–05:00 视作深夜：问候与副文案都切到更安静的一档，App 深夜「说人话」。 */
+private fun isLateNight(hour: Int): Boolean = hour >= 23 || hour <= 5
+
+/** 按小时段落映射问候语，语义比 Calendar 取值更清晰；23 点并入「夜深了」。 */
 private fun greetingFor(hour: Int): String = when (hour) {
-    in 0..5 -> "夜深了"
+    23, in 0..5 -> "夜深了"
     in 6..10 -> "早上好"
     in 11..13 -> "中午好"
     in 14..17 -> "下午好"
@@ -432,6 +460,20 @@ private fun TodaySection(
     // 事项可能很多（临期/待买一次涌进来几十条），首页只展示前几条，其余折叠起来，
     // 避免把首页撑得特别长；需要时展开看全部。
     var expanded by remember { mutableStateOf(false) }
+    // 记住本次会话里是否出现过待办：用来区分「本来就没安排」与「刚刚把最后一件勾完」。
+    var hadEvents by remember { mutableStateOf(false) }
+    if (events.isNotEmpty()) hadEvents = true
+    val justFinished = hadEvents && events.isEmpty()
+
+    // 全部勾完的那一刻给一次 200ms 的轻微缩放，作为收尾的「小庆祝」。
+    val finishScale = remember { Animatable(1f) }
+    LaunchedEffect(justFinished) {
+        if (justFinished) {
+            finishScale.snapTo(0.9f)
+            finishScale.animateTo(1f, tween(durationMillis = 200))
+        }
+    }
+
     val collapsible = events.size > TODAY_EVENT_PREVIEW_COUNT
     val visibleEvents = if (collapsible && !expanded) {
         events.take(TODAY_EVENT_PREVIEW_COUNT)
@@ -451,6 +493,10 @@ private fun TodaySection(
         Spacer(modifier = Modifier.height(10.dp))
         if (events.isEmpty()) {
             AppSurfaceCard(
+                modifier = Modifier.graphicsLayer {
+                    scaleX = finishScale.value
+                    scaleY = finishScale.value
+                },
                 shape = RoundedCornerShape(22.dp),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
                 containerColor = CardWhite.copy(alpha = 0.72f),
@@ -468,7 +514,7 @@ private fun TodaySection(
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = Icons.Default.TaskAlt,
+                            imageVector = if (justFinished) Icons.Outlined.CheckCircle else Icons.Default.TaskAlt,
                             contentDescription = null,
                             tint = LemonEnd,
                             modifier = Modifier.size(20.dp)
@@ -477,13 +523,17 @@ private fun TodaySection(
                     Spacer(modifier = Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "今天没有要紧事",
+                            text = if (justFinished) "今天都办完了，去休息吧" else "今天没有要紧事",
                             fontSize = 14.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = TextPrimary
                         )
                         Text(
-                            text = "待办提醒、临期家当和待买都会汇到这里",
+                            text = if (justFinished) {
+                                "剩下的时间，都是你的"
+                            } else {
+                                "待办提醒、临期家当和待买都会汇到这里"
+                            },
                             fontSize = 12.sp,
                             color = TextSecondary,
                             modifier = Modifier.padding(top = 2.dp)
@@ -613,8 +663,9 @@ private fun TodayEventRow(
         }
         if (event.completable) {
             Box(
+                // 热区对齐 48dp（图标尺寸不变），便于点按完成。
                 modifier = Modifier
-                    .size(32.dp)
+                    .size(48.dp)
                     .clip(CircleShape)
                     .clickable(onClick = onComplete),
                 contentAlignment = Alignment.Center

@@ -429,6 +429,8 @@ data class ItemSnapshot(
     val usageEndedAt: Long? = null,
     /** 计量方式（0=按件消耗 1=持续使用）；为 null 表示备份里没有。 */
     val trackMode: Int? = null,
+    /** 待买归属码值（self/partner/shared）；v8 起导出，null 表示未标注。 */
+    val forWhom: String? = null,
     val rating: Int?,
     val ratedAt: Long?,
     val deletedAt: Long?,
@@ -465,6 +467,7 @@ data class ItemSnapshot(
             startUseTime = startUseTime,
             usageEndedAt = usageEndedAt,
             trackMode = trackMode ?: Item.TRACK_CONSUMABLE,
+            forWhom = forWhom,
             rating = rating,
             ratedAt = ratedAt,
             deletedAt = deletedAt,
@@ -525,6 +528,7 @@ data class ItemSnapshot(
                 startUseTime = item.startUseTime,
                 usageEndedAt = item.usageEndedAt,
                 trackMode = item.trackMode,
+                forWhom = item.forWhom,
                 rating = item.rating,
                 ratedAt = item.ratedAt,
                 deletedAt = item.deletedAt,

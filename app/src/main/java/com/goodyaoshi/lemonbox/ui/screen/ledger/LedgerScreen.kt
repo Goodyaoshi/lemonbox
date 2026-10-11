@@ -57,6 +57,8 @@ import com.goodyaoshi.lemonbox.ui.components.DeleteCopy
 import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.EmptyState
+import com.goodyaoshi.lemonbox.ui.components.AMOUNT_TNUM
+import com.goodyaoshi.lemonbox.ui.components.AmountTnumStyle
 import com.goodyaoshi.lemonbox.ui.components.LedgerAssetChip
 import com.goodyaoshi.lemonbox.ui.components.HeaderActionPill
 import com.goodyaoshi.lemonbox.ui.components.LedgerBudgetBar
@@ -64,6 +66,7 @@ import com.goodyaoshi.lemonbox.ui.components.LedgerMonthBar
 import com.goodyaoshi.lemonbox.ui.components.LedgerSummaryCard
 import com.goodyaoshi.lemonbox.ui.components.PillTag
 import com.goodyaoshi.lemonbox.ui.components.SectionHeader
+import com.goodyaoshi.lemonbox.ui.components.SkeletonList
 import com.goodyaoshi.lemonbox.ui.components.SwipeActionSpec
 import com.goodyaoshi.lemonbox.ui.components.SwipeRevealItem
 import com.goodyaoshi.lemonbox.ui.components.ledgerIconFor
@@ -101,6 +104,7 @@ fun LedgerScreen(
     viewModel: LedgerViewModel = hiltViewModel()
 ) {
     val overview by viewModel.overview.collectAsState()
+    val isLoading by viewModel.isLoading.collectAsState()
     val yearMonth by viewModel.yearMonth.collectAsState()
     val assets by viewModel.assetsWithBalance.collectAsState()
     var openedRecordId by remember { mutableStateOf<Long?>(null) }
@@ -132,13 +136,12 @@ fun LedgerScreen(
             ) {
                 Text(
                     text = "记账",
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.headlineMedium,
                     color = TextPrimary
                 )
                 Text(
                     text = "每一笔都算数",
-                    fontSize = 12.sp,
+                    style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary
                 )
             }
@@ -224,13 +227,19 @@ fun LedgerScreen(
                         }
                     }
                 }
-                item(key = "records-header") {
-                    SectionHeader(
-                        title = "本月流水",
-                        subtitle = "共 ${overview.records.size} 笔，左滑可编辑或删除"
-                    )
-                }
-                if (overview.records.isEmpty()) {
+                if (isLoading) {
+                    item(key = "loading") {
+                        // 首帧：流水还没读到，先画骨架，避免把「还没加载」误读成「本月还没有账单」。
+                        SkeletonList(itemCount = 3, showHeader = false)
+                    }
+                } else {
+                    item(key = "records-header") {
+                        SectionHeader(
+                            title = "本月流水",
+                            subtitle = "共 ${overview.records.size} 笔，左滑可编辑或删除"
+                        )
+                    }
+                    if (overview.records.isEmpty()) {
                     item(key = "empty") {
                         EmptyState(
                             title = "本月还没有账单",
@@ -276,6 +285,7 @@ fun LedgerScreen(
                             }
                         }
                     }
+                }
                 }
             }
         }
@@ -355,8 +365,8 @@ private fun LedgerDayHeader(
         }
         Text(
             text = parts.joinToString("  "),
-            // 说明文字走主题字阶（F6）并提到 12sp（F7）。
-            style = MaterialTheme.typography.bodySmall,
+            // 说明文字走主题字阶（F6）并提到 12sp（F7），同时启用等宽数字（P2）。
+            style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = AMOUNT_TNUM),
             color = TextHint
         )
     }
@@ -445,7 +455,8 @@ internal fun LedgerRecordRow(
             fontSize = 15.sp,
             fontWeight = FontWeight.SemiBold,
             color = ledgerTypeColor(record.type),
-            textAlign = TextAlign.End
+            textAlign = TextAlign.End,
+            style = AmountTnumStyle
         )
     }
 }

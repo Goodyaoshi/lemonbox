@@ -39,6 +39,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -54,6 +55,7 @@ import com.goodyaoshi.lemonbox.ui.theme.MintSoft
 import com.goodyaoshi.lemonbox.ui.theme.OrangeGlow
 import com.goodyaoshi.lemonbox.ui.theme.OrangeLight
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
+import com.goodyaoshi.lemonbox.ui.theme.ShadowSpot
 import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarmDeep
 import com.goodyaoshi.lemonbox.ui.theme.TagRed
 import com.goodyaoshi.lemonbox.ui.theme.TagRedText
@@ -142,7 +144,7 @@ fun AppSurfaceCard(
         elevation = shadowElevation,
         shape = shape,
         ambientColor = OrangeStart.copy(alpha = 0.08f),
-        spotColor = Color.Black.copy(alpha = 0.08f)
+        spotColor = ShadowSpot
     )
     val colors = CardDefaults.cardColors(containerColor = containerColor)
     val elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
@@ -201,7 +203,7 @@ fun GlassPanel(
                 elevation = shadowElevation,
                 shape = shape,
                 ambientColor = OrangeStart.copy(alpha = 0.08f),
-                spotColor = Color.Black.copy(alpha = 0.08f)
+                spotColor = ShadowSpot
             )
             .clip(shape)
             .then(
@@ -411,6 +413,8 @@ fun PillTag(
                     interactionSource = remember { MutableInteractionSource() },
                     // 可点击胶囊标签恢复默认涟漪（I3）：它承载"点按切换"动作，需要按压反馈。
                     indication = LocalIndication.current,
+                    // 读屏可达（F8）：当按钮用的胶囊标签声明 Button 角色，读屏会提示「按钮」。
+                    role = Role.Button,
                     onClick = onClick
                 )
                 .padding(horizontal = 8.dp, vertical = 3.dp)

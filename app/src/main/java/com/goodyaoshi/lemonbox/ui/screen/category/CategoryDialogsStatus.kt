@@ -64,7 +64,6 @@ import androidx.compose.material.icons.filled.WaterDrop
 import androidx.compose.material.icons.filled.WineBar
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -461,12 +460,10 @@ internal fun CategoryEditorDialog(
         confirmEnabled = inputName.isNotBlank(),
         onConfirm = onConfirm
     ) {
-        OutlinedTextField(
+        EditorInputBox(
             value = inputName,
             onValueChange = onNameChange,
-            singleLine = true,
-            label = { Text("分类名称") },
-            modifier = Modifier.fillMaxWidth()
+            placeholder = "分类名称"
         )
         Text(
             text = "选择图标",

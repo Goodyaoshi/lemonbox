@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -23,8 +24,14 @@ class TrashViewModel @Inject constructor(
     private val retentionWindowMs = 30L * 24 * 60 * 60 * 1000
     private val cutoffTime = System.currentTimeMillis() - retentionWindowMs
 
+    private val loading = LoadingState()
+
+    /** 首帧加载标记：回收站列表读完之前显示骨架屏，避免「假空态」（见 [LoadingState]）。 */
+    val isLoading: StateFlow<Boolean> = loading.isLoading
+
     val deletedItems: StateFlow<List<ItemDetail>> = itemRepository
         .getRecycleItems(cutoffTime)
+        .onEach { loading.markLoaded() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _selectedIds = MutableStateFlow<Set<Long>>(emptySet())

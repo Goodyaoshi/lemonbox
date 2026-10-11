@@ -51,6 +51,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -65,6 +66,19 @@ import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarmDeep
 import com.goodyaoshi.lemonbox.ui.theme.TextHint
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
 import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
+
+/**
+ * 金额文本的 OpenType 字体特性（P2）：启用等宽数字。
+ * 汇总卡 / 流水行 / 排行行里的金额右对齐或上下相邻时个位对齐，数值刷新也不再左右跳动。
+ */
+internal const val AMOUNT_TNUM = "tnum"
+
+/**
+ * 承载等宽数字特性的 TextStyle（P2）。
+ * Compose 的 Text 没有 fontFeatureSettings 参数，必须经由 style 传入；
+ * 各处金额若已有 typography，请使用 `style.copy(fontFeatureSettings = AMOUNT_TNUM)`。
+ */
+internal val AmountTnumStyle = TextStyle(fontFeatureSettings = AMOUNT_TNUM)
 
 // ============================================================
 // 记账图标目录：key 与数据库 ledger_categories.icon / ledger_assets.icon 对应，
@@ -194,7 +208,8 @@ private fun LedgerSummaryItem(label: String, value: String, accent: Color, modif
             color = accent,
             fontSize = 17.sp,
             fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(top = 3.dp)
+            modifier = Modifier.padding(top = 3.dp),
+            style = AmountTnumStyle
         )
     }
 }
@@ -228,7 +243,8 @@ fun LedgerBudgetBar(
             Text(
                 text = subtitle,
                 color = if (over) StatusExpired else TextSecondary,
-                fontSize = 12.sp
+                fontSize = 12.sp,
+                style = AmountTnumStyle
             )
         }
         Spacer(modifier = Modifier.height(8.dp))
@@ -382,7 +398,7 @@ fun LedgerRankRow(
                     fontWeight = FontWeight.Medium,
                     modifier = Modifier.weight(1f)
                 )
-                Text(text = amountText, color = TextPrimary, fontSize = 13.sp)
+                Text(text = amountText, color = TextPrimary, fontSize = 13.sp, style = AmountTnumStyle)
             }
             Spacer(modifier = Modifier.height(6.dp))
             Box(
@@ -394,7 +410,7 @@ fun LedgerRankRow(
             ) {
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth(ratio.coerceIn(0.03f, 1f))
+                        .fillMaxWidth(ratio.coerceIn(0.015f, 1f))
                         .height(6.dp)
                         .clip(RoundedCornerShape(3.dp))
                         .background(OrangeStart)

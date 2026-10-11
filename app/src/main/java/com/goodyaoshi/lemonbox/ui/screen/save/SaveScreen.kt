@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -67,10 +68,10 @@ import com.goodyaoshi.lemonbox.ui.components.EditorInputBox
 import com.goodyaoshi.lemonbox.ui.components.EditorPickerField
 import com.goodyaoshi.lemonbox.ui.components.EditorSectionLabel
 import com.goodyaoshi.lemonbox.ui.components.EditorSelectionChip
-import com.goodyaoshi.lemonbox.ui.components.GradientButton
 import com.goodyaoshi.lemonbox.ui.components.HierarchicalPickerDialog
 import com.goodyaoshi.lemonbox.ui.components.ItemImageGallery
 import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
+import com.goodyaoshi.lemonbox.ui.components.PrimaryActionBar
 import com.goodyaoshi.lemonbox.ui.components.QuantityStepper
 import com.goodyaoshi.lemonbox.ui.components.ReminderLadderPicker
 import com.goodyaoshi.lemonbox.ui.components.UnitPickerRow
@@ -81,6 +82,8 @@ import com.goodyaoshi.lemonbox.ui.scan.ScanActivity
 import com.goodyaoshi.lemonbox.ui.theme.CardWhite
 import com.goodyaoshi.lemonbox.ui.theme.DividerSoft
 import com.goodyaoshi.lemonbox.ui.theme.GlassWhite
+import com.goodyaoshi.lemonbox.ui.theme.ScrimMedium
+import com.goodyaoshi.lemonbox.ui.theme.TagRedText
 import com.goodyaoshi.lemonbox.ui.theme.TextHint
 import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
 import com.goodyaoshi.lemonbox.ui.viewmodel.SaveItemState
@@ -127,6 +130,8 @@ fun SaveScreen(
     var showStartUseDatePicker by remember { mutableStateOf(false) }
     var showCategoryPicker by remember { mutableStateOf(false) }
     var showLocationPicker by remember { mutableStateOf(false) }
+    // 必填项「物品名称」是否被触碰过：只在用户点过输入框、又空着时才提示，避免一进来就报错。
+    var nameTouched by remember { mutableStateOf(false) }
 
     val categoryNodes = remember(categories) {
         categories.map { TreeNode(id = it.id, parentId = it.parentId, name = it.name) }
@@ -192,8 +197,9 @@ fun SaveScreen(
                 viewModel.reset()
                 onOpenCamera(SavePhotoMode.REPLACE_PRIMARY)
             } else {
-                // 普通保存：本页随即返回，提示交给应用级作用域，避免随退栈被取消（I10）。
-                appSnackbar?.postMessage("已存入家当")
+                // 普通保存：本页随即返回，提示交给应用级作用域，避免随退栈被取消（I10）；
+                // 带上物品名，让「存进去了」这件事更具体、更有归属感。
+                appSnackbar?.postMessage("已收进百宝箱 · ${state.name}")
                 onSaved()
                 viewModel.reset()
             }
@@ -227,9 +233,9 @@ fun SaveScreen(
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
-                            // 顶部压暗照片（Material 常量黑，与主题无关），
+                            // 顶部压暗照片，走语义遮罩档位（P2 收敛硬编码）；
                             // 下方过渡到语义「磨砂玻璃 / 卡片」色，深色模式下自动转为深底。
-                            Color.Black.copy(alpha = 0.28f),
+                            ScrimMedium,
                             GlassWhite,
                             CardWhite
                         )
@@ -332,8 +338,18 @@ fun SaveScreen(
                         EditorInputBox(
                             value = state.name,
                             onValueChange = viewModel::updateName,
-                            placeholder = "给这件东西起个名字吧"
+                            placeholder = "给这件东西起个名字吧",
+                            onFocus = { nameTouched = true }
                         )
+                        // 必填项行内辅助文案：留空时给出原因，而不是只让保存键变灰、让人猜为什么点不动。
+                        if (nameTouched && state.name.isBlank()) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "名字是必填的，先给它起个名字吧",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TagRedText
+                            )
+                        }
 
                         Spacer(modifier = Modifier.height(16.dp))
                         EditorSectionLabel(label = "分类")
@@ -526,14 +542,13 @@ fun SaveScreen(
                     }
                 }
 
-                GradientButton(
+                PrimaryActionBar(
                     text = if (state.isSaving) "保存中..." else "保存",
                     onClick = viewModel::save,
                     enabled = state.name.isNotBlank() && !state.isSaving,
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .padding(horizontal = 28.dp, vertical = 18.dp)
+                    horizontalPadding = 28.dp,
+                    verticalPadding = 18.dp,
+                    modifier = Modifier.align(Alignment.BottomCenter)
                 )
             }
         }

@@ -62,7 +62,11 @@ class ExpiryCheckWorker @AssistedInject constructor(
             return Result.success()
         }
 
-        NotificationHelper.showExpirySummary(applicationContext, expiring)
+        NotificationHelper.showExpirySummary(
+            applicationContext,
+            expiring,
+            appPreferences.nickname.value
+        )
         appPreferences.setExpiryNotifiedDate(notifyKey)
         return Result.success()
     }

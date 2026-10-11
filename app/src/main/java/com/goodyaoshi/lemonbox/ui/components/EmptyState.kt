@@ -91,25 +91,37 @@ fun EmptyState(
             // 两个参数都传齐才渲染按钮，避免出现「有按钮但点了没反应」的空壳。
             if (actionLabel != null && onAction != null) {
                 Spacer(modifier = Modifier.height(16.dp))
-                EmptyStateAction(label = actionLabel, icon = actionIcon, onClick = onAction)
+                StateActionPill(
+                    label = actionLabel,
+                    icon = actionIcon,
+                    containerColor = OrangeStart,
+                    onClick = onAction
+                )
             }
         }
     }
 }
 
-/** 空状态主操作胶囊：橙底白字，点击直达该页最常用的操作。 */
+/**
+ * 空 / 错误状态共用的主操作胶囊（P2）。
+ *
+ * 抽出来是为了让「空态」和「错误态」的主按钮长得一模一样——同一个「本页最该做的事」，
+ * 无论出现在哪种状态下都应是同一种版式。默认橙底白字（空态），错误态传入危险色即可。
+ */
 @Composable
-private fun EmptyStateAction(
+internal fun StateActionPill(
     label: String,
     icon: ImageVector,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    containerColor: Color = OrangeStart,
+    contentColor: Color = Color.White
 ) {
     Row(
         modifier = Modifier
             // 触达面积达标（F7）：胶囊本身不高，先撑出最小可点区再画胶囊，视觉尺寸不变。
             .minimumInteractiveComponentSize()
             .clip(RoundedCornerShape(999.dp))
-            .background(OrangeStart)
+            .background(containerColor)
             .clickable(onClick = onClick)
             .padding(horizontal = 18.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -117,7 +129,7 @@ private fun EmptyStateAction(
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = Color.White,
+            tint = contentColor,
             modifier = Modifier.size(18.dp)
         )
         Spacer(modifier = Modifier.width(6.dp))
@@ -125,7 +137,7 @@ private fun EmptyStateAction(
             text = label,
             fontSize = 14.sp,
             fontWeight = FontWeight.SemiBold,
-            color = Color.White
+            color = contentColor
         )
     }
 }

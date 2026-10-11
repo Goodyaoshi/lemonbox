@@ -26,7 +26,8 @@ import java.util.concurrent.TimeUnit
 class AnniversaryCheckWorker @AssistedInject constructor(
     @Assisted context: Context,
     @Assisted workerParams: WorkerParameters,
-    private val anniversaryRepository: AnniversaryRepository
+    private val anniversaryRepository: AnniversaryRepository,
+    private val appPreferences: AppPreferences
 ) : CoroutineWorker(context, workerParams) {
 
     override suspend fun doWork(): Result {
@@ -52,7 +53,8 @@ class AnniversaryCheckWorker @AssistedInject constructor(
                     name = anniversary.name,
                     lineText = if (days == 0L) "就是今天" else "还有 $days 天"
                 )
-            }
+            },
+            appPreferences.nickname.value
         )
         due.forEach { (anniversary, _) ->
             anniversaryRepository.markNotified(anniversary.id, notifyKey)

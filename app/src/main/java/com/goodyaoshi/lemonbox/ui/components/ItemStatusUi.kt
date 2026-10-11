@@ -38,6 +38,7 @@ import com.goodyaoshi.lemonbox.data.local.entity.ItemStatusCatalog
 import com.goodyaoshi.lemonbox.data.local.entity.ItemStatusOption
 import com.goodyaoshi.lemonbox.data.local.entity.StatusDimension
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
+import com.goodyaoshi.lemonbox.ui.theme.ScrimSoft
 import com.goodyaoshi.lemonbox.ui.theme.TagBlue
 import com.goodyaoshi.lemonbox.ui.theme.TagBlueText
 import com.goodyaoshi.lemonbox.ui.theme.TagGreen
@@ -138,7 +139,7 @@ fun StatusPickerDialog(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.24f)),
+                .background(ScrimSoft),
             contentAlignment = Alignment.Center
         ) {
             AppSurfaceCard(

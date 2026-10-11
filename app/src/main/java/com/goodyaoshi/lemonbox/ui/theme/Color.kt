@@ -59,6 +59,19 @@ val WarmHint = Color(0xFF8A9683)
 val MintAccent = Color(0xFF6BCB77)       // 辅助强调（位置、成功）
 val SageAccent = Color(0xFF5A9E8F)       // 次级操作（编辑）用的柔和青绿
 
+// ---- 遮罩与阴影（P2：收敛散落的 Color.Black/White 硬编码）----
+// 遮罩叠在图片或弹层之上，明暗主题下取同一档更自然，故不随主题切换，集中在此便于统一调整。
+/** 全屏图片查看器背后的深色遮罩。 */
+val ScrimStrong = Color.Black.copy(alpha = 0.96f)
+/** 图片底部信息条 / 图标的深色衬底。 */
+val ScrimMedium = Color.Black.copy(alpha = 0.32f)
+/** 对话框、选择器、快捷操作面板背后的浅色遮罩。 */
+val ScrimSoft = Color.Black.copy(alpha = 0.24f)
+/** 图片顶部的轻微压暗渐变。 */
+val ScrimFaint = Color.Black.copy(alpha = 0.12f)
+/** 卡片阴影的落点色，收到一处便于整体微调。 */
+val ShadowSpot = Color.Black.copy(alpha = 0.08f)
+
 // ============================================================
 // 语义色：浅色 / 深色原始值（仅供 LemonPalette 与 colorScheme 使用）
 // ============================================================

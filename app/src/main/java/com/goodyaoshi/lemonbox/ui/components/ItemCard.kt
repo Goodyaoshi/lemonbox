@@ -5,6 +5,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
@@ -21,7 +23,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -43,6 +44,7 @@ import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
 import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
 import com.goodyaoshi.lemonbox.util.DateUtil
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ItemCard(
     itemDetail: ItemDetail,
@@ -198,69 +200,69 @@ fun ItemCard(
                     )
                 }
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    // 卡片空间有限，只展示一个最能说明问题的状态标签，按优先级取一个。
-                    val statusTag: Triple<String, Color, Color>? = when {
-                        item.disposition != Item.DISPOSITION_IN_STOCK -> {
-                            val (container, content) =
-                                itemStatusColors(StatusDimension.DISPOSITION, item.disposition)
+                // 状态标签并列展示：三个维度（去向 / 待买 / 使用状态）互不挤出，
+                // 到期倒计时恒显，避免「只看得到一个标签」而漏掉关键信息。
+                val statusTags = buildList {
+                    if (item.disposition != Item.DISPOSITION_IN_STOCK) {
+                        val (container, content) =
+                            itemStatusColors(StatusDimension.DISPOSITION, item.disposition)
+                        add(
                             Triple(
                                 itemStatusOption(StatusDimension.DISPOSITION, item.disposition).label,
                                 container,
                                 content
                             )
-                        }
-
-                        item.needRestock -> Triple("待买", TagOrange, TagOrangeText)
-
-                        item.usageStatus != Item.USAGE_IN_USE -> {
-                            val (container, content) =
-                                itemStatusColors(StatusDimension.USAGE, item.usageStatus)
+                        )
+                    }
+                    if (item.needRestock) {
+                        add(Triple("待买", TagOrange, TagOrangeText))
+                    }
+                    if (item.usageStatus != Item.USAGE_IN_USE) {
+                        val (container, content) =
+                            itemStatusColors(StatusDimension.USAGE, item.usageStatus)
+                        add(
                             Triple(
                                 itemStatusOption(StatusDimension.USAGE, item.usageStatus).label,
                                 container,
                                 content
                             )
-                        }
-
-                        else -> null
-                    }
-
-                    statusTag?.let { (text, container, content) ->
-                        PillTag(
-                            text = text,
-                            backgroundColor = container,
-                            contentColor = content
                         )
                     }
-
                     item.expireTime?.let { expireTime ->
                         val days = DateUtil.daysUntil(expireTime)
                         val (container, content) = when {
-                            days < 0 -> TagRed to TagRedText
                             days <= 3 -> TagRed to TagRedText
                             days <= 7 -> StatusWarning.copy(alpha = 0.12f) to StatusWarning
                             else -> StatusNormal.copy(alpha = 0.12f) to StatusNormal
                         }
-                        PillTag(
-                            text = DateUtil.expiryCountdownText(expireTime),
-                            backgroundColor = container,
-                            contentColor = content
-                        )
+                        add(Triple(DateUtil.expiryCountdownText(expireTime), container, content))
+                    }
+                }
+
+                if (statusTags.isNotEmpty()) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        statusTags.forEach { (text, container, content) ->
+                            PillTag(
+                                text = text,
+                                backgroundColor = container,
+                                contentColor = content
+                            )
+                        }
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(4.dp))
             // I8：行尾常驻「更多」按钮，与左滑露出的是同一组动作，
-            // 让入口可见、可被读屏聚焦，不再把手势当作唯一通道。
+            // 让入口可见、可被读屏聚焦，不再把手势当作唯一通道；
+            // 热区对齐 48dp（图标仍 18dp），视觉克制但便于点按。
             onMore?.let { openMore ->
                 Box(
                     modifier = Modifier
-                        .size(30.dp)
+                        .size(48.dp)
                         .clip(CircleShape)
                         .clickable(onClick = openMore),
                     contentAlignment = Alignment.Center
@@ -272,7 +274,6 @@ fun ItemCard(
                         tint = TextSecondary
                     )
                 }
-                Spacer(modifier = Modifier.width(6.dp))
             }
             Box(
                 modifier = Modifier

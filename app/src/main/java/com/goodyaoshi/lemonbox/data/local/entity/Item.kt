@@ -57,6 +57,12 @@ data class Item(
     val disposition: Int = DISPOSITION_IN_STOCK,
     /** 补货标记：勾选后进入待买清单；与使用进度、去向互不影响。 */
     val needRestock: Boolean = false,
+    /**
+     * 待买项的可选归属：给谁买的。存 [FOR_WHOM_SELF] / [FOR_WHOM_PARTNER] /
+     * [FOR_WHOM_SHARED] 之一，null 表示未标注（不展示）。存码值而非文案，
+     * 这样「给她」能随昵称一起变化。
+     */
+    val forWhom: String? = null,
     /** 该物品单独的到期提醒阶梯（逗号分隔的天数）；空表示跟随全局默认阶梯。 */
     val reminderDays: String? = null,
     /** 购买日期（天精度）；未记录为 null。 */
@@ -122,6 +128,18 @@ data class Item(
 
         /** 计量方式：持续使用（电器、调料等），不扣数量，按使用天数统计成本。 */
         const val TRACK_DURABLE = 1
+
+        /** 待买归属：给自己。 */
+        const val FOR_WHOM_SELF = "self"
+
+        /** 待买归属：给她（展示时用当前昵称）。 */
+        const val FOR_WHOM_PARTNER = "partner"
+
+        /** 待买归属：家里共用。 */
+        const val FOR_WHOM_SHARED = "shared"
+
+        /** 待买归属的可选码值，供选择器按顺序渲染。 */
+        val FOR_WHOM_CODES = listOf(FOR_WHOM_SELF, FOR_WHOM_PARTNER, FOR_WHOM_SHARED)
 
         /** 这些顶级分类下的新物品默认按「持续使用」计量；录入时可手动改。 */
         val durableTopCategoryNames = setOf("家电", "数码", "厨具", "衣物", "工具")

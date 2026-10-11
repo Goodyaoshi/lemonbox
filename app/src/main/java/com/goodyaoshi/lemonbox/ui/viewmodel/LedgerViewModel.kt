@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.YearMonth
@@ -57,6 +58,11 @@ class LedgerViewModel @Inject constructor(
 
     private val _yearMonth = MutableStateFlow(YearMonth.now())
 
+    private val loading = LoadingState()
+
+    /** 首帧加载标记：当月总览读完之前显示骨架屏，避免「假空态」（见 [LoadingState]）。 */
+    val isLoading: StateFlow<Boolean> = loading.isLoading
+
     /** 当前查看的月份。 */
     val yearMonth: StateFlow<YearMonth> = _yearMonth.asStateFlow()
 
@@ -85,7 +91,8 @@ class LedgerViewModel @Inject constructor(
         ledgerRepository.observeAssets()
     ) { records, categories, budgets, assets ->
         buildOverview(records, categories, budgets, assets.associateBy { it.id })
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), LedgerOverview())
+    }.onEach { loading.markLoaded() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), LedgerOverview())
 
     private suspend fun buildOverview(
         records: List<LedgerRecord>,

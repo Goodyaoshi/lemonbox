@@ -5,6 +5,7 @@ import com.goodyaoshi.lemonbox.BuildConfig
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.goodyaoshi.lemonbox.data.local.dao.CategoryDao
+import com.goodyaoshi.lemonbox.data.local.entity.Anniversary
 import com.goodyaoshi.lemonbox.data.local.entity.Item
 import com.goodyaoshi.lemonbox.data.local.entity.Category
 import com.goodyaoshi.lemonbox.data.local.entity.ItemDetail
@@ -66,6 +67,9 @@ class HomeViewModel @Inject constructor(
     val allItems: StateFlow<List<ItemDetail>> = itemRepository.getAllItems()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    /** 她的称呼：首页问候里的「柠檬，早上好」用它，可在「我的」页修改。 */
+    val nickname: StateFlow<String> = appPreferences.nickname
+
     /** 临期物品：在库、有有效期，且剩余天数落在它自己（或全局）提醒阶梯的最大窗口内。 */
     val expiringItems: StateFlow<List<ItemDetail>> =
         combine(activeItems, appPreferences.reminderLadder) { items, ladder ->
@@ -100,6 +104,20 @@ class HomeViewModel @Inject constructor(
                 .take(2)
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /**
+     * Hero 里那个「只有你们懂的数字」：取累计型（TYPE_COUNTUP）里开始最早的一条，
+     * 拼成「在一起第 N 天」。用户没建这类纪念日时不显示，Hero 保持原样。
+     */
+    val togetherDays: StateFlow<String?> = anniversaryRepository.getActiveAnniversaries()
+        .map { list ->
+            val today = LocalDate.now()
+            list.map { it.toRow(today) }
+                .filter { it.anniversary.type == Anniversary.TYPE_COUNTUP && (it.days ?: 0L) <= 0L }
+                .minByOrNull { it.days ?: 0L }
+                ?.let { "${it.name}第 ${-(it.days ?: 0L) + 1} 天" }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     /** 一餐做完：仓库内幂等（已做不重复扣料）。 */
     fun markDayCooked(dateKey: String) {

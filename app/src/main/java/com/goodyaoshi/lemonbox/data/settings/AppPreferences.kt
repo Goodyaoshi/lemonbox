@@ -9,6 +9,7 @@ import com.goodyaoshi.lemonbox.data.meal.MealSpec
 import com.goodyaoshi.lemonbox.data.meal.Recipe
 import com.goodyaoshi.lemonbox.data.meal.RecipeIngredient
 import com.goodyaoshi.lemonbox.util.DateUtil
+import com.goodyaoshi.lemonbox.util.UserCopy
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -49,6 +50,25 @@ class AppPreferences @Inject constructor(
         preferences.edit().putString(KEY_THEME_MODE, mode.name).apply()
         _themeMode.value = mode
     }
+
+    private val _nickname = MutableStateFlow(loadNickname())
+
+    /** 她的昵称：首页问候、「我的」页与通知里的称呼都用它；可在「我的」页修改。 */
+    val nickname: StateFlow<String> = _nickname.asStateFlow()
+
+    /** 更新昵称：去首尾空白并限长，留空则回落到默认昵称。 */
+    fun setNickname(value: String) {
+        val normalized = value.trim().take(MAX_NICKNAME_LENGTH).ifBlank { UserCopy.NICKNAME }
+        preferences.edit().putString(KEY_NICKNAME, normalized).apply()
+        _nickname.value = normalized
+    }
+
+    private fun loadNickname(): String =
+        preferences.getString(KEY_NICKNAME, null)
+            ?.trim()
+            ?.take(MAX_NICKNAME_LENGTH)
+            ?.ifBlank { null }
+            ?: UserCopy.NICKNAME
 
     private val _budgetReminderEnabled = MutableStateFlow(
         preferences.getBoolean(KEY_BUDGET_REMINDER_ENABLED, true)
@@ -207,6 +227,18 @@ class AppPreferences @Inject constructor(
     /** 提醒保活：常驻前台服务防止划卡清理把提醒闹钟一起杀掉。默认开启。 */
     val keepAliveEnabled: StateFlow<Boolean> = _keepAliveEnabled.asStateFlow()
 
+    private val _autoStartConfirmed = MutableStateFlow(
+        preferences.getBoolean(KEY_AUTO_START_CONFIRMED, false)
+    )
+
+    /**
+     * 是否已前往系统「自启动」页设置过。
+     *
+     * 厂商自启动开关没有公开 API 可读取，无法真正探测；这里记录「用户已去过设置页并确认」
+     * 这一事实，避免像以前那样永远显示「去设置」，同时文案如实说明是用户自述而非系统探测。
+     */
+    val autoStartConfirmed: StateFlow<Boolean> = _autoStartConfirmed.asStateFlow()
+
     private val _customReminderTimes = MutableStateFlow(
         preferences.getString(KEY_CUSTOM_REMINDER_TIMES, null)
             ?.split(REMINDER_TIME_SEPARATOR)
@@ -260,6 +292,11 @@ class AppPreferences @Inject constructor(
     fun setKeepAliveEnabled(enabled: Boolean) {
         preferences.edit().putBoolean(KEY_KEEP_ALIVE_ENABLED, enabled).apply()
         _keepAliveEnabled.value = enabled
+    }
+
+    fun setAutoStartConfirmed(confirmed: Boolean) {
+        preferences.edit().putBoolean(KEY_AUTO_START_CONFIRMED, confirmed).apply()
+        _autoStartConfirmed.value = confirmed
     }
 
     /** 新增自定义提醒时间点并自动勾选；已是固定档位或已存在的自定义值时只勾选。 */
@@ -776,6 +813,9 @@ class AppPreferences @Inject constructor(
 
         const val DAY_MS = 24 * 60 * 60 * 1000L
 
+        /** 昵称最大长度（按字符计），避免过长的称呼撑坏标题与通知。 */
+        const val MAX_NICKNAME_LENGTH = 12
+
         /** 水位线缺失时的哨兵值。 */
         private const val NO_WATERMARK = Long.MIN_VALUE
 
@@ -790,6 +830,7 @@ class AppPreferences @Inject constructor(
         private const val STATUS_FIELD_SEPARATOR = "|"
 
         private const val PREFS_NAME = "lemon_preferences"
+        private const val KEY_NICKNAME = "nickname"
         private const val KEY_REMINDER_DAYS = "reminder_days"
         private const val KEY_REMINDER_LADDER = "reminder_ladder"
         private const val REMINDER_LADDER_SEPARATOR = ","
@@ -801,6 +842,7 @@ class AppPreferences @Inject constructor(
         private const val KEY_EXPIRY_QUICK_OPTIONS = "expiry_quick_options"
         private const val EXPIRY_QUICK_SEPARATOR = ","
         private const val KEY_KEEP_ALIVE_ENABLED = "keep_alive_enabled"
+        private const val KEY_AUTO_START_CONFIRMED = "auto_start_confirmed"
         private const val KEY_CUSTOM_REMINDER_TIMES = "custom_reminder_times"
         private const val KEY_MEAL_PREP_DAY_SHIFT = "meal_prep_day_shift"
         private const val KEY_MEAL_PREP_FIRE_TIME = "meal_prep_fire_time"

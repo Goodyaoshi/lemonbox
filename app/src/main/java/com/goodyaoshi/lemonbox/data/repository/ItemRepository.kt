@@ -205,12 +205,13 @@ class ItemRepository @Inject constructor(
         itemDao.updateUsageWindow(item.id, start, end, now)
     }
 
-    /** 手动添加一个待买项：名称 + 数量 + 单位，可选关联分类。 */
+    /** 手动添加一个待买项：名称 + 数量 + 单位，可选关联分类与归属。 */
     suspend fun addToBuyItem(
         name: String,
         quantity: Int,
         unit: String,
-        categoryId: Long? = null
+        categoryId: Long? = null,
+        forWhom: String? = null
     ): Long =
         insert(
             Item(
@@ -218,10 +219,33 @@ class ItemRepository @Inject constructor(
                 quantity = quantity.coerceAtLeast(1),
                 unit = unit.trim().ifBlank { "件" },
                 categoryId = categoryId,
+                forWhom = forWhom,
                 usageStatus = Item.USAGE_USED_UP,
                 needRestock = true
             )
         )
+
+    /** 编辑待买项：只改名称 / 数量 / 单位 / 分类 / 归属，其余字段（状态等）保持不变。 */
+    suspend fun updateToBuyItem(
+        item: Item,
+        name: String,
+        quantity: Int,
+        unit: String,
+        categoryId: Long?,
+        forWhom: String? = null
+    ) {
+        val normalized = name.trim()
+        if (normalized.isBlank()) return
+        update(
+            item.copy(
+                name = normalized,
+                quantity = quantity.coerceAtLeast(1),
+                unit = unit.trim().ifBlank { "件" },
+                categoryId = categoryId,
+                forWhom = forWhom
+            )
+        )
+    }
 
     /** 自动补买用：待买清单里已有同名物品时跳过，避免重复添加。 */
     suspend fun addToBuyItemIfAbsent(

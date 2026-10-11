@@ -26,6 +26,9 @@ class SettingsViewModel @Inject constructor(
 
     val keepAliveEnabled: StateFlow<Boolean> = appPreferences.keepAliveEnabled
 
+    /** 是否已前往系统「自启动」页确认过（厂商无公开 API，只能记录用户自述）。 */
+    val autoStartConfirmed: StateFlow<Boolean> = appPreferences.autoStartConfirmed
+
     val customReminderTimes: StateFlow<Set<String>> = appPreferences.customReminderTimes
 
     val mealPrepDayShift: StateFlow<Int> = appPreferences.mealPrepDayShift
@@ -66,6 +69,11 @@ class SettingsViewModel @Inject constructor(
 
     fun setThemeMode(mode: ThemeMode) {
         appPreferences.setThemeMode(mode)
+    }
+
+    /** 用户确认已前往系统自启动页设置后记录一次，让状态不再永远停在「去设置」。 */
+    fun markAutoStartConfirmed() {
+        appPreferences.setAutoStartConfirmed(true)
     }
 
     /** 切换保活开关：开则立刻拉起前台服务，关则停掉常驻通知。 */

@@ -47,6 +47,7 @@ import com.goodyaoshi.lemonbox.ui.theme.LemonStart
 import com.goodyaoshi.lemonbox.ui.theme.OnLemon
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.SageAccent
+import com.goodyaoshi.lemonbox.ui.theme.ScrimSoft
 import com.goodyaoshi.lemonbox.ui.theme.StatusExpired
 import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarm
 import com.goodyaoshi.lemonbox.ui.theme.TextHint
@@ -143,7 +144,7 @@ fun ItemMoreActionsDialog(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.24f)),
+                .background(ScrimSoft),
             contentAlignment = Alignment.Center
         ) {
             AppSurfaceCard(

@@ -109,8 +109,9 @@ fun ScanScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(
+                    // 热区对齐 48dp（图标尺寸不变），便于点按。
                     modifier = Modifier
-                        .size(38.dp)
+                        .size(48.dp)
                         .clip(CircleShape)
                         .clickable(onClick = onBack),
                     contentAlignment = Alignment.Center

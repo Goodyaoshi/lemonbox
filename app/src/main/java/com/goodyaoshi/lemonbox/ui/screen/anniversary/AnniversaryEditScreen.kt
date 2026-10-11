@@ -54,8 +54,8 @@ import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.ExpiryPickerDialog
-import com.goodyaoshi.lemonbox.ui.components.GradientButton
 import com.goodyaoshi.lemonbox.ui.components.LunarDatePickerDialog
+import com.goodyaoshi.lemonbox.ui.components.PrimaryActionBar
 import com.goodyaoshi.lemonbox.ui.components.SegmentedTabs
 import com.goodyaoshi.lemonbox.ui.theme.CardWhite
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
@@ -605,9 +605,11 @@ fun AnniversaryEditScreen(
                 Spacer(modifier = Modifier.height(8.dp))
             }
 
-            GradientButton(
+            PrimaryActionBar(
                 text = "保存",
                 enabled = name.isNotBlank(),
+                horizontalPadding = 20.dp,
+                verticalPadding = 12.dp,
                 onClick = {
                     val anchorSolar = if (isLunar) {
                         // 农历生日存出生当天换算的公历日期（含出生年），年龄/生肖才有据可算
@@ -637,10 +639,7 @@ fun AnniversaryEditScreen(
                         onDuplicateName = { duplicateName = true }
                     )
                 },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 12.dp)
-                    .navigationBarsPadding()
+                modifier = Modifier.navigationBarsPadding()
             )
         }
 

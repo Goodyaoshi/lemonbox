@@ -10,12 +10,18 @@ import com.goodyaoshi.lemonbox.data.repository.CategoryRepository
 import com.goodyaoshi.lemonbox.data.repository.ItemRepository
 import com.goodyaoshi.lemonbox.data.repository.LocationRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class DetailViewModel @Inject constructor(
     private val itemRepository: ItemRepository,
@@ -23,7 +29,23 @@ class DetailViewModel @Inject constructor(
     locationRepository: LocationRepository
 ) : ViewModel() {
 
-    val items: StateFlow<List<ItemDetail>> = itemRepository.getAllItems()
+    private val loading = LoadingState()
+
+    /** 手动重试触发器：自增即让 [items] 重新订阅上游（P2，配合 [ErrorState] 使用）。 */
+    private val refreshTrigger = MutableStateFlow(0)
+
+    /** 首帧加载标记：物品详情读完之前显示骨架屏，避免「假空态」（见 [LoadingState]）。 */
+    val isLoading: StateFlow<Boolean> = loading.isLoading
+
+    /** 读取失败时的错误文案；为 null 表示正常（P2）。 */
+    val error: StateFlow<String?> = loading.error
+
+    val items: StateFlow<List<ItemDetail>> = refreshTrigger
+        .flatMapLatest {
+            itemRepository.getAllItems()
+                .onEach { loading.markLoaded() }
+                .catch { loading.markError(it.message) }
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /** 分类/存放位置的全量列表，用于把详情页的扁平名称还原成完整层级路径。 */
@@ -32,6 +54,12 @@ class DetailViewModel @Inject constructor(
 
     val locations: StateFlow<List<Location>> = locationRepository.getAllLocations()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** 重试：复位加载态并重新订阅上游（P2，供错误态上的「重试」按钮调用）。 */
+    fun retry() {
+        loading.beginRetry()
+        refreshTrigger.value++
+    }
 
     fun markAsUsed(id: Long) {
         viewModelScope.launch {

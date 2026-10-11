@@ -77,6 +77,16 @@ private enum class CameraTab(val label: String) {
     NO_IMAGE("无图")
 }
 
+// ============================================================
+// 相机页暗色白名单（P2）
+// ------------------------------------------------------------
+// 本页是「取景器」界面，前景始终叠在实时相机画面上，属于有意为之的
+// 固定暗色配色：底色用纯黑、前景文字/图标用纯白，才能保证在任何拍摄
+// 场景下都可读且不喧宾夺主。因此本文件内直接使用的 Color.Black / Color.White
+// 及其 alpha 变体是刻意保留的白名单，不走主题语义色。
+// 这些取值集中在本文件内，便于统一微调；如需新增，请沿用同一套黑/白基准。
+// ============================================================
+
 @Composable
 fun CameraScreen(
     onBack: () -> Unit,
@@ -318,6 +328,8 @@ fun CameraScreen(
         cameraNotice?.let { notice ->
             InlineNotice(
                 message = notice,
+                // 除了自动消失，也给一条手动关闭通道：用户看明白后不必等倒计时。
+                onDismiss = { cameraNotice = null },
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .statusBarsPadding()
@@ -395,19 +407,27 @@ fun CameraScreen(
                                 Box(
                                     modifier = Modifier
                                         .align(Alignment.TopEnd)
-                                        .padding(4.dp)
-                                        .size(18.dp)
-                                        .clip(CircleShape)
-                                        .background(Color.Black.copy(alpha = 0.42f))
+                                        // 热区对齐 48dp（视觉角标仍 18dp），角标位置不变，
+                                        // 仅把可点范围从角落向外扩大，便于点中。
+                                        .size(44.dp)
                                         .clickable { capturedUris.removeAt(index) },
-                                    contentAlignment = Alignment.Center
+                                    contentAlignment = Alignment.TopEnd
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Close,
-                                        contentDescription = "删除缩略图",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(10.dp)
-                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .padding(4.dp)
+                                            .size(18.dp)
+                                            .clip(CircleShape)
+                                            .background(Color.Black.copy(alpha = 0.42f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Close,
+                                            contentDescription = "删除缩略图",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(10.dp)
+                                        )
+                                    }
                                 }
                             }
                         }

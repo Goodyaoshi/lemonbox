@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TimePicker
@@ -134,6 +135,7 @@ fun SettingsScreen(
     val reminderTimes by viewModel.reminderTimes.collectAsState()
     val themeMode by viewModel.themeMode.collectAsState()
     val keepAliveEnabled by viewModel.keepAliveEnabled.collectAsState()
+    val autoStartConfirmed by viewModel.autoStartConfirmed.collectAsState()
     val customReminderTimes by viewModel.customReminderTimes.collectAsState()
     val mealPrepDayShift by viewModel.mealPrepDayShift.collectAsState()
     val mealPrepFireTime by viewModel.mealPrepFireTime.collectAsState()
@@ -189,8 +191,7 @@ fun SettingsScreen(
                 }
                 Text(
                     text = "设置",
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.headlineMedium,
                     color = TextPrimary
                 )
             }
@@ -423,11 +424,16 @@ fun SettingsScreen(
                 )
                 ReliabilityItem(
                     title = "自启动权限",
-                    subtitle = "点亮${BrandCopy.APP_NAME}的自启动开关",
-                    done = false,
-                    actionLabel = "去设置",
+                    subtitle = if (autoStartConfirmed) {
+                        "已按你的确认记录为已设置（系统不提供自动检测）"
+                    } else {
+                        "点亮${BrandCopy.APP_NAME}的自启动开关，否则划卡后提醒会失效"
+                    },
+                    done = autoStartConfirmed,
+                    actionLabel = if (autoStartConfirmed) "再检查一次" else "去设置",
                     onAction = {
                         activityContext?.let { ReminderReliability.openAutoStartSettings(it) }
+                        viewModel.markAutoStartConfirmed()
                     }
                 )
                 Row(

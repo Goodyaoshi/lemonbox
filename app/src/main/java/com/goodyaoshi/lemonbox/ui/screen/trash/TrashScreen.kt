@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.RestoreFromTrash
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -55,6 +56,7 @@ import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.EmptyState
 import com.goodyaoshi.lemonbox.ui.components.SectionHeader
+import com.goodyaoshi.lemonbox.ui.components.SkeletonList
 import com.goodyaoshi.lemonbox.ui.theme.CardWhite
 import com.goodyaoshi.lemonbox.ui.theme.DividerSoft
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
@@ -73,6 +75,7 @@ fun TrashScreen(
     viewModel: TrashViewModel = hiltViewModel()
 ) {
     val deletedItems by viewModel.deletedItems.collectAsState()
+    val isLoading by viewModel.isLoading.collectAsState()
     val selectedIds by viewModel.selectedIds.collectAsState()
     var pendingDeleteIds by remember { mutableStateOf<List<Long>>(emptyList()) }
 
@@ -108,19 +111,21 @@ fun TrashScreen(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "回收站",
-                        fontSize = 24.sp,
-                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.headlineMedium,
                         color = TextPrimary
                     )
                     Text(
                         text = "删除后 30 天内你都能恢复，过期会自动清理",
-                        fontSize = 12.sp,
+                        style = MaterialTheme.typography.bodySmall,
                         color = TextSecondary
                     )
                 }
             }
 
-            if (deletedItems.isEmpty()) {
+            if (isLoading) {
+                // 首帧：列表还没读到，先画骨架，别让「还没加载」看起来像「回收站是空的」。
+                SkeletonList(itemCount = 3, showHeader = false)
+            } else if (deletedItems.isEmpty()) {
                 // 空回收站刻意不给操作按钮（I5 的例外）：这里没有「主操作」可直达，
                 // 且文案本身没有引用屏幕外的位置，因此保留纯说明态即可，避免硬塞一个「返回」按钮。
                 EmptyState(
@@ -154,7 +159,8 @@ fun TrashScreen(
                             )
                         }
                         TrashActionButton(
-                            text = if (allSelected) "清空" else "全选",
+                            // 这里只是切换选择，不是清空回收站；写「取消全选」避免被误读成删除。
+                            text = if (allSelected) "取消全选" else "全选",
                             onClick = {
                                 if (allSelected) {
                                     viewModel.clearSelection()
@@ -301,9 +307,9 @@ private fun TrashItemCard(
             }
             Box(
                 modifier = Modifier
-                    .size(28.dp)
+                    // 热区对齐 48dp（视觉勾选框仍 28dp），避免细小的勾选框难以点中。
+                    .size(48.dp)
                     .clip(CircleShape)
-                    .background(if (selected) OrangeStart else CardWhite)
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         // 勾选控件恢复默认涟漪（I3）：它本身是承载动作的按钮，而非背景热区。
@@ -319,14 +325,22 @@ private fun TrashItemCard(
                     },
                 contentAlignment = Alignment.Center
             ) {
-                if (selected) {
-                    Icon(
-                        imageVector = Icons.Default.Check,
-                        // 选中态已由上方 stateDescription 播报，图标此处留空避免重复播报。
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(16.dp)
-                    )
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .background(if (selected) OrangeStart else CardWhite),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (selected) {
+                        Icon(
+                            imageVector = Icons.Default.Check,
+                            // 选中态已由上方 stateDescription 播报，图标此处留空避免重复播报。
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
                 }
             }
         }

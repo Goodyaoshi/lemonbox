@@ -409,8 +409,9 @@ class AppBackupManager @Inject constructor(
         private const val BACKUP_MANIFEST_NAME = "backup.json"
 
         /** 支持合并的备份格式版本；缺失该字段的旧备份按 v1（仅数字 id 对齐）处理。
-         * v7：纪念日类型 type（倒数日/正数日/生日），不再导出 v5 的 repeatYearly 旧字段。 */
-        const val SYNC_VERSION = 7
+         * v7：纪念日类型 type（倒数日/正数日/生日），不再导出 v5 的 repeatYearly 旧字段。
+         * v8：待买项新增可选归属 forWhom（self/partner/shared）。 */
+        const val SYNC_VERSION = 8
 
         /** 从该版本起备份用 syncId 对齐；更早的备份退回数字 id。 */
         private const val SYNC_ID_VERSION = 2

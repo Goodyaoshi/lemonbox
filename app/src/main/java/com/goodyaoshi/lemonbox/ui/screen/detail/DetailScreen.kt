@@ -62,10 +62,13 @@ import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.CategoryTag
 import com.goodyaoshi.lemonbox.ui.components.DeleteCopy
+import com.goodyaoshi.lemonbox.ui.components.EmptyState
+import com.goodyaoshi.lemonbox.ui.components.ErrorState
 import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
 import com.goodyaoshi.lemonbox.ui.components.GradientButton
 import com.goodyaoshi.lemonbox.ui.components.ImagePreviewOverlay
 import com.goodyaoshi.lemonbox.ui.components.PillTag
+import com.goodyaoshi.lemonbox.ui.components.SkeletonDetail
 import com.goodyaoshi.lemonbox.ui.components.StatusPickerDialog
 import com.goodyaoshi.lemonbox.ui.components.TreeNode
 import com.goodyaoshi.lemonbox.ui.components.buildTreePathLabel
@@ -77,6 +80,8 @@ import com.goodyaoshi.lemonbox.ui.theme.LemonEnd
 import com.goodyaoshi.lemonbox.ui.theme.LemonStart
 import com.goodyaoshi.lemonbox.ui.theme.OnLemon
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
+import com.goodyaoshi.lemonbox.ui.theme.ScrimMedium
+import com.goodyaoshi.lemonbox.ui.theme.ScrimSoft
 import com.goodyaoshi.lemonbox.ui.theme.StatusExpired
 import com.goodyaoshi.lemonbox.ui.theme.TagGreen
 import com.goodyaoshi.lemonbox.ui.theme.TagGreenText
@@ -99,6 +104,8 @@ fun DetailScreen(
     viewModel: DetailViewModel = hiltViewModel()
 ) {
     val items by viewModel.items.collectAsState()
+    val isLoading by viewModel.isLoading.collectAsState()
+    val loadError by viewModel.error.collectAsState()
     val categories by viewModel.categories.collectAsState()
     val locations by viewModel.locations.collectAsState()
     var showDeleteDialog by rememberSaveable { mutableStateOf(false) }
@@ -152,15 +159,38 @@ fun DetailScreen(
     }
 
     if (pagerItems.isEmpty()) {
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = "正在加载物品详情…",
-                color = TextSecondary,
-                fontSize = 14.sp
-            )
+        // 首帧：物品详情还没读到，画与详情同构的骨架（大图 + 标题 + 正文块），
+        // 而不是孤零零一行「正在加载…」；读取出错时给出可重试的错误态；
+        // 确认已加载却仍为空时，给出可返回的就地空态。
+        Box(modifier = Modifier.fillMaxSize()) {
+            AppDecorativeBackground()
+            when {
+                isLoading -> SkeletonDetail()
+                loadError != null -> Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(20.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    ErrorState(
+                        message = loadError.orEmpty(),
+                        onRetry = viewModel::retry
+                    )
+                }
+                else -> Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(20.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    EmptyState(
+                        title = "物品不在了",
+                        message = "它可能已被删除，或已经放进了回收站。",
+                        actionLabel = "返回",
+                        onAction = onBack
+                    )
+                }
+            }
         }
         return
     }
@@ -228,7 +258,7 @@ fun DetailScreen(
                         .height(120.dp)
                         .background(
                             Brush.verticalGradient(
-                                colors = listOf(Color.Black.copy(alpha = 0.34f), Color.Transparent)
+                                colors = listOf(ScrimMedium, Color.Transparent)
                             )
                         )
                 )
@@ -294,7 +324,7 @@ fun DetailScreen(
                         .align(Alignment.BottomCenter)
                         .padding(bottom = 24.dp)
                         .clip(RoundedCornerShape(999.dp))
-                        .background(Color.Black.copy(alpha = 0.3f))
+                        .background(ScrimMedium)
                         .padding(horizontal = 10.dp, vertical = 6.dp)
                 )
             }
@@ -498,7 +528,7 @@ private fun ArrowCircleButton(
             .padding(horizontal = 12.dp)
             .size(42.dp)
             .clip(CircleShape)
-            .background(Color.Black.copy(alpha = 0.22f))
+            .background(ScrimSoft)
             // 悬浮在图片上的纯图标按钮，声明 Button 角色（F16）。
             .clickable(role = Role.Button, onClick = onClick),
         contentAlignment = Alignment.Center
@@ -533,7 +563,7 @@ private fun DeleteCircleButton(
             modifier = Modifier
                 .size(42.dp)
                 .clip(CircleShape)
-                .background(Color.Black.copy(alpha = 0.22f)),
+                .background(ScrimSoft),
             contentAlignment = Alignment.Center
         ) {
             Icon(

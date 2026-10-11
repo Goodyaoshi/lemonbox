@@ -291,19 +291,27 @@ private fun StepperButton(
     onClick: () -> Unit
 ) {
     Box(
+        // 热区对齐 48dp（视觉圆仍 40dp），便于点按。
         modifier = Modifier
-            .size(40.dp)
+            .size(48.dp)
             .clip(CircleShape)
-            .background(SurfaceWarmDeep)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        Text(
-            text = text,
-            color = TextPrimary,
-            fontSize = 20.sp,
-            fontWeight = FontWeight.Bold
-        )
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(CircleShape)
+                .background(SurfaceWarmDeep),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = text,
+                color = TextPrimary,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
     }
 }
 

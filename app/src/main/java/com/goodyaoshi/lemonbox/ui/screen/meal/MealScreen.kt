@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.RestaurantMenu
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -46,16 +47,20 @@ import com.goodyaoshi.lemonbox.data.repository.WeeklyMealDay
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.EmptyState
 import com.goodyaoshi.lemonbox.ui.components.HeaderActionPill
+import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
+import com.goodyaoshi.lemonbox.ui.components.SkeletonList
 import com.goodyaoshi.lemonbox.ui.theme.TagOrange
 import com.goodyaoshi.lemonbox.ui.theme.TagOrangeText
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
 import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
+import com.goodyaoshi.lemonbox.ui.viewmodel.LoadingState
 import com.goodyaoshi.lemonbox.ui.viewmodel.RecipeViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.LocalDate
 import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -68,8 +73,14 @@ class MealViewModel @Inject constructor(
     private val weekMenuRepository: WeekMenuRepository
 ) : ViewModel() {
 
+    private val loading = LoadingState()
+
+    /** 首帧加载标记：菜单读完之前显示骨架屏，避免「假空态」（见 [LoadingState]）。 */
+    val isLoading: StateFlow<Boolean> = loading.isLoading
+
     /** 未来 N 天菜单。 */
     val weekPlan: StateFlow<List<WeeklyMealDay>> = weekMenuRepository.weekPlan
+        .onEach { loading.markLoaded() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /** 计划天数（1..30）。 */
@@ -127,11 +138,13 @@ fun MealScreen(
     recipeViewModel: RecipeViewModel = hiltViewModel()
 ) {
     val weekPlan by viewModel.weekPlan.collectAsState()
+    val isLoading by viewModel.isLoading.collectAsState()
     val planDays by viewModel.planDays.collectAsState()
     val mealPrepDays by viewModel.mealPrepDays.collectAsState()
     val prepDayShift by viewModel.mealPrepDefaultDayShift.collectAsState()
     val prepFireTime by viewModel.mealPrepDefaultFireTime.collectAsState()
     val recipes by recipeViewModel.recipes.collectAsState()
+    val snackbar = LocalAppSnackbar.current
 
     var showPlanDays by remember { mutableStateOf(false) }
     var editingMealDateKey by remember { mutableStateOf<String?>(null) }
@@ -165,13 +178,12 @@ fun MealScreen(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "吃饭",
-                        fontSize = 24.sp,
-                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.headlineMedium,
                         color = TextPrimary
                     )
                     Text(
                         text = "排好一餐，缺的主料自动进待买；做完点「做了」扣库存。",
-                        fontSize = 12.sp,
+                        style = MaterialTheme.typography.bodySmall,
                         color = TextSecondary,
                         modifier = Modifier.padding(top = 2.dp)
                     )
@@ -205,9 +217,12 @@ fun MealScreen(
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState())
             ) {
-                // 一周菜单为空（新用户/清空计划）：日期条、菜单区、缺料条都会不渲染，
-                // 这里补一个带入口的空态，避免整页空白、用户无路可走。
-                if (weekPlan.isEmpty()) {
+                // 首帧（数据未到）：先画与菜单同构的骨架，避免把「还没读到」误判成「计划被清空了」。
+                if (isLoading) {
+                    SkeletonList(itemCount = 3)
+                } else if (weekPlan.isEmpty()) {
+                    // 一周菜单为空（新用户/清空计划）：日期条、菜单区、缺料条都会不渲染，
+                    // 这里补一个带入口的空态，避免整页空白、用户无路可走。
                     EmptyState(
                         title = "还没有一周菜单",
                         message = "先去菜谱库添几道常做的菜，再回来把它们排进这一周。",
@@ -225,7 +240,17 @@ fun MealScreen(
                         WeeklyMenuSection(
                             day = day,
                             onReroll = viewModel::rerollDay,
-                            onCooked = viewModel::markDayCooked,
+                            onCooked = { dateKey ->
+                                viewModel.markDayCooked(dateKey)
+                                // 扣减食材后回一句：料齐就开火，缺料就顺手提示先去补。
+                                snackbar?.postMessage(
+                                    if (day.missing.isEmpty()) {
+                                        "材料齐了，开火吧"
+                                    } else {
+                                        "先按缺料条补几样，再开火也不迟"
+                                    }
+                                )
+                            },
                             onEdit = { editingMealDateKey = it },
                             onPrepReminder = { prepReminderDateKey = it },
                             mealPrepDays = mealPrepDays,

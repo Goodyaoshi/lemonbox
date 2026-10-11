@@ -86,11 +86,13 @@ object NotificationHelper {
 
     /**
      * 把多件临期/过期物品合并为一条汇总通知，避免同一时刻刷屏。
+     * 标题带称呼（[nickname]），单件时直接点名物品，多件时汇总件数，语气保持轻松。
      * 去重（按天/按时间点）由调用方 [ExpiryCheckWorker] 通过 AppPreferences 负责。
      */
     fun showExpirySummary(
         context: Context,
-        items: List<ExpiryNotificationItem>
+        items: List<ExpiryNotificationItem>,
+        nickname: String
     ) {
         if (items.isEmpty()) return
 
@@ -107,7 +109,12 @@ object NotificationHelper {
         val todayCount = items.count { it.daysLeft == 0L }
         val soonCount = items.size - expiredCount - todayCount
 
-        val title = "${BrandCopy.APP_NAME} · ${items.size} 件物品需要留意"
+        val title = if (items.size == 1) {
+            val item = items.first()
+            "$nickname，${item.name}${describeTitleSuffix(item.daysLeft)}"
+        } else {
+            "$nickname，有 ${items.size} 件物品要留意"
+        }
         val summaryText = buildString {
             if (expiredCount > 0) append("$expiredCount 件已过期")
             if (todayCount > 0) {
@@ -147,13 +154,22 @@ object NotificationHelper {
         else -> "还有 $daysLeft 天到期"
     }
 
+    /** 单件提醒的标题后缀，凑成「柠檬，牛奶今天到期」这样的口语句子。 */
+    private fun describeTitleSuffix(daysLeft: Long): String = when {
+        daysLeft < 0 -> "已经过期了"
+        daysLeft == 0L -> "今天到期"
+        else -> "快到期了"
+    }
+
     /**
      * 把多个临近的纪念日合并为一条汇总通知（生日/倒数/周年等）。
+     * 标题带称呼（[nickname]），单件时点名纪念日，多件时汇总个数。
      * 去重（按天/按时间点、逐条记录）由调用方 [AnniversaryCheckWorker] 负责。
      */
     fun showAnniversarySummary(
         context: Context,
-        items: List<AnniversaryNotificationItem>
+        items: List<AnniversaryNotificationItem>,
+        nickname: String
     ) {
         if (items.isEmpty()) return
 
@@ -167,7 +183,12 @@ object NotificationHelper {
         }
 
         val todayCount = items.count { it.lineText == "就是今天" }
-        val title = "${BrandCopy.APP_NAME} · ${items.size} 个纪念日要记着"
+        val title = if (items.size == 1) {
+            val item = items.first()
+            "$nickname，${item.name}${item.lineText}"
+        } else {
+            "$nickname，有 ${items.size} 个纪念日要记着"
+        }
         val summaryText = if (todayCount > 0) {
             "今天就是 $todayCount 个，别忘了准备"
         } else {

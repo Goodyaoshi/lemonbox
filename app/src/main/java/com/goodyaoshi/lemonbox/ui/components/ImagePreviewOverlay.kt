@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
+import com.goodyaoshi.lemonbox.ui.theme.ScrimStrong
 import kotlinx.coroutines.launch
 
 @Composable
@@ -55,7 +56,7 @@ fun ImagePreviewOverlay(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.96f))
+                .background(ScrimStrong)
         ) {
             HorizontalPager(
                 state = pagerState,

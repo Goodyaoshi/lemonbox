@@ -45,6 +45,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import coil.compose.AsyncImage
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
+import com.goodyaoshi.lemonbox.ui.theme.ScrimFaint
+import com.goodyaoshi.lemonbox.ui.theme.ScrimMedium
 import com.goodyaoshi.lemonbox.ui.theme.OrangeTint
 import com.goodyaoshi.lemonbox.ui.theme.TextHint
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
@@ -278,7 +280,7 @@ private fun ImagePreviewCard(
         Box(
             modifier = Modifier
                 .matchParentSize()
-                .background(Color.Black.copy(alpha = 0.12f))
+                .background(ScrimFaint)
         )
         Box(
             modifier = Modifier
@@ -286,7 +288,7 @@ private fun ImagePreviewCard(
                 .padding(8.dp)
                 .size(26.dp)
                 .clip(CircleShape)
-                .background(Color.Black.copy(alpha = 0.32f))
+                .background(ScrimMedium)
                 .clickable(onClick = onRemove),
             contentAlignment = Alignment.Center
         ) {

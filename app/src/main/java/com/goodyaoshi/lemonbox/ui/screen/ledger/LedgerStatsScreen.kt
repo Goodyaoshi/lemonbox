@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerCategory
+import com.goodyaoshi.lemonbox.ui.components.AmountTnumStyle
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.EmptyState
@@ -47,38 +48,16 @@ import com.goodyaoshi.lemonbox.ui.components.LedgerPieChart
 import com.goodyaoshi.lemonbox.ui.components.LedgerPieSlice
 import com.goodyaoshi.lemonbox.ui.components.LedgerRankRow
 import com.goodyaoshi.lemonbox.ui.components.SegmentedTabs
+import com.goodyaoshi.lemonbox.ui.components.categorySlot
+import com.goodyaoshi.lemonbox.ui.components.categorySolidColors
 import com.goodyaoshi.lemonbox.ui.components.ledgerIconFor
-import com.goodyaoshi.lemonbox.ui.theme.LemonSlice
-import com.goodyaoshi.lemonbox.ui.theme.LeafGreen
-import com.goodyaoshi.lemonbox.ui.theme.LightTagPurpleText
-import com.goodyaoshi.lemonbox.ui.theme.MintGreen
-import com.goodyaoshi.lemonbox.ui.theme.SageAccent
-import com.goodyaoshi.lemonbox.ui.theme.StatusExpired
-import com.goodyaoshi.lemonbox.ui.theme.StatusInfo
-import com.goodyaoshi.lemonbox.ui.theme.StatusNormal
-import com.goodyaoshi.lemonbox.ui.theme.StatusWarning
 import com.goodyaoshi.lemonbox.ui.theme.TextHint
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
 import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
-import com.goodyaoshi.lemonbox.ui.theme.WarmBrownSoft
+import com.goodyaoshi.lemonbox.ui.viewmodel.LedgerStatSlice
 import com.goodyaoshi.lemonbox.ui.viewmodel.LedgerStatsViewModel
 import com.goodyaoshi.lemonbox.util.DateUtil
 import com.goodyaoshi.lemonbox.util.LedgerMath
-import kotlin.math.roundToInt
-
-/** 统计饼图的固定配色（循环取色）。 */
-private val statSliceColors = listOf(
-    LeafGreen,
-    MintGreen,
-    LemonSlice,
-    SageAccent,
-    StatusWarning,
-    StatusInfo,
-    StatusExpired,
-    StatusNormal,
-    LightTagPurpleText,
-    WarmBrownSoft
-)
 
 /** 记账统计：支出/收入切换 + 环形饼图 + 分类排行，分类可点进当月明细。 */
 @Composable
@@ -98,6 +77,11 @@ fun LedgerStatsScreen(
     val kindLabel = if (kindIndex == 0) "支出" else "收入"
     val kind = if (kindIndex == 0) LedgerCategory.KIND_EXPENSE else LedgerCategory.KIND_INCOME
     val monthKey = yearMonth.toString()
+    // 分类配色统一走共享色槽（P2）：扇区与图例都按分类身份取色，排序变化不再换色。
+    val palette = categorySolidColors()
+    // 图例与下方「分类排行」统一展示全部分类（此前图例只列 Top5，与饼图/排行口径不一致）。
+    // 百分比取整后由最大的分类吸收余数，保证各项相加恰为 100%。
+    val percents = remember(slices) { percentLabels(slices) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         AppDecorativeBackground()
@@ -169,10 +153,10 @@ fun LedgerStatsScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(contentAlignment = Alignment.Center) {
                                 LedgerPieChart(
-                                    slices = slices.mapIndexed { index, slice ->
+                                    slices = slices.map { slice ->
                                         LedgerPieSlice(
                                             value = slice.amountCents,
-                                            color = statSliceColors[index % statSliceColors.size]
+                                            color = palette[categorySlot(slice.categoryId, slice.name, palette.size)]
                                         )
                                     },
                                     modifier = Modifier.size(150.dp)
@@ -189,13 +173,15 @@ fun LedgerStatsScreen(
                                         fontSize = 15.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = TextPrimary,
-                                        textAlign = TextAlign.Center
+                                        textAlign = TextAlign.Center,
+                                        // 金额启用等宽数字（P2）：多行/切换月份时个位对齐不跳动。
+                                        style = AmountTnumStyle
                                     )
                                 }
                             }
                             Spacer(modifier = Modifier.width(16.dp))
                             Column(modifier = Modifier.weight(1f)) {
-                                slices.take(5).forEachIndexed { index, slice ->
+                                slices.forEachIndexed { index, slice ->
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
                                         modifier = Modifier
@@ -209,7 +195,7 @@ fun LedgerStatsScreen(
                                             modifier = Modifier
                                                 .size(10.dp)
                                                 .background(
-                                                    statSliceColors[index % statSliceColors.size],
+                                                    palette[categorySlot(slice.categoryId, slice.name, palette.size)],
                                                     CircleShape
                                                 )
                                         )
@@ -222,21 +208,12 @@ fun LedgerStatsScreen(
                                             maxLines = 1
                                         )
                                         Text(
-                                            text = "${(slice.ratio * 100).roundToInt()}%",
+                                            text = "${percents.getOrElse(index) { 0 }}%",
                                             // 标签文字走主题字阶（F6）并提到 12sp（F7）。
                                             style = MaterialTheme.typography.labelMedium,
                                             color = TextHint
                                         )
                                     }
-                                }
-                                if (slices.size > 5) {
-                                    Text(
-                                        text = "其他 ${slices.size - 5} 项分类",
-                                        // 说明文字走主题字阶（F6）并提到 12sp（F7）。
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = TextHint,
-                                        modifier = Modifier.padding(top = 4.dp)
-                                    )
                                 }
                             }
                         }
@@ -264,4 +241,16 @@ fun LedgerStatsScreen(
             }
         }
     }
+}
+
+/**
+ * 各分类占比的整数百分比：先截断取整，再把余数补给排在最前（占比最大）的分类，
+ * 使所有百分比相加恰为 100%，避免出现「合计 99% / 101%」的对不上账。
+ */
+private fun percentLabels(slices: List<LedgerStatSlice>): List<Int> {
+    if (slices.isEmpty()) return emptyList()
+    val labels = slices.map { (it.ratio * 100).toInt() }.toMutableList()
+    val remainder = 100 - labels.sum()
+    labels[0] = (labels[0] + remainder).coerceAtLeast(0)
+    return labels
 }

@@ -21,12 +21,15 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -48,11 +51,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.PillTag
-import com.goodyaoshi.lemonbox.ui.components.UserCopy
 import com.goodyaoshi.lemonbox.ui.theme.DividerSoft
 import com.goodyaoshi.lemonbox.ui.theme.LemonEnd
 import com.goodyaoshi.lemonbox.ui.theme.LemonStart
@@ -78,7 +81,10 @@ fun ProfileScreen(
     val dueReminderCount by viewModel.dueReminderCount.collectAsState()
     val anniversaryCount by viewModel.anniversaryCount.collectAsState()
     val backupState by viewModel.backupState.collectAsState()
+    val nickname by viewModel.nickname.collectAsState()
     var showBackupDialog by remember { mutableStateOf(false) }
+    var showNicknameDialog by remember { mutableStateOf(false) }
+    var nicknameInput by remember { mutableStateOf("") }
 
     val exportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/zip")
@@ -116,6 +122,10 @@ fun ProfileScreen(
                             colors = listOf(LemonStart, LemonEnd)
                         )
                     )
+                    .clickable {
+                        nicknameInput = nickname
+                        showNicknameDialog = true
+                    }
                     .drawBehind {
                         // 装饰圆只画不占位，避免把卡片撑出下半截空白
                         val radius = 74.dp.toPx()
@@ -141,16 +151,16 @@ fun ProfileScreen(
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = UserCopy.NICKNAME_INITIAL,
+                                text = nickname.take(1),
                                 color = OnLemon,
                                 fontSize = 21.sp,
                                 fontWeight = FontWeight.Bold
                             )
                         }
                         Spacer(modifier = Modifier.size(12.dp))
-                        Column {
+                        Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = UserCopy.NICKNAME,
+                                text = nickname,
                                 fontSize = 22.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = OnLemon
@@ -161,6 +171,12 @@ fun ProfileScreen(
                                 color = OnLemonSoft
                             )
                         }
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = "修改称呼",
+                            tint = OnLemonSoft,
+                            modifier = Modifier.size(18.dp)
+                        )
                     }
                 }
             }
@@ -245,9 +261,60 @@ fun ProfileScreen(
         }
     }
 
-    if (showBackupDialog && backupState.message != null) {
+    if (showNicknameDialog) {
+        // 「改个称呼」：不动其他设置，改完首页问候、通知、这里都跟着变。
         AppDialog(
-            title = "提示",
+            title = "改个称呼",
+            onDismissRequest = { showNicknameDialog = false },
+            confirmText = "保存",
+            onConfirm = {
+                viewModel.setNickname(nicknameInput)
+                showNicknameDialog = false
+            }
+        ) {
+            Text(
+                text = "这个称呼会用在首页问候、通知和这里。想叫什么就改什么。",
+                color = TextSecondary,
+                fontSize = 13.sp
+            )
+            OutlinedTextField(
+                value = nicknameInput,
+                onValueChange = { nicknameInput = it.take(AppPreferences.MAX_NICKNAME_LENGTH) },
+                singleLine = true,
+                label = { Text("称呼") },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+    }
+
+    if (backupState.isBusy) {
+        // 处理中：给一个不可取消的等待弹窗，明确告诉她在导出还是导入，并提示别退出。
+        AppDialog(
+            title = backupState.busyLabel ?: "处理中…",
+            onDismissRequest = {},
+            dismissText = null,
+            confirmText = null
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    strokeWidth = 2.dp,
+                    color = OrangeStart
+                )
+                Spacer(modifier = Modifier.size(12.dp))
+                Text(
+                    text = "大概几秒钟，先别退出应用",
+                    color = TextSecondary,
+                    fontSize = 14.sp
+                )
+            }
+        }
+    }
+
+    if (showBackupDialog && backupState.message != null) {
+        // 结果分级：成功用「搞定了」的轻松口吻，失败保留原因并说明可重试，别让她以为数据坏了。
+        AppDialog(
+            title = if (backupState.isError) "没成功" else "搞定了",
             onDismissRequest = {
                 showBackupDialog = false
                 viewModel.consumeBackupMessage()
@@ -263,6 +330,14 @@ fun ProfileScreen(
                 color = TextSecondary,
                 fontSize = 14.sp
             )
+            if (backupState.isError) {
+                Text(
+                    text = "你的数据没有改动，可以再试一次。",
+                    color = TextHint,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(top = 6.dp)
+                )
+            }
         }
     }
 }

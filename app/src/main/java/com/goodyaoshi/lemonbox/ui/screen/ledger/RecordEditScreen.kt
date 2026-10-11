@@ -51,9 +51,9 @@ import com.goodyaoshi.lemonbox.ui.components.EditorInputBox
 import com.goodyaoshi.lemonbox.ui.components.EditorSectionLabel
 import com.goodyaoshi.lemonbox.ui.components.EditorSelectionChip
 import com.goodyaoshi.lemonbox.ui.components.ExpiryPickerDialog
-import com.goodyaoshi.lemonbox.ui.components.GradientButton
 import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
 import com.goodyaoshi.lemonbox.ui.components.PillTag
+import com.goodyaoshi.lemonbox.ui.components.PrimaryActionBar
 import com.goodyaoshi.lemonbox.ui.components.SegmentedTabs
 import com.goodyaoshi.lemonbox.ui.components.ledgerIconFor
 import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarmDeep
@@ -366,10 +366,12 @@ fun RecordEditScreen(
                     onBackspace = { viewModel.onAmountKey("⌫") }
                 )
                 Spacer(modifier = Modifier.height(12.dp))
-                GradientButton(
+                PrimaryActionBar(
                     text = "保存",
                     enabled = state.canSave,
-                    onClick = viewModel::save
+                    onClick = viewModel::save,
+                    horizontalPadding = 0.dp,
+                    verticalPadding = 0.dp
                 )
                 Spacer(modifier = Modifier.height(12.dp))
             }

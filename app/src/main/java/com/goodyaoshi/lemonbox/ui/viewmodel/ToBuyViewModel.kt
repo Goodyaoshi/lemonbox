@@ -7,12 +7,14 @@ import com.goodyaoshi.lemonbox.data.local.entity.Item
 import com.goodyaoshi.lemonbox.data.local.entity.ItemDetail
 import com.goodyaoshi.lemonbox.data.repository.CategoryRepository
 import com.goodyaoshi.lemonbox.data.repository.ItemRepository
+import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -21,11 +23,21 @@ import javax.inject.Inject
 @HiltViewModel
 class ToBuyViewModel @Inject constructor(
     private val itemRepository: ItemRepository,
-    private val categoryRepository: CategoryRepository
+    private val categoryRepository: CategoryRepository,
+    private val appPreferences: AppPreferences
 ) : ViewModel() {
+
+    private val loading = LoadingState()
+
+    /** 她的称呼：「给谁的」标签里的「给她」显示当前昵称。 */
+    val nickname: StateFlow<String> = appPreferences.nickname
+
+    /** 首帧加载标记：待买列表读完之前显示骨架屏，避免「假空态」（见 [LoadingState]）。 */
+    val isLoading: StateFlow<Boolean> = loading.isLoading
 
     /** 全部待买项（未筛选）。 */
     val items: StateFlow<List<ItemDetail>> = itemRepository.getToBuyItems()
+        .onEach { loading.markLoaded() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /** 分类树：供「关联分类」选择与列表筛选使用。 */
@@ -76,12 +88,32 @@ class ToBuyViewModel @Inject constructor(
         }
     }
 
-    /** 手动添加待买项：名称 + 数量 + 单位，可选关联分类。 */
-    fun addToBuy(name: String, quantity: Int, unit: String, categoryId: Long?) {
+    /** 手动添加待买项：名称 + 数量 + 单位，可选关联分类与「给谁的」归属。 */
+    fun addToBuy(
+        name: String,
+        quantity: Int,
+        unit: String,
+        categoryId: Long?,
+        forWhom: String?
+    ) {
         val normalizedName = name.trim()
         if (normalizedName.isBlank()) return
         viewModelScope.launch {
-            itemRepository.addToBuyItem(normalizedName, quantity, unit, categoryId)
+            itemRepository.addToBuyItem(normalizedName, quantity, unit, categoryId, forWhom)
+        }
+    }
+
+    /** 编辑待买项：改名字 / 数量 / 单位 / 分类 / 归属（买到后仍会归位到家当）。 */
+    fun updateToBuy(
+        item: Item,
+        name: String,
+        quantity: Int,
+        unit: String,
+        categoryId: Long?,
+        forWhom: String?
+    ) {
+        viewModelScope.launch {
+            itemRepository.updateToBuyItem(item, name, quantity, unit, categoryId, forWhom)
         }
     }
 

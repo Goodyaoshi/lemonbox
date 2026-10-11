@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -45,6 +46,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
@@ -61,6 +64,7 @@ import com.goodyaoshi.lemonbox.ui.components.EditorSelectionChip
 import com.goodyaoshi.lemonbox.ui.components.EmptyState
 import com.goodyaoshi.lemonbox.ui.components.InlineNotice
 import com.goodyaoshi.lemonbox.ui.components.PillTag
+import com.goodyaoshi.lemonbox.ui.components.SkeletonList
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarmDeep
 import com.goodyaoshi.lemonbox.ui.theme.TagBlue
@@ -89,6 +93,7 @@ fun RemindersScreen(
     viewModel: RemindersViewModel = hiltViewModel()
 ) {
     val reminders by viewModel.reminders.collectAsState()
+    val isLoading by viewModel.isLoading.collectAsState()
     var showAddDialog by remember { mutableStateOf(false) }
 
     val today = LocalDate.now()
@@ -144,8 +149,7 @@ fun RemindersScreen(
                 }
                 Text(
                     text = "待办提醒",
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.headlineMedium,
                     color = TextPrimary,
                     modifier = Modifier.weight(1f)
                 )
@@ -158,7 +162,10 @@ fun RemindersScreen(
                 }
             }
 
-            if (reminders.isEmpty()) {
+            if (isLoading) {
+                // 首帧：提醒还没读到，先画骨架，别让「还没加载」看起来像「一条提醒都没有」。
+                SkeletonList(itemCount = 3, showHeader = false)
+            } else if (reminders.isEmpty()) {
                 EmptyState(
                     title = "还没有提醒",
                     // 去掉「点右上角 +」这种屏外指路（I5），空态直接给「新建提醒」按钮。
@@ -342,10 +349,13 @@ private fun ReminderRow(
             }
             // 开关始终可见并绑定真实启用状态（I4）：此前写死 checked = true，
             // 用户既无法从界面判断提醒是否启用，点击时开关也不会翻转（"点了没用"的错觉）。
+            // 不写死尺寸，交给 M3 默认的 48dp 最小交互热区，同时读屏能播报开关对应的提醒名。
             Switch(
                 checked = reminder.enabled,
                 onCheckedChange = { onToggle() },
-                modifier = Modifier.size(40.dp)
+                modifier = Modifier.semantics {
+                    contentDescription = "启用提醒：${reminder.title}"
+                }
             )
         }
     }
@@ -541,13 +551,21 @@ private fun StepRow(
 @Composable
 private fun StepButton(text: String, onClick: () -> Unit) {
     Box(
+        // 热区对齐 48dp（视觉块仍 34dp），便于点按。
         modifier = Modifier
-            .size(34.dp)
+            .size(48.dp)
             .clip(RoundedCornerShape(12.dp))
-            .background(SurfaceWarmDeep)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        Text(text = text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = OrangeStart)
+        Box(
+            modifier = Modifier
+                .size(34.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(SurfaceWarmDeep),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(text = text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = OrangeStart)
+        }
     }
 }

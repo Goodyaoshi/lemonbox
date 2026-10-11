@@ -8,6 +8,7 @@ import com.goodyaoshi.lemonbox.data.repository.ReminderRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -17,8 +18,14 @@ class RemindersViewModel @Inject constructor(
     private val reminderRepository: ReminderRepository
 ) : ViewModel() {
 
+    private val loading = LoadingState()
+
+    /** 首帧加载标记：提醒列表读完之前显示骨架屏，避免「假空态」（见 [LoadingState]）。 */
+    val isLoading: StateFlow<Boolean> = loading.isLoading
+
     /** 全量提醒：进行中的在前，已暂停/已完成的垫底。 */
     val reminders: StateFlow<List<Reminder>> = reminderRepository.getAllReminders()
+        .onEach { loading.markLoaded() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /** 新建提醒；时刻已过等非法输入返回 false，由页面提示。 */

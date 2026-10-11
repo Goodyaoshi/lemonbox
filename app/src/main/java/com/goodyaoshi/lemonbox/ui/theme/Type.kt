@@ -10,6 +10,12 @@ import androidx.compose.ui.unit.sp
  * 这样深色模式下文字颜色会自动跟随主题。
  */
 val LemonTypography = Typography(
+    // Hero 专用：首页品牌名的展示级字号，全 App 只有首页顶栏这一处使用。
+    displaySmall = TextStyle(
+        fontWeight = FontWeight.Bold,
+        fontSize = 34.sp,
+        lineHeight = 42.sp
+    ),
     headlineLarge = TextStyle(
         fontWeight = FontWeight.Bold,
         fontSize = 28.sp,

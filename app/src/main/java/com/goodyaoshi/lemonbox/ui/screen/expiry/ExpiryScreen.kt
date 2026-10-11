@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -47,7 +48,7 @@ import com.goodyaoshi.lemonbox.ui.components.SectionHeader
 import com.goodyaoshi.lemonbox.ui.components.SegmentedTabs
 import com.goodyaoshi.lemonbox.ui.theme.StatusWarning
 import com.goodyaoshi.lemonbox.ui.theme.TagOrange
-import com.goodyaoshi.lemonbox.ui.theme.TextHint
+import com.goodyaoshi.lemonbox.ui.theme.TagOrangeText
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
 import com.goodyaoshi.lemonbox.ui.viewmodel.ExpiryViewModel
 import com.goodyaoshi.lemonbox.util.DateUtil
@@ -103,8 +104,7 @@ fun ExpiryScreen(
                 }
                 Text(
                     text = "到期提醒",
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.headlineMedium,
                     color = TextPrimary
                 )
             }
@@ -181,12 +181,14 @@ fun ExpiryScreen(
                         Text(
                             text = "小贴士",
                             fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            // 橙色浅底上改深琥珀字（TagOrangeText），保证与底色有足够对比度。
+                            color = TagOrangeText
                         )
                         Text(
                             text = "建议你优先用掉快到期的东西，少浪费。",
                             fontSize = 12.sp,
-                            color = TextHint,
+                            color = TagOrangeText,
                             modifier = Modifier.padding(top = 2.dp)
                         )
                     }

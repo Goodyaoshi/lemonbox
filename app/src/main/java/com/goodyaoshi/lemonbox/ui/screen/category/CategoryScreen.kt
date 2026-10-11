@@ -64,7 +64,7 @@ import androidx.compose.material.icons.filled.WaterDrop
 import androidx.compose.material.icons.filled.WineBar
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -193,14 +193,13 @@ fun CategoryScreen(
                 }
                 Text(
                     text = "家当设置",
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.headlineMedium,
                     color = TextPrimary
                 )
             }
             Text(
                 text = "分类、存放位置、状态选项，还有有效期快捷和到期提醒，都在这里维护；想看具体物品，你到家当里筛选。",
-                fontSize = 13.sp,
+                style = MaterialTheme.typography.bodySmall,
                 color = TextSecondary,
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
             )
@@ -455,12 +454,10 @@ fun CategoryScreen(
                     showCategoryDialog = false
                 }
             ) {
-                OutlinedTextField(
+                EditorInputBox(
                     value = inputName,
                     onValueChange = { inputName = it },
-                    singleLine = true,
-                    label = { Text("位置名称") },
-                    modifier = Modifier.fillMaxWidth()
+                    placeholder = "位置名称"
                 )
             }
         }
@@ -524,15 +521,13 @@ fun CategoryScreen(
                 }
             }
         ) {
-            OutlinedTextField(
+            EditorInputBox(
                 value = statusInput,
                 onValueChange = {
                     statusInput = it
                     statusError = null
                 },
-                singleLine = true,
-                label = { Text("选项名称") },
-                modifier = Modifier.fillMaxWidth()
+                placeholder = "选项名称"
             )
             statusError?.let { message ->
                 Text(

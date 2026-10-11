@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -48,8 +49,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -130,15 +134,14 @@ fun LanSyncScreen(
                 }
                 Text(
                     text = "设备同步",
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.headlineMedium,
                     color = TextPrimary
                 )
             }
 
             Text(
                 text = "两台设备连同一个 WiFi，一方开启共享，另一方在设备列表里点一下就连上，跟配蓝牙一样简单。只在局域网内传输，不经过任何服务器。",
-                fontSize = 12.sp,
+                style = MaterialTheme.typography.bodySmall,
                 color = TextSecondary,
                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 2.dp)
             )
@@ -196,13 +199,7 @@ fun LanSyncScreen(
                         fontSize = 12.sp,
                         color = TextSecondary
                     )
-                    Text(
-                        text = uiState.pairingCode,
-                        fontSize = 38.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = OrangeStart,
-                        letterSpacing = 8.sp
-                    )
+                    AutoSizePairingCode(code = uiState.pairingCode)
                     Spacer(modifier = Modifier.size(4.dp))
                     Text(
                         text = "让对方在「搜索不到？手动输入」里填上本机地址与这串配对码（出于安全考虑，配对码不会自动广播）。",
@@ -422,6 +419,49 @@ fun LanSyncScreen(
         }
     }
 }
+
+/**
+ * 配对码展示：6 位数字字号很大，窄屏（小屏或系统大字体）容易溢出。
+ * 这里量一次文字宽度，按可用宽度自适应缩小字号，保证整串数字始终完整显示在一行。
+ */
+@Composable
+private fun AutoSizePairingCode(code: String, modifier: Modifier = Modifier) {
+    val measurer = rememberTextMeasurer()
+    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+        val availablePx = constraints.maxWidth.toFloat()
+        val fontSize = remember(code, availablePx) {
+            var size = MAX_PAIRING_CODE_SP
+            while (size > MIN_PAIRING_CODE_SP) {
+                val layout = measurer.measure(
+                    text = AnnotatedString(code),
+                    style = TextStyle(
+                        fontSize = size.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = (size / 5f).sp
+                    )
+                )
+                if (layout.size.width <= availablePx) break
+                size -= 1f
+            }
+            size
+        }
+        Text(
+            text = code,
+            fontSize = fontSize.sp,
+            fontWeight = FontWeight.Bold,
+            color = OrangeStart,
+            letterSpacing = (fontSize / 5f).sp,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+}
+
+/** 配对码字号上限：常规屏显 38sp，与旧版观感一致。 */
+private const val MAX_PAIRING_CODE_SP = 38f
+
+/** 配对码字号下限：再小也保证可读，仅极窄屏才会触底。 */
+private const val MIN_PAIRING_CODE_SP = 20f
 
 /** 附近设备的一行：蓝牙式的圆底图标 + 设备名 + 右侧操作提示。点击后填入地址并提示手动输入配对码。 */
 @Composable

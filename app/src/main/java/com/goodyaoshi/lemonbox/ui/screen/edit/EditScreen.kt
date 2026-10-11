@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -57,9 +58,10 @@ import com.goodyaoshi.lemonbox.ui.components.EditorPickerField
 import com.goodyaoshi.lemonbox.ui.components.EditorSectionLabel
 import com.goodyaoshi.lemonbox.ui.components.EditorSelectionChip
 import com.goodyaoshi.lemonbox.ui.components.ExpiryPickerDialog
-import com.goodyaoshi.lemonbox.ui.components.GradientButton
 import com.goodyaoshi.lemonbox.ui.components.HierarchicalPickerDialog
 import com.goodyaoshi.lemonbox.ui.components.ItemImageGallery
+import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
+import com.goodyaoshi.lemonbox.ui.components.PrimaryActionBar
 import com.goodyaoshi.lemonbox.ui.components.QuantityStepper
 import com.goodyaoshi.lemonbox.ui.components.ReminderLadderPicker
 import com.goodyaoshi.lemonbox.ui.components.UnitPickerRow
@@ -68,6 +70,7 @@ import com.goodyaoshi.lemonbox.ui.components.buildTreePathLabel
 import com.goodyaoshi.lemonbox.ui.scan.EXTRA_BARCODE
 import com.goodyaoshi.lemonbox.ui.scan.ScanActivity
 import com.goodyaoshi.lemonbox.ui.screen.save.SavePhotoMode
+import com.goodyaoshi.lemonbox.ui.theme.TagRedText
 import com.goodyaoshi.lemonbox.ui.theme.TextHint
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
 import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
@@ -99,6 +102,8 @@ fun EditScreen(
     viewModel: EditViewModel = hiltViewModel()
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    // 全局提示通道（I10）：保存成功改走统一 Snackbar，替代「静默退栈」让用户不确定是否保存成功。
+    val appSnackbar = LocalAppSnackbar.current
     val state by viewModel.state.collectAsState()
     val categories by viewModel.categories.collectAsState()
     val locations by viewModel.locations.collectAsState()
@@ -112,6 +117,8 @@ fun EditScreen(
     var showStartUseDatePicker by remember { mutableStateOf(false) }
     var showCategoryPicker by remember { mutableStateOf(false) }
     var showLocationPicker by remember { mutableStateOf(false) }
+    // 必填项「物品名称」是否被触碰过：只在用户点过输入框、又清空内容时才提示。
+    var nameTouched by remember { mutableStateOf(false) }
 
     val categoryNodes = remember(categories) {
         categories.map { TreeNode(id = it.id, parentId = it.parentId, name = it.name) }
@@ -179,6 +186,9 @@ fun EditScreen(
 
     LaunchedEffect(state.isSaved) {
         if (state.isSaved) {
+            // 保存成功改走应用级 Snackbar：本页随即返回，提示交给应用级作用域，
+            // 避免随退栈被取消（I10），并带上物品名让确认更具体。
+            appSnackbar?.postMessage("已更新 · ${state.name}")
             onSaved()
         }
     }
@@ -268,8 +278,18 @@ fun EditScreen(
                     EditorInputBox(
                         value = state.name,
                         onValueChange = viewModel::updateName,
-                        placeholder = "给这件东西起个名字吧"
+                        placeholder = "给这件东西起个名字吧",
+                        onFocus = { nameTouched = true }
                     )
+                    // 必填项行内辅助文案：留空时直接说明原因，而不是只让保存键变灰。
+                    if (nameTouched && state.name.isBlank()) {
+                        Spacer(modifier = Modifier.size(6.dp))
+                        Text(
+                            text = "名字是必填的，先给它起个名字吧",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TagRedText
+                        )
+                    }
 
                     Spacer(modifier = Modifier.size(16.dp))
                     EditorSectionLabel(label = "分类")
@@ -461,17 +481,13 @@ fun EditScreen(
                     }
 
                     Spacer(modifier = Modifier.size(24.dp))
-                    GradientButton(
+                    PrimaryActionBar(
                         text = if (state.isSaving) "保存中..." else "保存修改",
                         onClick = viewModel::save,
-                        enabled = state.name.isNotBlank() && !state.isSaving
-                    )
-                    Spacer(modifier = Modifier.size(8.dp))
-                    Text(
-                        text = "改完会同步更新你的首页、家当和分类。",
-                        fontSize = 12.sp,
-                        color = TextHint,
-                        modifier = Modifier.align(Alignment.CenterHorizontally)
+                        enabled = state.name.isNotBlank() && !state.isSaving,
+                        hint = "改完会同步更新你的首页、家当和分类。",
+                        horizontalPadding = 0.dp,
+                        verticalPadding = 0.dp
                     )
                 }
             }
