@@ -57,8 +57,9 @@ jobs:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties', 'gradle/libs.versions.toml') }}
-          restore-keys: gradle-${{ runner.os }}-
+          # v2 前缀用于作废此前可能已被污染的解析缓存（曾把插件误判为“不存在”）。
+          key: gradle-v2-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties', 'gradle/libs.versions.toml') }}
+          restore-keys: gradle-v2-${{ runner.os }}-
 
       - name: Derive version from tag
         id: version
