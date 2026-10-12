@@ -92,6 +92,17 @@ class AnniversaryRepository @Inject constructor(
         anniversaryDao.softDelete(id = anniversary.id, deletedAt = now, updatedAt = now)
     }
 
+    /**
+     * 撤销软删除（IA-6）：按删除前的快照清掉墓碑，让纪念日原样复活。
+     * 行内删除给了 Snackbar 撤销通道，仓库层原先只有软删没有恢复入口，这里补上最小通道；
+     * 与 ReminderRepository.restore 同款语义，刻意不走 save 的查重守卫（撤销即恢复原条目）。
+     */
+    suspend fun restore(anniversary: Anniversary) {
+        anniversaryDao.update(
+            anniversary.copy(deletedAt = null, updatedAt = System.currentTimeMillis())
+        )
+    }
+
     suspend fun purgeDeletedOlderThan(cutoff: Long) {
         anniversaryDao.purgeDeletedOlderThan(cutoff)
     }

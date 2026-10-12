@@ -62,6 +62,7 @@ import coil.compose.AsyncImage
 import com.goodyaoshi.lemonbox.data.local.entity.Item
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.BarcodeAssociationCard
+import com.goodyaoshi.lemonbox.ui.components.DeleteCopy
 import com.goodyaoshi.lemonbox.ui.components.ExpiryPickerDialog
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.EditorInputBox
@@ -69,6 +70,7 @@ import com.goodyaoshi.lemonbox.ui.components.EditorPickerField
 import com.goodyaoshi.lemonbox.ui.components.EditorSectionLabel
 import com.goodyaoshi.lemonbox.ui.components.EditorSelectionChip
 import com.goodyaoshi.lemonbox.ui.components.HierarchicalPickerDialog
+import com.goodyaoshi.lemonbox.ui.components.InlineNotice
 import com.goodyaoshi.lemonbox.ui.components.ItemImageGallery
 import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
 import com.goodyaoshi.lemonbox.ui.components.PrimaryActionBar
@@ -206,14 +208,18 @@ fun SaveScreen(
     LaunchedEffect(state.isSaved) {
         if (state.isSaved) {
             if (continuousEntry) {
-                // 连续录入：留在本页清空表单，提示后直接再拍一张。
-                appSnackbar?.showMessage("已存入，再来一件")
+                // 连续录入：留在本页清空表单，提示后直接再拍一张；「撤销」把刚存的那件移入回收站（G-8）。
+                appSnackbar?.showUndo("已存入，再来一件", DeleteCopy.UNDO_ACTION) {
+                    viewModel.undoSave()
+                }
                 viewModel.reset()
                 onOpenCamera(SavePhotoMode.REPLACE_PRIMARY)
             } else {
                 // 普通保存：本页随即返回，提示交给应用级作用域，避免随退栈被取消（I10）；
-                // 带上物品名，让「存进去了」这件事更具体、更有归属感。
-                appSnackbar?.postMessage("已收进百宝箱 · ${state.name}")
+                // 带上物品名让「存进去了」更具体，「撤销」给一次反悔机会（G-8）。
+                appSnackbar?.showUndo("已收进百宝箱 · ${state.name}", DeleteCopy.UNDO_ACTION) {
+                    viewModel.undoSave()
+                }
                 onSaved()
                 viewModel.reset()
             }
@@ -222,7 +228,7 @@ fun SaveScreen(
 
     // I6：与「空白默认表单」逐字段比对（忽略保存态的瞬时标记）判断有没有未保存内容。
     // 拍照/选图会写进 imagePaths，所以拍完照直接返回同样会触发确认，避免白拍一张。
-    val hasUnsavedInput = state.copy(isSaving = false, isSaved = false) != SaveItemState()
+    val hasUnsavedInput = state.copy(isSaving = false, isSaved = false, errorMessage = null) != SaveItemState()
     val requestBack: () -> Unit = {
         if (hasUnsavedInput) showDiscardDialog = true else onBack()
     }
@@ -586,6 +592,17 @@ fun SaveScreen(
                             }
                         }
                     }
+                }
+
+                // 保存失败的就地提示（G-8）：紧邻保存键，表单内容原样保留，可直接重试。
+                state.errorMessage?.let { message ->
+                    InlineNotice(
+                        message = message,
+                        onDismiss = viewModel::clearError,
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(start = 28.dp, end = 28.dp, bottom = 96.dp)
+                    )
                 }
 
                 PrimaryActionBar(

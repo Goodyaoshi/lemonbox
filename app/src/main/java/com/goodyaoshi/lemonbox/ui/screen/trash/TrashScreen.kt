@@ -54,7 +54,9 @@ import com.goodyaoshi.lemonbox.data.local.entity.ItemDetail
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
+import com.goodyaoshi.lemonbox.ui.components.DeleteCopy
 import com.goodyaoshi.lemonbox.ui.components.EmptyState
+import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
 import com.goodyaoshi.lemonbox.ui.components.SectionHeader
 import com.goodyaoshi.lemonbox.ui.components.SkeletonList
 import com.goodyaoshi.lemonbox.ui.theme.CardWhite
@@ -78,6 +80,7 @@ fun TrashScreen(
     val isLoading by viewModel.isLoading.collectAsState()
     val selectedIds by viewModel.selectedIds.collectAsState()
     var pendingDeleteIds by remember { mutableStateOf<List<Long>>(emptyList()) }
+    val appSnackbar = LocalAppSnackbar.current
 
     LaunchedEffect(deletedItems) {
         viewModel.pruneSelection(deletedItems.map { it.item.id }.toSet())
@@ -181,7 +184,17 @@ fun TrashScreen(
                             modifier = Modifier.weight(1f),
                             enabled = selectedCount > 0,
                             highlight = true,
-                            onClick = viewModel::restoreSelected
+                            // 批量恢复同样给回执与撤销（G-12）：不再是无回执的单向操作。
+                            onClick = {
+                                viewModel.restoreSelected { snapshots ->
+                                    appSnackbar?.showUndo(
+                                        "已恢复 ${snapshots.size} 项",
+                                        DeleteCopy.UNDO_ACTION
+                                    ) {
+                                        viewModel.moveToTrashAgain(snapshots)
+                                    }
+                                }
+                            }
                         )
                         TrashActionButton(
                             text = "永久删除",
@@ -208,7 +221,16 @@ fun TrashScreen(
                             itemDetail = itemDetail,
                             selected = itemDetail.item.id in selectedIds,
                             onToggleSelection = { viewModel.toggleSelection(itemDetail.item.id) },
-                            onRestore = { viewModel.restore(itemDetail.item.id) },
+                            onRestore = {
+                                viewModel.restore(itemDetail.item.id)
+                                // 单条恢复补回执与撤销（G-12）：快照直接取自当前列表项。
+                                appSnackbar?.showUndo(
+                                    "已恢复「${itemDetail.item.name}」",
+                                    DeleteCopy.UNDO_ACTION
+                                ) {
+                                    viewModel.moveToTrashAgain(listOf(itemDetail.item))
+                                }
+                            },
                             onDelete = { pendingDeleteIds = listOf(itemDetail.item.id) }
                         )
                     }

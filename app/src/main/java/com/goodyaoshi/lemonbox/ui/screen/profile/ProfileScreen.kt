@@ -18,7 +18,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Alarm
-import androidx.compose.material.icons.filled.AutoGraph
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.DocumentScanner
 import androidx.compose.material.icons.filled.Edit
@@ -76,7 +75,6 @@ fun ProfileScreen(
     onOpenReminders: () -> Unit = {},
     onOpenAnniversaries: () -> Unit = {},
     onOpenOcr: () -> Unit = {},
-    onOpenRestockForecast: () -> Unit = {},
     onOpenTimeCapsule: () -> Unit = {},
     onOpenPackingList: () -> Unit = {},
     onOpenSleep: () -> Unit = {},
@@ -207,13 +205,6 @@ fun ProfileScreen(
                     title = "文字识别",
                     subtitle = "拍张照，自动认出发票、清单或物品名",
                     onClick = onOpenOcr
-                )
-                DividerSpacer()
-                MenuRow(
-                    icon = Icons.Default.AutoGraph,
-                    title = "补货预测",
-                    subtitle = "按平时的消耗速度，算算哪些快用完了",
-                    onClick = onOpenRestockForecast
                 )
                 DividerSpacer()
                 MenuRow(

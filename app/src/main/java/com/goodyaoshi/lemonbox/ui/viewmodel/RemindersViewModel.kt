@@ -87,6 +87,13 @@ class RemindersViewModel @Inject constructor(
         }
     }
 
+    /** 撤销完成（G-5）：按完成前的快照写回——一次性恢复为待办，周期提醒回到上一轮触发时间。 */
+    fun undoComplete(snapshot: Reminder) {
+        viewModelScope.launch {
+            reminderRepository.restoreCompleted(snapshot)
+        }
+    }
+
     fun delete(reminder: Reminder) {
         viewModelScope.launch {
             reminderRepository.delete(reminder)

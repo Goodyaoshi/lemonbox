@@ -159,14 +159,57 @@ fun HouseholdScreen(
     var pendingDeletePreset by remember { mutableStateOf<UserFilterPreset?>(null) }
 
     // 一件物品的完整操作集：滑动一级动作与「更多」面板共用同一份回调。
+    // G-3：凡改变数据的动作，落库后都给一条可撤销的回执——
+    // 撤销不重放反向逻辑，而是把动作前的整份快照写回，行为可预期。
     val handlersFor: (Item) -> ItemActionHandlers = { item ->
         ItemActionHandlers(
             onEdit = { onNavigateToEdit(item.id) },
-            onMarkUsed = { viewModel.markAsUsed(item.id) },
-            onConsumeOne = { viewModel.consumeOne(item.id) },
-            onSetUsageStatus = { viewModel.setUsageStatus(item.id, it) },
-            onSetDisposition = { viewModel.setDisposition(item.id, it) },
-            onToggleRestock = { viewModel.setNeedRestock(item.id, !item.needRestock) },
+            onMarkUsed = {
+                viewModel.markAsUsed(item.id)
+                appSnackbar?.showUndo("已记「${item.name}」用完，并加入待买", DeleteCopy.UNDO_ACTION) {
+                    viewModel.undoQuickAction(item)
+                }
+            },
+            onConsumeOne = {
+                viewModel.consumeOne(item.id)
+                // 减到 0 时仓库会自动记「用完」并入待买，这里统一按「用掉 1 件」播报。
+                appSnackbar?.showUndo("已用掉 1 件「${item.name}」", DeleteCopy.UNDO_ACTION) {
+                    viewModel.undoQuickAction(item)
+                }
+            },
+            onSetUsageStatus = { status ->
+                // 目标状态与当前相同就不落库、也不发空回执（G-3 守卫）。
+                if (status != item.usageStatus) {
+                    viewModel.setUsageStatus(item.id, status)
+                    val message = if (status == Item.USAGE_IN_USE) {
+                        "已开始使用「${item.name}」"
+                    } else {
+                        "已更新「${item.name}」的使用状态"
+                    }
+                    appSnackbar?.showUndo(message, DeleteCopy.UNDO_ACTION) {
+                        viewModel.undoQuickAction(item)
+                    }
+                }
+            },
+            onSetDisposition = { disposition ->
+                if (disposition != item.disposition) {
+                    viewModel.setDisposition(item.id, disposition)
+                    appSnackbar?.showUndo("已更新「${item.name}」的去向", DeleteCopy.UNDO_ACTION) {
+                        viewModel.undoQuickAction(item)
+                    }
+                }
+            },
+            onToggleRestock = {
+                viewModel.setNeedRestock(item.id, !item.needRestock)
+                val message = if (item.needRestock) {
+                    "已把「${item.name}」移出待买"
+                } else {
+                    "已把「${item.name}」加入待买"
+                }
+                appSnackbar?.showUndo(message, DeleteCopy.UNDO_ACTION) {
+                    viewModel.undoQuickAction(item)
+                }
+            },
             onDelete = { pendingDeleteItem = item }
         )
     }

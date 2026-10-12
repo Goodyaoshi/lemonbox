@@ -459,6 +459,16 @@ class HouseholdViewModel @Inject constructor(
         }
     }
 
+    /**
+     * 撤销一次快捷动作（G-3）：不做反向推导，直接把动作前的整份快照写回；
+     * update 会顺带刷新 updatedAt，物品随之恢复到动作之前的样子。
+     */
+    fun undoQuickAction(previous: Item) {
+        viewModelScope.launch {
+            itemRepository.update(previous)
+        }
+    }
+
     private fun LibraryFilter.toSearchCriteria(
         query: String,
         categories: List<Category>,

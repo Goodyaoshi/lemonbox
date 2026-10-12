@@ -716,10 +716,18 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
                 }
 
                 composable(Screen.Ocr.route) { backStackEntry ->
+                    // OCR 模式外显（IA-8）：三个入口共用同一路由，按来路路由判定模式文案，
+                    // 进页即说清识别完会去哪；从「我的」进入或来路未知时按独立工具交代。
+                    val ocrModeLabel = when (navController.previousBackStackEntry?.destination?.route) {
+                        Screen.Save.route -> "存物录入 · 识别后去填物品表单"
+                        Screen.RecordEdit.route -> "记账 · 识别后去填账目"
+                        else -> "独立工具 · 识别完自己选去向"
+                    }
                     val cameraResultUri by backStackEntry.savedStateHandle
                         .getStateFlow<String?>(OCR_RESULT_IMAGE_URI, null)
                         .collectAsState()
                     OcrScreen(
+                        modeLabel = ocrModeLabel,
                         onBack = { navController.popBackStack() },
                         onOpenCamera = { openCamera(CameraReturnTarget.Ocr) },
                         cameraResultUri = cameraResultUri,
@@ -785,7 +793,6 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
                         onOpenReminders = { navController.navigate(Screen.Reminders.route) },
                         onOpenAnniversaries = { navController.navigate(Screen.Anniversaries.route) },
                         onOpenOcr = { navController.navigate(Screen.Ocr.route) },
-                        onOpenRestockForecast = { navController.navigate(Screen.RestockForecast.route) },
                         onOpenTimeCapsule = { navController.navigate(Screen.TimeCapsule.route) },
                         onOpenPackingList = { navController.navigate(Screen.PackingList.route) },
                         onOpenSleep = { navController.navigate(Screen.Sleep.route) }

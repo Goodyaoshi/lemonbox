@@ -1,6 +1,8 @@
 package com.goodyaoshi.lemonbox.ui.viewmodel
 
+import android.content.Context
 import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.goodyaoshi.lemonbox.data.backup.AppBackupManager
@@ -11,6 +13,7 @@ import com.goodyaoshi.lemonbox.data.repository.AnniversaryRepository
 import com.goodyaoshi.lemonbox.data.repository.ReminderRepository
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -18,8 +21,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import java.time.LocalDate
-import java.time.ZoneId
+import java.util.Locale
 import javax.inject.Inject
 
 /** 待确认的导入：已解析出变更清单，等用户勾选后再落库。 */
@@ -41,6 +43,7 @@ data class BackupUiState(
 
 @HiltViewModel
 class ProfileViewModel @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val backupManager: AppBackupManager,
     private val readableExportManager: ReadableExportManager,
     reminderRepository: ReminderRepository,
@@ -57,13 +60,9 @@ class ProfileViewModel @Inject constructor(
         appPreferences.setNickname(value)
     }
 
-    /** 今天（含已提醒还没完成）的待办数量：与首页「今天的事」的提醒口径一致。 */
-    val dueReminderCount: StateFlow<Int> = reminderRepository.getActiveReminders()
-        .map { list ->
-            val endOfToday = LocalDate.now().plusDays(1)
-                .atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
-            list.count { it.nextFireAt < endOfToday }
-        }
+    /** 今天（含已提醒还没完成）的待办数量：直接复用「今天的事」的同一份口径（IA-7），两处数字恒一致。 */
+    val dueReminderCount: StateFlow<Int> = reminderRepository.getDueTodayReminders()
+        .map { it.size }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     /** 纪念日数量：「常用」组纪念日入口的徽标。 */
@@ -75,8 +74,17 @@ class ProfileViewModel @Inject constructor(
 
     fun exportBackup(targetUri: Uri) {
         viewModelScope.launch {
-            runBackupAction(successMessage = "备份导出完成", busyLabel = "正在导出备份包…") {
+            runBackupAction(busyLabel = "正在导出备份包…") {
                 backupManager.exportBackup(targetUri)
+                // 回执交代产物（G-7）：带上文件名与大小，让她知道备份包去哪了、有多大；
+                // 查询失败时 buildString 退化为原文案，不打断成功路径。
+                buildString {
+                    append("备份导出完成")
+                    describeExportedFile(targetUri)?.let { (name, size) ->
+                        if (!name.isNullOrBlank()) append(" · ").append(name)
+                        size?.let { append("（").append(formatReadableSize(it)).append("）") }
+                    }
+                }
             }
         }
     }
@@ -84,8 +92,9 @@ class ProfileViewModel @Inject constructor(
     /** 人类可读报告导出（F12）：生成可阅读、可打印的 HTML 清单。 */
     fun exportReadable(targetUri: Uri) {
         viewModelScope.launch {
-            runBackupAction(successMessage = "可读报告已导出", busyLabel = "正在生成报告…") {
+            runBackupAction(busyLabel = "正在生成报告…") {
                 readableExportManager.exportHtml(targetUri)
+                "可读报告已导出"
             }
         }
     }
@@ -169,22 +178,53 @@ class ProfileViewModel @Inject constructor(
         _backupState.value = _backupState.value.copy(message = null, isError = false)
     }
 
+    /**
+     * 预览「恢复内置分类」将新增的内置分类名（G-6）：与 [restoreBuiltInData] 的补种同口径，
+     * 先列明细让用户确认，不再点了就往整理过的分类树里塞回不用的分类。
+     */
+    suspend fun previewMissingBuiltInCategories(): List<String> =
+        backupManager.previewRestoreBuiltIn()
+
     /** 恢复内置分类：补齐食材/零食等受保护分类并去重，用于同步后分类缺失时手动找回。 */
     fun restoreBuiltInData() {
         viewModelScope.launch {
-            runBackupAction(
-                successMessage = "内置分类已补齐，去「分类」里看看",
-                busyLabel = "正在恢复内置分类…"
-            ) {
+            runBackupAction(busyLabel = "正在恢复内置分类…") {
                 backupManager.restoreBuiltInData()
+                "内置分类已补齐，去「分类」里看看"
             }
         }
     }
 
+    /** 查询导出文件的显示名与大小（G-7）；任何查询异常都按无回执处理，返回 null 走降级文案。 */
+    private fun describeExportedFile(uri: Uri): Pair<String?, Long?>? = runCatching {
+        context.contentResolver.query(
+            uri,
+            arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE),
+            null,
+            null,
+            null
+        )?.use { cursor ->
+            if (!cursor.moveToFirst()) return@use null
+            val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
+            val name = if (nameIndex >= 0) cursor.getString(nameIndex) else null
+            val size = if (sizeIndex >= 0 && !cursor.isNull(sizeIndex)) cursor.getLong(sizeIndex) else null
+            name to size
+        }
+    }.getOrNull()
+
+    /** 大小人类可读（G-7）：MB/KB 一位小数（整数省略 .0），不足 1KB 直接展示 B。 */
+    private fun formatReadableSize(bytes: Long): String {
+        if (bytes < 1024) return "$bytes B"
+        val kb = bytes / 1024.0
+        val value = if (kb >= 1024) kb / 1024.0 else kb
+        val unit = if (kb >= 1024) "MB" else "KB"
+        return String.format(Locale.US, "%.1f", value).removeSuffix(".0") + " $unit"
+    }
+
     private suspend fun runBackupAction(
-        successMessage: String,
         busyLabel: String,
-        action: suspend () -> Unit
+        action: suspend () -> String
     ) {
         _backupState.value = _backupState.value.copy(
             isBusy = true,
@@ -193,11 +233,11 @@ class ProfileViewModel @Inject constructor(
             isError = false
         )
         runCatching { action() }
-            .onSuccess {
+            .onSuccess { message ->
                 _backupState.value = _backupState.value.copy(
                     isBusy = false,
                     busyLabel = null,
-                    message = successMessage,
+                    message = message,
                     isError = false
                 )
             }

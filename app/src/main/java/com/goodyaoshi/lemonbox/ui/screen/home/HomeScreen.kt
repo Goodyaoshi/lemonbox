@@ -4,7 +4,6 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,13 +20,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.QrCodeScanner
@@ -52,30 +49,21 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.goodyaoshi.lemonbox.data.local.entity.Item
 import com.goodyaoshi.lemonbox.data.local.entity.ItemDetail
 import com.goodyaoshi.lemonbox.data.repository.WeeklyMealDay
-import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.DeleteCopy
 import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
-import com.goodyaoshi.lemonbox.ui.components.EmptyState
-import com.goodyaoshi.lemonbox.ui.components.ItemActionHandlers
-import com.goodyaoshi.lemonbox.ui.components.ItemCard
-import com.goodyaoshi.lemonbox.ui.components.ItemMoreActionsDialog
 import com.goodyaoshi.lemonbox.ui.components.LedgerBudgetBar
 import com.goodyaoshi.lemonbox.ui.components.PillTag
 import com.goodyaoshi.lemonbox.ui.components.SearchBar
 import com.goodyaoshi.lemonbox.ui.components.SectionHeader
-import com.goodyaoshi.lemonbox.ui.components.SwipeRevealItem
-import com.goodyaoshi.lemonbox.ui.components.buildItemSwipeActions
 import com.goodyaoshi.lemonbox.ui.theme.CardWhite
 import com.goodyaoshi.lemonbox.ui.theme.LemonEnd
 import com.goodyaoshi.lemonbox.ui.theme.LemonStart
@@ -105,7 +93,8 @@ import java.time.LocalTime
 
 /**
  * 今日页只回答三件事：今天有什么要办的、今天吃什么、这个月花了多少。
- * 物品清单交给家当、一周菜单交给吃饭，这里只做跨域的「今天」聚合。
+ * 物品清单交给家当、一周菜单交给吃饭，这里只做跨域的「今天」聚合；
+ * 搜索只留入口（IA-1），查找与筛选都收进家当 Tab。
  */
 @Composable
 fun HomeScreen(
@@ -121,40 +110,19 @@ fun HomeScreen(
     onNavigateToAnniversaries: () -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel()
 ) {
-    val allItems by viewModel.allItems.collectAsState()
-    val searchQuery by viewModel.searchQuery.collectAsState()
-    val searchResults by viewModel.searchResults.collectAsState()
     val todayEvents by viewModel.todayEvents.collectAsState()
+    // G-11：被「今天忽略」的临期条单独收集，以灰字小行排在今日清单正常条目之后。
+    val todayIgnoredEvents by viewModel.todayIgnoredEvents.collectAsState()
     val monthSpending by viewModel.monthSpending.collectAsState()
     val weekPlan by viewModel.weekPlan.collectAsState()
     val anniversaryRows by viewModel.anniversaryHighlights.collectAsState()
     val togetherDays by viewModel.togetherDays.collectAsState()
     val nickname by viewModel.nickname.collectAsState()
-    var openedItemId by remember { mutableStateOf<Long?>(null) }
-    var moreItemId by remember { mutableStateOf<Long?>(null) }
-    var pendingDeleteItem by remember { mutableStateOf<Item?>(null) }
     val appSnackbar = LocalAppSnackbar.current
     val todayKey = remember { LocalDate.now().toString() }
     val todayMeal = remember(weekPlan, todayKey) {
         weekPlan.firstOrNull { it.dateKey == todayKey }
     }
-
-    // 一件物品的完整操作集：滑动一级动作与「更多」面板共用同一份回调。
-    val handlersFor: (Item) -> ItemActionHandlers = { item ->
-        ItemActionHandlers(
-            onEdit = { onNavigateToEdit(item.id) },
-            onMarkUsed = { viewModel.markAsUsed(item.id) },
-            onConsumeOne = { viewModel.consumeOne(item.id) },
-            onSetUsageStatus = { viewModel.setUsageStatus(item.id, it) },
-            onSetDisposition = { viewModel.setDisposition(item.id, it) },
-            onToggleRestock = { viewModel.setNeedRestock(item.id, !item.needRestock) },
-            onDelete = { pendingDeleteItem = item }
-        )
-    }
-
-    // 「更多」面板展示的始终是列表里的最新状态，改完能立刻反映到高亮上。
-    val moreItem = moreItemId?.let { id -> allItems.firstOrNull { it.item.id == id }?.item }
-    val searching = searchQuery.isNotBlank()
 
     val onEventClick: (TodayEvent) -> Unit = { event ->
         when (val target = event.target) {
@@ -165,19 +133,14 @@ fun HomeScreen(
         }
     }
 
-    Box(
-        // 点击空白处收起侧滑行的背景热区：用 pointerInput 而非 clickable，
-        // 这样只接管触摸、不向无障碍树暴露一个无标签的“整屏可点”节点。
-        modifier = Modifier.pointerInput(Unit) {
-            detectTapGestures(onTap = { openedItemId = null })
-        }
-    ) {
+    Box {
         AppDecorativeBackground()
 
         Column(modifier = Modifier.fillMaxSize()) {
             HeroHeader(togetherLabel = togetherDays, nickname = nickname)
 
-            // 固定搜索行：搜索框与扫码常驻，结果再多也不用滚回顶部改关键词。
+            // 固定搜索行（IA-1）：首页只留「入口」不做搜索——假搜索条不可输入，
+            // 点击整体跳去家当 Tab（那里有完整的搜索框与筛选），视觉与家当页搜索框保持一致。
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -185,13 +148,13 @@ fun HomeScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 SearchBar(
-                    value = searchQuery,
-                    onValueChange = viewModel::updateSearchQuery,
-                    placeholder = "搜索家当、位置或备注",
+                    value = "",
+                    onValueChange = {},
+                    placeholder = "搜索家当，点这里去家当页搜索",
                     modifier = Modifier.weight(1f),
-                    showMagicIconWhenEmpty = false,
-                    // IA-2：回车把关键词带去家当 Tab 复用同一套筛选，首页只留快捷入口。
-                    onSearch = { if (searching) onSearchInHousehold(searchQuery.trim()) }
+                    readOnly = true,
+                    onClick = { onSearchInHousehold("") },
+                    showMagicIconWhenEmpty = false
                 )
                 Spacer(modifier = Modifier.width(10.dp))
                 Box(
@@ -215,43 +178,10 @@ fun HomeScreen(
                 modifier = Modifier.weight(1f),
                 contentPadding = PaddingValues(bottom = 110.dp)
             ) {
-                if (searching) {
-                item {
-                    SectionHeader(
-                        title = "搜索结果",
-                        subtitle = "在全部家当里按名称、分类、位置与状态查找",
-                        action = "共 ${searchResults.size} 件",
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp)
-                    )
-                }
-                if (searchResults.isEmpty()) {
-                    item {
-                        EmptyState(
-                            title = "没有找到匹配物品",
-                            message = "换个关键词试试，或者去家当用筛选条件查找。",
-                            // 搜索空结果最容易卡死（I5）：给一个「清空关键词」一键退回浏览态。
-                            actionLabel = "清空关键词",
-                            actionIcon = Icons.Default.Close,
-                            onAction = { viewModel.updateSearchQuery("") },
-                            modifier = Modifier.padding(top = 6.dp)
-                        )
-                    }
-                } else {
-                    items(searchResults, key = { it.item.id }) { itemDetail ->
-                        HomeItemRow(
-                            itemDetail = itemDetail,
-                            openedItemId = openedItemId,
-                            onOpenedItemChange = { openedItemId = it },
-                            handlers = handlersFor(itemDetail.item),
-                            onMore = { moreItemId = itemDetail.item.id },
-                            onClick = { onNavigateToDetail(itemDetail.item.id) }
-                        )
-                    }
-                }
-            } else {
                 item {
                     TodaySection(
                         events = todayEvents,
+                        ignoredEvents = todayIgnoredEvents,
                         onEventClick = onEventClick,
                         onComplete = { event ->
                             // H1：勾掉前先拿快照，Snackbar 里可撤销。
@@ -275,7 +205,9 @@ fun HomeScreen(
                             ) {
                                 viewModel.undoIgnoreExpiryToday(event)
                             }
-                        }
+                        },
+                        // G-11：撤销忽略后，条目自动回到上面的正常清单。
+                        onUndoIgnore = { event -> viewModel.undoIgnoreExpiryToday(event) }
                     )
                 }
                 if (anniversaryRows.isNotEmpty()) {
@@ -303,73 +235,7 @@ fun HomeScreen(
                     }
                 }
             }
-            }
         }
-
-        moreItem?.let { item ->
-            ItemMoreActionsDialog(
-                item = item,
-                handlers = handlersFor(item),
-                onDismissRequest = { moreItemId = null }
-            )
-        }
-
-        pendingDeleteItem?.let { item ->
-            AppDialog(
-                title = DeleteCopy.CONFIRM_TITLE,
-                subtitle = DeleteCopy.SOFT_SUBTITLE,
-                onDismissRequest = { pendingDeleteItem = null },
-                confirmText = DeleteCopy.SOFT_CONFIRM,
-                destructiveConfirm = true,
-                onConfirm = {
-                    viewModel.moveToTrash(item)
-                    // 软删除后给一次反悔机会（I10）：底部提示带「撤销」，点了就恢复。
-                    appSnackbar?.showUndo(DeleteCopy.UNDO_MESSAGE, DeleteCopy.UNDO_ACTION) {
-                        viewModel.restoreFromTrash(item.id)
-                    }
-                    pendingDeleteItem = null
-                }
-            ) {
-                Text(
-                    text = "确定要删除「${item.name}」吗？",
-                    color = TextSecondary,
-                    fontSize = 14.sp
-                )
-            }
-        }
-    }
-}
-
-/** 搜索结果行：左滑展示与家当页一致的一级操作。 */
-@Composable
-private fun HomeItemRow(
-    itemDetail: ItemDetail,
-    openedItemId: Long?,
-    onOpenedItemChange: (Long?) -> Unit,
-    handlers: ItemActionHandlers,
-    onMore: () -> Unit,
-    onClick: () -> Unit
-) {
-    SwipeRevealItem(
-        itemKey = itemDetail.item.id,
-        openedItemKey = openedItemId,
-        onOpenedItemChange = { onOpenedItemChange(it as Long?) },
-        actions = buildItemSwipeActions(
-            item = itemDetail.item,
-            handlers = handlers,
-            onMore = onMore
-        ),
-        modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)
-    ) { closeActions, _ ->
-        ItemCard(
-            itemDetail = itemDetail,
-            onClick = {
-                closeActions()
-                onClick()
-            },
-            // I8：行尾「更多」按钮与左滑入口等价，保证动作入口始终可见。
-            onMore = onMore
-        )
     }
 }
 
@@ -479,13 +345,16 @@ private fun greetingFor(hour: Int): String = when (hour) {
 /**
  * 「今天的事」：提醒待办 + 临期家当 + 待买的统一清单，空态一句话，能办的直接办掉（H1）：
  * 提醒给勾选圈（可撤销）、临期给「今天忽略」、待买给购物车直达，完成类操作都有 Snackbar 反馈。
+ * 被「今天忽略」（G-11）的临期条以灰字小行排在正常条目之后，行尾可一键撤销忽略。
  */
 @Composable
 private fun TodaySection(
     events: List<TodayEvent>,
+    ignoredEvents: List<TodayEvent>,
     onEventClick: (TodayEvent) -> Unit,
     onComplete: (TodayEvent) -> Unit,
-    onIgnore: (TodayEvent) -> Unit
+    onIgnore: (TodayEvent) -> Unit,
+    onUndoIgnore: (TodayEvent) -> Unit
 ) {
     // 事项可能很多（临期/待买一次涌进来几十条），首页只展示前几条，其余折叠起来，
     // 避免把首页撑得特别长；需要时展开看全部。
@@ -596,6 +465,55 @@ private fun TodaySection(
                 }
             }
         }
+
+        // G-11：被忽略的临期条以灰字小行垫在卡片下方——不抢正常清单的视觉权重，
+        // 但让她第二天还能想起「是我自己今天先不理它的」，行尾「撤销」随时放回来。
+        if (ignoredEvents.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(4.dp))
+            ignoredEvents.forEach { event ->
+                TodayIgnoredRow(event = event, onUndo = { onUndoIgnore(event) })
+            }
+        }
+    }
+}
+
+/** 「今天已忽略」灰条（G-11）：灰字小行弱化存在感，行尾「撤销」把条目放回今日清单。 */
+@Composable
+private fun TodayIgnoredRow(
+    event: TodayEvent,
+    onUndo: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 10.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.NotificationsOff,
+            contentDescription = null,
+            tint = TextHint,
+            modifier = Modifier.size(14.dp)
+        )
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(
+            text = "今天已忽略 · ${event.title}",
+            fontSize = 12.sp,
+            color = TextHint,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
+        Text(
+            text = "撤销",
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = OrangeStart,
+            modifier = Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .clickable(onClick = onUndo)
+                .padding(horizontal = 8.dp, vertical = 4.dp)
+        )
     }
 }
 

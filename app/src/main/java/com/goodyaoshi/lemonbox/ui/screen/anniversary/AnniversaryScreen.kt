@@ -2,6 +2,7 @@ package com.goodyaoshi.lemonbox.ui.screen.anniversary
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,6 +23,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.DatePicker
@@ -44,6 +46,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -51,9 +54,13 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
+import com.goodyaoshi.lemonbox.ui.components.DeleteCopy
 import com.goodyaoshi.lemonbox.ui.components.EmptyState
+import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
 import com.goodyaoshi.lemonbox.ui.components.PillTag
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
+import com.goodyaoshi.lemonbox.ui.components.SwipeActionSpec
+import com.goodyaoshi.lemonbox.ui.components.SwipeRevealItem
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import com.goodyaoshi.lemonbox.ui.theme.CardWhite
 import com.goodyaoshi.lemonbox.ui.theme.LemonEnd
@@ -61,6 +68,7 @@ import com.goodyaoshi.lemonbox.ui.theme.LemonStart
 import com.goodyaoshi.lemonbox.ui.theme.OnLemon
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.OrangeTint
+import com.goodyaoshi.lemonbox.ui.theme.StatusExpired
 import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarmDeep
 import com.goodyaoshi.lemonbox.ui.theme.TextHint
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
@@ -87,8 +95,20 @@ fun AnniversaryScreen(
     var showTogetherSettings by remember { mutableStateOf(false) }
     var showTogetherDatePicker by remember { mutableStateOf(false) }
     var showTogetherLabelDialog by remember { mutableStateOf(false) }
+    // 列表行删除（IA-6）：左滑露出删除，确认后软删并可撤销；互斥滑开状态与待删行在此托管。
+    var openedAnniversaryId by remember { mutableStateOf<Long?>(null) }
+    var pendingDeleteRow by remember { mutableStateOf<AnniversaryRow?>(null) }
+    val appSnackbar = LocalAppSnackbar.current
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            // 点击空白处收起侧滑行的背景热区：用 pointerInput 而非 clickable，
+            // 只接管触摸、不向无障碍树暴露一个无标签的“整屏可点”节点（同待买页写法）。
+            .pointerInput(Unit) {
+                detectTapGestures(onTap = { openedAnniversaryId = null })
+            }
+    ) {
         AppDecorativeBackground()
 
         Column(
@@ -137,7 +157,10 @@ fun AnniversaryScreen(
                         viewModel.setEnabled(row.anniversary, enabled)
                     },
                     onOpen = { onOpenEdit(it.anniversary.id) },
-                    onAdd = { onOpenEdit(null) }
+                    onAdd = { onOpenEdit(null) },
+                    openedItemKey = openedAnniversaryId,
+                    onOpenedItemChange = { openedAnniversaryId = it as Long? },
+                    onDeleteRequest = { row -> pendingDeleteRow = row }
                 )
                 Spacer(modifier = Modifier.height(120.dp))
             }
@@ -213,6 +236,30 @@ fun AnniversaryScreen(
                     showTogetherLabelDialog = false
                 }
             )
+        }
+
+        // 列表行删除确认（IA-6）：删除是破坏性操作先确认；软删后给一次按快照复活的机会，
+        // 想慢慢改的入口仍在编辑页底部，这里解决「只想删个过期倒数日却要走四层」的问题。
+        pendingDeleteRow?.let { row ->
+            AppDialog(
+                title = "删除纪念日",
+                onDismissRequest = { pendingDeleteRow = null },
+                confirmText = "删除",
+                destructiveConfirm = true,
+                onConfirm = {
+                    viewModel.delete(row.anniversary)
+                    appSnackbar?.showUndo("已删除「${row.name}」", DeleteCopy.UNDO_ACTION) {
+                        viewModel.restore(row.anniversary)
+                    }
+                    pendingDeleteRow = null
+                }
+            ) {
+                Text(
+                    text = "确定要删除「${row.name}」吗？",
+                    color = TextSecondary,
+                    fontSize = 14.sp
+                )
+            }
         }
     }
 }
@@ -318,13 +365,16 @@ private fun TogetherLabelDialog(
     }
 }
 
-/** 纪念日列表主体：空态一句话引导；卡片点进去编辑，开关直接停用提醒。 */
+/** 纪念日列表主体：空态一句话引导；卡片点进去编辑，左滑露出删除，开关直接停用提醒。 */
 @Composable
 private fun AnniversaryContent(
     rows: List<AnniversaryRow>,
     onToggle: (AnniversaryRow, Boolean) -> Unit,
     onOpen: (AnniversaryRow) -> Unit,
-    onAdd: () -> Unit
+    onAdd: () -> Unit,
+    openedItemKey: Any?,
+    onOpenedItemChange: (Any?) -> Unit,
+    onDeleteRequest: (AnniversaryRow) -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -342,11 +392,26 @@ private fun AnniversaryContent(
             )
         } else {
             rows.forEach { row ->
-                AnniversaryCard(
-                    row = row,
-                    onToggle = { enabled -> onToggle(row, enabled) },
-                    onClick = { onOpen(row) }
-                )
+                // 左滑露出删除（IA-6）：与待买清单同一套侧滑语言，点击卡片进编辑的行为不变。
+                SwipeRevealItem(
+                    itemKey = row.anniversary.id,
+                    openedItemKey = openedItemKey,
+                    onOpenedItemChange = onOpenedItemChange,
+                    actions = listOf(
+                        SwipeActionSpec(
+                            label = "删除",
+                            icon = Icons.Default.Delete,
+                            backgroundColor = StatusExpired,
+                            onClick = { onDeleteRequest(row) }
+                        )
+                    )
+                ) { _, _ ->
+                    AnniversaryCard(
+                        row = row,
+                        onToggle = { enabled -> onToggle(row, enabled) },
+                        onClick = { onOpen(row) }
+                    )
+                }
             }
         }
     }

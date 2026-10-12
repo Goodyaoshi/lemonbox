@@ -46,7 +46,9 @@ data class SaveItemState(
     /** 用户是否手动改过计量方式；改过后不再跟随分类智能默认。 */
     val trackModeTouched: Boolean = false,
     val isSaving: Boolean = false,
-    val isSaved: Boolean = false
+    val isSaved: Boolean = false,
+    /** 写库失败时的就地提示（G-8）：显示在保存键上方，表单内容原样保留可重试。 */
+    val errorMessage: String? = null
 )
 
 @HiltViewModel
@@ -59,6 +61,9 @@ class SaveViewModel @Inject constructor(
 
     private val _state = MutableStateFlow(SaveItemState())
     val state: StateFlow<SaveItemState> = _state.asStateFlow()
+
+    /** 刚存进去的那件物品的 id（G-8）： Snackbar 撤销时按它移入回收站。 */
+    private var savedItemId: Long? = null
 
     /** 连续录入开关，持久化在偏好设置里。 */
     val continuousEntry: StateFlow<Boolean> = appPreferences.continuousEntry
@@ -228,7 +233,7 @@ class SaveViewModel @Inject constructor(
         val trimmedName = current.name.trim()
         if (trimmedName.isBlank() || current.isSaving) return
 
-        _state.value = current.copy(isSaving = true)
+        _state.value = current.copy(isSaving = true, errorMessage = null)
         viewModelScope.launch {
             val now = MonotonicClock.now()
             val normalizedImages = current.imagePaths.distinct()
@@ -258,12 +263,36 @@ class SaveViewModel @Inject constructor(
                     null
                 }
             )
-            itemRepository.insert(item)
+            // 写库失败不再让表单卡死在「保存中...」（G-8）：就地报错、内容保留、可重试。
+            try {
+                savedItemId = itemRepository.insert(item)
+            } catch (e: Exception) {
+                _state.value = _state.value.copy(isSaving = false, errorMessage = "没存上，再试一次吧")
+                return@launch
+            }
             _state.value = _state.value.copy(isSaving = false, isSaved = true)
         }
     }
 
+    /** 撤销刚保存的那一件（G-8）：软删进回收站，误存的东西不用再跑去家当里删。 */
+    fun undoSave() {
+        val id = savedItemId ?: return
+        savedItemId = null
+        viewModelScope.launch {
+            itemRepository.getItemById(id)?.let { itemRepository.moveToTrash(it) }
+        }
+    }
+
+    /** 收起保存失败的就地提示（G-8）。 */
+    fun clearError() {
+        if (_state.value.errorMessage != null) {
+            _state.value = _state.value.copy(errorMessage = null)
+        }
+    }
+
     fun reset() {
+        // 不清 savedItemId：Snackbar 里的「撤销」晚于 reset 触发，得留着 id 才能撤掉刚存的那件；
+        // 下一次保存会自然覆盖它，且本 VM 随页面销毁，不存在串页风险。
         _state.value = SaveItemState()
     }
 }

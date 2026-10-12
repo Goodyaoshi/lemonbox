@@ -1,35 +1,23 @@
 package com.goodyaoshi.lemonbox.ui.viewmodel
 
-import android.util.Log
-import com.goodyaoshi.lemonbox.BuildConfig
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.goodyaoshi.lemonbox.data.local.dao.CategoryDao
 import com.goodyaoshi.lemonbox.data.local.entity.Anniversary
 import com.goodyaoshi.lemonbox.data.local.entity.Item
-import com.goodyaoshi.lemonbox.data.local.entity.Category
 import com.goodyaoshi.lemonbox.data.local.entity.ItemDetail
-import com.goodyaoshi.lemonbox.data.local.entity.Location
 import com.goodyaoshi.lemonbox.data.local.entity.Reminder
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerRecord
 import com.goodyaoshi.lemonbox.data.repository.AnniversaryRepository
 import com.goodyaoshi.lemonbox.data.repository.ItemRepository
 import com.goodyaoshi.lemonbox.data.repository.LedgerRepository
-import com.goodyaoshi.lemonbox.data.repository.LocationRepository
 import com.goodyaoshi.lemonbox.data.repository.ReminderRepository
 import com.goodyaoshi.lemonbox.data.repository.WeekMenuRepository
 import com.goodyaoshi.lemonbox.data.repository.WeeklyMealDay
-import com.goodyaoshi.lemonbox.data.search.LocalSearchParser
-import com.goodyaoshi.lemonbox.data.search.SearchCriteria
-import com.goodyaoshi.lemonbox.data.search.SearchEngine
-import com.goodyaoshi.lemonbox.data.search.SearchIntentKind
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -39,7 +27,6 @@ import kotlinx.coroutines.launch
 import com.goodyaoshi.lemonbox.util.DateUtil
 import com.goodyaoshi.lemonbox.util.LedgerMath
 import java.time.LocalDate
-import java.time.ZoneId
 import java.time.temporal.ChronoUnit
 import javax.inject.Inject
 
@@ -53,8 +40,6 @@ data class MonthSpending(
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val itemRepository: ItemRepository,
-    private val categoryDao: CategoryDao,
-    private val locationRepository: LocationRepository,
     private val reminderRepository: ReminderRepository,
     private val anniversaryRepository: AnniversaryRepository,
     private val ledgerRepository: LedgerRepository,
@@ -63,9 +48,6 @@ class HomeViewModel @Inject constructor(
 ) : ViewModel() {
 
     val activeItems: StateFlow<List<ItemDetail>> = itemRepository.getActiveItems()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    val allItems: StateFlow<List<ItemDetail>> = itemRepository.getAllItems()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /** 她的称呼：首页问候里的「柠檬，早上好」用它，可在「我的」页修改。 */
@@ -141,13 +123,8 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch { weekMenuRepository.markDayCooked(dateKey) }
     }
 
-    /** 今天（含已提醒还没完成）的提醒待办。 */
-    val todayReminders: StateFlow<List<Reminder>> = reminderRepository.getActiveReminders()
-        .map { list ->
-            val endOfToday = LocalDate.now().plusDays(1)
-                .atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
-            list.filter { it.nextFireAt < endOfToday }
-        }
+    /** 今天（含已提醒还没完成）的提醒待办：口径统一在 ReminderRepository（IA-7），与「我的」页待办徽标同源。 */
+    val todayReminders: StateFlow<List<Reminder>> = reminderRepository.getDueTodayReminders()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /** 待买清单：今天要去补/要买的东西。 */
@@ -184,7 +161,8 @@ class HomeViewModel @Inject constructor(
 
     /**
      * 「今天的事」：提醒待办 + 临期家当 + 待买，提醒在前（要紧），临期次之，待买在后。
-     * 被「今天忽略」（H1）的临期事项当天不再出现，明天照常回来。
+     * 被「今天忽略」（H1）的临期事项当天不再出现，明天照常回来；
+     * 当天被忽略的条目另见 [todayIgnoredEvents]（G-11）。
      */
     val todayEvents: StateFlow<List<TodayEvent>> = combine(
         todayReminders,
@@ -236,6 +214,30 @@ class HomeViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /**
+     * 今天已被「今天忽略」的临期事项（G-11）：不进正常清单，但以灰字小行留在卡片下方，
+     * 让她记得「不是提醒丢了，是自己今天先不理它」；行尾「撤销」放回后本列表自然清空。
+     */
+    val todayIgnoredEvents: StateFlow<List<TodayEvent>> = combine(
+        expiringItems,
+        appPreferences.expiryIgnores
+    ) { expiring, ignores ->
+        val today = LocalDate.now().toString()
+        expiring.mapNotNull { detail ->
+            val key = "expiry:${detail.item.id}"
+            if (!ignores.containsToday(key, today)) return@mapNotNull null
+            // 与 todayEvents 的 EXPIRY 分支同构：标题、detail、去向完全一致，只差「被忽略」这层状态。
+            TodayEvent(
+                kind = TodayEventKind.EXPIRY,
+                key = key,
+                title = detail.item.name,
+                detail = expiryDetail(detail.item.expireTime),
+                target = TodayEventTarget.ItemDetail(detail.item.id),
+                itemId = detail.item.id
+            )
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /**
      * 在今日清单里勾掉一条提醒待办（一次性记完成，周期提醒推进下一轮）。
      * 勾掉前先经 [onCompleted] 回传完成前的快照，UI 用它接撤销（H1）。
      */
@@ -276,174 +278,5 @@ class HomeViewModel @Inject constructor(
             days == 0L -> "今天到期"
             else -> "还有 $days 天到期"
         }
-    }
-
-    val categories: StateFlow<List<Category>> = itemRepository.getActiveItems()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-        .let { activeItemsFlow ->
-            combine(
-                activeItemsFlow,
-                categoryDao.getAllCategories()
-            ) { items, categories ->
-                val activeCategoryIds = items.mapNotNull { it.item.categoryId }.toSet()
-                categories.filter { it.id in activeCategoryIds }
-            }
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    val locations: StateFlow<List<Location>> = locationRepository.getAllLocations()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    private val _searchQuery = MutableStateFlow("")
-    val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
-
-    val searchHistory: StateFlow<List<String>> = appPreferences.searchHistory
-
-    private val searchEngine = SearchEngine()
-    private val localSearchParser = LocalSearchParser()
-
-    private val _searchCriteria = MutableStateFlow<SearchCriteria?>(null)
-    val searchCriteria: StateFlow<SearchCriteria?> = _searchCriteria.asStateFlow()
-
-    private val _searchMessage = MutableStateFlow<String?>(null)
-    val searchMessage: StateFlow<String?> = _searchMessage.asStateFlow()
-
-    val searchResults: StateFlow<List<ItemDetail>> = combine(
-        allItems,
-        categories,
-        locations,
-        _searchQuery,
-        _searchCriteria
-    ) { items, categories, locations, query, criteria ->
-        buildSearchResults(
-            query = query,
-            items = items,
-            categories = categories,
-            locations = locations,
-            criteria = criteria
-        )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    fun updateSearchQuery(query: String) {
-        _searchQuery.value = query
-        _searchCriteria.value = null
-        _searchMessage.value = null
-    }
-
-    fun rememberSearch(query: String) {
-        val normalized = query.trim()
-        if (normalized.isBlank()) return
-        appPreferences.setSearchHistory(
-            listOf(normalized) +
-                appPreferences.searchHistory.value
-                    .filterNot { it.equals(normalized, ignoreCase = true) }
-                    .take(MAX_SEARCH_HISTORY - 1)
-        )
-    }
-
-    fun clearSearchHistory() {
-        appPreferences.setSearchHistory(emptyList())
-    }
-
-    fun runSmartSearch() {
-        val query = _searchQuery.value.trim()
-        if (query.isBlank()) return
-
-        rememberSearch(query)
-        val criteria = parseCriteria(query, categories.value, locations.value)
-        _searchCriteria.value = criteria
-        _searchMessage.value = criteria.summary ?: DEFAULT_SEARCH_MESSAGE
-    }
-
-    private fun parseCriteria(
-        query: String,
-        categories: List<Category>,
-        locations: List<Location>
-    ): SearchCriteria {
-        return localSearchParser.parse(
-            query = query,
-            categoryIdsByName = categories.associate { it.name to it.id },
-            locationIdsByName = locations.associate { it.name to it.id },
-            expiringWithinDays = appPreferences.reminderDays.value
-        ).copy(reminderLadder = appPreferences.reminderLadder.value)
-    }
-
-    private fun buildSearchResults(
-        query: String,
-        items: List<ItemDetail>,
-        categories: List<Category>,
-        locations: List<Location>,
-        criteria: SearchCriteria?
-    ): List<ItemDetail> {
-        val normalizedQuery = query.trim()
-        if (normalizedQuery.isBlank()) return emptyList()
-        val resolvedCriteria = criteria ?: parseCriteria(normalizedQuery, categories, locations)
-        val results = searchEngine.filter(items, locations, resolvedCriteria)
-        val finalResults = if (results.isEmpty() && resolvedCriteria.canFallbackToPlainText()) {
-            searchEngine.filter(items, locations, SearchCriteria(text = normalizedQuery))
-        } else {
-            results
-        }
-        if (BuildConfig.DEBUG) {
-            Log.d(
-                SEARCH_UI_LOG_TAG,
-                "query=$normalizedQuery items=${items.size} criteria=$resolvedCriteria results=${finalResults.size}"
-            )
-        }
-        return finalResults
-    }
-
-    private fun SearchCriteria.canFallbackToPlainText(): Boolean {
-        return kind == SearchIntentKind.PLAIN_TEXT
-    }
-
-    fun moveToTrash(item: Item) {
-        viewModelScope.launch {
-            itemRepository.moveToTrash(item)
-        }
-    }
-
-    /** 撤销删除：把刚移入回收站的物品恢复回来。 */
-    fun restoreFromTrash(id: Long) {
-        viewModelScope.launch {
-            itemRepository.restoreFromTrash(id)
-        }
-    }
-
-    fun markAsUsed(id: Long) {
-        viewModelScope.launch {
-            itemRepository.markAsUsed(id)
-        }
-    }
-
-    /** 「用1件」：数量减 1，减到 0 自动记为已用完。 */
-    fun consumeOne(id: Long) {
-        viewModelScope.launch {
-            itemRepository.consumeOne(id)
-        }
-    }
-
-    fun setUsageStatus(id: Long, usageStatus: Int) {
-        viewModelScope.launch {
-            itemRepository.setUsageStatus(id, usageStatus)
-        }
-    }
-
-    fun setDisposition(id: Long, disposition: Int) {
-        viewModelScope.launch {
-            itemRepository.setDisposition(id, disposition)
-        }
-    }
-
-    fun setNeedRestock(id: Long, needRestock: Boolean) {
-        viewModelScope.launch {
-            itemRepository.setNeedRestock(id, needRestock)
-        }
-    }
-
-    private companion object {
-        const val SEARCH_UI_LOG_TAG = "SearchUi"
-        const val MAX_SEARCH_HISTORY = 8
-        const val DEFAULT_SEARCH_MESSAGE = "已在本地按名称、分类、位置和状态完成搜索"
     }
 }

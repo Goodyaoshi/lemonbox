@@ -132,8 +132,15 @@ fun RemindersScreen(
                 }
             )
         )
-        if (archived.isNotEmpty()) {
-            add(ReminderGroup("已完成 / 已暂停", archived))
+        // 归档组拆成两组（G-5）：「做完的」与「手动暂停的」是两种状态，混在一组分不清。
+        // 空组不显示（下方遍历已过滤），completedAt 为一次性完成标记，周期提醒完成不写它。
+        val completed = archived.filter { it.completedAt != null }
+        val paused = archived.filter { it.completedAt == null }
+        if (completed.isNotEmpty()) {
+            add(ReminderGroup("已完成", completed))
+        }
+        if (paused.isNotEmpty()) {
+            add(ReminderGroup("已暂停", paused))
         }
     }
 
@@ -207,7 +214,19 @@ fun RemindersScreen(
                             ReminderRow(
                                 reminder = reminder,
                                 onToggle = { viewModel.toggleEnabled(reminder) },
-                                onComplete = { viewModel.complete(reminder) },
+                                onComplete = {
+                                    viewModel.complete(reminder)
+                                    // 完成也留后悔药（G-5）：按完成前的实体快照撤销——
+                                    // 一次性恢复为待办，周期回到上一轮触发时间。
+                                    val message = if (reminder.repeat == ReminderRepeatType.ONCE) {
+                                        "已完成「${reminder.title}」"
+                                    } else {
+                                        "已完成今天的「${reminder.title}」，下一轮已排好"
+                                    }
+                                    appSnackbar?.showUndo(message, DeleteCopy.UNDO_ACTION) {
+                                        viewModel.undoComplete(reminder)
+                                    }
+                                },
                                 onDelete = { pendingDelete = reminder },
                                 modifier = Modifier.padding(vertical = 5.dp)
                             )
@@ -388,8 +407,9 @@ private fun ReminderRow(
             }
             if (reminder.enabled) {
                 Spacer(modifier = Modifier.width(8.dp))
+                // 一次性是「彻底完成」，周期是「做完今天这一轮」（G-5），文案区分语义。
                 PillTag(
-                    text = "完成",
+                    text = if (reminder.repeat == ReminderRepeatType.ONCE) "完成" else "完成今天",
                     backgroundColor = TagGreen,
                     contentColor = TagGreenText,
                     onClick = onComplete

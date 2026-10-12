@@ -9,6 +9,7 @@ import com.goodyaoshi.lemonbox.util.TodoReminderScheduler
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import java.time.LocalDate
+import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.util.UUID
 import javax.inject.Inject
@@ -26,6 +27,17 @@ class ReminderRepository @Inject constructor(
     fun getAllReminders(): Flow<List<Reminder>> = reminderDao.getAllReminders()
 
     fun getActiveReminders(): Flow<List<Reminder>> = reminderDao.getActiveReminders()
+
+    /**
+     * 今天（含已提醒还没完成）的待办提醒：进行中且触发时刻在今天 24 点前。
+     * 首页「今天的事」与「我的」页的待办徽标共用这一份口径，保证两处数字永远一致（IA-7）。
+     */
+    fun getDueTodayReminders(): Flow<List<Reminder>> = reminderDao.getActiveReminders()
+        .map { list ->
+            val endOfToday = LocalDate.now().plusDays(1)
+                .atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+            list.filter { it.nextFireAt < endOfToday }
+        }
 
     /** 进行中的菜谱准备提醒来源键（meal_prep:日期），周菜谱据此把按钮显示为「已提醒」。 */
     fun getMealPrepKeys(): Flow<Set<String>> = reminderDao.getActiveReminders()

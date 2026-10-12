@@ -29,11 +29,14 @@ import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.Savings
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Wallet
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -126,6 +129,8 @@ fun LedgerScreen(
     // 批量管理（B1）：开启后点流水为勾选，配合 SelectionTopBar 批量删除。
     var selectionMode by remember { mutableStateOf(false) }
     var pendingBatchDelete by remember { mutableStateOf(false) }
+    // 「更多」菜单展开态（IA-4）：低频入口收进菜单后的弹出开关。
+    var moreMenuExpanded by remember { mutableStateOf(false) }
     val appSnackbar = LocalAppSnackbar.current
 
     val dayGroups = remember(overview.records) {
@@ -172,7 +177,9 @@ fun LedgerScreen(
                 )
             }
 
-            // 页头胶囊行独立成行并横向可滚：窄屏下四枚胶囊不挤压标题（I10）。
+            // 页头胶囊行（IA-4）：高频入口「预算 / 统计 / 分类」保持外露直达，低频入口（资产负债 /
+            // 计划 / 趋势 / 年度）收进「更多」菜单——七枚平铺时低频功能事实不可发现，视觉噪音也
+            // 挤压流水主体。收纳后常规屏四枚放得下即不滚动，极窄屏兜底仍可横滚。
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -184,12 +191,53 @@ fun LedgerScreen(
             ) {
                 HeaderActionPill(icon = Icons.Filled.Savings, label = "预算", onClick = onNavigateToBudget)
                 HeaderActionPill(icon = Icons.Filled.PieChart, label = "统计", onClick = onNavigateToStats)
-                // 「资产」改名「资产负债」，与目标页标题/语义对齐（I10）。
-                HeaderActionPill(icon = Icons.Filled.Wallet, label = "资产负债", onClick = onNavigateToAssets)
                 HeaderActionPill(icon = Icons.Filled.Category, label = "分类", onClick = onNavigateToCategories)
-                HeaderActionPill(icon = Icons.Filled.Repeat, label = "计划", onClick = onNavigateToPlan)
-                HeaderActionPill(icon = Icons.AutoMirrored.Filled.ShowChart, label = "趋势", onClick = onNavigateToTrend)
-                HeaderActionPill(icon = Icons.Filled.CalendarMonth, label = "年度", onClick = onNavigateToAnnualReview)
+                // 「更多」胶囊：锚点 Box 同时包住胶囊与 DropdownMenu，菜单展开时贴着胶囊下方弹出；
+                // 四项文案与图标沿用原七枚胶囊的定义，点选即执行对应跳转并收起菜单。
+                Box {
+                    HeaderActionPill(
+                        icon = Icons.Filled.MoreHoriz,
+                        label = "更多 ▾",
+                        onClick = { moreMenuExpanded = true }
+                    )
+                    DropdownMenu(
+                        expanded = moreMenuExpanded,
+                        onDismissRequest = { moreMenuExpanded = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("资产负债") },
+                            leadingIcon = { Icon(Icons.Filled.Wallet, contentDescription = null) },
+                            onClick = {
+                                moreMenuExpanded = false
+                                onNavigateToAssets()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("计划") },
+                            leadingIcon = { Icon(Icons.Filled.Repeat, contentDescription = null) },
+                            onClick = {
+                                moreMenuExpanded = false
+                                onNavigateToPlan()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("趋势") },
+                            leadingIcon = { Icon(Icons.AutoMirrored.Filled.ShowChart, contentDescription = null) },
+                            onClick = {
+                                moreMenuExpanded = false
+                                onNavigateToTrend()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("年度") },
+                            leadingIcon = { Icon(Icons.Filled.CalendarMonth, contentDescription = null) },
+                            onClick = {
+                                moreMenuExpanded = false
+                                onNavigateToAnnualReview()
+                            }
+                        )
+                    }
+                }
             }
 
             // 固定月份条：翻流水时也能随时换月（与统计页一致，不嵌在滚动列表里）。

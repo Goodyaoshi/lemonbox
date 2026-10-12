@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -49,6 +50,39 @@ class ToBuyViewModel @Inject constructor(
     /** 当前筛选的分类；null 表示「全部」。选中父分类时会连同其子树一起显示。 */
     val filterCategoryId: StateFlow<Long?> = _filterCategoryId.asStateFlow()
 
+    // 批量选择状态（G-4）：与回收站同一套 selectedIds 范式，超市一次买回多件时不用逐条点圆圈。
+    private val _selectedIds = MutableStateFlow<Set<Long>>(emptySet())
+    val selectedIds: StateFlow<Set<Long>> = _selectedIds.asStateFlow()
+
+    private val _isSelectionMode = MutableStateFlow(false)
+
+    /** 批量模式开关：进入后行首圆圈换成勾选框，侧滑与编辑按钮暂时隐藏。 */
+    val isSelectionMode: StateFlow<Boolean> = _isSelectionMode.asStateFlow()
+
+    fun enterSelectionMode() {
+        _isSelectionMode.value = true
+    }
+
+    /** 退出批量模式：同时清空勾选，恢复单条交互。 */
+    fun exitSelectionMode() {
+        _isSelectionMode.value = false
+        _selectedIds.value = emptySet()
+    }
+
+    fun toggleSelection(itemId: Long) {
+        _selectedIds.update { current ->
+            if (itemId in current) current - itemId else current + itemId
+        }
+    }
+
+    fun selectAll(itemIds: Set<Long>) {
+        _selectedIds.value = itemIds
+    }
+
+    fun clearSelection() {
+        _selectedIds.value = emptySet()
+    }
+
     /** 按分类筛选后的待买项，未选分类时即全部。 */
     val filteredItems: StateFlow<List<ItemDetail>> =
         combine(items, categories, _filterCategoryId) { list, categories, filterId ->
@@ -79,6 +113,22 @@ class ToBuyViewModel @Inject constructor(
     fun undoMarkBought(previous: Item) {
         viewModelScope.launch {
             itemRepository.undoRestoreToInUse(previous)
+        }
+    }
+
+    /**
+     * 批量归位（G-4）：归位前先从全量待买列表里取选中条目的快照（归位会改写使用状态与
+     * 周期字段，撤销必须按原样写回），逐条恢复后在回调里交还快照供页面提示与整体撤销。
+     * 批量场景刻意不联动「记一笔」：一次买回多件时记账意图不明确，先保持克制。
+     */
+    fun markSelectedBought(onDone: (List<Item>) -> Unit) {
+        val ids = _selectedIds.value
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            val snapshots = items.value.filter { it.item.id in ids }.map { it.item }
+            snapshots.forEach { itemRepository.restoreToInUse(it.id) }
+            _selectedIds.value = emptySet()
+            onDone(snapshots)
         }
     }
 

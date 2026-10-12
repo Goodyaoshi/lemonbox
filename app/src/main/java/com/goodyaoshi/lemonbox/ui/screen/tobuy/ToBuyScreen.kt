@@ -1,8 +1,10 @@
 package com.goodyaoshi.lemonbox.ui.screen.tobuy
 
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -42,7 +44,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -62,6 +69,8 @@ import com.goodyaoshi.lemonbox.ui.components.EmptyState
 import com.goodyaoshi.lemonbox.ui.components.HierarchicalPickerDialog
 import com.goodyaoshi.lemonbox.ui.components.QuantityStepper
 import com.goodyaoshi.lemonbox.ui.components.SectionHeader
+import com.goodyaoshi.lemonbox.ui.components.SelectionActionButton
+import com.goodyaoshi.lemonbox.ui.components.SelectionTopBar
 import com.goodyaoshi.lemonbox.ui.components.SkeletonList
 import com.goodyaoshi.lemonbox.ui.components.SwipeActionSpec
 import com.goodyaoshi.lemonbox.ui.components.SwipeRevealItem
@@ -90,6 +99,9 @@ fun ToBuyScreen(
     val filteredItems by viewModel.filteredItems.collectAsState()
     val categories by viewModel.categories.collectAsState()
     val filterCategoryId by viewModel.filterCategoryId.collectAsState()
+    // 批量模式（G-4）：与回收站同一套选择范式。
+    val isSelectionMode by viewModel.isSelectionMode.collectAsState()
+    val selectedIds by viewModel.selectedIds.collectAsState()
     val nickname by viewModel.nickname.collectAsState()
     var showAddDialog by remember { mutableStateOf(false) }
     var editingItem by remember { mutableStateOf<Item?>(null) }
@@ -177,6 +189,30 @@ fun ToBuyScreen(
                         color = OrangeStart
                     )
                 }
+                // 批量入口（G-4）：超市一次买回好几样时逐条点圆圈太碎，先进批量模式一次归位；
+                // 仅在列表非空时出现，批量中隐藏（操作条里已有「取消」退出）。
+                if (items.isNotEmpty() && !isSelectionMode) {
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(SurfaceWarmDeep)
+                            .clickable {
+                                // 收起可能滑开的侧滑行，避免带着旧手势状态进入批量模式。
+                                openedItemId = null
+                                viewModel.enterSelectionMode()
+                            }
+                            .padding(horizontal = 14.dp, vertical = 9.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "批量",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = TextPrimary
+                        )
+                    }
+                    Spacer(modifier = Modifier.size(8.dp))
+                }
                 Spacer(modifier = Modifier.size(8.dp))
                 Row(
                     modifier = Modifier
@@ -237,10 +273,52 @@ fun ToBuyScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     item {
-                        SectionHeader(
-                            title = "要买的东西",
-                            subtitle = "共 ${filteredItems.size} 件，买到后点左侧圆圈归位"
-                        )
+                        if (isSelectionMode) {
+                            // 批量模式（G-4）：页头换成选择操作条；全选口径跟随当前分类筛选结果，
+                            // 与回收站的批量范式保持一致。
+                            SelectionTopBar(
+                                selectedCount = selectedIds.size,
+                                allSelected = filteredItems.isNotEmpty() &&
+                                    filteredItems.all { it.item.id in selectedIds },
+                                onToggleSelectAll = {
+                                    if (filteredItems.all { it.item.id in selectedIds }) {
+                                        viewModel.clearSelection()
+                                    } else {
+                                        viewModel.selectAll(filteredItems.map { it.item.id }.toSet())
+                                    }
+                                },
+                                hint = "勾选买回的东西，一次全部归位"
+                            ) {
+                                SelectionActionButton(
+                                    text = "归位",
+                                    modifier = Modifier.weight(1f),
+                                    enabled = selectedIds.isNotEmpty(),
+                                    highlight = true,
+                                    onClick = {
+                                        viewModel.markSelectedBought { snapshots ->
+                                            // 批量归位不弹「记一笔」：一次买回多件时记账意图不明确，
+                                            // 统一跳过记账联动；撤销按归位前的快照整批写回。
+                                            appSnackbar?.showUndo(
+                                                "已归位 ${snapshots.size} 件",
+                                                DeleteCopy.UNDO_ACTION
+                                            ) {
+                                                snapshots.forEach { viewModel.undoMarkBought(it) }
+                                            }
+                                        }
+                                    }
+                                )
+                                SelectionActionButton(
+                                    text = "取消",
+                                    modifier = Modifier.weight(1f),
+                                    onClick = { viewModel.exitSelectionMode() }
+                                )
+                            }
+                        } else {
+                            SectionHeader(
+                                title = "要买的东西",
+                                subtitle = "共 ${filteredItems.size} 件，买到后点左侧圆圈归位"
+                            )
+                        }
                     }
                     if (filteredItems.isEmpty()) {
                         item {
@@ -256,19 +334,9 @@ fun ToBuyScreen(
                         }
                     } else {
                         items(filteredItems, key = { it.item.id }) { itemDetail ->
-                            SwipeRevealItem(
-                                itemKey = itemDetail.item.id,
-                                openedItemKey = openedItemId,
-                                onOpenedItemChange = { openedItemId = it as Long? },
-                                actions = listOf(
-                                    SwipeActionSpec(
-                                        label = "删除",
-                                        icon = Icons.Default.Delete,
-                                        backgroundColor = StatusExpired,
-                                        onClick = { pendingDeleteItem = itemDetail.item }
-                                    )
-                                )
-                            ) { _, _ ->
+                            if (isSelectionMode) {
+                                // 批量模式：整行点击即切换勾选，侧滑与编辑按钮暂时隐藏，
+                                // 避免与勾选手势打架；退出批量模式后恢复单条交互。
                                 ToBuyItemCard(
                                     name = itemDetail.item.name,
                                     quantity = itemDetail.item.quantity,
@@ -278,31 +346,60 @@ fun ToBuyScreen(
                                         itemDetail.categoryName,
                                         itemDetail.locationName
                                     ).joinToString(" · ").ifBlank { "未设置分类与位置" },
-                                    onBought = {
-                                        // 先留一份勾选前的快照，撤销时按它恢复。
-                                        val previous = itemDetail.item
-                                        viewModel.markBought(previous.id)
-                                        // 家当联动改为可选：不再强制跳页，想记账点「记一笔」，点错用「撤销」。
-                                        appSnackbar?.showDualAction(
-                                            message = "「${previous.name}」已归位",
-                                            primaryLabel = "记一笔",
-                                            secondaryLabel = "撤销",
-                                            onPrimary = {
-                                                onRecordPurchase(
-                                                    previous.id,
-                                                    LedgerMath.itemPriceToCents(
-                                                        previous.price ?: 0.0,
-                                                        previous.quantity
-                                                    ),
-                                                    previous.name
-                                                )
-                                            },
-                                            onSecondary = { viewModel.undoMarkBought(previous) }
-                                        )
-                                    },
-                                    // 之前待买项只能删不能改，写错名字/数量只能删掉重建；这里补一个编辑入口。
-                                    onEdit = { editingItem = itemDetail.item }
+                                    selected = itemDetail.item.id in selectedIds,
+                                    onToggleSelection = {
+                                        viewModel.toggleSelection(itemDetail.item.id)
+                                    }
                                 )
+                            } else {
+                                SwipeRevealItem(
+                                    itemKey = itemDetail.item.id,
+                                    openedItemKey = openedItemId,
+                                    onOpenedItemChange = { openedItemId = it as Long? },
+                                    actions = listOf(
+                                        SwipeActionSpec(
+                                            label = "删除",
+                                            icon = Icons.Default.Delete,
+                                            backgroundColor = StatusExpired,
+                                            onClick = { pendingDeleteItem = itemDetail.item }
+                                        )
+                                    )
+                                ) { _, _ ->
+                                    ToBuyItemCard(
+                                        name = itemDetail.item.name,
+                                        quantity = itemDetail.item.quantity,
+                                        unit = itemDetail.item.unit,
+                                        forWhomLabel = forWhomLabel(itemDetail.item.forWhom, nickname),
+                                        subtitle = listOfNotNull(
+                                            itemDetail.categoryName,
+                                            itemDetail.locationName
+                                        ).joinToString(" · ").ifBlank { "未设置分类与位置" },
+                                        onBought = {
+                                            // 先留一份勾选前的快照，撤销时按它恢复。
+                                            val previous = itemDetail.item
+                                            viewModel.markBought(previous.id)
+                                            // 家当联动改为可选：不再强制跳页，想记账点「记一笔」，点错用「撤销」。
+                                            appSnackbar?.showDualAction(
+                                                message = "「${previous.name}」已归位",
+                                                primaryLabel = "记一笔",
+                                                secondaryLabel = "撤销",
+                                                onPrimary = {
+                                                    onRecordPurchase(
+                                                        previous.id,
+                                                        LedgerMath.itemPriceToCents(
+                                                            previous.price ?: 0.0,
+                                                            previous.quantity
+                                                        ),
+                                                        previous.name
+                                                    )
+                                                },
+                                                onSecondary = { viewModel.undoMarkBought(previous) }
+                                            )
+                                        },
+                                        // 之前待买项只能删不能改，写错名字/数量只能删掉重建；这里补一个编辑入口。
+                                        onEdit = { editingItem = itemDetail.item }
+                                    )
+                                }
                             }
                         }
                     }
@@ -399,6 +496,10 @@ private fun forWhomLabel(code: String?, nickname: String): String? = when (code)
     else -> null
 }
 
+/**
+ * 待买行卡片：普通模式行首是「已买到」圆圈、行尾有编辑按钮；
+ * 批量模式（[onBought] 为空）行首换成勾选框、整行可点切换勾选，编辑按钮隐藏。
+ */
 @Composable
 private fun ToBuyItemCard(
     name: String,
@@ -406,36 +507,79 @@ private fun ToBuyItemCard(
     unit: String,
     forWhomLabel: String?,
     subtitle: String,
-    onBought: () -> Unit,
-    onEdit: () -> Unit
+    onBought: (() -> Unit)? = null,
+    onEdit: (() -> Unit)? = null,
+    selected: Boolean = false,
+    onToggleSelection: () -> Unit = {}
 ) {
     AppSurfaceCard(
         shape = RoundedCornerShape(22.dp),
         contentPadding = PaddingValues(start = 14.dp, top = 14.dp, bottom = 14.dp, end = 6.dp),
-        shadowElevation = 12.dp
+        shadowElevation = 12.dp,
+        // 批量模式下整行可点即切换勾选，热区远大于 28dp 的勾选框本身；普通模式保持不可点。
+        onClick = if (onBought == null) onToggleSelection else null
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                // 热区对齐 48dp（视觉圆仍 34dp），便于点按。
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(CircleShape)
-                    .clickable(onClick = onBought),
-                contentAlignment = Alignment.Center
-            ) {
+            if (onBought != null) {
                 Box(
+                    // 热区对齐 48dp（视觉圆仍 34dp），便于点按。
                     modifier = Modifier
-                        .size(34.dp)
+                        .size(48.dp)
                         .clip(CircleShape)
-                        .background(SurfaceWarmDeep),
+                        .clickable(onClick = onBought),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Check,
-                        contentDescription = "已买到",
-                        tint = OrangeStart,
-                        modifier = Modifier.size(18.dp)
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(CircleShape)
+                            .background(SurfaceWarmDeep),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Check,
+                            contentDescription = "已买到",
+                            tint = OrangeStart,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+            } else {
+                // 批量勾选框：与回收站同一套视觉与读屏处理（48dp 热区 + Checkbox 语义，F16/I3）。
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(CircleShape)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = LocalIndication.current,
+                            role = Role.Checkbox,
+                            onClick = onToggleSelection
+                        )
+                        .semantics {
+                            contentDescription = "选择该待买项"
+                            stateDescription = if (selected) "已选中" else "未选中"
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    // 未选中用 SurfaceWarmDeep：本卡片无边框，CardWhite 会在卡片上隐形。
+                    Box(
+                        modifier = Modifier
+                            .size(28.dp)
+                            .clip(CircleShape)
+                            .background(if (selected) OrangeStart else SurfaceWarmDeep),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (selected) {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                // 选中态已由上方 stateDescription 播报，图标此处留空避免重复播报。
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
                 }
             }
             Spacer(modifier = Modifier.size(12.dp))
@@ -463,13 +607,16 @@ private fun ToBuyItemCard(
                     modifier = Modifier.padding(top = 3.dp)
                 )
             }
-            IconButton(onClick = onEdit) {
-                Icon(
-                    imageVector = Icons.Default.Edit,
-                    contentDescription = "编辑",
-                    tint = TextHint,
-                    modifier = Modifier.size(20.dp)
-                )
+            // 批量模式下编辑按钮隐藏：编辑入口与勾选并存容易误触，退出批量模式后恢复。
+            if (onEdit != null) {
+                IconButton(onClick = onEdit) {
+                    Icon(
+                        imageVector = Icons.Default.Edit,
+                        contentDescription = "编辑",
+                        tint = TextHint,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
             }
         }
     }

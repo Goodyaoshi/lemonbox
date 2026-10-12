@@ -4,13 +4,17 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -38,6 +42,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,19 +55,24 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
+import com.goodyaoshi.lemonbox.ui.components.PillTag
 import com.goodyaoshi.lemonbox.ui.components.SyncChangeListSheet
 import com.goodyaoshi.lemonbox.ui.theme.DividerSoft
 import com.goodyaoshi.lemonbox.ui.theme.LemonEnd
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
+import com.goodyaoshi.lemonbox.ui.theme.TagOrange
+import com.goodyaoshi.lemonbox.ui.theme.TagOrangeText
 import com.goodyaoshi.lemonbox.ui.theme.TextHint
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
 import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
 import com.goodyaoshi.lemonbox.ui.viewmodel.ProfileViewModel
+import kotlinx.coroutines.launch
 
 /**
  * 数据中心（IA-1）：设备同步与文件备份的统一二级页。
  * 从「我的」拆出，让个人设置与数据管理各归其位；导入仍走变更清单预览闸门。
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun DataCenterScreen(
     onBack: () -> Unit,
@@ -71,6 +81,11 @@ fun DataCenterScreen(
 ) {
     val backupState by viewModel.backupState.collectAsState()
     var showBackupDialog by remember { mutableStateOf(false) }
+    // 恢复内置分类的预览闸门（G-6）：先列出将新增的内置分类再确认，非空才弹明细，
+    // 空名单弹「都在了」提示；取消不写库。
+    val scope = rememberCoroutineScope()
+    var restorePreview by remember { mutableStateOf<List<String>?>(null) }
+    var showNoMissingTip by remember { mutableStateOf(false) }
 
     val exportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/zip")
@@ -182,7 +197,13 @@ fun DataCenterScreen(
                     icon = Icons.Default.Refresh,
                     title = "恢复内置分类",
                     subtitle = "补齐食材/零食等内置分类，误删或同步后丢失也能找回",
-                    onClick = viewModel::restoreBuiltInData
+                    onClick = {
+                        // 预览闸门（G-6）：先算「会新增哪些」，再让用户确认，不点了就写库。
+                        scope.launch {
+                            val missing = viewModel.previewMissingBuiltInCategories()
+                            if (missing.isEmpty()) showNoMissingTip = true else restorePreview = missing
+                        }
+                    }
                 )
             }
         }
@@ -221,6 +242,44 @@ fun DataCenterScreen(
             actionLabel = "导入所选",
             onDismiss = viewModel::cancelImport,
             onConfirm = viewModel::confirmImport
+        )
+    }
+
+    restorePreview?.let { missing ->
+        // 预览闸门（G-6）：明细用多列胶囊铺开并限高滚动，几十个名字也不撑破弹窗；
+        // 取消不执行，确认才补种并沿用既有的结果提示。
+        AppDialog(
+            title = "要恢复哪些内置分类？",
+            onDismissRequest = { restorePreview = null },
+            subtitle = "以下分类还没有，恢复后可随时在分类页管理",
+            confirmText = "恢复 ${missing.size} 个分类",
+            onConfirm = {
+                restorePreview = null
+                viewModel.restoreBuiltInData()
+            }
+        ) {
+            FlowRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 300.dp)
+                    .verticalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                missing.forEach { name ->
+                    PillTag(text = name, backgroundColor = TagOrange, contentColor = TagOrangeText)
+                }
+            }
+        }
+    }
+
+    if (showNoMissingTip) {
+        // 空名单：没有会新增的分类，直接安抚一句，不让她空跑一趟。
+        AppDialog(
+            title = "内置分类都在了，不用恢复",
+            onDismissRequest = { showNoMissingTip = false },
+            confirmText = "知道了",
+            dismissText = null
         )
     }
 

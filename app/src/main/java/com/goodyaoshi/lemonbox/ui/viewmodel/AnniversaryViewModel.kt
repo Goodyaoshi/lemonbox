@@ -81,6 +81,20 @@ class AnniversaryViewModel @Inject constructor(
             anniversaryRepository.setEnabled(anniversary, enabled)
         }
     }
+
+    /** 列表行删除（IA-6）：与编辑页同走软删除，墓碑保留 30 天，误删可按快照撤销。 */
+    fun delete(anniversary: Anniversary) {
+        viewModelScope.launch {
+            anniversaryRepository.softDelete(anniversary)
+        }
+    }
+
+    /** 撤销列表行删除：按删除前的快照清掉墓碑，原样复活。 */
+    fun restore(anniversary: Anniversary) {
+        viewModelScope.launch {
+            anniversaryRepository.restore(anniversary)
+        }
+    }
 }
 
 /** 单条纪念日 → 展示行；文案规则与 AnniversaryClock 的口径一一对应。 */

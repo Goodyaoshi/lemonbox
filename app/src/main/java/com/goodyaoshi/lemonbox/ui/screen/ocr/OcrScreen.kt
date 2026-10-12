@@ -79,6 +79,9 @@ import java.util.Locale
  *
  * 模型下载遵守「用户有感知」原则：点击下载入口先弹确认框（移动数据时额外提示流量），
  * 下载中有进度与取消按钮，绝不静默后台下载。识别全程离线，图片不出手机。
+ *
+ * [modeLabel] 模式外显（IA-8）：从存物/记账/「我的」三个语境共用这一页，
+ * 进页先说清当前模式与识别结果的去向；为 null 时不显示（保留无语境的兜底）。
  */
 @Composable
 fun OcrScreen(
@@ -88,6 +91,7 @@ fun OcrScreen(
     onConsumeCameraResult: () -> Unit,
     onNavigateToRecord: (amountCents: Long?, remark: String) -> Unit,
     onNavigateToSave: (name: String, imagePath: String?) -> Unit,
+    modeLabel: String? = null,
     viewModel: OcrViewModel = hiltViewModel()
 ) {
     val modelState by viewModel.modelState.collectAsState()
@@ -149,6 +153,15 @@ fun OcrScreen(
             }
 
             Column(modifier = Modifier.padding(horizontal = 20.dp)) {
+                // 模式外显（IA-8）：一行小字交代当前语境与识别完的去向，不抢视觉焦点。
+                modeLabel?.let { label ->
+                    Text(
+                        text = label,
+                        fontSize = 12.sp,
+                        color = TextHint,
+                        modifier = Modifier.padding(bottom = 10.dp)
+                    )
+                }
                 ModelStatusCard(
                     modelState = modelState,
                     isConfigured = viewModel.isConfigured,

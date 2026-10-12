@@ -43,6 +43,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -148,6 +149,9 @@ fun SettingsScreen(
     var showTimePicker by remember { mutableStateOf(false) }
     var showMealPrepTimePicker by remember { mutableStateOf(false) }
     var showAppLockDialog by remember { mutableStateOf(false) }
+    // 「关于与更新」整块默认折叠（IA-5）：GitHub 检查更新 / 下载 / 安装引导是低频操作，
+    // 平铺会把外观、提醒时间等高频设置淹掉；折叠后只留一行标题。
+    var aboutExpanded by remember { mutableStateOf(false) }
 
     // 固定档位 + 用户自定义候选，合并排序后统一展示。
     val allTimeOptions =
@@ -469,77 +473,99 @@ fun SettingsScreen(
                 shape = RoundedCornerShape(24.dp),
                 shadowElevation = 12.dp
             ) {
-                Text(
-                    text = "关于与更新",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextPrimary
-                )
-                Spacer(modifier = Modifier.size(6.dp))
-                Text(
-                    text = "有新版本时可在这里直接下载安装：WiFi 下直接下载；移动数据会先提示，确认后再用流量下载。",
-                    fontSize = 12.sp,
-                    color = TextSecondary
-                )
-                Spacer(modifier = Modifier.size(12.dp))
+                // 可展开卡片（IA-5）：整行标题可点，尾部 chevron 折叠朝右、展开转向下；
+                // 折叠态隐藏全部更新内容，常规设置项不受影响。
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 6.dp),
+                        .clip(RoundedCornerShape(18.dp))
+                        .clickable { aboutExpanded = !aboutExpanded }
+                        .padding(vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "版本 v${BuildConfig.VERSION_NAME}",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = TextPrimary
-                        )
-                        Text(
-                            text = when {
-                                updateState.downloading -> "正在下载新版本…"
-                                updateState.checking -> "正在检查更新…"
-                                else -> "从 GitHub Release 获取最新版本"
-                            },
-                            fontSize = 12.sp,
-                            color = TextSecondary
-                        )
-                    }
-                    if (updateState.checking) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(22.dp),
-                            strokeWidth = 2.dp,
-                            color = OrangeStart
-                        )
-                    } else {
-                        ActionPillButton(
-                            label = "检查更新",
-                            onClick = { viewModel.checkForUpdate() }
-                        )
-                    }
+                    Text(
+                        text = "关于与更新",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Icon(
+                        imageVector = Icons.Default.ChevronRight,
+                        contentDescription = if (aboutExpanded) "收起关于与更新" else "展开关于与更新",
+                        tint = TextSecondary,
+                        modifier = Modifier
+                            .size(20.dp)
+                            .rotate(if (aboutExpanded) 90f else 0f)
+                    )
                 }
-                updateState.message?.let { message ->
-                    Spacer(modifier = Modifier.size(4.dp))
+                if (aboutExpanded) {
+                    Text(
+                        text = "有新版本时可在这里直接下载安装：WiFi 下直接下载；移动数据会先提示，确认后再用流量下载。",
+                        fontSize = 12.sp,
+                        color = TextSecondary,
+                        modifier = Modifier.padding(top = 6.dp)
+                    )
+                    Spacer(modifier = Modifier.size(12.dp))
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = message,
-                            fontSize = 12.sp,
-                            color = OrangeStart,
-                            modifier = Modifier.weight(1f)
-                        )
-                        IconButton(
-                            onClick = { viewModel.consumeUpdateMessage() },
-                            modifier = Modifier.size(24.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "关闭提示",
-                                tint = TextSecondary,
-                                modifier = Modifier.size(16.dp)
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "版本 v${BuildConfig.VERSION_NAME}",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = TextPrimary
                             )
+                            Text(
+                                text = when {
+                                    updateState.downloading -> "正在下载新版本…"
+                                    updateState.checking -> "正在检查更新…"
+                                    else -> "从 GitHub Release 获取最新版本"
+                                },
+                                fontSize = 12.sp,
+                                color = TextSecondary
+                            )
+                        }
+                        if (updateState.checking) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(22.dp),
+                                strokeWidth = 2.dp,
+                                color = OrangeStart
+                            )
+                        } else {
+                            ActionPillButton(
+                                label = "检查更新",
+                                onClick = { viewModel.checkForUpdate() }
+                            )
+                        }
+                    }
+                    updateState.message?.let { message ->
+                        Spacer(modifier = Modifier.size(4.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = message,
+                                fontSize = 12.sp,
+                                color = OrangeStart,
+                                modifier = Modifier.weight(1f)
+                            )
+                            IconButton(
+                                onClick = { viewModel.consumeUpdateMessage() },
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "关闭提示",
+                                    tint = TextSecondary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
                         }
                     }
                 }

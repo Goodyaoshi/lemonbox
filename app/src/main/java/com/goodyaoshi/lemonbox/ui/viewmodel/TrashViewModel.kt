@@ -2,6 +2,7 @@ package com.goodyaoshi.lemonbox.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.goodyaoshi.lemonbox.data.local.entity.Item
 import com.goodyaoshi.lemonbox.data.local.entity.ItemDetail
 import com.goodyaoshi.lemonbox.data.repository.ItemRepository
 import com.goodyaoshi.lemonbox.util.ImageUtil
@@ -62,13 +63,30 @@ class TrashViewModel @Inject constructor(
         }
     }
 
-    fun restoreSelected() {
+    /**
+     * 批量恢复（G-12）：恢复前先按当前回收站列表拍下快照——恢复后这些条目会离开列表，
+     * 届时再也查不到，撤销时只能按快照原样移回。完成后清空选择并把快照交还页面，
+     * 由页面展示回执并接「撤销」，与删除路径（确认+撤销）对齐，不再让恢复成为单向门。
+     */
+    fun restoreSelected(onRestored: (List<Item>) -> Unit) {
         val itemIds = _selectedIds.value.toList()
         if (itemIds.isEmpty()) return
 
         viewModelScope.launch {
+            val selectedNow = _selectedIds.value
+            val snapshots = deletedItems.value
+                .filter { it.item.id in selectedNow }
+                .map { it.item }
             itemRepository.restoreFromTrash(itemIds)
             _selectedIds.value = emptySet()
+            onRestored(snapshots)
+        }
+    }
+
+    /** 撤销恢复：把这批条目按原快照重新移入回收站（deletedAt 刷新为当前时刻，重开 30 天窗口）。 */
+    fun moveToTrashAgain(items: List<Item>) {
+        viewModelScope.launch {
+            items.forEach { itemRepository.moveToTrash(it) }
         }
     }
 
