@@ -128,6 +128,23 @@ class AppUpdater @Inject constructor(
         runCatching { context.startActivity(intent) }
     }
 
+    /**
+     * 浏览器兜底下载可用的安装包地址：与应用内下载同源，加速优先、直连兜底。
+     *
+     * 本应用不发布到应用商店，应用内调起的系统安装器在部分机型上会被额外拦截
+     * （纯净模式、安装审计等）；交给浏览器下载是各 ROM 放行度最高的兜底路径——
+     * 浏览器下载完成后用户在通知栏点开即可安装，安装权限由浏览器侧自行引导。
+     */
+    fun browserDownloadUrls(apkUrl: String): List<String> = downloadUrls(apkUrl)
+
+    /** 用系统浏览器打开下载链接，返回是否成功调起（无浏览器等场景返回 false）。 */
+    fun openInBrowser(url: String): Boolean {
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        return runCatching { context.startActivity(intent) }.isSuccess
+    }
+
     /** 调起系统安装器安装已下载好的 APK。 */
     fun installApk(file: File) {
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)

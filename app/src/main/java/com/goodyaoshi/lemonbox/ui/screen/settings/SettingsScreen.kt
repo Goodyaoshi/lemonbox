@@ -32,6 +32,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
@@ -501,7 +502,7 @@ fun SettingsScreen(
                 }
                 if (aboutExpanded) {
                     Text(
-                        text = "有新版本时可在这里直接下载安装：WiFi 下直接下载；移动数据会先提示，确认后再用流量下载。",
+                        text = "有新版本时可在这里直接下载安装：WiFi 下直接下载；移动数据会先提示，确认后再用流量下载。应用内装不上时，可在新版本弹窗里改用浏览器下载。",
                         fontSize = 12.sp,
                         color = TextSecondary,
                         modifier = Modifier.padding(top = 6.dp)
@@ -646,6 +647,32 @@ fun SettingsScreen(
                             fontSize = 12.sp,
                             color = TextSecondary
                         )
+                    } else {
+                        // 浏览器兜底：应用内安装被机型拦截（纯净模式等）或不想授安装权限时，
+                        // 交给浏览器下载，完成后在通知栏点开安装，是各 ROM 放行度最高的路径。
+                        Spacer(modifier = Modifier.size(12.dp))
+                        Text(
+                            text = "应用内装不上？也可以交给浏览器下载，完成后在通知栏点开安装包：",
+                            fontSize = 12.sp,
+                            color = TextSecondary
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            TextButton(
+                                onClick = { viewModel.downloadApkInBrowser(direct = false) },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(text = "浏览器·加速下载", fontSize = 13.sp)
+                            }
+                            TextButton(
+                                onClick = { viewModel.downloadApkInBrowser(direct = true) },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(text = "浏览器·直连下载", fontSize = 13.sp)
+                            }
+                        }
                     }
                 }
             }
@@ -665,7 +692,7 @@ fun SettingsScreen(
                 AppDialog(
                     title = "需要先允许安装",
                     onDismissRequest = { viewModel.dismissInstallPermissionHint() },
-                    subtitle = "系统默认禁止从${BrandCopy.APP_NAME}直接安装应用。到设置里允许后回到这里，再点一次「下载并安装」即可。",
+                    subtitle = "系统默认禁止从${BrandCopy.APP_NAME}直接安装应用。到设置里允许后回到这里，再点一次「下载并安装」即可。若开启后安装仍被拦截（部分机型的纯净模式会拦），可回到上一弹窗改用浏览器下载安装。",
                     confirmText = "去开启",
                     onConfirm = { viewModel.openInstallPermission() }
                 )

@@ -212,25 +212,53 @@ class SettingsViewModel @Inject constructor(
         }
         _updateState.value = _updateState.value.copy(downloading = true, progress = 0f, message = null)
         viewModelScope.launch {
-            runCatching {
-                val file = appUpdater.downloadApk(info) { downloaded, total ->
+            val file = runCatching {
+                appUpdater.downloadApk(info) { downloaded, total ->
                     val progress = if (total > 0) downloaded.toFloat() / total else -1f
                     _updateState.value = _updateState.value.copy(progress = progress)
                 }
-                appUpdater.installApk(file)
-            }.onSuccess {
-                _updateState.value = _updateState.value.copy(
-                    downloading = false,
-                    available = null,
-                    message = "已开始安装，请按系统提示完成更新"
-                )
-            }.onFailure { error ->
+            }.getOrElse { error ->
                 _updateState.value = _updateState.value.copy(
                     downloading = false,
                     message = error.message ?: "下载失败，请稍后重试"
                 )
+                return@launch
             }
+            // 安装器调起被机型拦截（纯净模式、安装审计等）时保留新版本弹窗，
+            // 让用户能立刻改用浏览器下载的兜底路径，而不是只看到一条报错。
+            val installLaunched = runCatching { appUpdater.installApk(file) }.isSuccess
+            _updateState.value = _updateState.value.copy(
+                downloading = false,
+                available = if (installLaunched) null else _updateState.value.available,
+                message = if (installLaunched) {
+                    "已开始安装，请按系统提示完成更新"
+                } else {
+                    "系统没能开始安装，可在弹窗里改用浏览器下载安装"
+                }
+            )
         }
+    }
+
+    /**
+     * 用浏览器下载安装包：应用内安装被机型限制（纯净模式、未授权未知来源等）时的兜底。
+     * [direct] 为 false 走加速地址、true 走直连地址；下载完成后由用户在通知栏点开安装。
+     */
+    fun downloadApkInBrowser(direct: Boolean) {
+        val info = _updateState.value.available ?: return
+        val urls = appUpdater.browserDownloadUrls(info.apkUrl)
+        val url = if (direct) {
+            urls.lastOrNull()
+        } else {
+            urls.firstOrNull()
+        } ?: return
+        val launched = appUpdater.openInBrowser(url)
+        _updateState.value = _updateState.value.copy(
+            message = if (launched) {
+                "已交给浏览器下载，完成后在通知栏点开安装包即可更新"
+            } else {
+                "没有找到可以打开链接的浏览器"
+            }
+        )
     }
 
     /** 关闭「新版本」弹窗，保留用户稍后再更新。 */
