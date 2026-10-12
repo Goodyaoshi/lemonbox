@@ -645,6 +645,16 @@ class AppPreferences @Inject constructor(
         _cookedMenuDates.value = updated
     }
 
+    /** 撤销「做了」（GAP-12）：把某天从已做集合里移除，配合库存快照一起回滚。 */
+    fun unmarkMenuCooked(dateKey: String) {
+        if (dateKey.isBlank() || dateKey !in _cookedMenuDates.value) return
+        val updated = _cookedMenuDates.value - dateKey
+        preferences.edit()
+            .putString(KEY_COOKED_MENU_DATES, updated.joinToString(SEARCH_SEPARATOR))
+            .apply()
+        _cookedMenuDates.value = updated
+    }
+
     private fun loadCookedMenuDates(): Set<String> =
         preferences.getString(KEY_COOKED_MENU_DATES, null)
             ?.split(SEARCH_SEPARATOR)

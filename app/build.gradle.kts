@@ -17,8 +17,8 @@ android {
         targetSdk = 35
         // 版本策略：每次对外发布固定 +1（versionCode 只增不减），versionName 用语义化版本。
         // 版本号只在用户明确要求时调整，不自动变更。
-        versionCode = (findProperty("lemonVersionCode") as String?)?.toIntOrNull() ?: 10
-        versionName = (findProperty("lemonVersionName") as String?) ?: "0.0.6"
+        versionCode = (findProperty("lemonVersionCode") as String?)?.toIntOrNull() ?: 11
+        versionName = (findProperty("lemonVersionName") as String?) ?: "0.0.8"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         // 原生库 ABI 收敛（F17）：本应用以「直接分发 APK」为主（见文件末尾的 copyReleaseApkForDistribution），

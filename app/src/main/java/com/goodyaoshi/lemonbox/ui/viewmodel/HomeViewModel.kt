@@ -8,6 +8,7 @@ import com.goodyaoshi.lemonbox.data.local.entity.ItemDetail
 import com.goodyaoshi.lemonbox.data.local.entity.Reminder
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerRecord
 import com.goodyaoshi.lemonbox.data.repository.AnniversaryRepository
+import com.goodyaoshi.lemonbox.data.repository.CookedDaySnapshot
 import com.goodyaoshi.lemonbox.data.repository.ItemRepository
 import com.goodyaoshi.lemonbox.data.repository.LedgerRepository
 import com.goodyaoshi.lemonbox.data.repository.ReminderRepository
@@ -118,9 +119,14 @@ class HomeViewModel @Inject constructor(
             ?.let { "${it.name}第 ${-(it.days ?: 0L) + 1} 天" }
     }
 
-    /** 一餐做完：仓库内幂等（已做不重复扣料）。 */
-    fun markDayCooked(dateKey: String) {
-        viewModelScope.launch { weekMenuRepository.markDayCooked(dateKey) }
+    /** 一餐做完：仓库内幂等（已做不重复扣料），完成后回传扣料前快照供首页「撤销」（GAP-12）。 */
+    fun markDayCooked(dateKey: String, onDone: (CookedDaySnapshot?) -> Unit = {}) {
+        viewModelScope.launch { onDone(weekMenuRepository.markDayCooked(dateKey)) }
+    }
+
+    /** 撤销「做了」（GAP-12）：按快照把被扣食材写回、撤掉已做标记。 */
+    fun undoMarkDayCooked(snapshot: CookedDaySnapshot) {
+        viewModelScope.launch { weekMenuRepository.undoMarkDayCooked(snapshot) }
     }
 
     /** 今天（含已提醒还没完成）的提醒待办：口径统一在 ReminderRepository（IA-7），与「我的」页待办徽标同源。 */

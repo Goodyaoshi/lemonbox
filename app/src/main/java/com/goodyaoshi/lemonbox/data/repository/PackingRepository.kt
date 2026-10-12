@@ -92,6 +92,11 @@ class PackingRepository @Inject constructor(
         itemDao.softDelete(id = item.id, deletedAt = now, updatedAt = now)
     }
 
+    /** 撤销删除（GAP-13）：清掉墓碑让条目复活，与待买/家当的删除撤销同范式。 */
+    suspend fun restoreItem(item: PackingItem) {
+        itemDao.update(item.copy(deletedAt = null, updatedAt = MonotonicClock.now()))
+    }
+
     suspend fun purgeDeletedOlderThan(cutoff: Long) {
         tripDao.purgeDeletedOlderThan(cutoff)
         itemDao.purgeDeletedOlderThan(cutoff)

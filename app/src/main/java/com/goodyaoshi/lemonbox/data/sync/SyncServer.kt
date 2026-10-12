@@ -249,7 +249,17 @@ class SyncServer @Inject constructor(
                         deleted = acceptedChanges.count { it.kind == SyncChangeKind.DELETED },
                         conflicts = acceptedChanges.count { it.conflict },
                         skipped = skipped,
-                        peerLabel = peerName
+                        peerLabel = peerName,
+                        // GAP-1：留下逐条回执（勾选了哪些、跳过了哪些），历史里可点开回放。
+                        entries = preview?.changes.orEmpty().map { change ->
+                            SyncReportEntry(
+                                entity = change.entity,
+                                kind = change.kind,
+                                title = change.title,
+                                conflict = change.conflict,
+                                adopted = change.key in keepKeys
+                            )
+                        }
                     )
                 )
             }.onFailure { error ->

@@ -1,7 +1,9 @@
 package com.goodyaoshi.lemonbox.ui.components
 
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,16 +16,22 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -55,10 +63,16 @@ fun ItemCard(
      * 不熟悉手势或使用读屏的用户也能直接打开完整操作面板；
      * 传 null 时不渲染该按钮（调用方自行决定是否需要快捷操作）。
      */
-    onMore: (() -> Unit)? = null
+    onMore: (() -> Unit)? = null,
+    /**
+     * 批量选择模式（GAP-7）：非 null 时行首显示勾选框、行尾「更多 / 箭头」隐藏，
+     * 整卡点击交给调用方切换勾选（[onClick]）。与回收站/待买同一套选择范式。
+     */
+    selectionSelected: Boolean? = null
 ) {
     val item = itemDetail.item
     val primaryImagePath = item.primaryImagePath()
+    val inSelectionMode = selectionSelected != null
 
     AppSurfaceCard(
         modifier = modifier,
@@ -70,6 +84,43 @@ fun ItemCard(
         Row(
             verticalAlignment = Alignment.CenterVertically
         ) {
+            if (selectionSelected != null) {
+                // 批量勾选框：与回收站/待买同一套视觉与读屏处理（48dp 热区 + Checkbox 语义）。
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(CircleShape)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = LocalIndication.current,
+                            role = Role.Checkbox,
+                            onClick = onClick
+                        )
+                        .semantics {
+                            contentDescription = "选择该家当"
+                            stateDescription = if (selectionSelected) "已选中" else "未选中"
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(28.dp)
+                            .clip(CircleShape)
+                            .background(if (selectionSelected) OrangeStart else OrangeTint),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (selectionSelected) {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = null,
+                                tint = androidx.compose.ui.graphics.Color.White,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+            }
             if (primaryImagePath.isNotEmpty()) {
                 AsyncImage(
                     model = primaryImagePath,
@@ -256,37 +307,40 @@ fun ItemCard(
             }
 
             Spacer(modifier = Modifier.width(4.dp))
-            // I8：行尾常驻「更多」按钮，与左滑露出的是同一组动作，
-            // 让入口可见、可被读屏聚焦，不再把手势当作唯一通道；
-            // 热区对齐 48dp（图标仍 18dp），视觉克制但便于点按。
-            onMore?.let { openMore ->
+            // 批量模式下隐藏行尾「更多 / 箭头」：整卡点击已用于切换勾选，避免与其它动作打架。
+            if (!inSelectionMode) {
+                // I8：行尾常驻「更多」按钮，与左滑露出的是同一组动作，
+                // 让入口可见、可被读屏聚焦，不再把手势当作唯一通道；
+                // 热区对齐 48dp（图标仍 18dp），视觉克制但便于点按。
+                onMore?.let { openMore ->
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(CircleShape)
+                            .clickable(onClick = openMore),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.MoreHoriz,
+                            contentDescription = "更多操作",
+                            modifier = Modifier.size(18.dp),
+                            tint = TextSecondary
+                        )
+                    }
+                }
                 Box(
                     modifier = Modifier
-                        .size(48.dp)
-                        .clip(CircleShape)
-                        .clickable(onClick = openMore),
+                        .size(30.dp)
+                        .background(OrangeTint, CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Default.MoreHoriz,
-                        contentDescription = "更多操作",
-                        modifier = Modifier.size(18.dp),
+                        imageVector = Icons.Default.ChevronRight,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
                         tint = TextSecondary
                     )
                 }
-            }
-            Box(
-                modifier = Modifier
-                    .size(30.dp)
-                    .background(OrangeTint, CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.ChevronRight,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp),
-                    tint = TextSecondary
-                )
             }
         }
     }

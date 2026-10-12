@@ -73,6 +73,33 @@ class RemindersViewModel @Inject constructor(
         }
     }
 
+    /**
+     * 编辑提醒（GAP-8）：只在用户可改的字段上采用草稿，身份与来源相关字段（id / 启用态 /
+     * 来源键 / 创建时间 / syncId）沿用原记录，避免编辑把调度身份改掉。
+     * 新的触发时刻已过（一次性）返回 false，由页面就地提示。
+     */
+    fun update(existing: Reminder, draft: Reminder, onResult: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            val merged = draft.copy(
+                id = existing.id,
+                enabled = existing.enabled,
+                completedAt = existing.completedAt,
+                source = existing.source,
+                sourceKey = existing.sourceKey,
+                createdAt = existing.createdAt,
+                syncId = existing.syncId
+            )
+            onResult(reminderRepository.update(merged))
+        }
+    }
+
+    /** 稍后（GAP-9）：顺延下一次触发时间，不动重复方式。 */
+    fun snooze(reminder: Reminder, minutes: Long = DEFAULT_SNOOZE_MINUTES) {
+        viewModelScope.launch {
+            reminderRepository.snooze(reminder, minutes)
+        }
+    }
+
     /** 暂停 / 恢复。 */
     fun toggleEnabled(reminder: Reminder) {
         viewModelScope.launch {
@@ -105,5 +132,10 @@ class RemindersViewModel @Inject constructor(
         viewModelScope.launch {
             reminderRepository.restore(reminder)
         }
+    }
+
+    private companion object {
+        /** 「稍后」默认顺延时长（分钟）：3 小时后，够过完眼下这一程再回到提醒。 */
+        const val DEFAULT_SNOOZE_MINUTES = 180L
     }
 }

@@ -73,6 +73,8 @@ import com.goodyaoshi.lemonbox.ui.components.ItemCard
 import com.goodyaoshi.lemonbox.ui.components.ItemMoreActionsDialog
 import com.goodyaoshi.lemonbox.ui.components.SearchBar
 import com.goodyaoshi.lemonbox.ui.components.SectionHeader
+import com.goodyaoshi.lemonbox.ui.components.SelectionActionButton
+import com.goodyaoshi.lemonbox.ui.components.SelectionTopBar
 import com.goodyaoshi.lemonbox.ui.components.SwipeRevealItem
 import com.goodyaoshi.lemonbox.ui.components.TreeNode
 import com.goodyaoshi.lemonbox.ui.components.VoiceInputButton
@@ -148,6 +150,9 @@ fun HouseholdScreen(
     val toBuyCount by viewModel.toBuyCount.collectAsState()
     val expiringCount by viewModel.expiringCount.collectAsState()
     val trashCount by viewModel.trashCount.collectAsState()
+    // 批量模式（GAP-7）：整理大扫除时逐个滑动太碎，接入选中即批量处理的既有范式。
+    val isSelectionMode by viewModel.isSelectionMode.collectAsState()
+    val selectedIds by viewModel.selectedIds.collectAsState()
     var openedItemId by remember { mutableStateOf<Long?>(null) }
     var moreItemId by remember { mutableStateOf<Long?>(null) }
     var pendingDeleteItem by remember { mutableStateOf<Item?>(null) }
@@ -237,25 +242,35 @@ fun HouseholdScreen(
     }
 
     val itemRow: @Composable (ItemDetail) -> Unit = { itemDetail ->
-        SwipeRevealItem(
-            itemKey = itemDetail.item.id,
-            openedItemKey = openedItemId,
-            onOpenedItemChange = { openedItemId = it as Long? },
-            actions = buildItemSwipeActions(
-                item = itemDetail.item,
-                handlers = handlersFor(itemDetail.item),
-                onMore = { moreItemId = itemDetail.item.id }
-            )
-        ) { closeActions, _ ->
+        if (isSelectionMode) {
+            // 批量模式（GAP-7）：整卡点击即切换勾选，侧滑与「更多」暂时收起（在 ItemCard 内处理），
+            // 避免与勾选手势打架；退出批量模式后恢复逐条交互。
             ItemCard(
                 itemDetail = itemDetail,
-                onClick = {
-                    closeActions()
-                    onNavigateToDetail(itemDetail.item.id, filter)
-                },
-                // I8：行尾「更多」按钮同样打开完整操作面板，作为滑动之外的可见入口。
-                onMore = { moreItemId = itemDetail.item.id }
+                onClick = { viewModel.toggleSelection(itemDetail.item.id) },
+                selectionSelected = itemDetail.item.id in selectedIds
             )
+        } else {
+            SwipeRevealItem(
+                itemKey = itemDetail.item.id,
+                openedItemKey = openedItemId,
+                onOpenedItemChange = { openedItemId = it as Long? },
+                actions = buildItemSwipeActions(
+                    item = itemDetail.item,
+                    handlers = handlersFor(itemDetail.item),
+                    onMore = { moreItemId = itemDetail.item.id }
+                )
+            ) { closeActions, _ ->
+                ItemCard(
+                    itemDetail = itemDetail,
+                    onClick = {
+                        closeActions()
+                        onNavigateToDetail(itemDetail.item.id, filter)
+                    },
+                    // I8：行尾「更多」按钮同样打开完整操作面板，作为滑动之外的可见入口。
+                    onMore = { moreItemId = itemDetail.item.id }
+                )
+            }
         }
     }
 
@@ -442,15 +457,80 @@ fun HouseholdScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     item {
-                        SectionHeader(
-                            title = if (query.isNotBlank()) {
-                                "搜索结果"
-                            } else {
-                                currentPreset?.label ?: "自定义筛选"
-                            },
-                            subtitle = "共 ${results.size} 件物品",
-                            modifier = Modifier.padding(bottom = 4.dp)
-                        )
+                        if (isSelectionMode) {
+                            // 批量模式（GAP-7）：页头换成选择操作条；全选口径跟随当前筛选结果，
+                            // 与待买 / 回收站的批量范式保持一致。
+                            SelectionTopBar(
+                                selectedCount = selectedIds.size,
+                                allSelected = results.isNotEmpty() &&
+                                    results.all { it.item.id in selectedIds },
+                                onToggleSelectAll = {
+                                    if (results.all { it.item.id in selectedIds }) {
+                                        viewModel.clearSelection()
+                                    } else {
+                                        viewModel.selectAll(results.map { it.item.id }.toSet())
+                                    }
+                                },
+                                hint = "勾选物品，一次批量处理"
+                            ) {
+                                SelectionActionButton(
+                                    text = "加入待买",
+                                    modifier = Modifier.weight(1f),
+                                    enabled = selectedIds.isNotEmpty(),
+                                    highlight = true,
+                                    onClick = {
+                                        viewModel.addSelectedToBuy { snapshots ->
+                                            appSnackbar?.showUndo(
+                                                "已把 ${snapshots.size} 件加入待买",
+                                                DeleteCopy.UNDO_ACTION
+                                            ) {
+                                                viewModel.undoBatchAction(snapshots)
+                                            }
+                                        }
+                                    }
+                                )
+                                SelectionActionButton(
+                                    text = "移入回收站",
+                                    modifier = Modifier.weight(1f),
+                                    enabled = selectedIds.isNotEmpty(),
+                                    destructive = true,
+                                    onClick = {
+                                        viewModel.moveSelectedToTrash { snapshots ->
+                                            appSnackbar?.showUndo(
+                                                DeleteCopy.UNDO_MESSAGE,
+                                                DeleteCopy.UNDO_ACTION
+                                            ) {
+                                                viewModel.undoBatchAction(snapshots)
+                                            }
+                                        }
+                                    }
+                                )
+                                SelectionActionButton(
+                                    text = "取消",
+                                    modifier = Modifier.weight(1f),
+                                    onClick = { viewModel.exitSelectionMode() }
+                                )
+                            }
+                        } else {
+                            SectionHeader(
+                                title = if (query.isNotBlank()) {
+                                    "搜索结果"
+                                } else {
+                                    currentPreset?.label ?: "自定义筛选"
+                                },
+                                subtitle = "共 ${results.size} 件物品",
+                                action = if (results.isNotEmpty()) "批量" else null,
+                                onActionClick = if (results.isNotEmpty()) {
+                                    {
+                                        openedItemId = null
+                                        viewModel.enterSelectionMode()
+                                    }
+                                } else {
+                                    null
+                                },
+                                modifier = Modifier.padding(bottom = 4.dp)
+                            )
+                        }
                     }
                     if (sections.isEmpty()) {
                         items(results, key = { it.item.id }) { itemDetail ->
@@ -475,27 +555,30 @@ fun HouseholdScreen(
         }
 
         // 录入家当入口：原底栏中央按钮移到这里，与记账页 FAB 同款。
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = 20.dp, bottom = 108.dp)
-                .size(58.dp)
-                .clip(CircleShape)
-                .background(
-                    brush = Brush.linearGradient(colors = listOf(LemonStart, LemonEnd))
+        // 批量模式下隐藏：此刻的交互是「处理已有物品」，录入会打断批量动线。
+        if (!isSelectionMode) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 20.dp, bottom = 108.dp)
+                    .size(58.dp)
+                    .clip(CircleShape)
+                    .background(
+                        brush = Brush.linearGradient(colors = listOf(LemonStart, LemonEnd))
+                    )
+                    .clickable {
+                        openedItemId = null
+                        onNavigateToSave()
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = "录入家当",
+                    tint = OnLemon,
+                    modifier = Modifier.size(28.dp)
                 )
-                .clickable {
-                    openedItemId = null
-                    onNavigateToSave()
-                },
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = Icons.Default.Add,
-                contentDescription = "录入家当",
-                tint = OnLemon,
-                modifier = Modifier.size(28.dp)
-            )
+            }
         }
 
         moreItem?.let { item ->

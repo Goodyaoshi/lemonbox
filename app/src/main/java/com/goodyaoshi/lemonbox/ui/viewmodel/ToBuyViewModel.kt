@@ -5,8 +5,12 @@ import androidx.lifecycle.viewModelScope
 import com.goodyaoshi.lemonbox.data.local.entity.Category
 import com.goodyaoshi.lemonbox.data.local.entity.Item
 import com.goodyaoshi.lemonbox.data.local.entity.ItemDetail
+import com.goodyaoshi.lemonbox.data.forecast.RestockForecast
+import com.goodyaoshi.lemonbox.data.local.entity.LedgerAsset
+import com.goodyaoshi.lemonbox.data.local.entity.LedgerRecord
 import com.goodyaoshi.lemonbox.data.repository.CategoryRepository
 import com.goodyaoshi.lemonbox.data.repository.ItemRepository
+import com.goodyaoshi.lemonbox.data.repository.LedgerRepository
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -20,11 +24,19 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+/** 待买批量结账的一行（GAP-6）：物品、预填金额（分）、是否同时记一笔。 */
+data class CheckoutRow(
+    val item: Item,
+    val amountCents: Long,
+    val record: Boolean
+)
+
 /** 待买清单：把"用完"的物品集中起来，买到后一键归位。 */
 @HiltViewModel
 class ToBuyViewModel @Inject constructor(
     private val itemRepository: ItemRepository,
     private val categoryRepository: CategoryRepository,
+    private val ledgerRepository: LedgerRepository,
     private val appPreferences: AppPreferences
 ) : ViewModel() {
 
@@ -100,6 +112,71 @@ class ToBuyViewModel @Inject constructor(
 
     fun setFilterCategory(categoryId: Long?) {
         _filterCategoryId.value = categoryId
+    }
+
+    /**
+     * 建议补货（IA-2）：按消耗速度推算该补的常买物品，剔掉已经在待买清单里的，
+     * 作为待买列表顶部的「建议补货」分组，点一下即加入待买——把消耗分析放回执行清单里，
+     * 而不是让「智能补货」以独立页头的形式与「我要买」并列。
+     */
+    val restockSuggestions: StateFlow<List<RestockForecast>> = combine(
+        itemRepository.getAllItems(),
+        items
+    ) { all, toBuy ->
+        val toBuyIds = toBuy.map { it.item.id }.toSet()
+        RestockForecast.compute(all)
+            .filter { it.detail.item.id !in toBuyIds }
+            .take(MAX_RESTOCK_SUGGESTIONS)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** 把「建议补货」里的一条加入待买（IA-2）。 */
+    fun addSuggestionToBuy(itemId: Long) {
+        viewModelScope.launch { itemRepository.setNeedRestock(itemId, true) }
+    }
+
+    /** 可用账户（GAP-6）：批量结账时要选一个账户记账。 */
+    val assets: StateFlow<List<LedgerAsset>> = ledgerRepository.observeAssets()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /**
+     * 批量结账（GAP-6）：为勾选入账的条目各建一笔支出，并把这些物品统一归位到家当。
+     * 回执交还归位前的物品快照与新建的账目 id，供「撤销」把两边一起回滚。
+     */
+    fun checkout(
+        rows: List<CheckoutRow>,
+        assetId: Long,
+        onDone: (items: List<Item>, recordIds: List<Long>) -> Unit
+    ) {
+        if (rows.isEmpty()) return
+        viewModelScope.launch {
+            val now = System.currentTimeMillis()
+            val recordIds = rows
+                .filter { it.record && it.amountCents > 0 }
+                .map { row ->
+                    ledgerRepository.saveRecord(
+                        LedgerRecord(
+                            type = LedgerRecord.TYPE_EXPENSE,
+                            amount = row.amountCents,
+                            assetId = assetId,
+                            recordTime = now,
+                            remark = row.item.name,
+                            itemId = row.item.id
+                        )
+                    )
+                }
+            val snapshots = rows.map { it.item }
+            snapshots.forEach { itemRepository.restoreToInUse(it.id) }
+            exitSelectionMode()
+            onDone(snapshots, recordIds)
+        }
+    }
+
+    /** 撤销批量结账（GAP-6）：删掉刚建的账目并把物品退回待买。 */
+    fun undoCheckout(snapshots: List<Item>, recordIds: List<Long>) {
+        viewModelScope.launch {
+            recordIds.forEach { ledgerRepository.deleteRecord(it) }
+            snapshots.forEach { itemRepository.undoRestoreToInUse(it) }
+        }
     }
 
     /** 勾选"已买到"：回到在用状态。 */
@@ -192,5 +269,8 @@ class ToBuyViewModel @Inject constructor(
     private companion object {
         /** 分类链回溯的深度上限，防御异常数据成环。 */
         const val MAX_CATEGORY_DEPTH = 64
+
+        /** 待买页顶部「建议补货」最多展示的条数：够用即可，不淹没真正的待买清单。 */
+        const val MAX_RESTOCK_SUGGESTIONS = 5
     }
 }

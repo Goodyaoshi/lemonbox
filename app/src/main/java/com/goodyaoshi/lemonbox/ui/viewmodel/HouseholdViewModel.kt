@@ -459,6 +459,73 @@ class HouseholdViewModel @Inject constructor(
         }
     }
 
+    // ---- 批量模式（GAP-7）：与回收站 / 待买同一套 selectedIds 范式 ----
+    private val _selectedIds = MutableStateFlow<Set<Long>>(emptySet())
+    val selectedIds: StateFlow<Set<Long>> = _selectedIds.asStateFlow()
+
+    private val _isSelectionMode = MutableStateFlow(false)
+
+    /** 批量模式开关：进入后行首出现勾选框，整卡点击即切换勾选。 */
+    val isSelectionMode: StateFlow<Boolean> = _isSelectionMode.asStateFlow()
+
+    fun enterSelectionMode() {
+        _isSelectionMode.value = true
+    }
+
+    /** 退出批量模式：同时清空勾选，恢复逐条交互。 */
+    fun exitSelectionMode() {
+        _isSelectionMode.value = false
+        _selectedIds.value = emptySet()
+    }
+
+    fun toggleSelection(itemId: Long) {
+        _selectedIds.value = if (itemId in _selectedIds.value) {
+            _selectedIds.value - itemId
+        } else {
+            _selectedIds.value + itemId
+        }
+    }
+
+    fun selectAll(itemIds: Set<Long>) {
+        _selectedIds.value = itemIds
+    }
+
+    fun clearSelection() {
+        _selectedIds.value = emptySet()
+    }
+
+    /**
+     * 批量加入待买（GAP-7）：动作前先取选中条目的整份快照，落库后交还供页面提示与整批撤销。
+     * 与待买的批量归位同构——批量只做一件事，不做多义联动。
+     */
+    fun addSelectedToBuy(onDone: (List<Item>) -> Unit) {
+        val ids = _selectedIds.value
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            val snapshots = allItems.value.filter { it.item.id in ids }.map { it.item }
+            snapshots.forEach { itemRepository.setNeedRestock(it.id, true) }
+            _selectedIds.value = emptySet()
+            onDone(snapshots)
+        }
+    }
+
+    /** 批量移入回收站（GAP-7）：同样先取快照，撤销时按快照写回。 */
+    fun moveSelectedToTrash(onDone: (List<Item>) -> Unit) {
+        val ids = _selectedIds.value
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            val snapshots = allItems.value.filter { it.item.id in ids }.map { it.item }
+            snapshots.forEach { itemRepository.moveToTrash(it) }
+            _selectedIds.value = emptySet()
+            onDone(snapshots)
+        }
+    }
+
+    /** 撤销一次批量动作（GAP-7）：按动作前的整份快照逐条写回（G-3 快照写回，不做反向推导）。 */
+    fun undoBatchAction(snapshots: List<Item>) {
+        viewModelScope.launch { snapshots.forEach { itemRepository.update(it) } }
+    }
+
     /**
      * 撤销一次快捷动作（G-3）：不做反向推导，直接把动作前的整份快照写回；
      * update 会顺带刷新 updatedAt，物品随之恢复到动作之前的样子。

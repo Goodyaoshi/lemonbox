@@ -50,7 +50,9 @@ import com.goodyaoshi.lemonbox.data.local.entity.PackingItem
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
+import com.goodyaoshi.lemonbox.ui.components.DeleteCopy
 import com.goodyaoshi.lemonbox.ui.components.EmptyState
+import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
 import com.goodyaoshi.lemonbox.ui.components.PillTag
 import com.goodyaoshi.lemonbox.ui.components.SwipeActionSpec
 import com.goodyaoshi.lemonbox.ui.components.SwipeRevealItem
@@ -78,6 +80,9 @@ fun PackingTripScreen(
     val items by viewModel.items.collectAsState()
     var showAdd by remember { mutableStateOf(false) }
     var openedKey by remember { mutableStateOf<Any?>(null) }
+    // 删除前先确认、删完可撤销（GAP-13）：与待买/家当的删除范式保持一致，不再手滑就没了。
+    var pendingDelete by remember { mutableStateOf<PackingItem?>(null) }
+    val appSnackbar = LocalAppSnackbar.current
 
     Box(modifier = Modifier.fillMaxSize()) {
         AppDecorativeBackground()
@@ -121,7 +126,7 @@ fun PackingTripScreen(
                     openedKey = openedKey,
                     onOpenedChange = { openedKey = it },
                     onToggle = viewModel::setChecked,
-                    onDelete = viewModel::deleteItem,
+                    onDelete = { pendingDelete = it },
                     onAdd = { showAdd = true }
                 )
                 Spacer(modifier = Modifier.height(120.dp))
@@ -153,6 +158,26 @@ fun PackingTripScreen(
             onDismiss = { showAdd = false },
             onConfirm = { name, quantity, category ->
                 viewModel.addItem(name, quantity, category) { showAdd = false }
+            }
+        )
+    }
+
+    pendingDelete?.let { target ->
+        AppDialog(
+            title = "删除这一条",
+            subtitle = "从清单里移除「${target.name}」，删错了可以撤销。",
+            onDismissRequest = { pendingDelete = null },
+            confirmText = "删除",
+            destructiveConfirm = true,
+            onConfirm = {
+                viewModel.deleteItem(target)
+                appSnackbar?.showUndo(
+                    "已删除「${target.name}」",
+                    DeleteCopy.UNDO_ACTION
+                ) {
+                    viewModel.restoreItem(target)
+                }
+                pendingDelete = null
             }
         )
     }

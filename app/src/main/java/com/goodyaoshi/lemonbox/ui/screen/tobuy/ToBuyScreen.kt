@@ -15,25 +15,34 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.AutoGraph
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -51,10 +60,14 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.goodyaoshi.lemonbox.data.forecast.RestockForecast
 import com.goodyaoshi.lemonbox.data.local.entity.Item
+import com.goodyaoshi.lemonbox.data.local.entity.LedgerAsset
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.DeleteCopy
@@ -66,6 +79,7 @@ import com.goodyaoshi.lemonbox.ui.components.EditorPickerField
 import com.goodyaoshi.lemonbox.ui.components.EditorSectionLabel
 import com.goodyaoshi.lemonbox.ui.components.EditorSelectionChip
 import com.goodyaoshi.lemonbox.ui.components.EmptyState
+import com.goodyaoshi.lemonbox.ui.components.GradientButton
 import com.goodyaoshi.lemonbox.ui.components.HierarchicalPickerDialog
 import com.goodyaoshi.lemonbox.ui.components.QuantityStepper
 import com.goodyaoshi.lemonbox.ui.components.SectionHeader
@@ -77,13 +91,16 @@ import com.goodyaoshi.lemonbox.ui.components.SwipeRevealItem
 import com.goodyaoshi.lemonbox.ui.components.TreeNode
 import com.goodyaoshi.lemonbox.ui.components.UnitPickerRow
 import com.goodyaoshi.lemonbox.ui.components.buildTreePathLabel
+import com.goodyaoshi.lemonbox.ui.theme.CardWhite
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.OrangeTint
 import com.goodyaoshi.lemonbox.ui.theme.StatusExpired
 import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarmDeep
+import com.goodyaoshi.lemonbox.ui.theme.TagOrangeText
 import com.goodyaoshi.lemonbox.ui.theme.TextHint
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
 import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
+import com.goodyaoshi.lemonbox.ui.viewmodel.CheckoutRow
 import com.goodyaoshi.lemonbox.ui.viewmodel.ToBuyViewModel
 import com.goodyaoshi.lemonbox.util.LedgerMath
 
@@ -103,6 +120,11 @@ fun ToBuyScreen(
     val isSelectionMode by viewModel.isSelectionMode.collectAsState()
     val selectedIds by viewModel.selectedIds.collectAsState()
     val nickname by viewModel.nickname.collectAsState()
+    // 建议补货（IA-2）：按消耗速度推算、且还没在待买清单里的物品。
+    val restockSuggestions by viewModel.restockSuggestions.collectAsState()
+    // 批量结账（GAP-6）：可用账户供选择「记到哪个账户」。
+    val assets by viewModel.assets.collectAsState()
+    var showCheckout by remember { mutableStateOf(false) }
     var showAddDialog by remember { mutableStateOf(false) }
     var editingItem by remember { mutableStateOf<Item?>(null) }
     var openedItemId by remember { mutableStateOf<Long?>(null) }
@@ -166,29 +188,8 @@ fun ToBuyScreen(
                         color = TextSecondary
                     )
                 }
-                // 智能补货入口（IA-4）：算完就能回到待买闭环，不用绕去「我的」。
-                Row(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(999.dp))
-                        .background(SurfaceWarmDeep)
-                        .clickable(onClick = onOpenRestockForecast)
-                        .padding(horizontal = 14.dp, vertical = 9.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.AutoGraph,
-                        contentDescription = null,
-                        tint = OrangeStart,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.size(4.dp))
-                    Text(
-                        text = "智能补货",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = OrangeStart
-                    )
-                }
+                // 智能补货独立页的入口下移到列表顶部的「建议补货」分组标题（IA-2）：
+                // 消耗分析不再以一个并列按钮挤在页头，而是作为分组用「全部 ›」进入，语义归位。
                 // 批量入口（G-4）：超市一次买回好几样时逐条点圆圈太碎，先进批量模式一次归位；
                 // 仅在列表非空时出现，批量中隐藏（操作条里已有「取消」退出）。
                 if (items.isNotEmpty() && !isSelectionMode) {
@@ -272,6 +273,28 @@ fun ToBuyScreen(
                     ),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
+                    // 建议补货分组（IA-2）：放在真正的待买清单之前，点条目即加入待买；
+                    // 想要完整预测明细走分组标题的「全部 ›」进独立页。批量模式下不出现。
+                    if (!isSelectionMode && restockSuggestions.isNotEmpty()) {
+                        item(key = "restock_header") {
+                            SectionHeader(
+                                title = "建议补货",
+                                subtitle = "按消耗速度算的，点一下加入待买",
+                                action = "全部 ›",
+                                onActionClick = onOpenRestockForecast,
+                                modifier = Modifier.padding(top = 4.dp)
+                            )
+                        }
+                        items(restockSuggestions, key = { "restock_${it.detail.item.id}" }) { forecast ->
+                            RestockSuggestionRow(
+                                forecast = forecast,
+                                onAdd = {
+                                    viewModel.addSuggestionToBuy(forecast.detail.item.id)
+                                    appSnackbar?.postMessage("已把「${forecast.detail.item.name}」加入待买")
+                                }
+                            )
+                        }
+                    }
                     item {
                         if (isSelectionMode) {
                             // 批量模式（G-4）：页头换成选择操作条；全选口径跟随当前分类筛选结果，
@@ -296,8 +319,8 @@ fun ToBuyScreen(
                                     highlight = true,
                                     onClick = {
                                         viewModel.markSelectedBought { snapshots ->
-                                            // 批量归位不弹「记一笔」：一次买回多件时记账意图不明确，
-                                            // 统一跳过记账联动；撤销按归位前的快照整批写回。
+                                            // 只归位、不记账（要记账走旁边的「买完并记账」）；
+                                            // 撤销按归位前的快照整批写回。
                                             appSnackbar?.showUndo(
                                                 "已归位 ${snapshots.size} 件",
                                                 DeleteCopy.UNDO_ACTION
@@ -306,6 +329,12 @@ fun ToBuyScreen(
                                             }
                                         }
                                     }
+                                )
+                                SelectionActionButton(
+                                    text = "买完并记账",
+                                    modifier = Modifier.weight(1f),
+                                    enabled = selectedIds.isNotEmpty(),
+                                    onClick = { showCheckout = true }
                                 )
                                 SelectionActionButton(
                                     text = "取消",
@@ -456,6 +485,29 @@ fun ToBuyScreen(
                 fontSize = 14.sp
             )
         }
+    }
+
+    if (showCheckout) {
+        // 批量结账（GAP-6）：一次买回多件时，替她把每一件的账都记上，不用逐条找回补记。
+        val selectedItems = items
+            .filter { it.item.id in selectedIds }
+            .map { it.item }
+        BatchCheckoutSheet(
+            items = selectedItems,
+            assets = assets,
+            onDismiss = { showCheckout = false },
+            onConfirm = { rows, assetId ->
+                showCheckout = false
+                viewModel.checkout(rows, assetId) { snapshots, recordIds ->
+                    appSnackbar?.showUndo(
+                        "已归位 ${snapshots.size} 件，记账 ${recordIds.size} 笔",
+                        DeleteCopy.UNDO_ACTION
+                    ) {
+                        viewModel.undoCheckout(snapshots, recordIds)
+                    }
+                }
+            }
+        )
     }
 }
 
@@ -711,5 +763,205 @@ private fun ToBuyEditorDialog(
             onDismissRequest = { showCategoryPicker = false },
             emptyHint = "还没有分类，可到「分类」页添加。"
         )
+    }
+}
+
+/** 「建议补货」的一行（IA-2）：物品名 + 预计用完时间 + 一键加入待买。 */
+@Composable
+private fun RestockSuggestionRow(
+    forecast: RestockForecast,
+    onAdd: () -> Unit
+) {
+    AppSurfaceCard(
+        shape = RoundedCornerShape(20.dp),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+        shadowElevation = 8.dp
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = forecast.detail.item.name,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+                Text(
+                    text = restockReason(forecast),
+                    fontSize = 12.sp,
+                    color = TextHint,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+            }
+            PillTag(
+                text = "加入待买",
+                backgroundColor = OrangeStart,
+                contentColor = Color.White,
+                onClick = onAdd
+            )
+        }
+    }
+}
+
+/** 建议补货的理由文案：按距用完的天数给出紧迫程度。 */
+private fun restockReason(forecast: RestockForecast): String {
+    val days = forecast.daysUntilEmpty
+    return when {
+        days <= 3.0 -> "快用完了，建议尽快补"
+        days <= 14.0 -> "约 ${days.toInt()} 天后用完"
+        else -> "预计 ${days.toInt()} 天后用完"
+    }
+}
+
+/** 批量结账里的一行草稿：物品 + 预填金额文本（元）+ 是否入账。 */
+private data class CheckoutDraft(
+    val item: Item,
+    val priceText: String,
+    val include: Boolean
+)
+
+/**
+ * 批量结账（GAP-6）：一次买回多件时，逐行确认金额与是否入账，选好账户后一起提交。
+ * 提交会为勾选行各建一笔支出并把这些物品归位到家当；回执可在 Snackbar 里整批撤销。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BatchCheckoutSheet(
+    items: List<Item>,
+    assets: List<LedgerAsset>,
+    onDismiss: () -> Unit,
+    onConfirm: (rows: List<CheckoutRow>, assetId: Long) -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    // 每行按「价格 × 数量」预填金额、默认入账；她可以改金额或取消某行入账。
+    var drafts by remember(items) {
+        mutableStateOf(
+            items.map { item ->
+                CheckoutDraft(
+                    item = item,
+                    priceText = LedgerMath.itemPriceToCents(item.price ?: 0.0, item.quantity)
+                        .takeIf { it > 0 }?.let { LedgerMath.centsToInputText(it) }.orEmpty(),
+                    include = true
+                )
+            }
+        )
+    }
+    var assetId by remember(assets) { mutableStateOf(assets.firstOrNull()?.id) }
+    val includedRows = drafts.filter { it.include }
+    val canConfirm = assetId != null && includedRows.isNotEmpty()
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = Color.Transparent,
+        dragHandle = null
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
+                .background(CardWhite)
+                .navigationBarsPadding()
+                .padding(horizontal = 20.dp)
+        ) {
+            Spacer(modifier = Modifier.size(20.dp))
+            Text(
+                text = "买完并记账",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                color = TextPrimary
+            )
+            Text(
+                text = "勾选要入账的物品，金额已按价格预填、可改；确认后一起归位到家当。",
+                fontSize = 13.sp,
+                color = TextSecondary,
+                modifier = Modifier.padding(top = 2.dp)
+            )
+            Spacer(modifier = Modifier.size(10.dp))
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 360.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                items(drafts.size) { index ->
+                    val draft = drafts[index]
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(
+                            checked = draft.include,
+                            onCheckedChange = { checked ->
+                                drafts = drafts.toMutableList()
+                                    .also { it[index] = draft.copy(include = checked) }
+                            }
+                        )
+                        Text(
+                            text = draft.item.name,
+                            fontSize = 14.sp,
+                            color = TextPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Spacer(modifier = Modifier.size(8.dp))
+                        OutlinedTextField(
+                            value = draft.priceText,
+                            onValueChange = { text ->
+                                drafts = drafts.toMutableList()
+                                    .also { it[index] = draft.copy(priceText = text) }
+                            },
+                            enabled = draft.include,
+                            singleLine = true,
+                            label = { Text("金额") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            modifier = Modifier.width(120.dp)
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.size(12.dp))
+            if (assets.isEmpty()) {
+                Text(
+                    text = "还没有账户，先去记账页添加一个账户，再回来批量记账。",
+                    fontSize = 13.sp,
+                    color = TagOrangeText
+                )
+            } else {
+                Text(
+                    text = "记到哪个账户",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = TextPrimary
+                )
+                Spacer(modifier = Modifier.size(8.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    assets.forEach { asset ->
+                        EditorSelectionChip(
+                            text = asset.name,
+                            selected = assetId == asset.id,
+                            onClick = { assetId = asset.id }
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.size(14.dp))
+            GradientButton(
+                text = "归位并记账 ${includedRows.size} 笔",
+                enabled = canConfirm,
+                onClick = {
+                    val chosen = assetId ?: return@GradientButton
+                    val rows = drafts.map { draft ->
+                        CheckoutRow(
+                            item = draft.item,
+                            amountCents = LedgerMath.parseCentsInput(draft.priceText) ?: 0L,
+                            record = draft.include
+                        )
+                    }
+                    onConfirm(rows, chosen)
+                }
+            )
+            Spacer(modifier = Modifier.size(16.dp))
+        }
     }
 }

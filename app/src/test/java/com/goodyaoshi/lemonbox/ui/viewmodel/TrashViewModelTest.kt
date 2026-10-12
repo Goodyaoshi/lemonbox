@@ -106,7 +106,7 @@ class TrashViewModelTest {
         val viewModel = TrashViewModel(ItemRepository(dao))
         viewModel.selectAll(setOf(1L, 2L))
 
-        viewModel.restoreSelected()
+        viewModel.restoreSelected {}
         advanceUntilIdle()
 
         assertNull(dao.snapshot().first { it.id == 1L }.deletedAt)

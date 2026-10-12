@@ -4,10 +4,15 @@ import com.goodyaoshi.lemonbox.data.local.entity.Category
 import com.goodyaoshi.lemonbox.data.local.entity.Item
 import com.goodyaoshi.lemonbox.data.repository.CategoryRepository
 import com.goodyaoshi.lemonbox.data.repository.ItemRepository
+import com.goodyaoshi.lemonbox.data.repository.LedgerRepository
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import com.goodyaoshi.lemonbox.testing.FakeCategoryDao
 import com.goodyaoshi.lemonbox.testing.FakeContext
 import com.goodyaoshi.lemonbox.testing.FakeItemDao
+import com.goodyaoshi.lemonbox.testing.FakeLedgerAssetDao
+import com.goodyaoshi.lemonbox.testing.FakeLedgerBudgetDao
+import com.goodyaoshi.lemonbox.testing.FakeLedgerCategoryDao
+import com.goodyaoshi.lemonbox.testing.FakeLedgerRecordDao
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
@@ -60,6 +65,7 @@ class ToBuyViewModelTest {
         val viewModel = ToBuyViewModel(
             ItemRepository(itemDao),
             CategoryRepository(categoryDao),
+            stubLedgerRepository(),
             AppPreferences(FakeContext())
         )
 
@@ -84,6 +90,7 @@ class ToBuyViewModelTest {
         val viewModel = ToBuyViewModel(
             ItemRepository(itemDao),
             CategoryRepository(FakeCategoryDao()),
+            stubLedgerRepository(),
             AppPreferences(FakeContext())
         )
 
@@ -109,5 +116,13 @@ class ToBuyViewModelTest {
         categoryId = categoryId,
         usageStatus = Item.USAGE_USED_UP,
         needRestock = true
+    )
+
+    /** 测试不触达记账写入，只需一个可构造的账目仓库。 */
+    private fun stubLedgerRepository() = LedgerRepository(
+        FakeLedgerRecordDao(),
+        FakeLedgerCategoryDao(),
+        FakeLedgerAssetDao(),
+        FakeLedgerBudgetDao()
     )
 }

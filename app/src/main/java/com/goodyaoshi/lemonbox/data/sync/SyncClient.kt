@@ -167,6 +167,7 @@ class SyncClient @Inject constructor(
 
                 SyncOutcome(localMerge = localMerge, peerMerge = peerMerge).also {
                     appPreferences.setLastSyncAt(System.currentTimeMillis())
+                    val acceptedKeys = selected ?: emptySet()
                     appPreferences.recordSyncReport(
                         SyncReport(
                             time = System.currentTimeMillis(),
@@ -177,7 +178,17 @@ class SyncClient @Inject constructor(
                             deleted = acceptedChanges.count { it.kind == SyncChangeKind.DELETED },
                             conflicts = acceptedChanges.count { it.conflict },
                             skipped = (changes.changes.size - acceptedChanges.size).coerceAtLeast(0),
-                            peerLabel = peerLabel
+                            peerLabel = peerLabel,
+                            // GAP-1：留下逐条回执（勾选了哪些、跳过了哪些），历史里可点开回放。
+                            entries = changes.changes.map { change ->
+                                SyncReportEntry(
+                                    entity = change.entity,
+                                    kind = change.kind,
+                                    title = change.title,
+                                    conflict = change.conflict,
+                                    adopted = change.key in acceptedKeys
+                                )
+                            }
                         )
                     )
                 }

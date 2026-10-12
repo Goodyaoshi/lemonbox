@@ -243,7 +243,11 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
                         onNavigateToReminders = { navController.navigate(Screen.Reminders.route) },
                         onNavigateToLedger = { navigateToTopLevel(Screen.Ledger.route) },
                         onNavigateToMeal = { navigateToTopLevel(Screen.Meal.route) },
-                        onNavigateToAnniversaries = { navController.navigate(Screen.Anniversaries.route) }
+                        onNavigateToAnniversaries = { navController.navigate(Screen.Anniversaries.route) },
+                        // IA-3：首页纪念日条点行直达该条目的编辑页。
+                        onNavigateToAnniversaryEdit = { id ->
+                            navController.navigate(Screen.AnniversaryEdit.createRoute(id))
+                        }
                     )
                 }
 
@@ -792,7 +796,6 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
                         onOpenDataCenter = { navController.navigate(Screen.DataCenter.route) },
                         onOpenReminders = { navController.navigate(Screen.Reminders.route) },
                         onOpenAnniversaries = { navController.navigate(Screen.Anniversaries.route) },
-                        onOpenOcr = { navController.navigate(Screen.Ocr.route) },
                         onOpenTimeCapsule = { navController.navigate(Screen.TimeCapsule.route) },
                         onOpenPackingList = { navController.navigate(Screen.PackingList.route) },
                         onOpenSleep = { navController.navigate(Screen.Sleep.route) }

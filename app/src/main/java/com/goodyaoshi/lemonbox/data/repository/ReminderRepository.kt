@@ -64,6 +64,39 @@ class ReminderRepository @Inject constructor(
         return true
     }
 
+    /**
+     * 编辑提醒（GAP-8）：重算下一次触发时间并清掉已提醒标记，让改动立即生效；
+     * 一次性提醒的新时刻已过时返回 false，由页面就地提示（与新建同一套规则）。
+     */
+    suspend fun update(reminder: Reminder): Boolean {
+        val first = ReminderClock.firstFireAt(reminder) ?: return false
+        reminderDao.update(
+            reminder.copy(
+                nextFireAt = first,
+                notifiedAt = 0,
+                updatedAt = System.currentTimeMillis()
+            )
+        )
+        scheduler.reschedule()
+        return true
+    }
+
+    /**
+     * 稍后（GAP-9）：把下一次触发时间顺延 [minutes] 分钟，重复方式与其它字段保持不变。
+     * 用于到点后暂时不想做、但又不愿勾「完成」污染周期节奏的场景。
+     */
+    suspend fun snooze(reminder: Reminder, minutes: Long) {
+        val next = ZonedDateTime.now().plusMinutes(minutes).toInstant().toEpochMilli()
+        reminderDao.update(
+            reminder.copy(
+                nextFireAt = next,
+                notifiedAt = 0,
+                updatedAt = System.currentTimeMillis()
+            )
+        )
+        scheduler.reschedule()
+    }
+
     /** 开关：关闭即暂停；重新开启时触发时刻已过的顺延到下一轮（一次性提醒时刻已过则不恢复）。 */
     suspend fun setEnabled(reminder: Reminder, enabled: Boolean) {
         if (enabled == reminder.enabled) return

@@ -38,6 +38,15 @@ data class WeeklyMealDay(
     val missing: List<String> get() = combo.missing
 }
 
+/**
+ * 「做了」扣料前的快照（GAP-12）：撤销时按它把被扣的食材整份写回，并撤掉「已做」标记。
+ * [previousItems] 是当天各菜命中食材扣除前的原样（同一物品只留最早的那份）。
+ */
+data class CookedDaySnapshot(
+    val dateKey: String,
+    val previousItems: List<Item>
+)
+
 /** init 里 combine 多个数据源的中间载体。 */
 private data class WeeklyInput(
     val recipes: List<Recipe>,
@@ -117,15 +126,27 @@ class WeekMenuRepository @Inject constructor(
     }
 
     /** 一餐做完（今天/未来某天）：扣掉这一天所有菜品的食材并标记已做；已做过的不重复扣（幂等）。 */
-    suspend fun markDayCooked(dateKey: String) {
-        if (dateKey in appPreferences.cookedMenuDates.value) return
-        val day = latestDays.firstOrNull { it.dateKey == dateKey } ?: return
+    suspend fun markDayCooked(dateKey: String): CookedDaySnapshot? {
+        if (dateKey in appPreferences.cookedMenuDates.value) return null
+        val day = latestDays.firstOrNull { it.dateKey == dateKey } ?: return null
         // 扣不扣只看食材所属分类（主食粮油/调味品不扣），与菜品本身是主食还是蛋白无关。
         val recipeIds = day.combo.dishes.mapNotNull { it.recipeId }
+        val previous = mutableListOf<Item>()
         recipeIds.forEach { id ->
-            recipes.firstOrNull { it.id == id }?.let { deductRecipeIngredients(it) }
+            recipes.firstOrNull { it.id == id }?.let { previous += deductRecipeIngredients(it) }
         }
         appPreferences.markMenuCooked(dateKey)
+        // 同一物品可能被多道菜命中，保留最早的那份快照（扣除前的原始状态）供整体撤销。
+        return CookedDaySnapshot(dateKey = dateKey, previousItems = previous.distinctBy { it.id })
+    }
+
+    /**
+     * 撤销「做了」（GAP-12）：先按快照把被扣的食材整份写回（G-3 快照写回，不做反向推导），
+     * 再撤掉「已做」标记。误触「做了」后库存与卡片状态都能回到开火前。
+     */
+    suspend fun undoMarkDayCooked(snapshot: CookedDaySnapshot) {
+        snapshot.previousItems.forEach { itemRepository.update(it) }
+        appPreferences.unmarkMenuCooked(snapshot.dateKey)
     }
 
     /** 换一天：给指定日期整套换一份不与其它天重复的搭配，并照旧把缺的主料补进待买。 */
@@ -318,9 +339,11 @@ class WeekMenuRepository @Inject constructor(
     /**
      * 扣掉一道菜用到的食材：每样匹配上的主料扣 1 件，减到 0 自动记为已用完。
      * 是否扣减只看食材所属分类：主食粮油、调味品、辅料不扣；菜谱里标为「可选」的配料也不扣。
+     * 返回被扣物品扣除前的快照（同一物品去重），供「做了」撤销时整份写回（GAP-12）。
      */
-    private suspend fun deductRecipeIngredients(recipe: Recipe) {
+    private suspend fun deductRecipeIngredients(recipe: Recipe): List<Item> {
         val used = mutableSetOf<Long>()
+        val previous = mutableListOf<Item>()
         recipe.ingredients
             .filterNot { it.optional }
             .forEach { ingredient ->
@@ -330,8 +353,10 @@ class WeekMenuRepository @Inject constructor(
                 } ?: return@forEach
                 if (isNonDeductible(matched)) return@forEach
                 used += matched.item.id
+                previous += matched.item
                 itemRepository.consumeOne(matched.item.id)
             }
+        return previous
     }
 
     /** 主食粮油（米面油）、调味品（酱油/盐/醋）、辅料（葱姜蒜辣椒）不参与扣减：看物品所属分类链。 */

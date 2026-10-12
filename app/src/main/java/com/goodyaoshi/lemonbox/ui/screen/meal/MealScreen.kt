@@ -42,9 +42,11 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.goodyaoshi.lemonbox.data.meal.MealSpec
+import com.goodyaoshi.lemonbox.data.repository.CookedDaySnapshot
 import com.goodyaoshi.lemonbox.data.repository.WeekMenuRepository
 import com.goodyaoshi.lemonbox.data.repository.WeeklyMealDay
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
+import com.goodyaoshi.lemonbox.ui.components.DeleteCopy
 import com.goodyaoshi.lemonbox.ui.components.EmptyState
 import com.goodyaoshi.lemonbox.ui.components.HeaderActionPill
 import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
@@ -98,8 +100,17 @@ class MealViewModel @Inject constructor(
 
     fun setPlanDays(days: Int) = weekMenuRepository.setPlanDays(days)
 
-    fun markDayCooked(dateKey: String) {
-        viewModelScope.launch { weekMenuRepository.markDayCooked(dateKey) }
+    /**
+     * 一餐做完：仓库内幂等（已做不重复扣料），完成后回传扣料前的快照供「撤销」（GAP-12）；
+     * 已做过或无可扣食材时回传 null，由页面决定是否提示。
+     */
+    fun markDayCooked(dateKey: String, onDone: (CookedDaySnapshot?) -> Unit = {}) {
+        viewModelScope.launch { onDone(weekMenuRepository.markDayCooked(dateKey)) }
+    }
+
+    /** 撤销「做了」（GAP-12）：按快照把被扣食材写回、撤掉已做标记。 */
+    fun undoMarkDayCooked(snapshot: CookedDaySnapshot) {
+        viewModelScope.launch { weekMenuRepository.undoMarkDayCooked(snapshot) }
     }
 
     fun rerollDay(dateKey: String) {
@@ -241,15 +252,25 @@ fun MealScreen(
                             day = day,
                             onReroll = viewModel::rerollDay,
                             onCooked = { dateKey ->
-                                viewModel.markDayCooked(dateKey)
-                                // 扣减食材后回一句：料齐就开火，缺料就顺手提示先去补。
-                                snackbar?.postMessage(
-                                    if (day.missing.isEmpty()) {
-                                        "材料齐了，开火吧"
+                                // 回执改为可撤销（GAP-12）：扣库存是全 App 最大的一次隐性写操作，
+                                // 点「做了」后按扣料前的快照可一键回滚，不再静默扣完就没了。
+                                viewModel.markDayCooked(dateKey) { snapshot ->
+                                    if (snapshot == null) {
+                                        snackbar?.postMessage("这餐已经记过「做过」了")
                                     } else {
-                                        "先按缺料条补几样，再开火也不迟"
+                                        val consumed = snapshot.previousItems.size
+                                        snackbar?.showUndo(
+                                            if (consumed == 0) {
+                                                "已记「做过」"
+                                            } else {
+                                                "已记「做过」，消耗了 $consumed 样食材"
+                                            },
+                                            DeleteCopy.UNDO_ACTION
+                                        ) {
+                                            viewModel.undoMarkDayCooked(snapshot)
+                                        }
                                     }
-                                )
+                                }
                             },
                             onEdit = { editingMealDateKey = it },
                             onPrepReminder = { prepReminderDateKey = it },

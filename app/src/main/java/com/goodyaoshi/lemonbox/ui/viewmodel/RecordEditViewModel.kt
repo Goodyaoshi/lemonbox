@@ -13,9 +13,11 @@ import com.goodyaoshi.lemonbox.data.local.entity.LedgerRecord.Companion.TYPE_INC
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerRecord.Companion.TYPE_TRANSFER
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerRecurringRule
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerTemplate
+import com.goodyaoshi.lemonbox.data.backup.FieldDiff
 import com.goodyaoshi.lemonbox.data.repository.LedgerPlanningRepository
 import com.goodyaoshi.lemonbox.data.repository.LedgerRepository
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
+import com.goodyaoshi.lemonbox.util.DateUtil
 import com.goodyaoshi.lemonbox.util.LedgerMath
 import com.goodyaoshi.lemonbox.util.RecurringClock
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -48,7 +50,9 @@ data class RecordEditState(
     /** 首次进入时按类型自动选中首个分类/账户，减少点击。 */
     val initialized: Boolean = false,
     /** 保存成功标记，供界面做收尾（连续录入则清空留在本页）。 */
-    val isSaved: Boolean = false
+    val isSaved: Boolean = false,
+    /** 编辑保存后的字段级变更摘要（GAP-5）：改前 → 改后，供保存回执逐行展示。 */
+    val savedDiff: List<FieldDiff> = emptyList()
 ) {
     val amountCents: Long?
         get() = LedgerMath.parseCentsInput(amountText)
@@ -273,12 +277,16 @@ class RecordEditViewModel @Inject constructor(
         viewModelScope.launch {
             if (current.recordId == 0L) {
                 ledgerRepository.saveRecord(record.copy(createdAt = System.currentTimeMillis()))
+                _state.value = _state.value.copy(isSaved = true)
             } else {
-                // 编辑：保留原 createdAt，避免抹掉。
+                // 编辑：保留原 createdAt，避免抹掉；并算出字段级变更摘要供保存回执（GAP-5）。
                 val origin = ledgerRepository.getRecord(current.recordId)
                 ledgerRepository.saveRecord(record.copy(createdAt = origin?.createdAt ?: record.recordTime))
+                _state.value = _state.value.copy(
+                    isSaved = true,
+                    savedDiff = origin?.let { buildDiff(it, record) }.orEmpty()
+                )
             }
-            _state.value = _state.value.copy(isSaved = true)
         }
     }
 
@@ -369,4 +377,72 @@ class RecordEditViewModel @Inject constructor(
         viewModelScope.launch { planningRepository.saveRule(rule) }
         return true
     }
+
+    // ---------- GAP-5：编辑保存的字段级回执 ----------
+
+    /** 对比编辑前后的账单，产出「改前 → 改后」的字段差异（只列出真正变了的字段）。 */
+    private fun buildDiff(origin: LedgerRecord, updated: LedgerRecord): List<FieldDiff> = buildList {
+        if (origin.type != updated.type) {
+            add(FieldDiff("type", "类型", recordTypeLabel(origin.type), recordTypeLabel(updated.type)))
+        }
+        if (origin.amount != updated.amount) {
+            add(
+                FieldDiff(
+                    "amount", "金额",
+                    DateUtil.formatCurrency(LedgerMath.centsToYuan(origin.amount)),
+                    DateUtil.formatCurrency(LedgerMath.centsToYuan(updated.amount))
+                )
+            )
+        }
+        if (origin.categoryId != updated.categoryId) {
+            add(FieldDiff("categoryId", "分类", categoryName(origin.categoryId), categoryName(updated.categoryId)))
+        }
+        if (origin.assetId != updated.assetId) {
+            add(FieldDiff("assetId", "账户", assetName(origin.assetId), assetName(updated.assetId)))
+        }
+        if (origin.targetAssetId != updated.targetAssetId) {
+            add(
+                FieldDiff(
+                    "targetAssetId", "转入账户",
+                    assetName(origin.targetAssetId), assetName(updated.targetAssetId)
+                )
+            )
+        }
+        if (dayOf(origin.recordTime) != dayOf(updated.recordTime)) {
+            add(
+                FieldDiff(
+                    "recordTime", "日期",
+                    dayOf(origin.recordTime).toString(), dayOf(updated.recordTime).toString()
+                )
+            )
+        }
+        if (origin.remark != updated.remark) {
+            add(
+                FieldDiff(
+                    "remark", "备注",
+                    origin.remark.ifBlank { "（空）" }, updated.remark.ifBlank { "（空）" }
+                )
+            )
+        }
+    }
+
+    private fun recordTypeLabel(type: Int): String = when (type) {
+        TYPE_INCOME -> "收入"
+        TYPE_TRANSFER -> "转账"
+        else -> "支出"
+    }
+
+    private fun categoryName(id: Long?): String {
+        if (id == null) return "（无）"
+        return (expenseCategories.value + incomeCategories.value)
+            .firstOrNull { it.id == id }?.name ?: "已删除分类"
+    }
+
+    private fun assetName(id: Long?): String {
+        if (id == null) return "（无）"
+        return assets.value.firstOrNull { it.id == id }?.name ?: "已删除账户"
+    }
+
+    private fun dayOf(millis: Long): LocalDate =
+        Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault()).toLocalDate()
 }

@@ -116,6 +116,11 @@ class LanSyncViewModel @Inject constructor(
     private var matchGate: CompletableDeferred<Boolean>? = null
     private var selectionGate: CompletableDeferred<Set<String>?>? = null
 
+    private val _lastTarget = MutableStateFlow<Pair<String, Int>?>(null)
+
+    /** 上一次发起同步的目标（IP:端口）：失败后据此提供「重试」，不必再翻设备列表（GAP-3）。 */
+    val lastTarget: StateFlow<Pair<String, Int>?> = _lastTarget.asStateFlow()
+
     /** 当前配对请求对应的对方名字，用于展示「对方数据」预览时标明来源。 */
     private var hostPeerLabel: String = "对方"
 
@@ -259,6 +264,7 @@ class LanSyncViewModel @Inject constructor(
 
     private fun runSync(host: String, port: Int) {
         viewModelScope.launch {
+            _lastTarget.value = host to port
             _uiState.value = _uiState.value.copy(
                 isBusy = true,
                 message = null,
@@ -345,6 +351,13 @@ class LanSyncViewModel @Inject constructor(
             }
             SyncStepUi(stage.label, status)
         }
+
+    /** 失败后从失败处重试：复用上一次的目标地址，省去重新发现/输入（GAP-3）。 */
+    fun retryLastSync() {
+        val target = _lastTarget.value ?: return
+        if (_uiState.value.isBusy) return
+        runSync(target.first, target.second)
+    }
 
     fun consumeMessage() {
         _uiState.value = _uiState.value.copy(message = null)

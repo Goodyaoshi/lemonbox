@@ -19,7 +19,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.DocumentScanner
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Luggage
@@ -74,7 +73,6 @@ fun ProfileScreen(
     onOpenDataCenter: () -> Unit = {},
     onOpenReminders: () -> Unit = {},
     onOpenAnniversaries: () -> Unit = {},
-    onOpenOcr: () -> Unit = {},
     onOpenTimeCapsule: () -> Unit = {},
     onOpenPackingList: () -> Unit = {},
     onOpenSleep: () -> Unit = {},
@@ -200,13 +198,8 @@ fun ProfileScreen(
                 shape = RoundedCornerShape(24.dp),
                 shadowElevation = 12.dp
             ) {
-                MenuRow(
-                    icon = Icons.Default.DocumentScanner,
-                    title = "文字识别",
-                    subtitle = "拍张照，自动认出发票、清单或物品名",
-                    onClick = onOpenOcr
-                )
-                DividerSpacer()
+                // IA-6：文字识别是「存物 / 记账」流程里的前置能力，入口已在 Save 与记一笔页，
+                // 不再作为独立工具混在小工具区，让这里只留纯独立型功能。
                 MenuRow(
                     icon = Icons.Default.MailOutline,
                     title = "时间胶囊",

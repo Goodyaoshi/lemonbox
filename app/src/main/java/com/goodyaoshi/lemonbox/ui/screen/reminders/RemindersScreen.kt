@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -87,6 +88,7 @@ import com.goodyaoshi.lemonbox.ui.viewmodel.RemindersViewModel
 import com.goodyaoshi.lemonbox.util.DateUtil
 import com.goodyaoshi.lemonbox.util.ReminderClock
 import java.time.LocalDate
+import java.time.temporal.ChronoUnit
 
 /** 提醒列表的分组标题。 */
 private data class ReminderGroup(
@@ -103,6 +105,8 @@ fun RemindersScreen(
     val activeItems by viewModel.activeItems.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     var showAddDialog by remember { mutableStateOf(false) }
+    // 编辑（GAP-8）：复用同一个编辑对话框，existing 非空即编辑模式。
+    var editingReminder by remember { mutableStateOf<Reminder?>(null) }
     // 删除前先确认（R1）：破坏性操作不再裸奔，确认后仍可在 Snackbar 里撤销。
     var pendingDelete by remember { mutableStateOf<Reminder?>(null) }
     val appSnackbar = LocalAppSnackbar.current
@@ -227,6 +231,17 @@ fun RemindersScreen(
                                         viewModel.undoComplete(reminder)
                                     }
                                 },
+                                onSnooze = {
+                                    // 稍后（GAP-9）：顺延 3 小时，不动重复节奏，可撤销回原时刻。
+                                    viewModel.snooze(reminder)
+                                    appSnackbar?.showUndo(
+                                        "「${reminder.title}」3 小时后再提醒",
+                                        DeleteCopy.UNDO_ACTION
+                                    ) {
+                                        viewModel.undoComplete(reminder)
+                                    }
+                                },
+                                onEdit = { editingReminder = reminder },
                                 onDelete = { pendingDelete = reminder },
                                 modifier = Modifier.padding(vertical = 5.dp)
                             )
@@ -240,32 +255,57 @@ fun RemindersScreen(
     if (showAddDialog) {
         // 保存失败时的就地提示（I10）：留在对话框内显示，不再用一闪而过的 Toast。
         var addError by remember { mutableStateOf<String?>(null) }
-        AddReminderDialog(
+        ReminderEditorDialog(
+            existing = null,
             activeItems = activeItems,
             errorMessage = addError,
             onDismissRequest = {
                 addError = null
                 showAddDialog = false
             },
-            onConfirm = { reminder ->
+            onConfirm = { draft ->
                 addError = null
                 viewModel.create(
-                    title = reminder.title,
-                    note = reminder.note,
-                    repeatType = reminder.repeat,
-                    targetDate = reminder.targetDate,
-                    intervalDays = reminder.intervalDays,
-                    weekdays = Reminder.decodeWeekdays(reminder.weekdays),
-                    fireTime = reminder.fireTime,
-                    doseTimes = Reminder.decodeDoseTimes(reminder.doseTimes).map { it.toString() },
-                    courseDays = reminder.courseDays,
-                    linkedItemId = reminder.linkedItemId
+                    title = draft.title,
+                    note = draft.note,
+                    repeatType = draft.repeat,
+                    targetDate = draft.targetDate,
+                    intervalDays = draft.intervalDays,
+                    weekdays = Reminder.decodeWeekdays(draft.weekdays),
+                    fireTime = draft.fireTime,
+                    doseTimes = Reminder.decodeDoseTimes(draft.doseTimes).map { it.toString() },
+                    courseDays = draft.courseDays,
+                    linkedItemId = draft.linkedItemId
                 ) { saved ->
                     if (saved) {
                         showAddDialog = false
                     } else {
                         // 保存失败只可能是提醒时刻已经过了：在对话框里就地说明。
                         addError = "这个时间已经过了，换个时间吧"
+                    }
+                }
+            }
+        )
+    }
+
+    editingReminder?.let { existing ->
+        // 编辑（GAP-8）：同一个对话框带 existing 进编辑模式；时刻已过同样就地提示。
+        var editError by remember(existing.id) { mutableStateOf<String?>(null) }
+        ReminderEditorDialog(
+            existing = existing,
+            activeItems = activeItems,
+            errorMessage = editError,
+            onDismissRequest = {
+                editError = null
+                editingReminder = null
+            },
+            onConfirm = { draft ->
+                editError = null
+                viewModel.update(existing, draft) { saved ->
+                    if (saved) {
+                        editingReminder = null
+                    } else {
+                        editError = "这个时间已经过了，换个时间吧"
                     }
                 }
             }
@@ -300,12 +340,14 @@ fun RemindersScreen(
     }
 }
 
-/** 一条提醒：标题 + 触发时间/重复方式，进行中的可完成、可暂停；归档的只留删除。 */
+/** 一条提醒：标题 + 触发时间/重复方式，进行中的可完成、可稍后、可编辑、可暂停；归档的只留删除。 */
 @Composable
 private fun ReminderRow(
     reminder: Reminder,
     onToggle: () -> Unit,
     onComplete: () -> Unit,
+    onSnooze: () -> Unit,
+    onEdit: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -414,7 +456,26 @@ private fun ReminderRow(
                     contentColor = TagGreenText,
                     onClick = onComplete
                 )
-                Spacer(modifier = Modifier.width(6.dp))
+                // 稍后（GAP-9）：只在这条已到点、还在等确认时出现——
+                // 暂时不做、又不愿勾「完成」污染周期节奏时，顺延一下即可。
+                if (reminder.awaitingConfirmation) {
+                    Spacer(modifier = Modifier.width(6.dp))
+                    PillTag(
+                        text = "稍后",
+                        backgroundColor = TagBlue,
+                        contentColor = TagBlueText,
+                        onClick = onSnooze
+                    )
+                }
+                // 编辑入口（GAP-8）：进行中的提醒可改内容与时间；归档组不给（改它没有语义）。
+                IconButton(onClick = onEdit) {
+                    Icon(
+                        imageVector = Icons.Default.Edit,
+                        contentDescription = "编辑提醒",
+                        tint = TextHint,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
             } else {
                 IconButton(onClick = onDelete) {
                     Icon(
@@ -440,26 +501,37 @@ private fun ReminderRow(
     }
 }
 
-/** 新建提醒：标题、重复方式（一次/每天/每隔 N 天/每周几）、提醒时间；「按疗程用药」（F17）覆盖为每日多次服药。 */
+/** 新建 / 编辑提醒（GAP-8）：标题、重复方式（一次/每天/每隔 N 天/每周几）、提醒时间；「按疗程用药」（F17）覆盖为每日多次服药。 */
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
-private fun AddReminderDialog(
+private fun ReminderEditorDialog(
+    existing: Reminder?,
     activeItems: List<ItemDetail>,
     onDismissRequest: () -> Unit,
     onConfirm: (Reminder) -> Unit,
     errorMessage: String? = null
 ) {
-    var title by remember { mutableStateOf("") }
-    var repeatType by remember { mutableStateOf(ReminderRepeatType.ONCE) }
-    var dayOffset by remember { mutableIntStateOf(1) }
-    var intervalDays by remember { mutableIntStateOf(2) }
-    var weekdays by remember { mutableStateOf(setOf(1)) }
-    var fireTime by remember { mutableStateOf("19:00") }
+    val isEditing = existing != null
+    var title by remember(existing) { mutableStateOf(existing?.title.orEmpty()) }
+    var repeatType by remember(existing) { mutableStateOf(existing?.repeat ?: ReminderRepeatType.ONCE) }
+    var dayOffset by remember(existing) { mutableIntStateOf(existing?.targetDate?.let(::daysUntilDate) ?: 1) }
+    var intervalDays by remember(existing) {
+        mutableIntStateOf(existing?.intervalDays?.coerceAtLeast(1) ?: 2)
+    }
+    var weekdays by remember(existing) {
+        mutableStateOf(existing?.weekdays?.let { Reminder.decodeWeekdays(it).toSet() } ?: setOf(1))
+    }
+    var fireTime by remember(existing) { mutableStateOf(existing?.fireTime ?: "19:00") }
     var showTimePicker by remember { mutableStateOf(false) }
-    var medication by remember { mutableStateOf(false) }
-    var doseTimes by remember { mutableStateOf(setOf("08:00", "20:00")) }
-    var courseDays by remember { mutableIntStateOf(7) }
-    var linkedItemId by remember { mutableStateOf<Long?>(null) }
+    var medication by remember(existing) { mutableStateOf(existing?.isMedication ?: false) }
+    var doseTimes by remember(existing) {
+        mutableStateOf(
+            existing?.let { Reminder.decodeDoseTimes(it.doseTimes).map { t -> t.toString() }.toSet() }
+                ?: setOf("08:00", "20:00")
+        )
+    }
+    var courseDays by remember(existing) { mutableIntStateOf(existing?.courseDays ?: 7) }
+    var linkedItemId by remember(existing) { mutableStateOf(existing?.linkedItemId) }
     var showDoseTimePicker by remember { mutableStateOf(false) }
     var showItemPicker by remember { mutableStateOf(false) }
 
@@ -550,8 +622,12 @@ private fun AddReminderDialog(
     }
 
     AppDialog(
-        title = "新提醒",
-        subtitle = "到点发通知提醒你做事，比如「今晚解冻肉」「每周三清理洗碗机」。",
+        title = if (isEditing) "编辑提醒" else "新提醒",
+        subtitle = if (isEditing) {
+            "改完保存，新的提醒时间会立即生效。"
+        } else {
+            "到点发通知提醒你做事，比如「今晚解冻肉」「每周三清理洗碗机」。"
+        },
         onDismissRequest = onDismissRequest,
         confirmText = "保存",
         confirmEnabled = title.isNotBlank() && (!medication || doseTimes.isNotEmpty()),
@@ -559,6 +635,8 @@ private fun AddReminderDialog(
             onConfirm(
                 Reminder(
                     title = title.trim(),
+                    // 保留原备注：这个对话框不编辑备注，编辑时不能把它抹掉。
+                    note = existing?.note.orEmpty(),
                     repeatType = repeatType.name,
                     intervalDays = intervalDays,
                     weekdays = Reminder.encodeWeekdays(weekdays.toList()),
@@ -804,4 +882,10 @@ private fun StepButton(text: String, onClick: () -> Unit) {
             Text(text = text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = OrangeStart)
         }
     }
+}
+
+/** 目标日期距今天的天数（编辑时把「提醒日期」初始化成原日期）；过去或解析失败回退到 1。 */
+private fun daysUntilDate(targetDate: String): Int {
+    val target = runCatching { LocalDate.parse(targetDate) }.getOrNull() ?: return 1
+    return ChronoUnit.DAYS.between(LocalDate.now(), target).toInt().coerceAtLeast(0)
 }

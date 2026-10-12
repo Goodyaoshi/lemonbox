@@ -60,6 +60,7 @@ import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.DeleteCopy
 import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
+import com.goodyaoshi.lemonbox.ui.components.EditorSelectionChip
 import com.goodyaoshi.lemonbox.ui.components.LedgerBudgetBar
 import com.goodyaoshi.lemonbox.ui.components.PillTag
 import com.goodyaoshi.lemonbox.ui.components.SearchBar
@@ -108,6 +109,8 @@ fun HomeScreen(
     onNavigateToLedger: () -> Unit = {},
     onNavigateToMeal: () -> Unit = {},
     onNavigateToAnniversaries: () -> Unit = {},
+    // IA-3：首页纪念日条点某一行直达该条目的编辑，不必「我的 → 纪念日 → 编辑」三跳。
+    onNavigateToAnniversaryEdit: (Long) -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val todayEvents by viewModel.todayEvents.collectAsState()
@@ -182,6 +185,9 @@ fun HomeScreen(
                     TodaySection(
                         events = todayEvents,
                         ignoredEvents = todayIgnoredEvents,
+                        // IA-1：今日清单是提醒的主数据源，这里给一个常驻的「管理提醒」出口，
+                        // 不必再绕「我的 → 待办提醒」两跳去主动管理。
+                        onManageReminders = onNavigateToReminders,
                         onEventClick = onEventClick,
                         onComplete = { event ->
                             // H1：勾掉前先拿快照，Snackbar 里可撤销。
@@ -214,14 +220,34 @@ fun HomeScreen(
                     item {
                         AnniversarySection(
                             rows = anniversaryRows,
-                            onOpen = onNavigateToAnniversaries
+                            onOpen = onNavigateToAnniversaries,
+                            onOpenEdit = onNavigateToAnniversaryEdit
                         )
                     }
                 }
                 item {
                     TodayMealCard(
                         day = todayMeal,
-                        onCooked = { viewModel.markDayCooked(todayKey) },
+                        // 做了的回执改为可撤销（GAP-12）：扣库存是隐性写操作，误触能一键回滚。
+                        onCooked = {
+                            viewModel.markDayCooked(todayKey) { snapshot ->
+                                if (snapshot == null) {
+                                    appSnackbar?.postMessage("今天这餐已经记过「做过」了")
+                                } else {
+                                    val consumed = snapshot.previousItems.size
+                                    appSnackbar?.showUndo(
+                                        if (consumed == 0) {
+                                            "已记「做过」"
+                                        } else {
+                                            "已记「做过」，消耗了 $consumed 样食材"
+                                        },
+                                        DeleteCopy.UNDO_ACTION
+                                    ) {
+                                        viewModel.undoMarkDayCooked(snapshot)
+                                    }
+                                }
+                            }
+                        },
                         onGoPlan = onNavigateToMeal,
                         onDishItemClick = { onNavigateToDetail(it.item.id) }
                     )
@@ -351,6 +377,7 @@ private fun greetingFor(hour: Int): String = when (hour) {
 private fun TodaySection(
     events: List<TodayEvent>,
     ignoredEvents: List<TodayEvent>,
+    onManageReminders: () -> Unit,
     onEventClick: (TodayEvent) -> Unit,
     onComplete: (TodayEvent) -> Unit,
     onIgnore: (TodayEvent) -> Unit,
@@ -373,11 +400,15 @@ private fun TodaySection(
         }
     }
 
-    val collapsible = events.size > TODAY_EVENT_PREVIEW_COUNT
+    // GAP-10：按类型微筛选，早上赶时间只想看「今天要买的」时不用肉眼分拣。
+    var kindFilter by remember { mutableStateOf<TodayEventKind?>(null) }
+    val shownEvents = if (kindFilter == null) events else events.filter { it.kind == kindFilter }
+
+    val collapsible = shownEvents.size > TODAY_EVENT_PREVIEW_COUNT
     val visibleEvents = if (collapsible && !expanded) {
-        events.take(TODAY_EVENT_PREVIEW_COUNT)
+        shownEvents.take(TODAY_EVENT_PREVIEW_COUNT)
     } else {
-        events
+        shownEvents
     }
 
     Column(
@@ -387,9 +418,35 @@ private fun TodaySection(
     ) {
         SectionHeader(
             title = "今天的事",
-            action = if (events.isNotEmpty()) "共 ${events.size} 件" else null
+            subtitle = if (events.isNotEmpty()) "共 ${events.size} 件" else null,
+            // IA-1：空态与满态都给「管理提醒」，主动管理入口不再只藏在「我的」二级页。
+            action = "管理提醒 ›",
+            onActionClick = onManageReminders
         )
         Spacer(modifier = Modifier.height(10.dp))
+        if (events.isNotEmpty()) {
+            // 类型 chips：数量为 0 的种类不出现（避免「待买 0」的噪音）。
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                listOf(
+                    null to "全部",
+                    TodayEventKind.TASK to "提醒",
+                    TodayEventKind.EXPIRY to "临期",
+                    TodayEventKind.TO_BUY to "待买"
+                ).forEach { (kind, label) ->
+                    val count = if (kind == null) events.size else events.count { it.kind == kind }
+                    if (kind != null && count == 0) return@forEach
+                    EditorSelectionChip(
+                        text = if (kind == null) label else "$label $count",
+                        selected = kindFilter == kind,
+                        onClick = { kindFilter = kind }
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+        }
         if (events.isEmpty()) {
             AppSurfaceCard(
                 modifier = Modifier.graphicsLayer {
@@ -440,6 +497,13 @@ private fun TodaySection(
                     }
                 }
             }
+        } else if (shownEvents.isEmpty()) {
+            // 选了某一类但该类刚好被清空（如刚把待买都办掉）：给一句提示，别让卡片毫无内容。
+            Text(
+                text = "这一类暂时没有事了",
+                fontSize = 13.sp,
+                color = TextSecondary
+            )
         } else {
             AppSurfaceCard(
                 shape = RoundedCornerShape(22.dp),
@@ -457,7 +521,7 @@ private fun TodaySection(
                     }
                     if (collapsible) {
                         TodayEventExpandRow(
-                            hiddenCount = events.size - TODAY_EVENT_PREVIEW_COUNT,
+                            hiddenCount = shownEvents.size - TODAY_EVENT_PREVIEW_COUNT,
                             expanded = expanded,
                             onToggle = { expanded = !expanded }
                         )
@@ -688,7 +752,8 @@ private fun TodayEventRow(
 @Composable
 private fun AnniversarySection(
     rows: List<AnniversaryRow>,
-    onOpen: () -> Unit
+    onOpen: () -> Unit,
+    onOpenEdit: (Long) -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -704,8 +769,7 @@ private fun AnniversarySection(
         AppSurfaceCard(
             shape = RoundedCornerShape(22.dp),
             contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
-            shadowElevation = 12.dp,
-            onClick = onOpen
+            shadowElevation = 12.dp
         ) {
             Column {
                 rows.forEach { row ->
@@ -713,6 +777,8 @@ private fun AnniversarySection(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(16.dp))
+                            // IA-3：点这一行直达该纪念日的编辑页，就地改名字/日期。
+                            .clickable { onOpenEdit(row.anniversary.id) }
                             .padding(horizontal = 10.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {

@@ -241,6 +241,9 @@ fun TrashScreen(
 
     if (pendingDeleteIds.isNotEmpty()) {
         val isBatchDelete = pendingDeleteIds.size > 1
+        // 批量永久删除（GAP-11）：比单条多一道「我已确认」勾选，确认按钮未勾选时不可点，
+        // 把「一次性清掉一大批、彻底找不回」的摩擦提高到与风险相称。
+        var acknowledged by remember(pendingDeleteIds) { mutableStateOf(false) }
         AppDialog(
             title = if (isBatchDelete) "永久删除选中的 ${pendingDeleteIds.size} 项？" else "永久删除这个物品？",
             subtitle = "永久删除后，回收站记录和对应图片会立即清空，就找不回来了。",
@@ -248,11 +251,47 @@ fun TrashScreen(
             confirmText = "永久删除",
             dismissText = "取消",
             destructiveConfirm = true,
+            confirmEnabled = !isBatchDelete || acknowledged,
             onConfirm = {
                 viewModel.permanentlyDelete(pendingDeleteIds)
                 pendingDeleteIds = emptyList()
             }
-        )
+        ) {
+            if (isBatchDelete) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(StatusExpired.copy(alpha = 0.10f))
+                        .clickable { acknowledged = !acknowledged }
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(22.dp)
+                            .clip(CircleShape)
+                            .background(if (acknowledged) StatusExpired else CardWhite),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (acknowledged) {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.size(8.dp))
+                    Text(
+                        text = "我已确认这 ${pendingDeleteIds.size} 项无法恢复",
+                        fontSize = 13.sp,
+                        color = TextPrimary
+                    )
+                }
+            }
+        }
     }
 }
 

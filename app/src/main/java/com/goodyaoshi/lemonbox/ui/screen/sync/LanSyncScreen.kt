@@ -11,11 +11,14 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -26,6 +29,7 @@ import androidx.compose.material.icons.automirrored.filled.BluetoothSearching
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.BluetoothConnected
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
@@ -34,13 +38,16 @@ import androidx.compose.material.icons.filled.Smartphone
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -52,6 +59,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.Role
@@ -60,12 +68,14 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.data.backup.toUserMessage
 import com.goodyaoshi.lemonbox.data.sync.SyncPeer
 import com.goodyaoshi.lemonbox.data.sync.SyncReport
+import com.goodyaoshi.lemonbox.data.sync.SyncReportEntry
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.GradientButton
@@ -105,9 +115,13 @@ fun LanSyncScreen(
     val incomingSummary by viewModel.incomingSummary.collectAsState()
     val lastSyncAt by viewModel.lastSyncAt.collectAsState()
     val syncReports by viewModel.syncReports.collectAsState()
+    val lastTarget by viewModel.lastTarget.collectAsState()
 
     var addressInput by remember { mutableStateOf("") }
     var showManual by remember { mutableStateOf(false) }
+    // GAP-1：点开某条历史看逐条明细（哪些采用、哪些跳过）；IA-7：可展开查看更早的全部历史。
+    var historyTarget by remember { mutableStateOf<SyncReport?>(null) }
+    var showAllReports by remember { mutableStateOf(false) }
 
     // 作为被连接方：对方合并过来时提示一次，避免「对方连了但本机毫无反应」。
     // 全局提示通道（I10）：合并结果改走统一 Snackbar。
@@ -282,6 +296,22 @@ fun LanSyncScreen(
                     uiState.transfer?.let { transfer ->
                         Spacer(modifier = Modifier.size(10.dp))
                         SyncTransferRow(transfer)
+                    }
+                    // GAP-3：失败分诊——给一次「重试」和常见原因指引，而不是对着一句笼统的
+                    // 失败文案反复试错（MIUI 熄屏、路由器 AP 隔离是最常见的两因）。
+                    if (!uiState.isBusy &&
+                        lastTarget != null &&
+                        uiState.syncSteps.any { it.status == SyncStepStatus.FAILED }
+                    ) {
+                        Spacer(modifier = Modifier.size(10.dp))
+                        Text(
+                            text = "常见原因：对方熄屏或切到了后台、路由器开了 AP 隔离、防火墙拦截。" +
+                                "让对方保持亮屏停在本页，或改用下面的「扫描整个局域网」/「手动输入地址」。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextHint
+                        )
+                        Spacer(modifier = Modifier.size(8.dp))
+                        GradientButton(text = "重试这次同步", onClick = viewModel::retryLastSync)
                     }
                 }
             }
@@ -471,15 +501,38 @@ fun LanSyncScreen(
                         color = TextPrimary
                     )
                     Spacer(modifier = Modifier.size(8.dp))
-                    syncReports.take(SYNC_HISTORY_VISIBLE).forEach { report ->
-                        SyncReportRow(report)
+                    val visibleReports = if (showAllReports) {
+                        syncReports
+                    } else {
+                        syncReports.take(SYNC_HISTORY_VISIBLE)
+                    }
+                    visibleReports.forEach { report ->
+                        SyncReportRow(
+                            report = report,
+                            // 有逐条回执的历史才可点开（旧记录没有 entries）。
+                            onClick = if (report.entries.isNotEmpty()) {
+                                { historyTarget = report }
+                            } else {
+                                null
+                            }
+                        )
                     }
                     if (syncReports.size > SYNC_HISTORY_VISIBLE) {
                         Spacer(modifier = Modifier.size(4.dp))
+                        // IA-7：不再是「更早的 N 条不再展示」的死胡同，点它展开 / 收起全部历史。
                         Text(
-                            text = "更早的 ${syncReports.size - SYNC_HISTORY_VISIBLE} 条就不再展示了",
+                            text = if (showAllReports) {
+                                "收起，只看最近 $SYNC_HISTORY_VISIBLE 条"
+                            } else {
+                                "查看全部 ${syncReports.size} 条历史"
+                            },
                             fontSize = 11.sp,
-                            color = TextHint
+                            fontWeight = FontWeight.SemiBold,
+                            color = OrangeStart,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { showAllReports = !showAllReports }
+                                .padding(horizontal = 6.dp, vertical = 4.dp)
                         )
                     }
                 }
@@ -561,6 +614,10 @@ fun LanSyncScreen(
                 onDismiss = viewModel::cancelHostChanges,
                 onConfirm = viewModel::applyHostChanges
             )
+        }
+        // GAP-1：历史明细 Sheet——回放那次到底动了哪几条、哪些被跳过（只读）。
+        historyTarget?.let { report ->
+            SyncReportDetailSheet(report = report, onDismiss = { historyTarget = null })
         }
     }
 }
@@ -905,11 +962,14 @@ private const val SYNC_HISTORY_VISIBLE = 5
  * 统计口径是本机落地对方数据的结果。
  */
 @Composable
-private fun SyncReportRow(report: SyncReport) {
+private fun SyncReportRow(report: SyncReport, onClick: (() -> Unit)? = null) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp),
+            .clip(RoundedCornerShape(12.dp))
+            // 有逐条回执的历史行可点开看明细（GAP-1）；旧记录不可点，保持纯展示。
+            .clickable(enabled = onClick != null) { onClick?.invoke() }
+            .padding(vertical = 4.dp, horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(modifier = Modifier.weight(1f)) {
@@ -968,6 +1028,123 @@ private fun SyncReportRow(report: SyncReport) {
                         SyncReport.Outcome.CANCELLED -> SurfaceWarmDeep
                     }
                 )
+                .padding(horizontal = 8.dp, vertical = 3.dp)
+        )
+        if (onClick != null) {
+            Spacer(modifier = Modifier.size(4.dp))
+            Icon(
+                imageVector = Icons.Default.ChevronRight,
+                contentDescription = "查看这次动了哪些条目",
+                tint = TextHint,
+                modifier = Modifier.size(16.dp)
+            )
+        }
+    }
+}
+
+/**
+ * 同步历史明细（GAP-1）：只读回放某次同步对齐的逐条变更——「已采用」还是「本次跳过」。
+ * 复用变更列表的分组与徽标语言，但去掉勾选与确认（历史只读，不能再改）。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SyncReportDetailSheet(report: SyncReport, onDismiss: () -> Unit) {
+    val adoptedCount = report.entries.count { it.adopted }
+    val skippedCount = report.entries.size - adoptedCount
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = Color.Transparent,
+        dragHandle = null
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
+                .background(CardWhite)
+                .navigationBarsPadding()
+                .padding(horizontal = 20.dp)
+        ) {
+            Spacer(Modifier.size(20.dp))
+            Text(
+                text = "这次同步动了什么",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                color = TextPrimary
+            )
+            Text(
+                text = "${DateUtil.formatDateTime(report.time)} · ${report.role.label} · " +
+                    "与「${report.peerLabel.ifBlank { "对方" }}」",
+                fontSize = 13.sp,
+                color = TextSecondary,
+                modifier = Modifier.padding(top = 2.dp)
+            )
+            Text(
+                text = "本机采用 $adoptedCount 条 · 跳过 $skippedCount 条（跳过的不动本机，下次同步还会再问）",
+                fontSize = 12.sp,
+                color = TextHint,
+                modifier = Modifier.padding(top = 2.dp)
+            )
+            Spacer(Modifier.size(8.dp))
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 430.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                report.entries.groupBy { it.entity }.forEach { (entity, rows) ->
+                    item(key = "hdr_${entity.name}") {
+                        Text(
+                            text = "${entity.label} · ${rows.size} 条",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = TextSecondary,
+                            modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+                        )
+                    }
+                    itemsIndexed(rows, key = { index, entry -> "${entry.entity.name}_$index" }) { _, entry ->
+                        SyncReportEntryRow(entry)
+                    }
+                }
+            }
+            Spacer(Modifier.size(16.dp))
+        }
+    }
+}
+
+/** 历史明细里的一行：标题 + 变更种类徽标 + 「已采用 / 已跳过」状态徽标。 */
+@Composable
+private fun SyncReportEntryRow(entry: SyncReportEntry) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(SurfaceWarmDeep)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = entry.title,
+                fontSize = 14.sp,
+                color = TextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = if (entry.conflict) "冲突 · ${entry.kind.label}" else entry.kind.label,
+                fontSize = 11.sp,
+                color = if (entry.conflict) StatusExpired else TextHint
+            )
+        }
+        Text(
+            text = if (entry.adopted) "已采用" else "已跳过",
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = if (entry.adopted) StatusNormal else TextHint,
+            modifier = Modifier
+                .clip(RoundedCornerShape(999.dp))
+                .background(if (entry.adopted) StatusNormal.copy(alpha = 0.14f) else SurfaceWarmDeep)
                 .padding(horizontal = 8.dp, vertical = 3.dp)
         )
     }

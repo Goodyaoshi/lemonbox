@@ -6,6 +6,7 @@ import com.goodyaoshi.lemonbox.data.local.dao.LedgerCategoryDao
 import com.goodyaoshi.lemonbox.data.local.dao.LedgerRecordDao
 import com.goodyaoshi.lemonbox.data.local.dao.LedgerAssetWithBalance
 import com.goodyaoshi.lemonbox.data.local.dao.LedgerCategorySum
+import com.goodyaoshi.lemonbox.data.local.dao.LedgerMonthTypeSum
 import com.goodyaoshi.lemonbox.data.local.dao.LedgerTypeSum
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerAsset
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerBudget
@@ -265,6 +266,30 @@ class LedgerRepositoryTest {
             }.groupBy { it.categoryId }
                 .map { (categoryId, list) -> LedgerCategorySum(categoryId, list.sumOf { it.amount }) }
                 .sortedByDescending { it.total ?: 0L }
+
+        override fun observeMonthTypeSumsBetween(
+            start: Long,
+            end: Long,
+            monthStartDay: Int
+        ): Flow<List<LedgerMonthTypeSum>> = flow { emit(emptyList()) }
+
+        override fun observeRecordCountBetween(start: Long, end: Long): Flow<Int> = flow {
+            emit(records.count { it.deletedAt == null && it.recordTime >= start && it.recordTime < end })
+        }
+
+        override fun observeExpenseByCategoryBetween(
+            start: Long,
+            end: Long
+        ): Flow<List<LedgerCategorySum>> = flow {
+            emit(
+                records.filter {
+                    it.deletedAt == null && it.type == LedgerRecord.TYPE_EXPENSE &&
+                        it.recordTime >= start && it.recordTime < end
+                }.groupBy { it.categoryId }
+                    .map { (categoryId, list) -> LedgerCategorySum(categoryId, list.sumOf { it.amount }) }
+                    .sortedByDescending { it.total ?: 0L }
+            )
+        }
 
         override suspend fun insert(record: LedgerRecord): Long {
             val id = (records.maxOfOrNull { it.id } ?: 0L) + 1

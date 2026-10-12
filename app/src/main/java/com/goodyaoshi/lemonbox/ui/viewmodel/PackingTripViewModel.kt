@@ -66,4 +66,9 @@ class PackingTripViewModel @Inject constructor(
     fun deleteItem(item: PackingItem) {
         viewModelScope.launch { repository.deleteItem(item) }
     }
+
+    /** 撤销删除（GAP-13）：把刚软删的条目恢复回来。 */
+    fun restoreItem(item: PackingItem) {
+        viewModelScope.launch { repository.restoreItem(item) }
+    }
 }

@@ -218,6 +218,20 @@ class FakeItemDao(
         }
     )
 
+    override fun getInStockNotUsedUpCount(): Flow<Int> = flowOf(
+        items.count {
+            it.disposition == Item.DISPOSITION_IN_STOCK &&
+                it.usageStatus != Item.USAGE_USED_UP &&
+                it.deletedAt == null
+        }
+    )
+
+    override fun getOffHandCount(): Flow<Int> = flowOf(
+        items.count {
+            it.disposition != Item.DISPOSITION_IN_STOCK && it.deletedAt == null
+        }
+    )
+
     override fun getTotalValue(): Flow<Double> = flowOf(0.0)
 
     override fun getCountByCategory(categoryId: Long): Flow<Int> = flowOf(0)

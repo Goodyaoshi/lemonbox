@@ -56,6 +56,7 @@ import com.goodyaoshi.lemonbox.ui.components.EditorInputBox
 import com.goodyaoshi.lemonbox.ui.components.EditorSectionLabel
 import com.goodyaoshi.lemonbox.ui.components.EditorSelectionChip
 import com.goodyaoshi.lemonbox.ui.components.ExpiryPickerDialog
+import com.goodyaoshi.lemonbox.ui.components.FieldDiffLine
 import com.goodyaoshi.lemonbox.ui.components.HeaderActionPill
 import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
 import com.goodyaoshi.lemonbox.ui.components.PillTag
@@ -103,6 +104,15 @@ fun RecordEditScreen(
 
     LaunchedEffect(state.isSaved) {
         if (!state.isSaved) return@LaunchedEffect
+        if (state.recordId > 0) {
+            // 编辑保存（GAP-5）：有字段变更时先弹「改了什么」回执（下方对话框），确认后再返回；
+            // 没有实际变更就直接退回，不打扰。
+            if (state.savedDiff.isEmpty()) {
+                appSnackbar?.postMessage("已记好这笔账")
+                onBack()
+            }
+            return@LaunchedEffect
+        }
         if (continuousEntry) {
             // 连续录入：清空表单留在本页，提示后可以接着记下一笔。
             appSnackbar?.showMessage("已记账，继续记下一笔")
@@ -457,6 +467,22 @@ fun RecordEditScreen(
             title = "选择记账日期",
             yearRange = (LocalDate.now().year - 8)..(LocalDate.now().year + 1)
         )
+    }
+
+    // GAP-5：编辑保存后的字段级变更回执（改前 → 改后），逐行展示，确认后再返回。
+    if (state.isSaved && state.recordId > 0 && state.savedDiff.isNotEmpty()) {
+        AppDialog(
+            title = "这笔账改好了",
+            subtitle = "以下是这次改动的字段：",
+            onDismissRequest = onBack,
+            confirmText = "好",
+            dismissText = null,
+            onConfirm = onBack
+        ) {
+            state.savedDiff.forEach { diff ->
+                FieldDiffLine(diff)
+            }
+        }
     }
 
     // I6：有未保存内容时返回先确认，避免误触返回键丢掉这笔账。

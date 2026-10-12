@@ -37,15 +37,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextDecoration
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.goodyaoshi.lemonbox.data.backup.BackupChanges
-import com.goodyaoshi.lemonbox.data.backup.FieldDiff
 import com.goodyaoshi.lemonbox.data.backup.SyncChange
 import com.goodyaoshi.lemonbox.data.backup.SyncChangeKind
 import com.goodyaoshi.lemonbox.data.backup.SyncEntityKind
+import com.goodyaoshi.lemonbox.data.backup.SyncScope
 import com.goodyaoshi.lemonbox.ui.theme.CardWhite
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.StatusExpired
@@ -167,6 +165,29 @@ fun SyncChangeListSheet(
                         },
                         selected = filter == option,
                         onClick = { filter = option }
+                    )
+                }
+            }
+            // 快速档位（GAP-4）：把 [SyncScope] 的三档语义接进界面——一档批量改勾选，
+            // 不勾删除的人不必逐条去点。改动仍要过下方确认闸门，不会静默全量落地。
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 6.dp)
+                    .horizontalScroll(rememberScrollState()),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    text = "快速档位",
+                    fontSize = 12.sp,
+                    color = TextHint
+                )
+                QuickScope.entries.forEach { quick ->
+                    EditorSelectionChip(
+                        text = quick.label,
+                        selected = false,
+                        onClick = { selected = quick.resolve(changes.changes) }
                     )
                 }
             }
@@ -331,6 +352,23 @@ private enum class ChangeFilter(
     }
 }
 
+/**
+ * 变更列表的快速档位（GAP-4）：把 [SyncScope] 的「全部 / 只新增 / 不删除」语义映射为批量勾选。
+ * 该枚举此前只有数据层在用、界面无从触达；这里把它接上——档位只改勾选，落地仍走确认闸门。
+ */
+private enum class QuickScope(val label: String, private val scope: SyncScope) {
+    ALL("全部同步", SyncScope.ALL),
+    ADD_ONLY("只同步新增", SyncScope.ADD_ONLY),
+    NO_DELETE("同步但不删除", SyncScope.NO_DELETE);
+
+    /** 该档位对应的勾选集合。 */
+    fun resolve(changes: List<SyncChange>): Set<String> = when (scope) {
+        SyncScope.ALL -> changes.map { it.key }.toSet()
+        SyncScope.ADD_ONLY -> changes.filter { it.kind == SyncChangeKind.ADDED }.map { it.key }.toSet()
+        SyncScope.NO_DELETE -> changes.filter { it.kind != SyncChangeKind.DELETED }.map { it.key }.toSet()
+    }
+}
+
 /** 分组头：整组勾选（三态）+ 组名与条数，保留「按类别整体取舍」的快捷粒度。 */
 @Composable
 private fun GroupHeader(
@@ -446,7 +484,7 @@ private fun ChangeRow(
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 change.diffs.forEach { diff ->
-                    ConflictDiffLine(diff)
+                    ConflictFieldDiffLine(diff)
                 }
             }
         }
@@ -500,7 +538,7 @@ private fun DiffDialog(change: SyncChange, onDismiss: () -> Unit) {
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(change.diffs) { diff ->
-                    DiffLine(diff)
+                    FieldDiffLine(diff)
                 }
             }
         },
@@ -508,76 +546,3 @@ private fun DiffDialog(change: SyncChange, onDismiss: () -> Unit) {
     )
 }
 
-/** 一行字段对比：标签 + 本地值 → 对方值。 */
-@Composable
-private fun DiffLine(diff: FieldDiff) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .background(SurfaceWarmDeep)
-            .padding(horizontal = 10.dp, vertical = 8.dp)
-    ) {
-        Text(text = diff.label, fontSize = 12.sp, color = TextHint)
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = diff.localValue,
-                fontSize = 13.sp,
-                color = TextPrimary,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.weight(1f, fill = false),
-                maxLines = 2
-            )
-            Text(text = " → ", fontSize = 13.sp, color = TextHint)
-            Text(
-                text = diff.remoteValue,
-                fontSize = 13.sp,
-                color = OrangeStart,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.weight(1f, fill = false),
-                maxLines = 2
-            )
-        }
-    }
-}
-
-/**
- * 冲突条目的紧凑差异行（审计修复）：label｜本机值(划掉)｜对方值(高亮)。
- * 与 DiffDialog 里的 DiffLine 分开实现：这里是行内单行紧凑形态，本机值划掉、对方值高亮，
- * 让「勾了会失去什么、得到什么」在折叠态一眼可读，不再依赖弹窗。
- */
-@Composable
-private fun ConflictDiffLine(diff: FieldDiff) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
-        Text(
-            text = diff.label,
-            fontSize = 11.sp,
-            color = TextHint,
-            maxLines = 1
-        )
-        Text(text = "｜", fontSize = 11.sp, color = TextHint)
-        Text(
-            text = diff.localValue,
-            fontSize = 12.sp,
-            color = TextPrimary,
-            textDecoration = TextDecoration.LineThrough,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f, fill = false)
-        )
-        Text(text = "｜", fontSize = 11.sp, color = TextHint)
-        Text(
-            text = diff.remoteValue,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = OrangeStart,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f, fill = false)
-        )
-    }
-}
