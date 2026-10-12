@@ -209,6 +209,9 @@ class MainActivity : ComponentActivity() {
         getSystemService(KeyguardManager::class.java)?.isKeyguardSecure == true
 
     /** 拉起系统密码 / 指纹验证（F19）。 */
+    // API 29+ 建议改走 androidx.biometric，但那要求把基类换成 FragmentActivity；
+    // minSdk 26 下 createConfirmDeviceCredentialIntent 仍是全版本可用的系统凭据入口，保留。
+    @Suppress("DEPRECATION")
     private fun startCredentialAuth() {
         val keyguard = getSystemService(KeyguardManager::class.java) ?: return
         if (!keyguard.isKeyguardSecure) return

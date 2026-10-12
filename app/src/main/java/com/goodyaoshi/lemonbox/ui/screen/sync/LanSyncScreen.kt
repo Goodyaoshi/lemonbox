@@ -63,13 +63,14 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.goodyaoshi.lemonbox.data.backup.SyncScope
 import com.goodyaoshi.lemonbox.data.backup.toUserMessage
 import com.goodyaoshi.lemonbox.data.sync.SyncPeer
+import com.goodyaoshi.lemonbox.data.sync.SyncReport
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.GradientButton
 import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
+import com.goodyaoshi.lemonbox.ui.components.SyncChangeListSheet
 import com.goodyaoshi.lemonbox.ui.theme.CardWhite
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.OrangeTint
@@ -83,7 +84,6 @@ import com.goodyaoshi.lemonbox.ui.viewmodel.HostPairPrompt
 import com.goodyaoshi.lemonbox.ui.viewmodel.LanSyncMode
 import com.goodyaoshi.lemonbox.ui.viewmodel.LanSyncViewModel
 import com.goodyaoshi.lemonbox.ui.viewmodel.MatchCodePrompt
-import com.goodyaoshi.lemonbox.ui.viewmodel.ScopePrompt
 import com.goodyaoshi.lemonbox.ui.viewmodel.SyncStepStatus
 import com.goodyaoshi.lemonbox.ui.viewmodel.SyncStepUi
 import com.goodyaoshi.lemonbox.ui.viewmodel.SyncTransferUi
@@ -104,6 +104,7 @@ fun LanSyncScreen(
     val scanProgress by viewModel.scanProgress.collectAsState()
     val incomingSummary by viewModel.incomingSummary.collectAsState()
     val lastSyncAt by viewModel.lastSyncAt.collectAsState()
+    val syncReports by viewModel.syncReports.collectAsState()
 
     var addressInput by remember { mutableStateOf("") }
     var showManual by remember { mutableStateOf(false) }
@@ -128,6 +129,12 @@ fun LanSyncScreen(
     DisposableEffect(uiState.isBusy, hosting) {
         view.keepScreenOn = uiState.isBusy || hosting
         onDispose { view.keepScreenOn = false }
+    }
+
+    // IA-7：离开页面时清空瞬态——上次同步的步骤列表/提示不再滞留，
+    // 结果回执由 Snackbar 与下方「同步历史」承接，不会因为离开而丢失。
+    DisposableEffect(Unit) {
+        onDispose { viewModel.clearTransients() }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -201,7 +208,7 @@ fun LanSyncScreen(
                         )
                         Text(
                             text = when {
-                                uiState.hostScopePrompt != null -> "对方数据已收到，请选择同步范围"
+                                uiState.hostChangesPrompt != null -> "对方数据已收到，请在下方勾选要同步的内容"
                                 uiState.hostAccepted -> "已接受，等待对方确认并传输…"
                                 hosting -> "正在等待对方连接…"
                                 else -> "开启后，这台设备会出现在对方的设备列表里"
@@ -450,6 +457,34 @@ fun LanSyncScreen(
                 }
             }
 
+            // 四、同步历史（S5）：每次同步留一条回执，事后能回答「上次动了什么」。
+            if (syncReports.isNotEmpty()) {
+                AppSurfaceCard(
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                    shape = RoundedCornerShape(24.dp),
+                    shadowElevation = 12.dp
+                ) {
+                    Text(
+                        text = "同步历史",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
+                    Spacer(modifier = Modifier.size(8.dp))
+                    syncReports.take(SYNC_HISTORY_VISIBLE).forEach { report ->
+                        SyncReportRow(report)
+                    }
+                    if (syncReports.size > SYNC_HISTORY_VISIBLE) {
+                        Spacer(modifier = Modifier.size(4.dp))
+                        Text(
+                            text = "更早的 ${syncReports.size - SYNC_HISTORY_VISIBLE} 条就不再展示了",
+                            fontSize = 11.sp,
+                            color = TextHint
+                        )
+                    }
+                }
+            }
+
             uiState.message?.let { message ->
                 Row(
                     modifier = Modifier
@@ -507,18 +542,24 @@ fun LanSyncScreen(
                 onReject = viewModel::rejectHostPair
             )
         }
-        uiState.clientScopePrompt?.let { prompt ->
-            ScopeChoiceDialog(
-                prompt = prompt,
-                onChoose = { viewModel.chooseScope(it) },
-                onDismiss = { viewModel.chooseScope(null) }
+        uiState.clientChangesPrompt?.let { prompt ->
+            SyncChangeListSheet(
+                changes = prompt.changes,
+                title = "这次要同步什么？",
+                sourceLabel = "与「${prompt.peerLabel}」的数据对比",
+                actionLabel = "同步所选",
+                onDismiss = { viewModel.chooseChanges(null) },
+                onConfirm = { viewModel.chooseChanges(it) }
             )
         }
-        uiState.hostScopePrompt?.let { prompt ->
-            ScopeChoiceDialog(
-                prompt = prompt,
-                onChoose = viewModel::applyHostScope,
-                onDismiss = null
+        uiState.hostChangesPrompt?.let { prompt ->
+            SyncChangeListSheet(
+                changes = prompt.changes,
+                title = "这次要同步什么？",
+                sourceLabel = "「${prompt.peerLabel}」发来的数据将这样合并进本机",
+                actionLabel = "同步所选",
+                onDismiss = viewModel::cancelHostChanges,
+                onConfirm = viewModel::applyHostChanges
             )
         }
     }
@@ -628,64 +669,6 @@ private fun HostPairDialog(
             TextButton(onClick = onReject) {
                 Text(text = "拒绝", color = TextSecondary)
             }
-        }
-    )
-}
-
-/**
- * 选择同步范围：先展示「新增 / 修改 / 删除」数量，再让用户选全部同步或只同步一部分。
- * 主客两侧共用；被连接方必选（onDismiss=null），发起方取消即中止同步。
- */
-@Composable
-private fun ScopeChoiceDialog(
-    prompt: ScopePrompt,
-    onChoose: (SyncScope) -> Unit,
-    onDismiss: (() -> Unit)?
-) {
-    val preview = prompt.preview
-    AlertDialog(
-        onDismissRequest = { onDismiss?.invoke() },
-        title = { Text(text = "选择同步范围", fontWeight = FontWeight.Bold) },
-        text = {
-            Column {
-                Text(
-                    text = "与「${prompt.peerLabel}」的数据对比：",
-                    fontSize = 13.sp,
-                    color = TextSecondary
-                )
-                Spacer(modifier = Modifier.size(6.dp))
-                Text(
-                    text = "新增 ${preview.added} 项 · 修改 ${preview.updated} 项 · 删除 ${preview.deleted} 项",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = TextPrimary
-                )
-                Spacer(modifier = Modifier.size(4.dp))
-                Text(
-                    text = "可以全部同步，也可以只同步其中一部分（比如只接收新增，不删除本机已有的）。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TextHint
-                )
-                Spacer(modifier = Modifier.size(12.dp))
-                SyncScope.entries.forEach { scope ->
-                    TextButton(
-                        onClick = { onChoose(scope) },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(text = scope.label, color = OrangeStart)
-                    }
-                }
-            }
-        },
-        confirmButton = {},
-        dismissButton = if (onDismiss != null) {
-            {
-                TextButton(onClick = onDismiss) {
-                    Text(text = "取消", color = TextSecondary)
-                }
-            }
-        } else {
-            null
         }
     )
 }
@@ -913,3 +896,79 @@ private fun formatTransferSize(bytes: Long): String =
     } else {
         "%.0f KB".format(bytes / 1024.0)
     }
+
+/** 同步历史默认展示的条数上限。 */
+private const val SYNC_HISTORY_VISIBLE = 5
+
+/**
+ * 同步历史的一行（S5）：时间 + 角色 + 结果徽标，以及「动了什么」的一句话统计。
+ * 统计口径是本机落地对方数据的结果。
+ */
+@Composable
+private fun SyncReportRow(report: SyncReport) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = DateUtil.formatDateTime(report.time),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = TextPrimary
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = report.role.label,
+                    fontSize = 11.sp,
+                    color = TextHint,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(SurfaceWarmDeep)
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                )
+            }
+            Text(
+                text = buildString {
+                    append("与「${report.peerLabel.ifBlank { "对方" }}」")
+                    if (report.outcome == SyncReport.Outcome.SUCCESS) {
+                        val parts = buildList {
+                            if (report.added > 0) add("新增 ${report.added}")
+                            if (report.updated > 0) add("更新 ${report.updated}")
+                            if (report.deleted > 0) add("删除 ${report.deleted}")
+                            if (report.conflicts > 0) add("冲突采用 ${report.conflicts}")
+                            if (report.skipped > 0) add("跳过 ${report.skipped}")
+                        }
+                        append(if (parts.isEmpty()) "数据已是最新" else parts.joinToString("、"))
+                    }
+                },
+                fontSize = 12.sp,
+                color = TextSecondary,
+                maxLines = 2
+            )
+        }
+        Text(
+            text = report.outcome.label,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = when (report.outcome) {
+                SyncReport.Outcome.SUCCESS -> StatusNormal
+                SyncReport.Outcome.FAILED -> StatusExpired
+                SyncReport.Outcome.CANCELLED -> TextHint
+            },
+            modifier = Modifier
+                .clip(RoundedCornerShape(999.dp))
+                .background(
+                    when (report.outcome) {
+                        SyncReport.Outcome.SUCCESS -> StatusNormal.copy(alpha = 0.14f)
+                        SyncReport.Outcome.FAILED -> StatusExpired.copy(alpha = 0.14f)
+                        SyncReport.Outcome.CANCELLED -> SurfaceWarmDeep
+                    }
+                )
+                .padding(horizontal = 8.dp, vertical = 3.dp)
+        )
+    }
+}

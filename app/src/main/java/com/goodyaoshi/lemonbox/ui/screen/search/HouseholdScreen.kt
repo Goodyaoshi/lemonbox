@@ -1,7 +1,9 @@
 package com.goodyaoshi.lemonbox.ui.screen.search
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -40,6 +42,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -93,7 +96,8 @@ import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
 import com.goodyaoshi.lemonbox.ui.viewmodel.LibraryFilter
 import com.goodyaoshi.lemonbox.ui.viewmodel.LibraryGrouping
 import com.goodyaoshi.lemonbox.ui.viewmodel.LibraryPreset
-import com.goodyaoshi.lemonbox.ui.viewmodel.SearchViewModel
+import com.goodyaoshi.lemonbox.ui.viewmodel.HouseholdViewModel
+import com.goodyaoshi.lemonbox.ui.viewmodel.UserFilterPreset
 
 /** 面板里需要弹出树形选择器的归属维度。 */
 private enum class PickerTarget { CATEGORY, LOCATION }
@@ -109,9 +113,15 @@ private val presetChipOrder = listOf(
     LibraryPreset.ALL
 )
 
+/**
+ * 家当 Tab 根页（IA-5）：原 SearchScreen 按承载职责更名，
+ * 物品浏览、筛选、编辑、回收站、待买、到期管理都在这里。
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SearchScreen(
+fun HouseholdScreen(
+    // 首页搜索回车带词跳转（IA-2）：进入时把关键词接进本页搜索框，复用同一套筛选。
+    initialQuery: String = "",
     onNavigateToDetail: (Long, LibraryFilter) -> Unit,
     onNavigateToEdit: (Long) -> Unit,
     onNavigateToSave: () -> Unit = {},
@@ -119,9 +129,13 @@ fun SearchScreen(
     onNavigateToToBuy: () -> Unit = {},
     onNavigateToExpiry: () -> Unit = {},
     onNavigateToTrash: () -> Unit = {},
-    viewModel: SearchViewModel = hiltViewModel()
+    viewModel: HouseholdViewModel = hiltViewModel()
 ) {
     val query by viewModel.query.collectAsState()
+    // 仅在带词进入时灌一次：之后用户在本页改词不再受首页关键词影响。
+    LaunchedEffect(initialQuery) {
+        if (initialQuery.isNotBlank()) viewModel.updateQuery(initialQuery)
+    }
     val results by viewModel.results.collectAsState()
     // 语音输入（F13）：说出的内容直接进搜索框。
     val startVoiceInput = rememberVoiceInput { spoken -> viewModel.updateQuery(spoken) }
@@ -140,6 +154,9 @@ fun SearchScreen(
     val appSnackbar = LocalAppSnackbar.current
     var showFilterSheet by remember { mutableStateOf(false) }
     var pickerTarget by remember { mutableStateOf<PickerTarget?>(null) }
+    // 用户自定义预设（SE1）：点击应用、长按删除；删除前确认，删完可撤销。
+    val userPresets by viewModel.userFilterPresets.collectAsState()
+    var pendingDeletePreset by remember { mutableStateOf<UserFilterPreset?>(null) }
 
     // 一件物品的完整操作集：滑动一级动作与「更多」面板共用同一份回调。
     val handlersFor: (Item) -> ItemActionHandlers = { item ->
@@ -297,6 +314,27 @@ fun SearchScreen(
                         onClick = { viewModel.selectPreset(preset) }
                     )
                 }
+                // 用户自定义预设（SE1）：点击应用、长按删除。
+                userPresets.forEach { preset ->
+                    PresetChip(
+                        label = preset.label,
+                        count = null,
+                        selected = filter == preset.filter,
+                        onClick = { viewModel.applyUserPreset(preset) },
+                        onLongClick = { pendingDeletePreset = preset }
+                    )
+                }
+                if (filter != LibraryFilter()) {
+                    PresetChip(
+                        label = "＋ 存为预设",
+                        count = null,
+                        selected = false,
+                        onClick = {
+                            viewModel.saveCurrentFilterAsPreset()
+                            appSnackbar?.postMessage("筛选已存成预设")
+                        }
+                    )
+                }
             }
 
             val activeChips = buildActiveChips(
@@ -443,6 +481,30 @@ fun SearchScreen(
             ) {
                 Text(
                     text = "确定要删除「${item.name}」吗？",
+                    color = TextSecondary,
+                    fontSize = 14.sp
+                )
+            }
+        }
+
+        pendingDeletePreset?.let { preset ->
+            // SE1：长按删预设也先确认，删完还能从提示里撤销；只动预设不动家当数据。
+            AppDialog(
+                title = "删除预设",
+                subtitle = "「${preset.label}」将从预设胶囊里移除。",
+                onDismissRequest = { pendingDeletePreset = null },
+                confirmText = "删除",
+                destructiveConfirm = true,
+                onConfirm = {
+                    viewModel.deleteUserPreset(preset.id)
+                    appSnackbar?.showUndo("已删除预设「${preset.label}」", DeleteCopy.UNDO_ACTION) {
+                        viewModel.restoreUserPreset(preset)
+                    }
+                    pendingDeletePreset = null
+                }
+            ) {
+                Text(
+                    text = "只删除这个筛选预设，不影响任何家当数据。",
                     color = TextSecondary,
                     fontSize = 14.sp
                 )
@@ -615,33 +677,46 @@ private fun FilterEntryChip(
     }
 }
 
+/** 预设胶囊：内置预设显示计数；用户自定义预设（SE1）不显示计数、支持长按删除。 */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun PresetChip(
     label: String,
-    count: Int,
+    count: Int?,
     selected: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null
 ) {
     AppSurfaceCard(
         shape = RoundedCornerShape(999.dp),
         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 9.dp),
         containerColor = if (selected) OrangeStart.copy(alpha = 0.12f) else CardWhite,
         shadowElevation = 8.dp,
-        onClick = onClick
+        // 需要长按手势时接管到内容层 combinedClickable，整卡点击与长按才不冲突。
+        onClick = if (onLongClick == null) onClick else null
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            modifier = if (onLongClick != null) {
+                Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            } else {
+                Modifier
+            },
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Text(
                 text = label,
                 fontSize = 13.sp,
                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
                 color = if (selected) OrangeStart else TextPrimary
             )
-            Spacer(modifier = Modifier.size(5.dp))
-            Text(
-                text = count.toString(),
-                fontSize = 12.sp,
-                color = if (selected) OrangeStart else TextHint
-            )
+            if (count != null) {
+                Spacer(modifier = Modifier.size(5.dp))
+                Text(
+                    text = count.toString(),
+                    fontSize = 12.sp,
+                    color = if (selected) OrangeStart else TextHint
+                )
+            }
         }
     }
 }

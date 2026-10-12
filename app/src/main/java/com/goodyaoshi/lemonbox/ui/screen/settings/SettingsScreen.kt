@@ -1,6 +1,5 @@
 package com.goodyaoshi.lemonbox.ui.screen.settings
 
-import androidx.activity.ComponentActivity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -18,13 +17,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DatePicker
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -34,10 +33,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TimePicker
-import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -47,31 +44,26 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
 import com.goodyaoshi.lemonbox.BuildConfig
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import com.goodyaoshi.lemonbox.data.settings.ThemeMode
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
-import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
+import com.goodyaoshi.lemonbox.ui.theme.StatusExpired
 import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarmDeep
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
 import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
 import com.goodyaoshi.lemonbox.ui.viewmodel.SettingsViewModel
 import com.goodyaoshi.lemonbox.util.BrandCopy
-import com.goodyaoshi.lemonbox.util.ReminderReliability
-import java.time.Instant
-import java.time.LocalDate
-import java.time.ZoneOffset
 
 private val themeModeOptions = listOf(
     ThemeMode.SYSTEM to "跟随系统",
@@ -141,48 +133,25 @@ private fun ActionPillButton(
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
+    onOpenNotificationReliability: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val reminderTimes by viewModel.reminderTimes.collectAsState()
     val themeMode by viewModel.themeMode.collectAsState()
-    val keepAliveEnabled by viewModel.keepAliveEnabled.collectAsState()
-    val autoStartConfirmed by viewModel.autoStartConfirmed.collectAsState()
     val customReminderTimes by viewModel.customReminderTimes.collectAsState()
     val mealPrepDayShift by viewModel.mealPrepDayShift.collectAsState()
     val mealPrepFireTime by viewModel.mealPrepFireTime.collectAsState()
     val budgetReminderEnabled by viewModel.budgetReminderEnabled.collectAsState()
-    val togetherStartDate by viewModel.togetherStartDate.collectAsState()
-    val togetherLabelName by viewModel.togetherLabelName.collectAsState()
     val updateState by viewModel.updateState.collectAsState()
-
-    // 应用级提示通道：用于「临时关闭后台」等结果的反馈。
-    val appSnackbar = LocalAppSnackbar.current
+    val appLockEnabled by viewModel.appLockEnabled.collectAsState()
 
     var showTimePicker by remember { mutableStateOf(false) }
     var showMealPrepTimePicker by remember { mutableStateOf(false) }
-    var showTogetherDatePicker by remember { mutableStateOf(false) }
-    var showTogetherLabelDialog by remember { mutableStateOf(false) }
+    var showAppLockDialog by remember { mutableStateOf(false) }
 
     // 固定档位 + 用户自定义候选，合并排序后统一展示。
     val allTimeOptions =
         (AppPreferences.REMINDER_TIME_OPTIONS + customReminderTimes).distinct().sorted()
-
-    // 电池优化白名单状态：从系统对话框回来（onResume）时刷新。
-    val activityContext = LocalContext.current as? ComponentActivity
-    var batteryOptimized by remember {
-        mutableStateOf(activityContext?.let { ReminderReliability.isIgnoringBatteryOptimizations(it) } ?: true)
-    }
-    DisposableEffect(activityContext) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                activityContext?.let {
-                    batteryOptimized = ReminderReliability.isIgnoringBatteryOptimizations(it)
-                }
-            }
-        }
-        activityContext?.lifecycle?.addObserver(observer)
-        onDispose { activityContext?.lifecycle?.removeObserver(observer) }
-    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         AppDecorativeBackground()
@@ -253,14 +222,14 @@ fun SettingsScreen(
                 shadowElevation = 12.dp
             ) {
                 Text(
-                    text = "我们",
+                    text = "安全",
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary
                 )
                 Spacer(modifier = Modifier.size(6.dp))
                 Text(
-                    text = "设置「在一起」的起始日后，首页会用「${togetherLabelName}第 N 天」显示在一起的天数；也可以单独改这个前缀。",
+                    text = "应用锁已从「我的」迁到这里：开启后进入 App 都要先验证。",
                     fontSize = 12.sp,
                     color = TextSecondary
                 )
@@ -273,47 +242,30 @@ fun SettingsScreen(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "在一起起始日",
+                            text = "应用锁",
                             fontSize = 14.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = TextPrimary
                         )
                         Text(
-                            text = togetherStartDate ?: "未设置，首页按纪念日派生天数",
+                            text = if (appLockEnabled) {
+                                "已开启，进入需要 PIN 或系统密码 / 指纹"
+                            } else {
+                                "给私人内容加一道锁（PIN + 系统密码 / 指纹）"
+                            },
                             fontSize = 12.sp,
-                            color = if (togetherStartDate != null) OrangeStart else TextSecondary
+                            color = TextSecondary
                         )
                     }
                     ActionPillButton(
-                        label = if (togetherStartDate == null) "设置" else "修改",
-                        onClick = { showTogetherDatePicker = true }
-                    )
-                }
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "计数前缀",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = TextPrimary
-                        )
-                        Text(
-                            text = "首页显示为「${togetherLabelName}第 N 天」",
-                            fontSize = 12.sp,
-                            color = OrangeStart
-                        )
-                    }
-                    ActionPillButton(
-                        label = "修改",
-                        onClick = { showTogetherLabelDialog = true }
+                        label = if (appLockEnabled) "管理" else "开启",
+                        onClick = { showAppLockDialog = true }
                     )
                 }
             }
+
+            // 「在一起」起始日与计数前缀已下沉到纪念日页页头（IA-6），
+            // 全局设置只保留真正全局的项，单域配置不再混排。
 
             AppSurfaceCard(
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
@@ -482,98 +434,32 @@ fun SettingsScreen(
                 shape = RoundedCornerShape(24.dp),
                 shadowElevation = 12.dp
             ) {
-                Text(
-                    text = "提醒可靠性",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextPrimary
-                )
-                Spacer(modifier = Modifier.size(6.dp))
-                Text(
-                    text = "小米等手机把应用划出最近任务时会强制停止并取消全部提醒。完成下面几项设置后，提醒就能稳定准点触发。",
-                    fontSize = 12.sp,
-                    color = TextSecondary
-                )
-                Spacer(modifier = Modifier.size(12.dp))
-
-                ReliabilityItem(
-                    title = "电池优化白名单",
-                    subtitle = if (batteryOptimized) {
-                        "已允许，省电策略不再限制提醒"
-                    } else {
-                        "建议允许，否则提醒可能被省电推迟或直接取消"
-                    },
-                    done = batteryOptimized,
-                    actionLabel = "一键允许",
-                    onAction = {
-                        activityContext?.let { ReminderReliability.requestIgnoreBatteryOptimizations(it) }
-                    }
-                )
-                ReliabilityItem(
-                    title = "自启动权限",
-                    subtitle = if (autoStartConfirmed) {
-                        "已按你的确认记录为已设置（系统不提供自动检测）"
-                    } else {
-                        "点亮${BrandCopy.APP_NAME}的自启动开关，否则划卡后提醒会失效"
-                    },
-                    done = autoStartConfirmed,
-                    actionLabel = if (autoStartConfirmed) "再检查一次" else "去设置",
-                    onAction = {
-                        activityContext?.let { ReminderReliability.openAutoStartSettings(it) }
-                        viewModel.markAutoStartConfirmed()
-                    }
-                )
+                // 通知可靠性独立成二级页（SET1）：MIUI 保活等平台适配内容不再占据主设置页。
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 6.dp),
+                        .clip(RoundedCornerShape(18.dp))
+                        .clickable(onClick = onOpenNotificationReliability)
+                        .padding(vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "常驻保活",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.SemiBold,
+                            text = "通知可靠性",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
                             color = TextPrimary
                         )
                         Text(
-                            text = "开启后通知栏常驻一条无声通知、进程保持前台状态（会占用少量内存）；关掉能更省内存，但划卡后提醒可能失效",
+                            text = "电池白名单、自启动权限与常驻保活，保证提醒准点触发",
                             fontSize = 12.sp,
                             color = TextSecondary
                         )
                     }
-                    Switch(
-                        checked = keepAliveEnabled,
-                        onCheckedChange = { viewModel.setKeepAliveEnabled(it) }
-                    )
-                }
-                // 临时关闭后台（问题9）：立即释放前台服务占用的内存，不改动上面的开关，
-                // 下次打开应用会按开关状态自动恢复，对应「临时完全关闭、后面再自启动」。
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "临时关闭后台",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = TextPrimary
-                        )
-                        Text(
-                            text = "点一下立即释放后台内存（含那条常驻通知），适合临时不用提醒、想让手机更省电的时候；下次打开应用会自动恢复",
-                            fontSize = 12.sp,
-                            color = TextSecondary
-                        )
-                    }
-                    ActionPillButton(
-                        label = "释放",
-                        onClick = {
-                            viewModel.releaseBackgroundNow()
-                            appSnackbar?.postMessage("已临时关闭后台，下次打开应用会自动恢复")
-                        }
+                    Icon(
+                        imageVector = Icons.Default.ChevronRight,
+                        contentDescription = null,
+                        tint = TextSecondary
                     )
                 }
             }
@@ -681,24 +567,18 @@ fun SettingsScreen(
                     }
                 )
             }
-            if (showTogetherDatePicker) {
-                DatePickerCardDialog(
-                    title = "在一起起始日",
-                    initialDate = togetherStartDate,
-                    onDismiss = { showTogetherDatePicker = false },
-                    onConfirm = { date ->
-                        viewModel.setTogetherStartDate(date)
-                        showTogetherDatePicker = false
-                    }
-                )
-            }
-            if (showTogetherLabelDialog) {
-                TogetherLabelDialog(
-                    initialName = togetherLabelName,
-                    onDismiss = { showTogetherLabelDialog = false },
-                    onConfirm = { name ->
-                        viewModel.setTogetherLabelName(name)
-                        showTogetherLabelDialog = false
+            if (showAppLockDialog) {
+                AppLockSettingsDialog(
+                    enabled = appLockEnabled,
+                    onDismiss = { showAppLockDialog = false },
+                    onEnable = { pin ->
+                        viewModel.enableAppLock(pin)
+                        showAppLockDialog = false
+                    },
+                    verifyPin = viewModel::verifyAppLockPin,
+                    onDisable = {
+                        viewModel.disableAppLock()
+                        showAppLockDialog = false
                     }
                 )
             }
@@ -792,111 +672,84 @@ private fun TimePickerCardDialog(
     }
 }
 
-/** 日期选择弹窗：以 yyyy-MM-dd 文本回调；点「清除」回传 null 表示取消设置。 */
+/** 应用锁设置弹窗（F19）：未开启时设 PIN 开启；已开启时输 PIN 关闭。 */
 @Composable
-@OptIn(ExperimentalMaterial3Api::class)
-private fun DatePickerCardDialog(
-    title: String,
-    initialDate: String?,
+private fun AppLockSettingsDialog(
+    enabled: Boolean,
     onDismiss: () -> Unit,
-    onConfirm: (String?) -> Unit
+    onEnable: (String) -> Unit,
+    verifyPin: (String) -> Boolean,
+    onDisable: () -> Unit
 ) {
-    // DatePicker 以 UTC 毫秒表示日期，这里统一用 UTC 换算，避免时区导致日期偏移一天。
-    val initialMillis = remember(initialDate) {
-        initialDate
-            ?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
-            ?.atStartOfDay(ZoneOffset.UTC)
-            ?.toInstant()
-            ?.toEpochMilli()
-    }
-    val pickerState = rememberDatePickerState(initialSelectedDateMillis = initialMillis)
-    AppDialog(
-        title = title,
-        onDismissRequest = onDismiss,
-        confirmText = "确定",
-        onConfirm = {
-            onConfirm(
-                pickerState.selectedDateMillis?.let {
-                    Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate().toString()
-                }
+    var pin by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf(false) }
+
+    if (enabled) {
+        AppDialog(
+            title = "关闭应用锁",
+            onDismissRequest = onDismiss,
+            confirmText = "关闭",
+            destructiveConfirm = true,
+            confirmEnabled = pin.length >= MIN_PIN_LENGTH,
+            onConfirm = {
+                if (verifyPin(pin)) onDisable() else error = true
+            }
+        ) {
+            Text(
+                text = "输入当前 PIN 以关闭应用锁。",
+                color = TextSecondary,
+                fontSize = 13.sp
             )
-        },
-        secondaryText = initialDate?.let { "清除" },
-        onSecondary = { onConfirm(null) }
-    ) {
-        DatePicker(state = pickerState)
+            PinField(value = pin, onValueChange = { pin = it; error = false }, isError = error)
+        }
+    } else {
+        AppDialog(
+            title = "开启应用锁",
+            onDismissRequest = onDismiss,
+            confirmText = "开启",
+            confirmEnabled = pin.length >= MIN_PIN_LENGTH,
+            onConfirm = { onEnable(pin) }
+        ) {
+            Text(
+                text = "设一个 4-12 位数字 PIN。之后进入 App 需要验证，也可以用系统密码 / 指纹。",
+                color = TextSecondary,
+                fontSize = 13.sp
+            )
+            PinField(value = pin, onValueChange = { pin = it }, isError = false)
+        }
     }
 }
 
-/** 「计数前缀」编辑弹窗：限长，留空由偏好层回落到默认「我们」。 */
 @Composable
-private fun TogetherLabelDialog(
-    initialName: String,
-    onDismiss: () -> Unit,
-    onConfirm: (String) -> Unit
+private fun PinField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    isError: Boolean
 ) {
-    var text by remember { mutableStateOf(initialName) }
-    AppDialog(
-        title = "计数前缀",
-        onDismissRequest = onDismiss,
-        subtitle = "首页会显示为「前缀第 N 天」，例如「我们第 128 天」。",
-        confirmText = "保存",
-        onConfirm = { onConfirm(text) }
-    ) {
+    Column(modifier = Modifier.fillMaxWidth()) {
         OutlinedTextField(
-            value = text,
-            onValueChange = { input -> text = input.take(AppPreferences.MAX_TOGETHER_LABEL_LENGTH) },
+            value = value,
+            onValueChange = { onValueChange(it.filter { ch -> ch.isDigit() }.take(MAX_PIN_LENGTH)) },
             singleLine = true,
-            label = { Text("前缀") },
+            label = { Text("PIN") },
+            isError = isError,
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
             modifier = Modifier.fillMaxWidth()
         )
+        if (isError) {
+            Text(
+                text = "PIN 不对，再试一次",
+                color = StatusExpired,
+                fontSize = 12.sp,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+        }
     }
 }
 
-/** 可靠性检查项的一行：左边标题与说明，右边状态或跳转按钮。 */
-@Composable
-private fun ReliabilityItem(
-    title: String,
-    subtitle: String,
-    done: Boolean,
-    actionLabel: String,
-    onAction: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = TextPrimary
-            )
-            Text(
-                text = subtitle,
-                fontSize = 12.sp,
-                color = if (done) OrangeStart else TextSecondary
-            )
-        }
-        if (done) {
-            Text(
-                text = "已完成",
-                fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = OrangeStart
-            )
-        } else {
-            // I9：这里「一键允许」「去设置」是动作而非可选项，改用专门的动作按钮渲染。
-            ActionPillButton(
-                label = actionLabel,
-                onClick = onAction
-            )
-        }
-    }
-}
+private const val MIN_PIN_LENGTH = 4
+private const val MAX_PIN_LENGTH = 12
 
 /** 把字节数按 KB/MB 友好展示；未知大小时给出「未知」占位。 */
 private fun formatSize(bytes: Long): String {

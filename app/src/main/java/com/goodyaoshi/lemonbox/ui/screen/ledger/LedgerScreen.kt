@@ -1,6 +1,7 @@
 package com.goodyaoshi.lemonbox.ui.screen.ledger
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -37,6 +38,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -69,6 +71,8 @@ import com.goodyaoshi.lemonbox.ui.components.LedgerMonthBar
 import com.goodyaoshi.lemonbox.ui.components.LedgerSummaryCard
 import com.goodyaoshi.lemonbox.ui.components.PillTag
 import com.goodyaoshi.lemonbox.ui.components.SectionHeader
+import com.goodyaoshi.lemonbox.ui.components.SelectionActionButton
+import com.goodyaoshi.lemonbox.ui.components.SelectionTopBar
 import com.goodyaoshi.lemonbox.ui.components.SkeletonList
 import com.goodyaoshi.lemonbox.ui.components.SwipeActionSpec
 import com.goodyaoshi.lemonbox.ui.components.SwipeRevealItem
@@ -79,6 +83,7 @@ import com.goodyaoshi.lemonbox.ui.theme.CardWhite
 import com.goodyaoshi.lemonbox.ui.theme.LemonEnd
 import com.goodyaoshi.lemonbox.ui.theme.LemonStart
 import com.goodyaoshi.lemonbox.ui.theme.OnLemon
+import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.OrangeTint
 import com.goodyaoshi.lemonbox.ui.theme.SageAccent
 import com.goodyaoshi.lemonbox.ui.theme.StatusExpired
@@ -113,9 +118,14 @@ fun LedgerScreen(
     val isLoading by viewModel.isLoading.collectAsState()
     val yearMonth by viewModel.yearMonth.collectAsState()
     val assets by viewModel.assetsWithBalance.collectAsState()
+    val selectedRecordIds by viewModel.selectedRecordIds.collectAsState()
+    val monthStartDay by viewModel.monthStartDay.collectAsState()
     var openedRecordId by remember { mutableStateOf<Long?>(null) }
     // 待删除流水：与资产 / 分类等页面保持一致，先弹确认再落库（I1）。
     var pendingDeleteRecord by remember { mutableStateOf<LedgerRecordUi?>(null) }
+    // 批量管理（B1）：开启后点流水为勾选，配合 SelectionTopBar 批量删除。
+    var selectionMode by remember { mutableStateOf(false) }
+    var pendingBatchDelete by remember { mutableStateOf(false) }
     val appSnackbar = LocalAppSnackbar.current
 
     val dayGroups = remember(overview.records) {
@@ -124,6 +134,16 @@ fun LedgerScreen(
                 .atZone(ZoneId.systemDefault())
                 .toLocalDate()
         }
+    }
+    val allRecordIds = remember(overview.records) {
+        overview.records.map { it.record.id }.toSet()
+    }
+    val allSelected = allRecordIds.isNotEmpty() && selectedRecordIds.containsAll(allRecordIds)
+
+    // 换月后选择集已不成立：清掉并退出批量模式，避免把上月勾选带到本月误删。
+    LaunchedEffect(yearMonth) {
+        viewModel.clearRecordSelection()
+        selectionMode = false
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -191,7 +211,9 @@ fun LedgerScreen(
                     AppSurfaceCard(
                         shape = RoundedCornerShape(24.dp),
                         contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
-                        shadowElevation = 12.dp
+                        shadowElevation = 12.dp,
+                        // ST1：点金额卡下钻统计页，明细就在那边。
+                        onClick = onNavigateToStats
                     ) {
                         LedgerSummaryCard(
                             expenseText = DateUtil.formatCurrency(LedgerMath.centsToYuan(overview.expenseCents)),
@@ -199,6 +221,16 @@ fun LedgerScreen(
                             balanceText = DateUtil.formatCurrency(
                                 LedgerMath.centsToYuan(overview.incomeCents - overview.expenseCents)
                             )
+                        )
+                        // ST1：口径外显——「这个月」从每月几号起算，不再让人猜。
+                        Text(
+                            text = "账期：每月${monthStartDay}日起 · 点看统计",
+                            fontSize = 11.sp,
+                            color = TextHint,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 8.dp)
                         )
                     }
                 }
@@ -245,8 +277,39 @@ fun LedgerScreen(
                     item(key = "records-header") {
                         SectionHeader(
                             title = "本月流水",
-                            subtitle = "共 ${overview.records.size} 笔，左滑可编辑或删除"
+                            subtitle = if (selectionMode) {
+                                "点流水勾选，选完批量删除"
+                            } else {
+                                "共 ${overview.records.size} 笔，左滑可编辑或删除"
+                            },
+                            action = if (selectionMode) "取消" else "批量管理",
+                            onActionClick = {
+                                selectionMode = !selectionMode
+                                if (!selectionMode) viewModel.clearRecordSelection()
+                            }
                         )
+                        if (selectionMode) {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            SelectionTopBar(
+                                selectedCount = selectedRecordIds.size,
+                                allSelected = allSelected,
+                                onToggleSelectAll = {
+                                    if (allSelected) {
+                                        viewModel.clearRecordSelection()
+                                    } else {
+                                        viewModel.selectAllRecords(allRecordIds)
+                                    }
+                                },
+                                hint = "勾选要删除的流水，删除后仍可撤销"
+                            ) {
+                                SelectionActionButton(
+                                    text = "删除所选",
+                                    enabled = selectedRecordIds.isNotEmpty(),
+                                    destructive = true,
+                                    onClick = { pendingBatchDelete = true }
+                                )
+                            }
+                        }
                     }
                     if (overview.records.isEmpty()) {
                     item(key = "empty") {
@@ -265,6 +328,15 @@ fun LedgerScreen(
                             LedgerDayHeader(date = date, records = records)
                         }
                         items(records, key = { "rec-${it.record.id}" }) { recordUi ->
+                            if (selectionMode) {
+                                // 批量模式下点击即勾选，划滑手势让位给多选交互。
+                                LedgerRecordRow(
+                                    recordUi = recordUi,
+                                    onOpenItem = null,
+                                    onClick = { viewModel.toggleRecordSelection(recordUi.record.id) },
+                                    selected = recordUi.record.id in selectedRecordIds
+                                )
+                            } else {
                             SwipeRevealItem(
                                 itemKey = recordUi.record.id,
                                 openedItemKey = openedRecordId,
@@ -291,6 +363,7 @@ fun LedgerScreen(
                                         ?.let { itemId -> { onNavigateToItemDetail(itemId) } },
                                     onClick = { onNavigateToRecordEdit(recordUi.record.id) }
                                 )
+                            }
                             }
                         }
                     }
@@ -344,6 +417,31 @@ fun LedgerScreen(
                 )
             }
         }
+
+        // 批量删除确认（B1）：与单条删除同一闸门，撤销一次恢复全部。
+        if (pendingBatchDelete) {
+            val batchIds = selectedRecordIds.toList()
+            AppDialog(
+                title = "批量删除流水",
+                onDismissRequest = { pendingBatchDelete = false },
+                confirmText = "删除",
+                destructiveConfirm = true,
+                onConfirm = {
+                    viewModel.deleteRecords(batchIds)
+                    appSnackbar?.showUndo("已删除 ${batchIds.size} 笔流水", DeleteCopy.UNDO_ACTION) {
+                        batchIds.forEach { viewModel.restoreRecord(it) }
+                    }
+                    pendingBatchDelete = false
+                    selectionMode = false
+                }
+            ) {
+                Text(
+                    text = "确定要删除所选的 ${batchIds.size} 笔流水吗？删除后仍可撤销。",
+                    color = TextSecondary,
+                    fontSize = 14.sp
+                )
+            }
+        }
     }
 }
 
@@ -386,7 +484,8 @@ private fun LedgerDayHeader(
 internal fun LedgerRecordRow(
     recordUi: LedgerRecordUi,
     onOpenItem: (() -> Unit)?,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    selected: Boolean = false
 ) {
     val record = recordUi.record
     val title = when (record.type) {
@@ -403,11 +502,14 @@ internal fun LedgerRecordRow(
             recordUi.assetName
         ).joinToString(" · ")
     }
+    val rowShape = RoundedCornerShape(20.dp)
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
+            .clip(rowShape)
             .background(CardWhite)
+            // 批量选中态（B1）：品牌色描边，与回收站的选中视觉同源。
+            .then(if (selected) Modifier.border(2.dp, OrangeStart, rowShape) else Modifier)
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically

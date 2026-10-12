@@ -1,0 +1,343 @@
+package com.goodyaoshi.lemonbox.ui.screen.profile
+
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.FileUpload
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.hilt.navigation.compose.hiltViewModel
+import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
+import com.goodyaoshi.lemonbox.ui.components.AppDialog
+import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
+import com.goodyaoshi.lemonbox.ui.components.SyncChangeListSheet
+import com.goodyaoshi.lemonbox.ui.theme.DividerSoft
+import com.goodyaoshi.lemonbox.ui.theme.LemonEnd
+import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
+import com.goodyaoshi.lemonbox.ui.theme.TextHint
+import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
+import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
+import com.goodyaoshi.lemonbox.ui.viewmodel.ProfileViewModel
+
+/**
+ * 数据中心（IA-1）：设备同步与文件备份的统一二级页。
+ * 从「我的」拆出，让个人设置与数据管理各归其位；导入仍走变更清单预览闸门。
+ */
+@Composable
+fun DataCenterScreen(
+    onBack: () -> Unit,
+    onOpenLanSync: () -> Unit,
+    viewModel: ProfileViewModel = hiltViewModel()
+) {
+    val backupState by viewModel.backupState.collectAsState()
+    var showBackupDialog by remember { mutableStateOf(false) }
+
+    val exportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/zip")
+    ) { uri ->
+        uri?.let(viewModel::exportBackup)
+    }
+
+    val importLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let(viewModel::importBackup)
+    }
+
+    val readableLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("text/html")
+    ) { uri ->
+        uri?.let(viewModel::exportReadable)
+    }
+
+    LaunchedEffect(backupState.message) {
+        showBackupDialog = backupState.message != null
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        AppDecorativeBackground()
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .verticalScroll(rememberScrollState())
+                .padding(bottom = 28.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "返回",
+                        tint = TextPrimary
+                    )
+                }
+                Text(
+                    text = "数据中心",
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = TextPrimary
+                )
+            }
+
+            SectionTitle(
+                title = "设备同步",
+                modifier = Modifier.padding(start = 24.dp, top = 10.dp, bottom = 8.dp)
+            )
+            AppSurfaceCard(
+                modifier = Modifier.padding(horizontal = 20.dp),
+                shape = RoundedCornerShape(24.dp),
+                shadowElevation = 12.dp
+            ) {
+                MenuRow(
+                    icon = Icons.Default.Sync,
+                    title = "局域网同步",
+                    subtitle = "同一 WiFi 下用配对码互相补齐数据",
+                    onClick = onOpenLanSync
+                )
+            }
+
+            SectionTitle(
+                title = "文件备份",
+                modifier = Modifier.padding(start = 24.dp, top = 18.dp, bottom = 8.dp)
+            )
+            AppSurfaceCard(
+                modifier = Modifier.padding(horizontal = 20.dp),
+                shape = RoundedCornerShape(24.dp),
+                shadowElevation = 12.dp
+            ) {
+                MenuRow(
+                    icon = Icons.Default.FileDownload,
+                    title = "导出数据",
+                    subtitle = "生成 ZIP 备份包",
+                    onClick = {
+                        exportLauncher.launch("lemonbox-backup-${System.currentTimeMillis()}.zip")
+                    }
+                )
+                DividerSpacer()
+                MenuRow(
+                    icon = Icons.Default.FileUpload,
+                    title = "导入数据",
+                    subtitle = "先看清单再挑着导，与本地数据智能合并",
+                    onClick = {
+                        importLauncher.launch(arrayOf("application/zip", "*/*"))
+                    }
+                )
+                DividerSpacer()
+                MenuRow(
+                    icon = Icons.Default.Description,
+                    title = "导出可读报告",
+                    subtitle = "生成可阅读、可打印的清单（家当 / 临期 / 收支 / 纪念日）",
+                    onClick = {
+                        readableLauncher.launch("lemonbox-report-${System.currentTimeMillis()}.html")
+                    }
+                )
+                DividerSpacer()
+                MenuRow(
+                    icon = Icons.Default.Refresh,
+                    title = "恢复内置分类",
+                    subtitle = "补齐食材/零食等内置分类，误删或同步后丢失也能找回",
+                    onClick = viewModel::restoreBuiltInData
+                )
+            }
+        }
+    }
+
+    if (backupState.isBusy) {
+        // 处理中：给一个不可取消的等待弹窗，明确告诉她在导出还是导入，并提示别退出。
+        AppDialog(
+            title = backupState.busyLabel ?: "处理中…",
+            onDismissRequest = {},
+            dismissText = null,
+            confirmText = null
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    strokeWidth = 2.dp,
+                    color = OrangeStart
+                )
+                Spacer(modifier = Modifier.size(12.dp))
+                Text(
+                    text = "大概几秒钟，先别退出应用",
+                    color = TextSecondary,
+                    fontSize = 14.sp
+                )
+            }
+        }
+    }
+
+    backupState.pendingImport?.let { pending ->
+        // 导入预览闸门：先展示备份包里的变更清单，勾选后再落库；取消则什么都不写。
+        SyncChangeListSheet(
+            changes = pending.changes,
+            title = "这次要导入什么？",
+            sourceLabel = "备份包里的这些变化将合并进本机",
+            actionLabel = "导入所选",
+            onDismiss = viewModel::cancelImport,
+            onConfirm = viewModel::confirmImport
+        )
+    }
+
+    if (showBackupDialog && backupState.message != null) {
+        // 结果分级：成功用「搞定了」的轻松口吻，失败保留原因并说明可重试，别让她以为数据坏了。
+        AppDialog(
+            title = if (backupState.isError) "没成功" else "搞定了",
+            onDismissRequest = {
+                showBackupDialog = false
+                viewModel.consumeBackupMessage()
+            },
+            confirmText = "知道了",
+            onConfirm = {
+                showBackupDialog = false
+                viewModel.consumeBackupMessage()
+            }
+        ) {
+            Text(
+                text = backupState.message.orEmpty(),
+                color = TextSecondary,
+                fontSize = 14.sp
+            )
+            if (backupState.isError) {
+                Text(
+                    text = "你的数据没有改动，可以再试一次。",
+                    color = TextHint,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(top = 6.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SectionTitle(
+    title: String,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(width = 4.dp, height = 14.dp)
+                .clip(RoundedCornerShape(2.dp))
+                .background(LemonEnd)
+        )
+        Spacer(modifier = Modifier.size(6.dp))
+        Text(
+            text = title,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
+            color = TextSecondary
+        )
+    }
+}
+
+@Composable
+private fun MenuRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(CircleShape)
+                .background(OrangeStart.copy(alpha = 0.12f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = OrangeStart,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+        Spacer(modifier = Modifier.size(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Bold,
+                color = TextPrimary
+            )
+            Text(
+                text = subtitle,
+                fontSize = 12.sp,
+                color = TextHint
+            )
+        }
+        Icon(
+            imageVector = Icons.Default.ChevronRight,
+            contentDescription = null,
+            tint = TextHint
+        )
+    }
+}
+
+@Composable
+private fun DividerSpacer() {
+    Spacer(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 3.dp)
+            .background(DividerSoft)
+            .height(1.dp)
+    )
+}

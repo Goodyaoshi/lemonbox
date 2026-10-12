@@ -3,9 +3,10 @@ package com.goodyaoshi.lemonbox.data.sync
 import android.content.Context
 import android.net.Uri
 import com.goodyaoshi.lemonbox.data.backup.AppBackupManager
+import com.goodyaoshi.lemonbox.data.backup.BackupChanges
 import com.goodyaoshi.lemonbox.data.backup.BackupMergeResult
-import com.goodyaoshi.lemonbox.data.backup.BackupPreview
-import com.goodyaoshi.lemonbox.data.backup.SyncScope
+import com.goodyaoshi.lemonbox.data.backup.SyncChange
+import com.goodyaoshi.lemonbox.data.backup.SyncChangeKind
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -45,7 +46,7 @@ enum class SyncStage(val label: String) {
  *  2. 界面弹出匹配码让用户人工对照，确认一致后 `POST /pair/confirm`；
  *  3. 轮询 `GET /pair/status` 直到对方也点了「接受」（READY），期间对方拒绝则终止；
  *  4. 把本机变更 `POST /stage` 上传给对方暂存，`GET /backup` 拉取对方 ZIP 到本地做预览；
- *  5. 界面展示「新增 / 修改 / 删除」并让用户选范围（全部 / 只新增 / 不删除），据此导入；
+ *  5. 界面逐条列出「新增 / 修改 / 删除」，用户勾选后按白名单落地；
  *  6. 等待对方也落地，取回它的统计结果，最后 `POST /pair/close` 收尾。
  *
  * 增量策略沿用「同伴水位线」：以对方 deviceId 为键记录 push/pull 时间戳，
@@ -61,10 +62,10 @@ class SyncClient @Inject constructor(
     private val json = Json { ignoreUnknownKeys = true }
 
     /**
-     * 与对方设备做一次「双端确认 + 可预览 + 可选范围」的同步。
+     * 与对方设备做一次「双端确认 + 可预览 + 可逐条勾选」的同步。
      *
      * [awaitMatchCode] 会挂起等待用户核对匹配码，返回 true 表示一致、继续；
-     * [awaitScope] 会挂起等待用户选择范围，返回 null 表示取消。
+     * [awaitSelection] 会挂起等待用户在变更列表里勾选要落地的条目，返回 null 表示取消。
      */
     suspend fun syncInteractive(
         host: String,
@@ -72,10 +73,13 @@ class SyncClient @Inject constructor(
         onProgress: (SyncStage) -> Unit = {},
         onTransfer: (done: Long, total: Long, label: String) -> Unit = { _, _, _ -> },
         awaitMatchCode: suspend (matchCode: String, peerLabel: String) -> Boolean,
-        awaitScope: suspend (preview: BackupPreview, peerLabel: String) -> SyncScope?
+        awaitSelection: suspend (changes: BackupChanges, peerLabel: String) -> Set<String>?
     ): SyncOutcome = withContext(Dispatchers.IO) {
         val base = "http://$host:$port"
         var sessionId: String? = null
+        var peerLabel = "对方"
+        // 已勾选接受的变更（S5 回执的统计口径）；取消/失败时保留已产生的值供记录。
+        var acceptedChanges: List<SyncChange> = emptyList()
         try {
             // 1. 握手配对：拿会话号 / 匹配码 / 对方标识。
             onProgress(SyncStage.CONNECTING)
@@ -90,7 +94,7 @@ class SyncClient @Inject constructor(
                 json.decodeFromString(postJson("$base/pair", body))
             }
             sessionId = pair.sessionId
-            val peerLabel = pair.hostName.ifBlank { "对方的设备" }
+            peerLabel = pair.hostName.ifBlank { "对方的设备" }
 
             // 2. 双方核对匹配码：本机确认对方屏幕上显示的码和这里一致。
             onProgress(SyncStage.CONFIRMING)
@@ -113,7 +117,8 @@ class SyncClient @Inject constructor(
                     archive.file.delete()
                 }
             }
-            appPreferences.setPushWatermark(pair.hostDeviceId, pushBaseTime)
+            // 推送水位线不在这里立刻前进：等拿到对方的落地结果再定（见下方 waitForHostMerge 之后），
+            // 对方跳过了部分内容时，下次同步要把本机变更原样再推一遍。
 
             val pullSince = resolveSince(appPreferences.pullWatermark(pair.hostDeviceId))
             val incoming = File(context.cacheDir, "sync-in-${System.currentTimeMillis()}.zip")
@@ -125,33 +130,81 @@ class SyncClient @Inject constructor(
                     }
                     downloadBackup(url, incoming, "下载对方数据", onTransfer)
                 }
-                val preview = step("分析对方数据") {
-                    backupManager.previewBackup(Uri.fromFile(incoming))
+                val changes = step("分析对方数据") {
+                    backupManager.previewBackup(
+                        sourceUri = Uri.fromFile(incoming),
+                        // 以本端上次同步完成时间为基线：双方都改过的条目标记为真冲突，交给用户裁决（S4）。
+                        syncedAfter = appPreferences.lastSyncAt.value
+                    )
                 }
-                // 有变化才让用户选范围；没有变化直接按「全部」处理（等同无操作）。
-                val scope = if (preview.hasChanges) {
-                    step("选择同步范围") { awaitScope(preview, peerLabel) }
-                } else {
-                    SyncScope.ALL
+                // 有变化才让用户逐条勾选；没有变化直接落地（等同无操作）。
+                var selected: Set<String>? = null
+                if (changes.hasChanges) {
+                    selected = step("选择要同步的内容") { awaitSelection(changes, peerLabel) }
+                    if (selected == null) throw SyncCancelledException("你取消了这次同步")
                 }
-                if (scope == null) throw SyncCancelledException("你取消了这次同步")
+                acceptedChanges = selected?.let { keys ->
+                    changes.changes.filter { it.key in keys }
+                } ?: emptyList()
 
                 onProgress(SyncStage.APPLYING)
                 val localMerge = step("应用对方数据") {
-                    backupManager.importBackup(Uri.fromFile(incoming), scope)
+                    backupManager.importBackup(Uri.fromFile(incoming), keepKeys = selected)
                 }
-                if (exportedAt != null) {
+                // 这次有跳过的条目就不前进拉取水位线：下次同步它们会再次出现在变更列表里，
+                // 已落地的条目因 LWW 时间戳相同自然不再出现（「跳过=下次再来」语义）。
+                val pullSkipped = selected != null && selected.size < changes.changes.size
+                if (exportedAt != null && !pullSkipped) {
                     appPreferences.setPullWatermark(pair.hostDeviceId, exportedAt)
                 }
                 // 等对方也把本机数据落地，好把它的统计一并展示。
                 val peerMerge = waitForHostMerge(base, pair.sessionId)
+                // 对方整包落地才前进推送水位线；对方跳过或取消（结果为 null）时不前进，
+                // 下次同步把本机变更再推一遍，对方已接受的条目由 LWW 吸收，不会重复改动。
+                if (peerMerge != null && peerMerge.userSkipped == 0) {
+                    appPreferences.setPushWatermark(pair.hostDeviceId, pushBaseTime)
+                }
 
                 SyncOutcome(localMerge = localMerge, peerMerge = peerMerge).also {
                     appPreferences.setLastSyncAt(System.currentTimeMillis())
+                    appPreferences.recordSyncReport(
+                        SyncReport(
+                            time = System.currentTimeMillis(),
+                            role = SyncReport.Role.CLIENT,
+                            outcome = SyncReport.Outcome.SUCCESS,
+                            added = localMerge.totalAdded,
+                            updated = localMerge.totalUpdated,
+                            deleted = acceptedChanges.count { it.kind == SyncChangeKind.DELETED },
+                            conflicts = acceptedChanges.count { it.conflict },
+                            skipped = (changes.changes.size - acceptedChanges.size).coerceAtLeast(0),
+                            peerLabel = peerLabel
+                        )
+                    )
                 }
             } finally {
                 incoming.delete()
             }
+        } catch (e: SyncCancelledException) {
+            // 用户主动取消也留一条回执：和「失败」区分开，回看历史时语义更清楚（S5）。
+            appPreferences.recordSyncReport(
+                SyncReport(
+                    time = System.currentTimeMillis(),
+                    role = SyncReport.Role.CLIENT,
+                    outcome = SyncReport.Outcome.CANCELLED,
+                    peerLabel = peerLabel
+                )
+            )
+            throw e
+        } catch (e: Exception) {
+            appPreferences.recordSyncReport(
+                SyncReport(
+                    time = System.currentTimeMillis(),
+                    role = SyncReport.Role.CLIENT,
+                    outcome = SyncReport.Outcome.FAILED,
+                    peerLabel = peerLabel
+                )
+            )
+            throw e
         } finally {
             sessionId?.let { sid ->
                 runCatching { postJson("$base/pair/close?sessionId=$sid", "") }

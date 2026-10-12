@@ -59,19 +59,24 @@ class SettingsViewModel @Inject constructor(
 
     val budgetReminderEnabled: StateFlow<Boolean> = appPreferences.budgetReminderEnabled
 
-    /** 「在一起」起始日（yyyy-MM-dd）；null 表示未设置。 */
-    val togetherStartDate: StateFlow<String?> = appPreferences.togetherStartDate
+    /** 应用锁是否开启（F19）：入口已从「我的」迁到「设置 · 安全」。 */
+    val appLockEnabled: StateFlow<Boolean> = appPreferences.appLockEnabled
 
-    /** 首页计数前缀（如「我们」）。 */
-    val togetherLabelName: StateFlow<String> = appPreferences.togetherLabelName
-
-    fun setTogetherStartDate(date: String?) {
-        appPreferences.setTogetherStartDate(date)
+    /** 开启应用锁并设置 PIN。 */
+    fun enableAppLock(pin: String) {
+        appPreferences.setAppLockPin(pin)
+        appPreferences.setAppLockEnabled(true)
     }
 
-    fun setTogetherLabelName(name: String) {
-        appPreferences.setTogetherLabelName(name)
+    /** 关闭应用锁。 */
+    fun disableAppLock() {
+        appPreferences.setAppLockEnabled(false)
     }
+
+    /** 校验 PIN，用于关闭应用锁前确认身份。 */
+    fun verifyAppLockPin(pin: String): Boolean = appPreferences.verifyAppLockPin(pin)
+
+    // 「在一起」起始日与计数前缀已下沉到纪念日域（IA-6），由 AnniversaryViewModel 暴露。
 
     /** 在线更新状态：检查、下载进度与待确认的新版本。 */
     private val _updateState = MutableStateFlow(UpdateUiState())

@@ -109,6 +109,7 @@ fun SaveScreen(
     onBack: () -> Unit,
     onSaved: () -> Unit,
     onOpenCamera: (mode: SavePhotoMode) -> Unit,
+    onOpenOcr: () -> Unit = {},
     initialBarcode: String? = null,
     initialName: String? = null,
     viewModel: SaveViewModel = hiltViewModel()
@@ -284,6 +285,19 @@ fun SaveScreen(
                     fontWeight = FontWeight.SemiBold
                 )
                 Spacer(modifier = Modifier.weight(1f))
+                // OCR 前置入口（IA-3）：拍张照认出物品名再回来预填，不用跨页绕路。
+                Text(
+                    text = "拍照识字",
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(Color.White.copy(alpha = 0.14f))
+                        .clickable(onClick = onOpenOcr)
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                )
+                Spacer(modifier = Modifier.size(8.dp))
                 Text(
                     text = if (continuousEntry) "连续录入·开" else "连续录入",
                     color = Color.White,

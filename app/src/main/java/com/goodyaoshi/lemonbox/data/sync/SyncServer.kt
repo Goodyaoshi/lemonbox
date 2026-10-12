@@ -3,9 +3,9 @@ package com.goodyaoshi.lemonbox.data.sync
 import android.content.Context
 import android.net.Uri
 import com.goodyaoshi.lemonbox.data.backup.AppBackupManager
+import com.goodyaoshi.lemonbox.data.backup.BackupChanges
 import com.goodyaoshi.lemonbox.data.backup.BackupMergeResult
-import com.goodyaoshi.lemonbox.data.backup.BackupPreview
-import com.goodyaoshi.lemonbox.data.backup.SyncScope
+import com.goodyaoshi.lemonbox.data.backup.SyncChangeKind
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import dagger.hilt.android.qualifiers.ApplicationContext
 import fi.iki.elonen.NanoHTTPD
@@ -83,7 +83,7 @@ data class SyncPairRequest(
  *  2. 两端分别确认匹配码一致（本机点接受、对方点确认），双方都确认后才进入数据交换；
  *  3. `POST /stage` 客户端上传本机 ZIP，服务端只暂存并算出预览（不改库）；
  *  4. `GET  /backup` 客户端拉取本机 ZIP，用于在自己一侧预览；
- *  5. 两端各自选范围（全部/只新增/不删除）后分别落地；
+ *  5. 两端各自在变更列表里逐条勾选要落地的内容，确认后分别落地；
  *  6. `POST /pair/close` 收尾清理。
  *
  * 只有 `GET /backup`（数据出口）与配对相关端点需要会话语义，会话号是一次性随机 UUID，
@@ -130,10 +130,10 @@ class SyncServer @Inject constructor(
     /** 本机是否已确认匹配（点了「接受」）。 */
     val hostAccepted: StateFlow<Boolean> = _hostAccepted.asStateFlow()
 
-    private val _stagedPreview = MutableStateFlow<BackupPreview?>(null)
+    private val _stagedPreview = MutableStateFlow<BackupChanges?>(null)
 
-    /** 对方数据合并到本机的预览；本机界面据此展示新增/修改/删除并选择范围。 */
-    val stagedPreview: StateFlow<BackupPreview?> = _stagedPreview.asStateFlow()
+    /** 对方数据合并到本机的逐条预览；本机界面据此展示变更列表并让用户勾选。 */
+    val stagedPreview: StateFlow<BackupChanges?> = _stagedPreview.asStateFlow()
 
     private val _hostMergeResult = MutableStateFlow<BackupMergeResult?>(null)
 
@@ -194,33 +194,74 @@ class SyncServer @Inject constructor(
 
     /** 本机界面：拒绝这次配对。 */
     fun rejectPairing() {
+        session?.let { active ->
+            // 已经收到对方数据后再取消的，留一条「已取消」回执；纯配对拒绝不算一次同步（S5）。
+            if (active.stagedFile != null) {
+                appPreferences.recordSyncReport(
+                    SyncReport(
+                        time = System.currentTimeMillis(),
+                        role = SyncReport.Role.HOST,
+                        outcome = SyncReport.Outcome.CANCELLED,
+                        peerLabel = active.request.deviceName
+                    )
+                )
+            }
+        }
         session?.rejected = true
         clearSession()
     }
 
     /**
-     * 本机界面：按选定范围把对方暂存的数据合并进本机。
-     * 落地完成后 [hostMergeResult] 会给出统计，客户端轮询状态即可拿到。
+     * 本机界面：按用户勾选的白名单把对方暂存的数据合并进本机。
+     * 落地完成后 [hostMergeResult] 会给出统计（含跳过条数），客户端轮询状态即可拿到。
      */
-    fun applyIncoming(scope: SyncScope) {
+    fun applyIncoming(keepKeys: Set<String>) {
         val active = session ?: return
         val file = active.stagedFile ?: run {
             _hostError.value = "还没收到对方数据，先等一下"
             return
         }
+        val preview = _stagedPreview.value
+        val acceptedChanges = preview?.changes?.filter { it.key in keepKeys } ?: emptyList()
+        val peerName = active.request.deviceName
         appScope.launch {
             runCatching {
                 withTimeout(SYNC_TIMEOUT_MS) {
-                    backupManager.importBackup(Uri.fromFile(file), scope)
+                    backupManager.importBackup(Uri.fromFile(file), keepKeys = keepKeys)
                 }
             }.onSuccess { result ->
-                active.hostMerge = result
+                // 把「本机跳过几条」带给发起方：它据此决定推送水位线是否前进。
+                val skipped = preview?.changes?.size
+                    ?.minus(keepKeys.size)?.coerceAtLeast(0) ?: 0
+                val outcome = result.copy(userSkipped = skipped)
+                active.hostMerge = outcome
                 active.applied = true
-                _hostMergeResult.value = result
-                _incomingSummary.value = result
+                _hostMergeResult.value = outcome
+                _incomingSummary.value = outcome
                 appPreferences.setLastSyncAt(System.currentTimeMillis())
+                appPreferences.recordSyncReport(
+                    SyncReport(
+                        time = System.currentTimeMillis(),
+                        role = SyncReport.Role.HOST,
+                        outcome = SyncReport.Outcome.SUCCESS,
+                        added = result.totalAdded,
+                        updated = result.totalUpdated,
+                        deleted = acceptedChanges.count { it.kind == SyncChangeKind.DELETED },
+                        conflicts = acceptedChanges.count { it.conflict },
+                        skipped = skipped,
+                        peerLabel = peerName
+                    )
+                )
             }.onFailure { error ->
                 _hostError.value = error.message ?: "合并对方数据失败了"
+                appPreferences.recordSyncReport(
+                    SyncReport(
+                        time = System.currentTimeMillis(),
+                        role = SyncReport.Role.HOST,
+                        outcome = SyncReport.Outcome.FAILED,
+                        peerLabel = peerName
+                    )
+                )
             }
         }
     }
@@ -364,7 +405,13 @@ class SyncServer @Inject constructor(
                 }
                 active.stagedFile?.delete()
                 active.stagedFile = tempFile
-                val preview = awaitSync { backupManager.previewBackup(Uri.fromFile(tempFile)) }
+                val preview = awaitSync {
+                    backupManager.previewBackup(
+                        sourceUri = Uri.fromFile(tempFile),
+                        // 以本端上次同步完成时间为基线：双方都改过的条目标记为真冲突（S4）。
+                        syncedAfter = appPreferences.lastSyncAt.value
+                    )
+                }
                 _stagedPreview.value = preview
                 return newFixedLengthResponse(Response.Status.OK, MIME_JSON, json.encodeToString(preview))
             } catch (e: Exception) {

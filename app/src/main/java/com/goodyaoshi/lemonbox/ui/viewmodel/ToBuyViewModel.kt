@@ -75,6 +75,13 @@ class ToBuyViewModel @Inject constructor(
         }
     }
 
+    /** 撤销「已买到」：按 Snackbar 提示里点撤销前的快照恢复。 */
+    fun undoMarkBought(previous: Item) {
+        viewModelScope.launch {
+            itemRepository.undoRestoreToInUse(previous)
+        }
+    }
+
     fun moveToTrash(item: Item) {
         viewModelScope.launch {
             itemRepository.moveToTrash(item)

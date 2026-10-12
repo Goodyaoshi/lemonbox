@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.TaskAlt
 import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.NotificationsOff
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -112,6 +113,7 @@ fun HomeScreen(
     onNavigateToEdit: (Long) -> Unit,
     onNavigateToExpiry: () -> Unit = {},
     onNavigateToScan: () -> Unit = {},
+    onSearchInHousehold: (String) -> Unit = {},
     onNavigateToToBuy: () -> Unit = {},
     onNavigateToReminders: () -> Unit = {},
     onNavigateToLedger: () -> Unit = {},
@@ -187,7 +189,9 @@ fun HomeScreen(
                     onValueChange = viewModel::updateSearchQuery,
                     placeholder = "搜索家当、位置或备注",
                     modifier = Modifier.weight(1f),
-                    showMagicIconWhenEmpty = false
+                    showMagicIconWhenEmpty = false,
+                    // IA-2：回车把关键词带去家当 Tab 复用同一套筛选，首页只留快捷入口。
+                    onSearch = { if (searching) onSearchInHousehold(searchQuery.trim()) }
                 )
                 Spacer(modifier = Modifier.width(10.dp))
                 Box(
@@ -249,7 +253,29 @@ fun HomeScreen(
                     TodaySection(
                         events = todayEvents,
                         onEventClick = onEventClick,
-                        onComplete = viewModel::completeTodayEvent
+                        onComplete = { event ->
+                            // H1：勾掉前先拿快照，Snackbar 里可撤销。
+                            viewModel.completeTodayEvent(event) { snapshot ->
+                                if (snapshot != null) {
+                                    appSnackbar?.showUndo(
+                                        "已完成「${snapshot.title}」",
+                                        DeleteCopy.UNDO_ACTION
+                                    ) {
+                                        viewModel.undoCompleteTodayEvent(snapshot)
+                                    }
+                                }
+                            }
+                        },
+                        onIgnore = { event ->
+                            // H1：临期事项「今天忽略」当天隐藏、明天照常回来，可撤销。
+                            viewModel.ignoreExpiryToday(event)
+                            appSnackbar?.showUndo(
+                                "今天不再提醒「${event.title}」",
+                                DeleteCopy.UNDO_ACTION
+                            ) {
+                                viewModel.undoIgnoreExpiryToday(event)
+                            }
+                        }
                     )
                 }
                 if (anniversaryRows.isNotEmpty()) {
@@ -450,12 +476,16 @@ private fun greetingFor(hour: Int): String = when (hour) {
     else -> "晚上好"
 }
 
-/** 「今天的事」：提醒待办 + 临期家当 + 待买的统一清单，空态一句话，能办的直接勾掉。 */
+/**
+ * 「今天的事」：提醒待办 + 临期家当 + 待买的统一清单，空态一句话，能办的直接办掉（H1）：
+ * 提醒给勾选圈（可撤销）、临期给「今天忽略」、待买给购物车直达，完成类操作都有 Snackbar 反馈。
+ */
 @Composable
 private fun TodaySection(
     events: List<TodayEvent>,
     onEventClick: (TodayEvent) -> Unit,
-    onComplete: (TodayEvent) -> Unit
+    onComplete: (TodayEvent) -> Unit,
+    onIgnore: (TodayEvent) -> Unit
 ) {
     // 事项可能很多（临期/待买一次涌进来几十条），首页只展示前几条，其余折叠起来，
     // 避免把首页撑得特别长；需要时展开看全部。
@@ -552,7 +582,8 @@ private fun TodaySection(
                         TodayEventRow(
                             event = event,
                             onClick = { onEventClick(event) },
-                            onComplete = { onComplete(event) }
+                            onComplete = { onComplete(event) },
+                            onIgnore = { onIgnore(event) }
                         )
                     }
                     if (collapsible) {
@@ -601,12 +632,16 @@ private fun TodayEventExpandRow(
     }
 }
 
-/** 单条今日事项：来源图标 + 标题/详情，能办的显示勾选钮，点整行跳对应页面。 */
+/**
+ * 单条今日事项：来源图标 + 标题/详情，点整行跳对应页面。
+ * 尾部控件按类型分化（H1）：提醒待办给勾选圈、临期给「今天忽略」灰圈、待买给购物车直达。
+ */
 @Composable
 private fun TodayEventRow(
     event: TodayEvent,
     onClick: () -> Unit,
-    onComplete: () -> Unit
+    onComplete: () -> Unit,
+    onIgnore: () -> Unit
 ) {
     val accent = when (event.kind) {
         TodayEventKind.TASK -> OrangeStart
@@ -661,29 +696,73 @@ private fun TodayEventRow(
                 )
             }
         }
-        if (event.completable) {
-            Box(
-                // 热区对齐 48dp（图标尺寸不变），便于点按完成。
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(CircleShape)
-                    .clickable(onClick = onComplete),
-                contentAlignment = Alignment.Center
-            ) {
+        when (event.kind) {
+            TodayEventKind.TASK -> {
+                if (event.completable) {
+                    Box(
+                        // 热区对齐 48dp（图标尺寸不变），便于点按完成。
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(CircleShape)
+                            .clickable(onClick = onComplete),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.CheckCircle,
+                            contentDescription = "完成",
+                            tint = TextHint,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
                 Icon(
-                    imageVector = Icons.Outlined.CheckCircle,
-                    contentDescription = "完成",
+                    imageVector = Icons.Default.ChevronRight,
+                    contentDescription = null,
                     tint = TextHint,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(16.dp)
                 )
             }
+            TodayEventKind.EXPIRY -> {
+                // 「今天忽略」灰圈（H1）：点它当天不再出现在今日清单，行本体仍可进详情。
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(CircleShape)
+                        .clickable(onClick = onIgnore),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.NotificationsOff,
+                        contentDescription = "今天忽略",
+                        tint = TextHint,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                Icon(
+                    imageVector = Icons.Default.ChevronRight,
+                    contentDescription = null,
+                    tint = TextHint,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+            TodayEventKind.TO_BUY -> {
+                // 待买尾部给购物车直达（H1）：点它去待买清单，行本体同样可达。
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(CircleShape)
+                        .clickable(onClick = onClick),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ShoppingCart,
+                        contentDescription = "去待买",
+                        tint = accent,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
         }
-        Icon(
-            imageVector = Icons.Default.ChevronRight,
-            contentDescription = null,
-            tint = TextHint,
-            modifier = Modifier.size(16.dp)
-        )
     }
 }
 

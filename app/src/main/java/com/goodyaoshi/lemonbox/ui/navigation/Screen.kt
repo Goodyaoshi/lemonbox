@@ -52,7 +52,13 @@ sealed class Screen(val route: String) {
      * 与 [Search] 分开：标签、图标与路由三者语义才一致，
      * 也为将来真正的搜索页保留 [Search] 这条路由。
      */
-    data object Household : Screen("household")
+    data object Household : Screen("household") {
+        /**
+         * 首页搜索回车带词跳转（IA-2）：家当 Tab 支持携带初始关键词。
+         * query 为可选参数，底栏 Tab 仍导航不带参的 [route]，两者都能匹配同一目的地。
+         */
+        fun createRoute(query: String): String = "household?query=${Uri.encode(query)}"
+    }
 
     data object Meal : Screen("meal")
     data object RecipeLibrary : Screen("recipe-library")
@@ -60,6 +66,13 @@ sealed class Screen(val route: String) {
     data object Profile : Screen("profile")
     data object Settings : Screen("settings")
     data object LanSync : Screen("lan-sync")
+
+    /** 数据中心（IA-1）：设备同步与文件备份的统一二级页，从「我的」拆出减轻过载。 */
+    data object DataCenter : Screen("data-center")
+
+    /** 通知可靠性（SET1）：电池白名单、自启动与常驻保活的独立二级页。 */
+    data object NotificationReliability : Screen("notification-reliability")
+
     data object ToBuy : Screen("to-buy")
     data object Trash : Screen("trash")
     data object Expiry : Screen("expiry")

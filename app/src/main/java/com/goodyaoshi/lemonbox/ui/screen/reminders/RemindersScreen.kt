@@ -65,9 +65,11 @@ import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
+import com.goodyaoshi.lemonbox.ui.components.DeleteCopy
 import com.goodyaoshi.lemonbox.ui.components.EditorSelectionChip
 import com.goodyaoshi.lemonbox.ui.components.EmptyState
 import com.goodyaoshi.lemonbox.ui.components.InlineNotice
+import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
 import com.goodyaoshi.lemonbox.ui.components.PillTag
 import com.goodyaoshi.lemonbox.ui.components.SkeletonList
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
@@ -101,6 +103,9 @@ fun RemindersScreen(
     val activeItems by viewModel.activeItems.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     var showAddDialog by remember { mutableStateOf(false) }
+    // 删除前先确认（R1）：破坏性操作不再裸奔，确认后仍可在 Snackbar 里撤销。
+    var pendingDelete by remember { mutableStateOf<Reminder?>(null) }
+    val appSnackbar = LocalAppSnackbar.current
 
     val today = LocalDate.now()
     val active = reminders.filter { it.enabled }
@@ -203,7 +208,7 @@ fun RemindersScreen(
                                 reminder = reminder,
                                 onToggle = { viewModel.toggleEnabled(reminder) },
                                 onComplete = { viewModel.complete(reminder) },
-                                onDelete = { viewModel.delete(reminder) },
+                                onDelete = { pendingDelete = reminder },
                                 modifier = Modifier.padding(vertical = 5.dp)
                             )
                         }
@@ -246,6 +251,33 @@ fun RemindersScreen(
                 }
             }
         )
+    }
+
+    pendingDelete?.let { target ->
+        // 删除确认（R1）：软删入回收站语义，误删可撤销，不再是划掉就没了。
+        AppDialog(
+            title = "删除提醒",
+            onDismissRequest = { pendingDelete = null },
+            confirmText = "删除",
+            destructiveConfirm = true,
+            onConfirm = {
+                viewModel.delete(target)
+                appSnackbar?.showUndo("已删除「${target.title}」", DeleteCopy.UNDO_ACTION) {
+                    viewModel.restore(target)
+                }
+                pendingDelete = null
+            }
+        ) {
+            Text(
+                text = if (target.enabled) {
+                    "删除后这条提醒就不会再响了，删错了可以撤销。"
+                } else {
+                    "确定删除这条已完成的提醒吗？删除后仍可撤销。"
+                },
+                color = TextSecondary,
+                fontSize = 14.sp
+            )
+        }
     }
 }
 
@@ -341,6 +373,15 @@ private fun ReminderRow(
                         fontSize = 12.sp,
                         color = TextHint,
                         maxLines = 2,
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
+                }
+                if (reminder.notifiedAt > 0) {
+                    // 触发记录（R1）：上次真的响过是什么时候，漏提醒时不用靠猜。
+                    Text(
+                        text = "上次触发 ${DateUtil.formatDateTime(reminder.notifiedAt)}",
+                        fontSize = 12.sp,
+                        color = TextHint,
                         modifier = Modifier.padding(top = 2.dp)
                     )
                 }

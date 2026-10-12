@@ -4,6 +4,9 @@ import android.content.Context
 import android.net.Uri
 import com.goodyaoshi.lemonbox.data.local.database.AppDatabase
 import com.goodyaoshi.lemonbox.data.local.database.SeedDataProvider
+import com.goodyaoshi.lemonbox.data.local.entity.Anniversary
+import com.goodyaoshi.lemonbox.data.local.entity.Item
+import com.goodyaoshi.lemonbox.data.local.entity.LedgerRecord
 import com.goodyaoshi.lemonbox.data.repository.AnniversaryRepository
 import com.goodyaoshi.lemonbox.data.repository.CategoryRepository
 import com.goodyaoshi.lemonbox.data.repository.ItemRepository
@@ -11,6 +14,8 @@ import com.goodyaoshi.lemonbox.data.repository.LedgerRepository
 import com.goodyaoshi.lemonbox.data.repository.LocationRepository
 import com.goodyaoshi.lemonbox.data.repository.ReminderRepository
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
+import com.goodyaoshi.lemonbox.util.DateUtil
+import com.goodyaoshi.lemonbox.util.LedgerMath
 import com.goodyaoshi.lemonbox.util.TodoReminderScheduler
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -18,6 +23,15 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.encodeToJsonElement
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.longOrNull
 import java.io.File
 import java.io.FileOutputStream
 import java.security.MessageDigest
@@ -50,13 +64,25 @@ data class BackupMergeResult(
     /** 用户自建菜谱新增数，v5 起导出。 */
     val recipeAdded: Int = 0,
     /** 周菜单/已做日期/自定义状态/提醒设置是否有应用。 */
-    val prefsApplied: Boolean = false
+    val prefsApplied: Boolean = false,
+    /** 变更列表里被用户跳过（未勾选）的条数；同步据此决定水位线是否前进。 */
+    val userSkipped: Int = 0
 ) {
     val hasChanges: Boolean
         get() = itemAdded + itemUpdated + categoryAdded + categoryUpdated +
             locationAdded + locationUpdated + ledgerAdded + ledgerUpdated +
             reminderAdded + reminderUpdated + anniversaryAdded + anniversaryUpdated +
             recipeAdded > 0 || prefsApplied
+
+    /** 全实体合计的新增条数（同步历史用）。 */
+    val totalAdded: Int
+        get() = itemAdded + categoryAdded + locationAdded + ledgerAdded +
+            reminderAdded + anniversaryAdded + recipeAdded
+
+    /** 全实体合计的更新条数（同步历史用）。 */
+    val totalUpdated: Int
+        get() = itemUpdated + categoryUpdated + locationUpdated + ledgerUpdated +
+            reminderUpdated + anniversaryUpdated
 }
 
 /** 把合并结果转成一句用户可读的说明；手动导入与局域网同步共用。 */
@@ -79,6 +105,7 @@ fun BackupMergeResult.toUserMessage(): String {
         if (anniversaryUpdated > 0) add("更新纪念日 $anniversaryUpdated 个")
         if (recipeAdded > 0) add("新增菜谱 $recipeAdded 道")
         if (prefsApplied) add("同步了菜单与提醒设置")
+        if (userSkipped > 0) add("按你的勾选跳过 $userSkipped 条")
         if (itemKept > 0) add("保留本地 $itemKept 件")
     }
     return "合并完成：" + parts.joinToString("、")
@@ -102,15 +129,68 @@ enum class SyncScope(val label: String) {
     NO_DELETE("同步但不删除")
 }
 
-/** 合并预览：对方数据合并到本机后预计发生的变化（用户据此选范围）。 */
+/** 变更种类：对方带来的这条记录是新增、修改，还是删除（软删墓碑）。 */
+enum class SyncChangeKind(val label: String) {
+    ADDED("新增"),
+    MODIFIED("修改"),
+    DELETED("删除")
+}
+
+/** 变更所属的实体域：变更列表按它分组展示。 */
+enum class SyncEntityKind(val label: String) {
+    ITEM("家当"),
+    CATEGORY("分类"),
+    LOCATION("位置"),
+    LEDGER_RECORD("账目"),
+    LEDGER_CATEGORY("记账分类"),
+    LEDGER_ASSET("账户"),
+    LEDGER_BUDGET("预算"),
+    ANNIVERSARY("纪念日"),
+    REMINDER("待办提醒")
+}
+
+/** 一个字段的本地值 vs 对方值对照（S3）：修改条目展开详情时逐行展示。 */
 @Serializable
-data class BackupPreview(
-    val added: Int = 0,
-    val updated: Int = 0,
-    val deleted: Int = 0
+data class FieldDiff(
+    /** 字段原始名（JSON 键）。 */
+    val field: String,
+    /** 字段的中文标签。 */
+    val label: String,
+    val localValue: String,
+    val remoteValue: String
+)
+
+/** 一条待同步变更：合并前逐条列出，用户勾选后按 [key] 白名单落地。 */
+@Serializable
+data class SyncChange(
+    val entity: SyncEntityKind,
+    val kind: SyncChangeKind,
+    /** 对齐键（syncId 或旧版数字 id），勾选结果按它传回合并。 */
+    val key: String,
+    val title: String,
+    val subtitle: String? = null,
+    /** 字段级差异，仅修改条目有值（S3）。 */
+    val diffs: List<FieldDiff> = emptyList(),
+    /**
+     * 真冲突（S4）：双方都在上次同步后改过这条记录。勾选=采用对方，不勾=保留本机
+     * （下次同步还会再问一次），由用户逐条裁决，不再被 LWW 静默吃掉。
+     */
+    val conflict: Boolean = false
+)
+
+/**
+ * 合并预览：逐条变更列表 + 汇总计数。局域网同步与手动导入共用，
+ * 替代旧的「只有三个数字」的 [BackupPreview]（S1：变更可见性从汇总升级到逐条）。
+ */
+@Serializable
+data class BackupChanges(
+    val changes: List<SyncChange> = emptyList()
 ) {
-    val hasChanges: Boolean
-        get() = added + updated + deleted > 0
+    val added: Int get() = changes.count { it.kind == SyncChangeKind.ADDED }
+    val updated: Int get() = changes.count { it.kind == SyncChangeKind.MODIFIED }
+    val deleted: Int get() = changes.count { it.kind == SyncChangeKind.DELETED }
+    val conflicts: Int get() = changes.count { it.conflict }
+    val hasChanges: Boolean get() = changes.isNotEmpty()
 }
 
 /** 预览用的行视图：只保留计数需要的最小字段。 */
@@ -184,10 +264,13 @@ class AppBackupManager @Inject constructor(
      *
      * [scope] 允许调用方限定本次合并的范围（全部 / 只新增 / 不删除）：
      * 在合并前先把远端快照按范围过滤，因此无需改动各实体的合并规则。
+     * [keepKeys] 是逐条模式的白名单（来自变更列表的勾选结果）：非 null 时只落地
+     * 这些对齐键对应的记录，范围枚举不再参与——用户勾了删除墓碑就执行删除，没勾就不动。
      */
     suspend fun importBackup(
         sourceUri: Uri,
-        scope: SyncScope = SyncScope.ALL
+        scope: SyncScope = SyncScope.ALL,
+        keepKeys: Set<String>? = null
     ): BackupMergeResult {
         val workingDir = File(context.cacheDir, "backup-import-${System.currentTimeMillis()}.apply").apply {
             mkdirs()
@@ -201,7 +284,7 @@ class AppBackupManager @Inject constructor(
             unzip(backupZip, workingDir)
             val raw = readVerifiedPayload(workingDir)
             val useSyncIds = raw.syncVersion >= SYNC_ID_VERSION
-            val backup = filterByScope(raw, scope, useSyncIds)
+            val backup = filterByScope(raw, scope, useSyncIds, keepKeys)
 
             val categoryOutcome = mergeCategories(backup.categories, useSyncIds)
             val locationOutcome = mergeLocations(backup.locations, useSyncIds)
@@ -298,10 +381,13 @@ class AppBackupManager @Inject constructor(
     }
 
     /**
-     * 预演合并：只统计「对方数据合并到本机」将带来的新增 / 修改 / 删除数量，不改动数据库。
-     * 局域网同步用它把「会同步哪些内容」先展示给用户，由用户决定是否继续、以及同步范围。
+     * 预演合并：逐条列出「对方数据合并到本机」将带来的新增 / 修改 / 删除，不改动数据库。
+     * 局域网同步与手动导入共用：用户据此逐条勾选要落地的内容。
+     *
+     * [syncedAfter] 是本端上次同步完成的时间戳（局域网同步路径传入，手动导入传 null）：
+     * 本地与对方都在它之后改过的条目会被标记为真冲突，由用户裁决而非 LWW 静默覆盖（S4）。
      */
-    suspend fun previewBackup(sourceUri: Uri): BackupPreview {
+    suspend fun previewBackup(sourceUri: Uri, syncedAfter: Long? = null): BackupChanges {
         val workingDir = File(context.cacheDir, "backup-preview-${System.currentTimeMillis()}.apply").apply {
             mkdirs()
         }
@@ -313,18 +399,43 @@ class AppBackupManager @Inject constructor(
 
             unzip(backupZip, workingDir)
             val backup = readVerifiedPayload(workingDir)
-            return computePreview(backup, backup.syncVersion >= SYNC_ID_VERSION)
+            return computeChanges(
+                backup = backup,
+                useSyncIds = backup.syncVersion >= SYNC_ID_VERSION,
+                syncedAfter = syncedAfter
+            )
         } finally {
             workingDir.deleteRecursively()
         }
     }
 
-    /** 按范围过滤远端快照：只新增会在合并前丢弃已存在记录与墓碑，不删除只丢弃墓碑。 */
+    /**
+     * 按范围过滤远端快照：只新增会在合并前丢弃已存在记录与墓碑，不删除只丢弃墓碑。
+     * [keepKeys] 非 null 时走逐条模式：白名单就是最终裁决，直接按对齐键过滤。
+     */
     private suspend fun filterByScope(
         backup: AppBackupPayload,
         scope: SyncScope,
-        useSyncIds: Boolean
+        useSyncIds: Boolean,
+        keepKeys: Set<String>? = null
     ): AppBackupPayload {
+        if (keepKeys != null) {
+            // 白名单键带实体前缀：旧备份按数字 id 对齐时不同实体可能出现相同的裸键（如 "id:3"），
+            // 前缀保证勾选互不串扰。
+            fun qualified(entity: SyncEntityKind, syncId: String?, id: Long): String =
+                "${entity.name}:${keyOf(syncId, id, useSyncIds)}"
+            return backup.copy(
+                categories = backup.categories.filter { qualified(SyncEntityKind.CATEGORY, it.syncId, it.id) in keepKeys },
+                locations = backup.locations.filter { qualified(SyncEntityKind.LOCATION, it.syncId, it.id) in keepKeys },
+                items = backup.items.filter { qualified(SyncEntityKind.ITEM, it.syncId, it.id) in keepKeys },
+                ledgerAssets = backup.ledgerAssets.filter { qualified(SyncEntityKind.LEDGER_ASSET, it.syncId, it.id) in keepKeys },
+                ledgerCategories = backup.ledgerCategories.filter { qualified(SyncEntityKind.LEDGER_CATEGORY, it.syncId, it.id) in keepKeys },
+                ledgerRecords = backup.ledgerRecords.filter { qualified(SyncEntityKind.LEDGER_RECORD, it.syncId, it.id) in keepKeys },
+                ledgerBudgets = backup.ledgerBudgets.filter { qualified(SyncEntityKind.LEDGER_BUDGET, it.syncId, it.id) in keepKeys },
+                anniversaries = backup.anniversaries.filter { qualified(SyncEntityKind.ANNIVERSARY, it.syncId, it.id) in keepKeys },
+                reminders = backup.reminders.filter { qualified(SyncEntityKind.REMINDER, it.syncId, it.id) in keepKeys }
+            )
+        }
         if (scope == SyncScope.ALL) return backup
         val categoryKeys = categoryRepository.getAllCategoriesSnapshot()
             .map { keyOf(it.syncId, it.id, useSyncIds) }.toSet()
@@ -382,83 +493,361 @@ class AppBackupManager @Inject constructor(
         )
     }
 
-    private suspend fun computePreview(backup: AppBackupPayload, useSyncIds: Boolean): BackupPreview {
-        var added = 0
-        var updated = 0
-        var deleted = 0
+    /**
+     * 逐条预演合并：与合并策略同口径（受保护记录不改、远端较新才动），但不再只留计数——
+     * 每条变更带上实体域、种类与标题，供用户在变更列表里逐条勾选（S1/S2）；
+     * 修改条目额外生成字段级 diff（S3），双方都改过的条目标记为真冲突（S4）。
+     */
+    private suspend fun computeChanges(
+        backup: AppBackupPayload,
+        useSyncIds: Boolean,
+        syncedAfter: Long? = null
+    ): BackupChanges {
+        val changes = mutableListOf<SyncChange>()
 
-        fun accumulate(rows: List<PreviewRow>, local: Map<String, PreviewRow>) {
-            val counts = countChanges(rows, local)
-            added += counts[0]
-            updated += counts[1]
-            deleted += counts[2]
+        val localItems = itemRepository.getAllItemsSnapshot()
+        val localCategories = categoryRepository.getAllCategoriesSnapshot()
+        val localLocations = locationRepository.getAllLocationsSnapshot()
+        val localRecords = ledgerRepository.getAllRecordsSnapshot()
+        val localLedgerCategories = ledgerRepository.getAllCategoriesSnapshot()
+        val localAssets = ledgerRepository.getAllAssetsSnapshot()
+
+        // 引用字段的 id→syncId 映射：把本地实体转成与对方快照同构的 JSON 时需要。
+        val categorySyncIdById = localCategories.associate { it.id to it.syncId }
+        val locationSyncIdById = localLocations.associate { it.id to it.syncId }
+        val ledgerCategorySyncIdById = localLedgerCategories.associate { it.id to it.syncId }
+        val ledgerAssetSyncIdById = localAssets.associate { it.id to it.syncId }
+        val itemSyncIdById = localItems.associate { it.id to it.syncId }
+        // 引用字段的 syncId→名字：diff 里的 UUID 值翻成用户认得出的名字。
+        val referenceNames = buildMap {
+            localCategories.forEach { it.syncId?.let { s -> put(s, it.name) } }
+            localLocations.forEach { it.syncId?.let { s -> put(s, it.name) } }
+            localLedgerCategories.forEach { it.syncId?.let { s -> put(s, it.name) } }
+            localAssets.forEach { it.syncId?.let { s -> put(s, it.name) } }
+            localItems.forEach { it.syncId?.let { s -> put(s, it.name) } }
         }
 
-        val localCategories = categoryRepository.getAllCategoriesSnapshot()
-        accumulate(
-            previewRows(backup.categories, useSyncIds, { it.syncId }, { it.id }, { it.updatedAt }, { it.deletedAt }),
-            previewRows(localCategories, useSyncIds, { it.syncId }, { it.id }, { it.updatedAt }, { it.deletedAt }, { it.isProtected }).associateBy { it.key }
-        )
-        val localLocations = locationRepository.getAllLocationsSnapshot()
-        accumulate(
-            previewRows(backup.locations, useSyncIds, { it.syncId }, { it.id }, { it.updatedAt }, { it.deletedAt }),
-            previewRows(localLocations, useSyncIds, { it.syncId }, { it.id }, { it.updatedAt }, { it.deletedAt }, { it.isProtected }).associateBy { it.key }
-        )
-        val localItems = itemRepository.getAllItemsSnapshot()
-        accumulate(
-            previewRows(backup.items, useSyncIds, { it.syncId }, { it.id }, { it.updatedAt ?: it.createdAt }, { it.deletedAt }),
-            previewRows(localItems, useSyncIds, { it.syncId }, { it.id }, { it.updatedAt ?: it.createdAt }, { it.deletedAt }).associateBy { it.key }
-        )
-        val localAssets = ledgerRepository.getAllAssetsSnapshot()
-        accumulate(
-            previewRows(backup.ledgerAssets, useSyncIds, { it.syncId }, { it.id }, { it.updatedAt }, { it.deletedAt }),
-            previewRows(localAssets, useSyncIds, { it.syncId }, { it.id }, { it.updatedAt }, { it.deletedAt }).associateBy { it.key }
-        )
-        val localLedgerCategories = ledgerRepository.getAllCategoriesSnapshot()
-        accumulate(
-            previewRows(backup.ledgerCategories, useSyncIds, { it.syncId }, { it.id }, { it.updatedAt }, { it.deletedAt }),
-            previewRows(localLedgerCategories, useSyncIds, { it.syncId }, { it.id }, { it.updatedAt }, { it.deletedAt }, { it.isProtected }).associateBy { it.key }
-        )
-        val localRecords = ledgerRepository.getAllRecordsSnapshot()
-        accumulate(
-            previewRows(backup.ledgerRecords, useSyncIds, { it.syncId }, { it.id }, { it.updatedAt ?: it.createdAt }, { it.deletedAt }),
-            previewRows(localRecords, useSyncIds, { it.syncId }, { it.id }, { it.updatedAt ?: it.createdAt }, { it.deletedAt }).associateBy { it.key }
-        )
-        val localBudgets = ledgerRepository.getAllBudgetsSnapshot()
-        accumulate(
-            previewRows(backup.ledgerBudgets, useSyncIds, { it.syncId }, { it.id }, { it.updatedAt }, { it.deletedAt }),
-            previewRows(localBudgets, useSyncIds, { it.syncId }, { it.id }, { it.updatedAt }, { it.deletedAt }).associateBy { it.key }
-        )
-        val localAnniversaries = anniversaryRepository.getAllSnapshot()
-        accumulate(
-            previewRows(backup.anniversaries, useSyncIds, { it.syncId }, { it.id }, { it.updatedAt ?: it.createdAt }, { it.deletedAt }),
-            previewRows(localAnniversaries, useSyncIds, { it.syncId }, { it.id }, { it.updatedAt ?: it.createdAt }, { it.deletedAt }).associateBy { it.key }
-        )
-        val localReminders = reminderRepository.getAllSnapshot()
-        accumulate(
-            previewRows(backup.reminders, useSyncIds, { it.syncId }, { it.id }, { it.updatedAt ?: it.createdAt }, { it.deletedAt }),
-            previewRows(localReminders, useSyncIds, { it.syncId }, { it.id }, { it.updatedAt ?: it.createdAt }, { it.deletedAt }).associateBy { it.key }
+        changes += changeList(
+            entity = SyncEntityKind.ITEM,
+            snapshots = backup.items,
+            local = previewRows(
+                localItems, useSyncIds,
+                { it.syncId }, { it.id }, { it.updatedAt ?: it.createdAt }, { it.deletedAt }
+            ).associateBy { it.key },
+            localSnapshots = snapshotJsonMap(localItems, useSyncIds, { it.syncId }, { it.id }) {
+                ItemSnapshot.fromEntity(
+                    item = it,
+                    imagePaths = emptyList(),
+                    categorySyncId = it.categoryId?.let { id -> categorySyncIdById[id] },
+                    locationSyncId = it.locationId?.let { id -> locationSyncIdById[id] }
+                )
+            },
+            referenceNames = referenceNames,
+            syncedAfter = syncedAfter,
+            useSyncIds = useSyncIds,
+            syncId = { it.syncId },
+            id = { it.id },
+            updatedAt = { it.updatedAt ?: it.createdAt },
+            deletedAt = { it.deletedAt },
+            title = { it.name },
+            subtitle = { "${it.quantity}${it.unit}" }
         )
 
-        return BackupPreview(added = added, updated = updated, deleted = deleted)
-    }
+        changes += changeList(
+            entity = SyncEntityKind.CATEGORY,
+            snapshots = backup.categories,
+            local = previewRows(
+                localCategories, useSyncIds,
+                { it.syncId }, { it.id }, { it.updatedAt }, { it.deletedAt }, { it.isProtected }
+            ).associateBy { it.key },
+            localSnapshots = snapshotJsonMap(localCategories, useSyncIds, { it.syncId }, { it.id }) {
+                CategorySnapshot.fromEntity(
+                    category = it,
+                    parentSyncId = it.parentId?.let { id -> categorySyncIdById[id] }
+                )
+            },
+            referenceNames = referenceNames,
+            syncedAfter = syncedAfter,
+            useSyncIds = useSyncIds,
+            syncId = { it.syncId },
+            id = { it.id },
+            updatedAt = { it.updatedAt },
+            deletedAt = { it.deletedAt },
+            title = { it.name }
+        )
 
-    /** 返回 [added, updated, deleted]；与合并策略同口径：受保护记录不改、远端较新才动。 */
-    private fun countChanges(rows: List<PreviewRow>, local: Map<String, PreviewRow>): IntArray {
-        var added = 0
-        var updated = 0
-        var deleted = 0
-        rows.forEach { remote ->
-            val existing = local[remote.key]
-            if (existing == null) {
-                if (remote.deletedAt == null) added++
-            } else {
-                if (existing.protected) return@forEach
-                if (!isRemoteNewer(remote.updatedAt, existing.updatedAt)) return@forEach
-                if (remote.deletedAt != null && existing.deletedAt == null) deleted++ else updated++
+        changes += changeList(
+            entity = SyncEntityKind.LOCATION,
+            snapshots = backup.locations,
+            local = previewRows(
+                localLocations, useSyncIds,
+                { it.syncId }, { it.id }, { it.updatedAt }, { it.deletedAt }, { it.isProtected }
+            ).associateBy { it.key },
+            localSnapshots = snapshotJsonMap(localLocations, useSyncIds, { it.syncId }, { it.id }) {
+                LocationSnapshot.fromEntity(
+                    location = it,
+                    parentSyncId = it.parentId?.let { id -> locationSyncIdById[id] }
+                )
+            },
+            referenceNames = referenceNames,
+            syncedAfter = syncedAfter,
+            useSyncIds = useSyncIds,
+            syncId = { it.syncId },
+            id = { it.id },
+            updatedAt = { it.updatedAt },
+            deletedAt = { it.deletedAt },
+            title = { it.name }
+        )
+
+        changes += changeList(
+            entity = SyncEntityKind.LEDGER_RECORD,
+            snapshots = backup.ledgerRecords,
+            local = previewRows(
+                localRecords, useSyncIds,
+                { it.syncId }, { it.id }, { it.updatedAt ?: it.createdAt }, { it.deletedAt }
+            ).associateBy { it.key },
+            localSnapshots = snapshotJsonMap(localRecords, useSyncIds, { it.syncId }, { it.id }) {
+                LedgerRecordSnapshot.fromEntity(
+                    record = it,
+                    categorySyncId = it.categoryId?.let { id -> ledgerCategorySyncIdById[id] },
+                    assetSyncId = it.assetId?.let { id -> ledgerAssetSyncIdById[id] },
+                    targetAssetSyncId = it.targetAssetId?.let { id -> ledgerAssetSyncIdById[id] },
+                    itemSyncId = it.itemId?.let { id -> itemSyncIdById[id] }
+                )
+            },
+            referenceNames = referenceNames,
+            syncedAfter = syncedAfter,
+            useSyncIds = useSyncIds,
+            syncId = { it.syncId },
+            id = { it.id },
+            updatedAt = { it.updatedAt ?: it.createdAt },
+            deletedAt = { it.deletedAt },
+            title = { it.remark.ifBlank { recordTypeLabel(it.type) } },
+            subtitle = {
+                "${DateUtil.formatCurrency(LedgerMath.centsToYuan(it.amount))} · ${DateUtil.formatDate(it.recordTime)}"
+            },
+            specialValue = { field, value ->
+                if (field == "type") recordTypeLabel(value.toIntOrNull() ?: -1) else null
+            }
+        )
+
+        changes += changeList(
+            entity = SyncEntityKind.LEDGER_CATEGORY,
+            snapshots = backup.ledgerCategories,
+            local = previewRows(
+                localLedgerCategories, useSyncIds,
+                { it.syncId }, { it.id }, { it.updatedAt }, { it.deletedAt }, { it.isProtected }
+            ).associateBy { it.key },
+            localSnapshots = snapshotJsonMap(localLedgerCategories, useSyncIds, { it.syncId }, { it.id }) {
+                LedgerCategorySnapshot.fromEntity(it)
+            },
+            referenceNames = referenceNames,
+            syncedAfter = syncedAfter,
+            useSyncIds = useSyncIds,
+            syncId = { it.syncId },
+            id = { it.id },
+            updatedAt = { it.updatedAt },
+            deletedAt = { it.deletedAt },
+            title = { it.name }
+        )
+
+        changes += changeList(
+            entity = SyncEntityKind.LEDGER_ASSET,
+            snapshots = backup.ledgerAssets,
+            local = previewRows(
+                localAssets, useSyncIds,
+                { it.syncId }, { it.id }, { it.updatedAt }, { it.deletedAt }
+            ).associateBy { it.key },
+            localSnapshots = snapshotJsonMap(localAssets, useSyncIds, { it.syncId }, { it.id }) {
+                LedgerAssetSnapshot.fromEntity(it)
+            },
+            referenceNames = referenceNames,
+            syncedAfter = syncedAfter,
+            useSyncIds = useSyncIds,
+            syncId = { it.syncId },
+            id = { it.id },
+            updatedAt = { it.updatedAt },
+            deletedAt = { it.deletedAt },
+            title = { it.name }
+        )
+
+        // 预算标题带上所属记账分类的名字（sync 与旧版数字 id 两种键都登记），方便认出「这是哪笔预算」。
+        val ledgerCategoryNameByKey = buildMap {
+            localLedgerCategories.forEach { category ->
+                put(keyOf(category.syncId, category.id, useSyncIds), category.name)
+                category.syncId.orBlank()?.let { syncId -> put("sync:$syncId", category.name) }
             }
         }
-        return intArrayOf(added, updated, deleted)
+        changes += changeList(
+            entity = SyncEntityKind.LEDGER_BUDGET,
+            snapshots = backup.ledgerBudgets,
+            local = previewRows(
+                ledgerRepository.getAllBudgetsSnapshot(), useSyncIds,
+                { it.syncId }, { it.id }, { it.updatedAt }, { it.deletedAt }
+            ).associateBy { it.key },
+            localSnapshots = snapshotJsonMap(
+                ledgerRepository.getAllBudgetsSnapshot(), useSyncIds, { it.syncId }, { it.id }
+            ) {
+                LedgerBudgetSnapshot.fromEntity(
+                    budget = it,
+                    categorySyncId = it.categoryId?.let { id -> ledgerCategorySyncIdById[id] }
+                )
+            },
+            referenceNames = referenceNames,
+            syncedAfter = syncedAfter,
+            useSyncIds = useSyncIds,
+            syncId = { it.syncId },
+            id = { it.id },
+            updatedAt = { it.updatedAt },
+            deletedAt = { it.deletedAt },
+            title = { snapshot ->
+                snapshot.categorySyncId?.let { ledgerCategoryNameByKey["sync:$it"] }
+                    ?: snapshot.categoryId?.let { ledgerCategoryNameByKey["id:$it"] }
+                    ?: "预算"
+            },
+            subtitle = { DateUtil.formatCurrency(LedgerMath.centsToYuan(it.amount)) }
+        )
+
+        changes += changeList(
+            entity = SyncEntityKind.ANNIVERSARY,
+            snapshots = backup.anniversaries,
+            local = previewRows(
+                anniversaryRepository.getAllSnapshot(), useSyncIds,
+                { it.syncId }, { it.id }, { it.updatedAt ?: it.createdAt }, { it.deletedAt }
+            ).associateBy { it.key },
+            localSnapshots = snapshotJsonMap(
+                anniversaryRepository.getAllSnapshot(), useSyncIds, { it.syncId }, { it.id }
+            ) { AnniversarySnapshot.fromEntity(it) },
+            referenceNames = referenceNames,
+            syncedAfter = syncedAfter,
+            useSyncIds = useSyncIds,
+            syncId = { it.syncId },
+            id = { it.id },
+            updatedAt = { it.updatedAt ?: it.createdAt },
+            deletedAt = { it.deletedAt },
+            title = { it.name },
+            subtitle = { it.date },
+            specialValue = { field, value ->
+                if (field == "type") {
+                    when (value.toIntOrNull()) {
+                        Anniversary.TYPE_COUNTDOWN -> "倒数日"
+                        Anniversary.TYPE_COUNTUP -> "正数日"
+                        Anniversary.TYPE_BIRTHDAY -> "生日"
+                        else -> null
+                    }
+                } else {
+                    null
+                }
+            }
+        )
+
+        changes += changeList(
+            entity = SyncEntityKind.REMINDER,
+            snapshots = backup.reminders,
+            local = previewRows(
+                reminderRepository.getAllSnapshot(), useSyncIds,
+                { it.syncId }, { it.id }, { it.updatedAt ?: it.createdAt }, { it.deletedAt }
+            ).associateBy { it.key },
+            localSnapshots = snapshotJsonMap(
+                reminderRepository.getAllSnapshot(), useSyncIds, { it.syncId }, { it.id }
+            ) { ReminderSnapshot.fromEntity(it) },
+            referenceNames = referenceNames,
+            syncedAfter = syncedAfter,
+            useSyncIds = useSyncIds,
+            syncId = { it.syncId },
+            id = { it.id },
+            updatedAt = { it.updatedAt ?: it.createdAt },
+            deletedAt = { it.deletedAt },
+            title = { it.title }
+        )
+
+        return BackupChanges(changes = changes)
+    }
+
+    /** 账目的兜底标题：没写备注时按类型给一个可读的名字。 */
+    private fun recordTypeLabel(type: Int): String = when (type) {
+        LedgerRecord.TYPE_INCOME -> "收入"
+        LedgerRecord.TYPE_TRANSFER -> "转账"
+        else -> "支出"
+    }
+
+    /**
+     * 把一个实体的远端快照与本地逐条对照，产出带标题的变更列表。
+     * 判定与合并策略同口径：受保护记录不动、远端较新才算修改或删除；
+     * 本地已删除、远端也删除的墓碑重叠按「修改」处理（合并时是无害的重复落地）。
+     * 修改条目同时生成字段级 diff（S3）；[syncedAfter] 非 null 时，
+     * 本地与远端都在它之后改过的条目标记为真冲突（S4），由用户裁决。
+     */
+    private inline fun <reified T> changeList(
+        entity: SyncEntityKind,
+        snapshots: List<T>,
+        local: Map<String, PreviewRow>,
+        localSnapshots: Map<String, JsonObject> = emptyMap(),
+        referenceNames: Map<String, String> = emptyMap(),
+        syncedAfter: Long? = null,
+        useSyncIds: Boolean,
+        syncId: (T) -> String?,
+        id: (T) -> Long,
+        updatedAt: (T) -> Long?,
+        deletedAt: (T) -> Long?,
+        title: (T) -> String,
+        subtitle: (T) -> String? = { null },
+        noinline specialValue: (field: String, value: String) -> String? = { _, _ -> null }
+    ): List<SyncChange> = snapshots.mapNotNull { snapshot ->
+        val key = "${entity.name}:${keyOf(syncId(snapshot), id(snapshot), useSyncIds)}"
+        val existing = local[key.substringAfter(':')]
+        val kind = when {
+            existing == null ->
+                if (deletedAt(snapshot) == null) SyncChangeKind.ADDED else null
+            existing.protected -> null
+            !isRemoteNewer(updatedAt(snapshot), existing.updatedAt) -> null
+            deletedAt(snapshot) != null && existing.deletedAt == null -> SyncChangeKind.DELETED
+            else -> SyncChangeKind.MODIFIED
+        } ?: return@mapNotNull null
+        // S3：修改条目把本地行转成同构快照 JSON，与对方快照逐字段对照。
+        val diffs = if (kind == SyncChangeKind.MODIFIED) {
+            localSnapshots[existing?.key]?.let { localJson ->
+                diffFields(
+                    local = localJson,
+                    remote = diffJson.encodeToJsonElement(snapshot).jsonObject,
+                    referenceNames = referenceNames,
+                    specialValue = specialValue
+                )
+            }.orEmpty()
+        } else {
+            emptyList()
+        }
+        // S4：双方都在上次同步后改过 → 真冲突。勾选=采用对方，不勾=保留本机。
+        val conflict = kind == SyncChangeKind.MODIFIED && syncedAfter != null &&
+            (existing?.updatedAt ?: 0L) > syncedAfter && (updatedAt(snapshot) ?: 0L) > syncedAfter
+        SyncChange(
+            entity = entity,
+            kind = kind,
+            key = key,
+            title = title(snapshot),
+            subtitle = subtitle(snapshot),
+            diffs = diffs,
+            conflict = conflict
+        )
+    }
+
+    /** 把本地实体列表转成「对齐键 → 快照 JSON」：与远端快照同构，供字段级 diff 用（S3）。 */
+    private inline fun <T, reified S> snapshotJsonMap(
+        items: List<T>,
+        useSyncIds: Boolean,
+        syncId: (T) -> String?,
+        id: (T) -> Long,
+        toSnapshot: (T) -> S
+    ): Map<String, JsonObject> = items.associate { entity ->
+        val snapshot = toSnapshot(entity)
+        keyOf(syncId(entity), id(entity), useSyncIds) to
+            diffJson.encodeToJsonElement(snapshot).jsonObject
+    }
+
+    /** diff 编码专用：encodeDefaults 保证两侧键集合一致（空值/默认值也写出来），才能逐字段对照。 */
+    private val diffJson = Json {
+        encodeDefaults = true
+        ignoreUnknownKeys = true
     }
 
     private fun <T> previewRows(
@@ -707,4 +1096,148 @@ class AppBackupManager @Inject constructor(
 
         // 合并用的对齐键与新旧比较已随合并策略拆分到 BackupMergeStrategy.kt（F9）。
     }
+}
+
+/** diff 里不展示的字段：设备本地行 id、对齐键、只在本地有意义的图片路径、旧版单值状态。 */
+private val DIFF_EXCLUDED_FIELDS = setOf("id", "syncId", "imagePaths", "status")
+
+/** 字段名 → 中文标签（S3 diff 展示用）。 */
+private val FIELD_LABELS = mapOf(
+    "name" to "名称",
+    "barcode" to "条码",
+    "quantity" to "数量",
+    "consumedQuantity" to "已消耗",
+    "unit" to "单位",
+    "price" to "价格",
+    "expireTime" to "保质期",
+    "usageStatus" to "使用进度",
+    "disposition" to "去向",
+    "needRestock" to "需要补货",
+    "purchaseDate" to "购买日期",
+    "productionDate" to "生产日期",
+    "startUseTime" to "开始使用",
+    "usageEndedAt" to "用完时间",
+    "trackMode" to "计量方式",
+    "forWhom" to "待买归属",
+    "rating" to "评分",
+    "ratedAt" to "评分时间",
+    "note" to "备注",
+    "createdAt" to "创建时间",
+    "updatedAt" to "修改时间",
+    "deletedAt" to "删除时间",
+    "icon" to "图标",
+    "parentSyncId" to "上级",
+    "isProtected" to "内置保护",
+    "type" to "类型",
+    "amount" to "金额",
+    "recordTime" to "记账时间",
+    "remark" to "备注",
+    "period" to "周期",
+    "date" to "日期",
+    "isLunar" to "农历",
+    "lunarMonth" to "农历月",
+    "lunarDay" to "农历日",
+    "repeatUnit" to "重复单位",
+    "repeatInterval" to "重复间隔",
+    "remindDays" to "提前提醒天数",
+    "enabled" to "启用",
+    "repeatType" to "重复方式",
+    "intervalDays" to "间隔天数",
+    "weekdays" to "每周",
+    "fireTime" to "提醒时刻",
+    "targetDate" to "目标日期",
+    "nextFireAt" to "下次提醒",
+    "completedAt" to "完成时间",
+    "source" to "来源",
+    "sourceKey" to "来源键",
+    "sort" to "排序",
+    "initialBalance" to "期初余额",
+    "kind" to "收支类别",
+    "categorySyncId" to "所属分类",
+    "assetSyncId" to "所属账户",
+    "targetAssetSyncId" to "转入账户",
+    "itemSyncId" to "关联家当"
+)
+
+/** 家当三维状态的码值 → 文案（S3 diff 展示用）。 */
+private val ITEM_VALUE_LABELS = mapOf(
+    "usageStatus" to mapOf(
+        Item.USAGE_UNUSED.toLong() to "未使用",
+        Item.USAGE_IN_USE.toLong() to "使用中",
+        Item.USAGE_USED_UP.toLong() to "已用完"
+    ),
+    "disposition" to mapOf(
+        Item.DISPOSITION_IN_STOCK.toLong() to "在库",
+        Item.DISPOSITION_LENT_OUT.toLong() to "借出",
+        Item.DISPOSITION_GIVEN_AWAY.toLong() to "送人",
+        Item.DISPOSITION_DISCARDED.toLong() to "丢弃"
+    ),
+    "trackMode" to mapOf(
+        Item.TRACK_CONSUMABLE.toLong() to "按件消耗",
+        Item.TRACK_DURABLE.toLong() to "持续使用"
+    )
+)
+
+/**
+ * 逐字段对照本地与远端的同构快照 JSON（S3）：两侧都是同一 schema 编出来的 JsonObject，
+ * 键集合一致，凡是值不同的字段都进 diff，展示为「本地值 → 对方值」。
+ */
+private fun diffFields(
+    local: JsonObject,
+    remote: JsonObject,
+    referenceNames: Map<String, String>,
+    specialValue: (field: String, value: String) -> String?
+): List<FieldDiff> = buildList {
+    remote.forEach { (field, remoteElement) ->
+        if (field in DIFF_EXCLUDED_FIELDS) return@forEach
+        val localElement = local[field] ?: return@forEach
+        if (localElement == remoteElement) return@forEach
+        add(
+            FieldDiff(
+                field = field,
+                label = FIELD_LABELS[field] ?: field,
+                localValue = formatDiffValue(field, localElement, referenceNames, specialValue),
+                remoteValue = formatDiffValue(field, remoteElement, referenceNames, specialValue)
+            )
+        )
+    }
+}
+
+/** 把一个 JSON 值翻成用户读得懂的短文案：时间戳转日期、分转金额、码值转中文、UUID 转名字。 */
+private fun formatDiffValue(
+    field: String,
+    element: JsonElement,
+    referenceNames: Map<String, String>,
+    specialValue: (field: String, value: String) -> String?
+): String {
+    if (element is JsonNull) return "（空）"
+    val primitive = element as? JsonPrimitive ?: return element.toString()
+    if (primitive.isString) {
+        val value = primitive.content
+        specialValue(field, value)?.let { return it }
+        return when {
+            field == "forWhom" -> when (value) {
+                "self" -> "自己"
+                "partner" -> "对方"
+                "shared" -> "共用"
+                else -> value
+            }
+            field.endsWith("SyncId") -> referenceNames[value] ?: value
+            else -> value
+        }
+    }
+    primitive.longOrNull?.let { value ->
+        specialValue(field, value.toString())?.let { return it }
+        ITEM_VALUE_LABELS[field]?.get(value)?.let { return it }
+        return when {
+            field == "amount" || field == "initialBalance" ->
+                DateUtil.formatCurrency(LedgerMath.centsToYuan(value))
+            field.endsWith("At") || field.endsWith("Time") || field.endsWith("Date") ->
+                DateUtil.formatDate(value)
+            else -> value.toString()
+        }
+    }
+    primitive.booleanOrNull?.let { return if (it) "是" else "否" }
+    primitive.doubleOrNull?.let { return DateUtil.formatCurrency(it) }
+    return primitive.content
 }

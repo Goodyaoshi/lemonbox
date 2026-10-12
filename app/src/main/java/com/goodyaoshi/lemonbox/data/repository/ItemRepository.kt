@@ -153,6 +153,15 @@ class ItemRepository @Inject constructor(
         itemDao.updateUsageWindow(id, now, null, now)
     }
 
+    /** 撤销「已买到」：按勾选前的快照写回使用状态与周期，回到待买队列。 */
+    suspend fun undoRestoreToInUse(previous: Item) {
+        val now = MonotonicClock.now()
+        itemDao.updateUsageStatus(previous.id, previous.usageStatus, now)
+        itemDao.updateNeedRestock(previous.id, previous.needRestock, now)
+        itemDao.updatePurchaseDate(previous.id, previous.purchaseDate, now)
+        itemDao.updateUsageWindow(previous.id, previous.startUseTime, previous.usageEndedAt, now)
+    }
+
     /** 详情页手动切换「使用进度」，同步维护使用周期窗口。 */
     suspend fun setUsageStatus(id: Long, usageStatus: Int) {
         val item = itemDao.getItemById(id) ?: return

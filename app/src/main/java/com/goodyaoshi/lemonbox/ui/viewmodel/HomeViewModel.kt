@@ -182,12 +182,17 @@ class HomeViewModel @Inject constructor(
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
-    /** 「今天的事」：提醒待办 + 临期家当 + 待买，提醒在前（要紧），临期次之，待买在后。 */
+    /**
+     * 「今天的事」：提醒待办 + 临期家当 + 待买，提醒在前（要紧），临期次之，待买在后。
+     * 被「今天忽略」（H1）的临期事项当天不再出现，明天照常回来。
+     */
     val todayEvents: StateFlow<List<TodayEvent>> = combine(
         todayReminders,
         expiringItems,
-        toBuyItems
-    ) { reminders, expiring, toBuy ->
+        toBuyItems,
+        appPreferences.expiryIgnores
+    ) { reminders, expiring, toBuy, ignores ->
+        val today = LocalDate.now().toString()
         buildList {
             reminders.forEach { reminder ->
                 add(
@@ -203,13 +208,16 @@ class HomeViewModel @Inject constructor(
                 )
             }
             expiring.forEach { detail ->
+                val key = "expiry:${detail.item.id}"
+                if (ignores.containsToday(key, today)) return@forEach
                 add(
                     TodayEvent(
                         kind = TodayEventKind.EXPIRY,
-                        key = "expiry:${detail.item.id}",
+                        key = key,
                         title = detail.item.name,
                         detail = expiryDetail(detail.item.expireTime),
-                        target = TodayEventTarget.ItemDetail(detail.item.id)
+                        target = TodayEventTarget.ItemDetail(detail.item.id),
+                        itemId = detail.item.id
                     )
                 )
             }
@@ -227,12 +235,35 @@ class HomeViewModel @Inject constructor(
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    /** 在今日清单里勾掉一条提醒待办（一次性记完成，周期提醒推进下一轮）。 */
-    fun completeTodayEvent(event: TodayEvent) {
+    /**
+     * 在今日清单里勾掉一条提醒待办（一次性记完成，周期提醒推进下一轮）。
+     * 勾掉前先经 [onCompleted] 回传完成前的快照，UI 用它接撤销（H1）。
+     */
+    fun completeTodayEvent(event: TodayEvent, onCompleted: (Reminder?) -> Unit = {}) {
         val id = event.reminderId ?: return
         viewModelScope.launch {
-            todayReminders.value.firstOrNull { it.id == id }?.let { reminderRepository.complete(it) }
+            todayReminders.value.firstOrNull { it.id == id }?.let { reminder ->
+                onCompleted(reminder)
+                reminderRepository.complete(reminder)
+            }
         }
+    }
+
+    /** 撤销勾掉：把提醒恢复到完成前的状态（H1）。 */
+    fun undoCompleteTodayEvent(snapshot: Reminder) {
+        viewModelScope.launch { reminderRepository.restoreCompleted(snapshot) }
+    }
+
+    /** 「今天忽略」一条临期事项（H1）：只影响今天，明天它会照常回来。 */
+    fun ignoreExpiryToday(event: TodayEvent) {
+        if (event.kind != TodayEventKind.EXPIRY) return
+        appPreferences.ignoreExpiryForToday(event.key)
+    }
+
+    /** 撤销今天的忽略（Snackbar 撤销用）。 */
+    fun undoIgnoreExpiryToday(event: TodayEvent) {
+        if (event.kind != TodayEventKind.EXPIRY) return
+        appPreferences.undoExpiryIgnore(event.key)
     }
 
     /** 临期行的副文案：按剩余天数给出紧迫程度。 */

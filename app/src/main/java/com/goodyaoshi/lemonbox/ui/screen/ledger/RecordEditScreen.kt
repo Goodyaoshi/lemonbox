@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -80,6 +81,7 @@ import java.time.ZoneId
 @Composable
 fun RecordEditScreen(
     onBack: () -> Unit,
+    onOpenOcr: () -> Unit = {},
     viewModel: RecordEditViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsState()
@@ -157,6 +159,19 @@ fun RecordEditScreen(
                 )
                 Spacer(modifier = Modifier.weight(1f))
                 if (state.recordId == 0L) {
+                    // OCR 前置入口（IA-3）：拍照识别发票金额直接预填，不用再去「我的」绕一圈。
+                    Text(
+                        text = "拍照识别",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = TextSecondary,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(SurfaceWarmDeep)
+                            .clickable(onClick = onOpenOcr)
+                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                    )
+                    Spacer(modifier = Modifier.size(8.dp))
                     Text(
                         text = if (continuousEntry) "连续录入·开" else "连续录入",
                         fontSize = 12.sp,

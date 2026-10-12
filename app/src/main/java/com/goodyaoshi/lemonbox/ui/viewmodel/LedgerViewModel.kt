@@ -54,7 +54,8 @@ class LedgerViewModel @Inject constructor(
     appPreferences: AppPreferences
 ) : ViewModel() {
 
-    private val monthStartDay = appPreferences.ledgerMonthStartDay
+    /** 账期起算日（ST1）：口径外显到流水页，让「这个月」从几号算起一目了然。 */
+    val monthStartDay: StateFlow<Int> = appPreferences.ledgerMonthStartDay
 
     private val _yearMonth = MutableStateFlow(YearMonth.now())
 
@@ -139,6 +140,36 @@ class LedgerViewModel @Inject constructor(
 
     fun deleteRecord(id: Long) {
         viewModelScope.launch { ledgerRepository.deleteRecord(id) }
+    }
+
+    // ---- 批量管理（B1）：与回收站同一套多选范式 ----
+
+    private val _selectedRecordIds = MutableStateFlow<Set<Long>>(emptySet())
+    val selectedRecordIds: StateFlow<Set<Long>> = _selectedRecordIds.asStateFlow()
+
+    fun toggleRecordSelection(id: Long) {
+        _selectedRecordIds.value = if (id in _selectedRecordIds.value) {
+            _selectedRecordIds.value - id
+        } else {
+            _selectedRecordIds.value + id
+        }
+    }
+
+    fun selectAllRecords(ids: Set<Long>) {
+        _selectedRecordIds.value = ids
+    }
+
+    fun clearRecordSelection() {
+        _selectedRecordIds.value = emptySet()
+    }
+
+    /** 批量删除（软删入回收站），与单条删除走同一通道，之后都能撤销。 */
+    fun deleteRecords(ids: Collection<Long>) {
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            ids.forEach { ledgerRepository.deleteRecord(it) }
+            _selectedRecordIds.value = emptySet()
+        }
     }
 
     /** 撤销删除：把刚移入回收站的账单恢复回来。 */

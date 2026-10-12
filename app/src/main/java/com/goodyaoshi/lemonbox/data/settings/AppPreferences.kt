@@ -8,6 +8,7 @@ import com.goodyaoshi.lemonbox.data.local.entity.StatusDimension
 import com.goodyaoshi.lemonbox.data.meal.MealSpec
 import com.goodyaoshi.lemonbox.data.meal.Recipe
 import com.goodyaoshi.lemonbox.data.meal.RecipeIngredient
+import com.goodyaoshi.lemonbox.data.sync.SyncReport
 import com.goodyaoshi.lemonbox.util.DateUtil
 import com.goodyaoshi.lemonbox.util.MonotonicClock
 import com.goodyaoshi.lemonbox.util.UserCopy
@@ -15,6 +16,8 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.Json
 import java.security.MessageDigest
 import java.time.LocalDate
 import java.util.UUID
@@ -26,6 +29,19 @@ enum class ThemeMode {
     SYSTEM,
     LIGHT,
     DARK
+}
+
+/**
+ * 首页临期事项的当日忽略记录（H1）：key 集合只在记录当天有效，跨天自动失效。
+ * key 与「今天的事」的 event.key 同构（如 "expiry:12"），避免两边各造一套标识。
+ */
+data class ExpiryIgnores(
+    val date: String,
+    val keys: Set<String>
+) {
+    /** 该 key 今天是否已被忽略；日期不是今天时一律视为未忽略。 */
+    fun containsToday(key: String, today: String): Boolean =
+        date == today && key in keys
 }
 
 /**
@@ -403,6 +419,66 @@ class AppPreferences @Inject constructor(
     /** 搜索历史（最近 8 条，新的在前），持久化以免杀进程后丢失。 */
     val searchHistory: StateFlow<List<String>> = _searchHistory.asStateFlow()
 
+    // ---- H1：首页临期事项「今天忽略」----
+    private val _expiryIgnores = MutableStateFlow(loadExpiryIgnores())
+
+    /** 首页临期事项的当日忽略记录；读取时已按日期失效，跨天自动清空。 */
+    val expiryIgnores: StateFlow<ExpiryIgnores> = _expiryIgnores.asStateFlow()
+
+    /** 「今天忽略」一条临期事项：只影响今天，明天它会照常回来。 */
+    fun ignoreExpiryForToday(key: String) {
+        val today = LocalDate.now().toString()
+        val keys = if (_expiryIgnores.value.date == today) {
+            _expiryIgnores.value.keys + key
+        } else {
+            setOf(key)
+        }
+        saveExpiryIgnores(ExpiryIgnores(today, keys))
+    }
+
+    /** 撤销今天的忽略（Snackbar 撤销用）。 */
+    fun undoExpiryIgnore(key: String) {
+        val today = LocalDate.now().toString()
+        if (_expiryIgnores.value.date != today) return
+        saveExpiryIgnores(ExpiryIgnores(today, _expiryIgnores.value.keys - key))
+    }
+
+    private fun loadExpiryIgnores(): ExpiryIgnores {
+        val storedDate = preferences.getString(KEY_EXPIRY_IGNORED_DATE, null)
+            ?: return ExpiryIgnores("", emptySet())
+        // 跨天后旧记录自然失效：读取时就判日期，不匹配直接给空。
+        if (storedDate != LocalDate.now().toString()) return ExpiryIgnores("", emptySet())
+        return ExpiryIgnores(
+            date = storedDate,
+            keys = preferences.getStringSet(KEY_EXPIRY_IGNORED_KEYS, emptySet()).orEmpty()
+        )
+    }
+
+    private fun saveExpiryIgnores(value: ExpiryIgnores) {
+        _expiryIgnores.value = value
+        preferences.edit()
+            .putString(KEY_EXPIRY_IGNORED_DATE, value.date.ifEmpty { null })
+            .putStringSet(KEY_EXPIRY_IGNORED_KEYS, value.keys)
+            .apply()
+    }
+
+    // ---- SE1：用户自定义筛选预设 ----
+    private val _userFilterPresets = MutableStateFlow(loadUserFilterPresets())
+
+    /**
+     * 用户自定义筛选预设（SE1）：UI 层序列化好的 JSON 串集合，这里只存不解析，
+     * 避免数据层依赖 UI 的筛选模型。
+     */
+    val userFilterPresets: StateFlow<Set<String>> = _userFilterPresets.asStateFlow()
+
+    fun setUserFilterPresets(presets: Set<String>) {
+        preferences.edit().putStringSet(KEY_USER_FILTER_PRESETS, presets).apply()
+        _userFilterPresets.value = presets
+    }
+
+    private fun loadUserFilterPresets(): Set<String> =
+        preferences.getStringSet(KEY_USER_FILTER_PRESETS, emptySet()).orEmpty()
+
     private val _lastSyncAt = MutableStateFlow(
         preferences.getLong(KEY_LAST_SYNC_AT, NO_SYNC_AT).takeIf { it != NO_SYNC_AT }
     )
@@ -483,6 +559,33 @@ class AppPreferences @Inject constructor(
         preferences.edit().putLong(KEY_LAST_SYNC_AT, timestamp).apply()
         _lastSyncAt.value = timestamp
     }
+
+    private val _syncReports = MutableStateFlow(loadSyncReports())
+
+    /** 最近几次局域网同步的回执（S5）：新的在前，最多保留 [MAX_SYNC_REPORTS] 条。 */
+    val syncReports: StateFlow<List<SyncReport>> = _syncReports.asStateFlow()
+
+    /** 记一条同步回执：prepend 后截断到上限，避免历史无限增长。 */
+    fun recordSyncReport(report: SyncReport) {
+        val updated = (listOf(report) + _syncReports.value).take(MAX_SYNC_REPORTS)
+        _syncReports.value = updated
+        preferences.edit()
+            .putString(
+                KEY_SYNC_REPORTS,
+                syncReportsJson.encodeToString(ListSerializer(SyncReport.serializer()), updated)
+            )
+            .apply()
+    }
+
+    private fun loadSyncReports(): List<SyncReport> =
+        preferences.getString(KEY_SYNC_REPORTS, null)?.let { raw ->
+            runCatching {
+                syncReportsJson.decodeFromString(ListSerializer(SyncReport.serializer()), raw)
+            }.getOrDefault(emptyList())
+        } ?: emptyList()
+
+    /** 同步历史的 JSON 编解码配置：容忍旧版本多出的字段。 */
+    private val syncReportsJson = Json { ignoreUnknownKeys = true }
 
     fun setSearchHistory(history: List<String>) {
         _searchHistory.value = history
@@ -1047,8 +1150,15 @@ class AppPreferences @Inject constructor(
         /** HH:mm 时间格式（24 小时制），用于校验自定义时间输入。 */
         private val TIME_FORMAT = Regex("^([01]\\d|2[0-3]):[0-5]\\d$")
         private const val KEY_LAST_SYNC_AT = "last_sync_at"
+        private const val KEY_SYNC_REPORTS = "sync_reports"
+
+        /** 同步历史上限：足够回看最近一段时间的同步，又不至于无限膨胀。 */
+        private const val MAX_SYNC_REPORTS = 20
         private const val KEY_EXPIRY_NOTIFIED_DATE = "expiry_notified_date"
+        private const val KEY_EXPIRY_IGNORED_DATE = "expiry_ignored_date"
+        private const val KEY_EXPIRY_IGNORED_KEYS = "expiry_ignored_keys"
         private const val KEY_SEARCH_HISTORY = "search_history"
+        private const val KEY_USER_FILTER_PRESETS = "user_filter_presets"
         private const val KEY_WEEKLY_MENU = "weekly_menu"
         private const val KEY_COOKED_MENU_DATES = "cooked_menu_dates"
         private const val KEY_THEME_MODE = "theme_mode"

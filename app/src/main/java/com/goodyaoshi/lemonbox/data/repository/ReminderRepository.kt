@@ -108,6 +108,15 @@ class ReminderRepository @Inject constructor(
         scheduler.reschedule()
     }
 
+    /**
+     * 撤销完成（H1）：用完成前的快照原样写回——一次性提醒恢复启用，周期提醒回到上一轮触发时间。
+     * 快照必须来自完成前的实体（首页「今天的事」勾掉时先捕获再落库）。
+     */
+    suspend fun restoreCompleted(reminder: Reminder) {
+        reminderDao.update(reminder.copy(updatedAt = System.currentTimeMillis()))
+        scheduler.reschedule()
+    }
+
     /** 软删除：墓碑随备份/同步传递；菜谱准备提醒等来源型提醒同样走这里。 */
     suspend fun delete(reminder: Reminder) {
         val now = System.currentTimeMillis()
@@ -116,6 +125,14 @@ class ReminderRepository @Inject constructor(
         } else {
             reminderDao.softDelete(id = reminder.id, deletedAt = now, updatedAt = now)
         }
+        scheduler.reschedule()
+    }
+
+    /** 撤销删除（R1）：清掉墓碑标记让提醒复活，并按原计划重排调度。 */
+    suspend fun restore(reminder: Reminder) {
+        reminderDao.update(
+            reminder.copy(deletedAt = null, updatedAt = System.currentTimeMillis())
+        )
         scheduler.reschedule()
     }
 

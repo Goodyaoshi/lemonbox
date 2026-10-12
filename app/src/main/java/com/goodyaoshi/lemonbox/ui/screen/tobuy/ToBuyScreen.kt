@@ -23,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoGraph
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
@@ -81,6 +82,7 @@ import com.goodyaoshi.lemonbox.util.LedgerMath
 fun ToBuyScreen(
     onBack: () -> Unit,
     onRecordPurchase: (itemId: Long, amountCents: Long, name: String) -> Unit = { _, _, _ -> },
+    onOpenRestockForecast: () -> Unit = {},
     viewModel: ToBuyViewModel = hiltViewModel()
 ) {
     val items by viewModel.items.collectAsState()
@@ -152,6 +154,30 @@ fun ToBuyScreen(
                         color = TextSecondary
                     )
                 }
+                // 智能补货入口（IA-4）：算完就能回到待买闭环，不用绕去「我的」。
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(SurfaceWarmDeep)
+                        .clickable(onClick = onOpenRestockForecast)
+                        .padding(horizontal = 14.dp, vertical = 9.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AutoGraph,
+                        contentDescription = null,
+                        tint = OrangeStart,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.size(4.dp))
+                    Text(
+                        text = "智能补货",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = OrangeStart
+                    )
+                }
+                Spacer(modifier = Modifier.size(8.dp))
                 Row(
                     modifier = Modifier
                         .clip(RoundedCornerShape(999.dp))
@@ -253,15 +279,25 @@ fun ToBuyScreen(
                                         itemDetail.locationName
                                     ).joinToString(" · ").ifBlank { "未设置分类与位置" },
                                     onBought = {
-                                        viewModel.markBought(itemDetail.item.id)
-                                        // 家当联动：跳到记一笔预填金额与名称，不需要时直接返回即可。
-                                        onRecordPurchase(
-                                            itemDetail.item.id,
-                                            LedgerMath.itemPriceToCents(
-                                                itemDetail.item.price ?: 0.0,
-                                                itemDetail.item.quantity
-                                            ),
-                                            itemDetail.item.name
+                                        // 先留一份勾选前的快照，撤销时按它恢复。
+                                        val previous = itemDetail.item
+                                        viewModel.markBought(previous.id)
+                                        // 家当联动改为可选：不再强制跳页，想记账点「记一笔」，点错用「撤销」。
+                                        appSnackbar?.showDualAction(
+                                            message = "「${previous.name}」已归位",
+                                            primaryLabel = "记一笔",
+                                            secondaryLabel = "撤销",
+                                            onPrimary = {
+                                                onRecordPurchase(
+                                                    previous.id,
+                                                    LedgerMath.itemPriceToCents(
+                                                        previous.price ?: 0.0,
+                                                        previous.quantity
+                                                    ),
+                                                    previous.name
+                                                )
+                                            },
+                                            onSecondary = { viewModel.undoMarkBought(previous) }
                                         )
                                     },
                                     // 之前待买项只能删不能改，写错名字/数量只能删掉重建；这里补一个编辑入口。

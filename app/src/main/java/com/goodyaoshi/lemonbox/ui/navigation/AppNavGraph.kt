@@ -96,12 +96,14 @@ import com.goodyaoshi.lemonbox.ui.screen.meal.RecipeLibraryScreen
 import com.goodyaoshi.lemonbox.ui.screen.ocr.OcrScreen
 import com.goodyaoshi.lemonbox.ui.screen.packing.PackingListScreen
 import com.goodyaoshi.lemonbox.ui.screen.packing.PackingTripScreen
+import com.goodyaoshi.lemonbox.ui.screen.profile.DataCenterScreen
 import com.goodyaoshi.lemonbox.ui.screen.profile.ProfileScreen
 import com.goodyaoshi.lemonbox.ui.screen.reminders.RemindersScreen
 import com.goodyaoshi.lemonbox.ui.screen.save.SavePhotoMode
 import com.goodyaoshi.lemonbox.ui.screen.save.SaveScreen
 import com.goodyaoshi.lemonbox.ui.screen.scan.ScanScreen
-import com.goodyaoshi.lemonbox.ui.screen.search.SearchScreen
+import com.goodyaoshi.lemonbox.ui.screen.search.HouseholdScreen
+import com.goodyaoshi.lemonbox.ui.screen.settings.NotificationReliabilityScreen
 import com.goodyaoshi.lemonbox.ui.screen.settings.SettingsScreen
 import com.goodyaoshi.lemonbox.ui.screen.sleep.SleepScreen
 import com.goodyaoshi.lemonbox.ui.screen.sync.LanSyncScreen
@@ -233,6 +235,10 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
                         onNavigateToEdit = { id -> navController.navigate(Screen.Edit.createRoute(id)) },
                         onNavigateToExpiry = { navController.navigate(Screen.Expiry.route) },
                         onNavigateToScan = openScan,
+                        // IA-2：首页搜索回车带关键词跳家当 Tab，复用同一套筛选。
+                        onSearchInHousehold = { query ->
+                            navController.navigate(Screen.Household.createRoute(query))
+                        },
                         onNavigateToToBuy = { navController.navigate(Screen.ToBuy.route) },
                         onNavigateToReminders = { navController.navigate(Screen.Reminders.route) },
                         onNavigateToLedger = { navigateToTopLevel(Screen.Ledger.route) },
@@ -401,6 +407,7 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
                         onOpenCamera = { photoMode ->
                             openCamera(CameraReturnTarget.SaveDraft(photoMode))
                         },
+                        onOpenOcr = { navController.navigate(Screen.Ocr.route) },
                         initialBarcode = encodedBarcode.takeIf { it.isNotBlank() }?.let { Uri.decode(it) },
                         initialName = encodedName.takeIf { it.isNotBlank() }?.let { Uri.decode(it) }
                     )
@@ -433,8 +440,20 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
                     )
                 }
 
-                composable(Screen.Household.route) {
-                    SearchScreen(
+                // 家当 Tab 支持携带初始关键词（IA-2）：首页搜索回车直接带词进来；
+                // query 为可选参数，底栏 Tab 仍导航不带参的 "household"，缺省空串即可匹配。
+                composable(
+                    route = "household?query={query}",
+                    arguments = listOf(
+                        navArgument("query") {
+                            type = NavType.StringType
+                            defaultValue = ""
+                        }
+                    )
+                ) { entry ->
+                    val initialQuery = entry.arguments?.getString("query").orEmpty()
+                    HouseholdScreen(
+                        initialQuery = initialQuery,
                         onNavigateToDetail = { id, filter ->
                             navController.navigate(Screen.Detail.createRoute(id, filter.toDetailScope()))
                         },
@@ -492,7 +511,10 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
                         }
                     )
                 ) {
-                    RecordEditScreen(onBack = { navController.popBackStack() })
+                    RecordEditScreen(
+                        onBack = { navController.popBackStack() },
+                        onOpenOcr = { navController.navigate(Screen.Ocr.route) }
+                    )
                 }
 
                 composable(Screen.LedgerStats.route) {
@@ -705,15 +727,20 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
                             backStackEntry.savedStateHandle.remove<String>(OCR_RESULT_IMAGE_URI)
                         },
                         onNavigateToRecord = { amountCents, remark ->
+                            // 从记一笔页进来识别后回跳：替换栈里的旧表单，避免返回时又见空白页（IA-3）。
                             navController.navigate(
                                 Screen.RecordEdit.createRoute(amount = amountCents, remark = remark)
-                            )
+                            ) {
+                                popUpTo(Screen.RecordEdit.route) { inclusive = true }
+                            }
                         },
                         onNavigateToSave = { name, imagePath ->
                             val imageUri = imagePath?.let { Uri.fromFile(File(it)).toString() }
                             navController.navigate(
                                 Screen.Save.createRoute(imageUri = imageUri, name = name)
-                            )
+                            ) {
+                                popUpTo(Screen.Save.route) { inclusive = true }
+                            }
                         }
                     )
                 }
@@ -754,7 +781,7 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
                 composable(Screen.Profile.route) {
                     ProfileScreen(
                         onOpenSettings = { navController.navigate(Screen.Settings.route) },
-                        onOpenLanSync = { navController.navigate(Screen.LanSync.route) },
+                        onOpenDataCenter = { navController.navigate(Screen.DataCenter.route) },
                         onOpenReminders = { navController.navigate(Screen.Reminders.route) },
                         onOpenAnniversaries = { navController.navigate(Screen.Anniversaries.route) },
                         onOpenOcr = { navController.navigate(Screen.Ocr.route) },
@@ -762,6 +789,13 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
                         onOpenTimeCapsule = { navController.navigate(Screen.TimeCapsule.route) },
                         onOpenPackingList = { navController.navigate(Screen.PackingList.route) },
                         onOpenSleep = { navController.navigate(Screen.Sleep.route) }
+                    )
+                }
+
+                composable(Screen.DataCenter.route) {
+                    DataCenterScreen(
+                        onBack = { navController.popBackStack() },
+                        onOpenLanSync = { navController.navigate(Screen.LanSync.route) }
                     )
                 }
 
@@ -776,7 +810,8 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
                                     remark = name
                                 )
                             )
-                        }
+                        },
+                        onOpenRestockForecast = { navController.navigate(Screen.RestockForecast.route) }
                     )
                 }
 
@@ -788,6 +823,15 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
 
                 composable(Screen.Settings.route) {
                     SettingsScreen(
+                        onBack = { navController.popBackStack() },
+                        onOpenNotificationReliability = {
+                            navController.navigate(Screen.NotificationReliability.route)
+                        }
+                    )
+                }
+
+                composable(Screen.NotificationReliability.route) {
+                    NotificationReliabilityScreen(
                         onBack = { navController.popBackStack() }
                     )
                 }

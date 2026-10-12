@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.goodyaoshi.lemonbox.data.local.entity.Anniversary
 import com.goodyaoshi.lemonbox.data.repository.AnniversaryRepository
 import com.goodyaoshi.lemonbox.data.repository.AnniversarySaveResult
+import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import com.goodyaoshi.lemonbox.util.AnniversaryClock
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
@@ -38,8 +39,24 @@ data class AnniversaryRow(
 /** 纪念日列表：全部未删除（含停用），按「越快到越靠前」排序，累计的排后面按天数多的在前。 */
 @HiltViewModel
 class AnniversaryViewModel @Inject constructor(
-    private val anniversaryRepository: AnniversaryRepository
+    private val anniversaryRepository: AnniversaryRepository,
+    private val appPreferences: AppPreferences
 ) : ViewModel() {
+
+    // 「在一起」配置（IA-6）：单域设置下沉到纪念日页页头齿轮，不再混在全局设置里。
+    val togetherStartDate: StateFlow<String?> = appPreferences.togetherStartDate
+
+    val togetherLabelName: StateFlow<String> = appPreferences.togetherLabelName
+
+    /** 设置「在一起」起始日；传 null 表示清除，首页回退按纪念日派生。 */
+    fun setTogetherStartDate(date: String?) {
+        appPreferences.setTogetherStartDate(date)
+    }
+
+    /** 设置首页计数前缀，如「我们」。 */
+    fun setTogetherLabelName(name: String) {
+        appPreferences.setTogetherLabelName(name)
+    }
 
     val rows: StateFlow<List<AnniversaryRow>> = anniversaryRepository.getAllAnniversaries()
         .map { list ->

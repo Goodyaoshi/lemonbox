@@ -92,4 +92,11 @@ class RemindersViewModel @Inject constructor(
             reminderRepository.delete(reminder)
         }
     }
+
+    /** 撤销删除（R1）：把刚软删的提醒恢复回来并重排调度。 */
+    fun restore(reminder: Reminder) {
+        viewModelScope.launch {
+            reminderRepository.restore(reminder)
+        }
+    }
 }

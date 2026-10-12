@@ -36,6 +36,7 @@ sealed interface TodayEventTarget {
  * @param key 稳定标识，供 Compose 列表复用
  * @param completable 是否可在今日清单里直接勾掉（目前仅提醒待办）
  * @param reminderId 可勾选时对应提醒的 id，完成时回查用
+ * @param itemId 临期事项对应物品的 id，「今天忽略」用（H1）
  */
 data class TodayEvent(
     val kind: TodayEventKind,
@@ -44,5 +45,6 @@ data class TodayEvent(
     val detail: String? = null,
     val target: TodayEventTarget,
     val completable: Boolean = false,
-    val reminderId: Long? = null
+    val reminderId: Long? = null,
+    val itemId: Long? = null
 )
