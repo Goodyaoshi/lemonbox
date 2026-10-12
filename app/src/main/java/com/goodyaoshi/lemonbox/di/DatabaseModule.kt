@@ -8,8 +8,13 @@ import com.goodyaoshi.lemonbox.data.local.dao.LedgerAssetDao
 import com.goodyaoshi.lemonbox.data.local.dao.LedgerBudgetDao
 import com.goodyaoshi.lemonbox.data.local.dao.LedgerCategoryDao
 import com.goodyaoshi.lemonbox.data.local.dao.LedgerRecordDao
+import com.goodyaoshi.lemonbox.data.local.dao.LedgerRecurringRuleDao
+import com.goodyaoshi.lemonbox.data.local.dao.LedgerTemplateDao
 import com.goodyaoshi.lemonbox.data.local.dao.LocationDao
+import com.goodyaoshi.lemonbox.data.local.dao.PackingItemDao
+import com.goodyaoshi.lemonbox.data.local.dao.PackingTripDao
 import com.goodyaoshi.lemonbox.data.local.dao.ReminderDao
+import com.goodyaoshi.lemonbox.data.local.dao.TimeCapsuleDao
 import com.goodyaoshi.lemonbox.data.local.database.AppDatabase
 import dagger.Module
 import dagger.Provides
@@ -56,4 +61,21 @@ object DatabaseModule {
     @Provides
     fun provideLedgerBudgetDao(database: AppDatabase): LedgerBudgetDao =
         database.ledgerBudgetDao()
+
+    @Provides
+    fun provideLedgerTemplateDao(database: AppDatabase): LedgerTemplateDao =
+        database.ledgerTemplateDao()
+
+    @Provides
+    fun provideLedgerRecurringRuleDao(database: AppDatabase): LedgerRecurringRuleDao =
+        database.ledgerRecurringRuleDao()
+
+    @Provides
+    fun provideTimeCapsuleDao(database: AppDatabase): TimeCapsuleDao = database.timeCapsuleDao()
+
+    @Provides
+    fun providePackingTripDao(database: AppDatabase): PackingTripDao = database.packingTripDao()
+
+    @Provides
+    fun providePackingItemDao(database: AppDatabase): PackingItemDao = database.packingItemDao()
 }

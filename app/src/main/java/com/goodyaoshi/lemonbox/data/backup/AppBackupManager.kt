@@ -20,6 +20,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.io.FileOutputStream
+import java.security.MessageDigest
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
@@ -198,8 +199,7 @@ class AppBackupManager @Inject constructor(
             } ?: error("无法读取备份文件")
 
             unzip(backupZip, workingDir)
-            val payload = File(workingDir, BACKUP_MANIFEST_NAME).readText()
-            val raw = json.decodeFromString<AppBackupPayload>(payload)
+            val raw = readVerifiedPayload(workingDir)
             val useSyncIds = raw.syncVersion >= SYNC_ID_VERSION
             val backup = filterByScope(raw, scope, useSyncIds)
 
@@ -239,19 +239,24 @@ class AppBackupManager @Inject constructor(
             val recipeAdded = prefs?.let { appPreferences.applySyncedRecipes(it.recipes) } ?: 0
             var prefsApplied = false
             if (prefs != null) {
-                prefsApplied = prefsApplied ||
-                    appPreferences.applySyncedWeeklyMenu(prefs.weeklyMenu) > 0 ||
-                    appPreferences.applySyncedCookedDates(prefs.cookedMenuDates) > 0 ||
-                    appPreferences.applySyncedCustomStatuses(
-                        prefs.customStatuses.mapNotNull { it.toOption() }
-                    ) > 0 ||
-                    appPreferences.applySyncedReminderSettings(
-                        reminderLadder = prefs.reminderLadder,
-                        reminderTimes = prefs.reminderTimes,
-                        customReminderTimes = prefs.customReminderTimes,
-                        mealPrepDayShift = prefs.mealPrepDayShift,
-                        mealPrepFireTime = prefs.mealPrepFireTime
-                    )
+                // 各项先独立求值再合并，避免用 || 短路导致后面的偏好被跳过。
+                val weeklyMenuApplied = appPreferences.applySyncedWeeklyMenu(prefs.weeklyMenu) > 0
+                val cookedApplied = appPreferences.applySyncedCookedDates(prefs.cookedMenuDates) > 0
+                val statusesApplied = appPreferences.applySyncedCustomStatuses(
+                    prefs.customStatuses.mapNotNull { it.toOption() }
+                ) > 0
+                val reminderApplied = appPreferences.applySyncedReminderSettings(
+                    reminderLadder = prefs.reminderLadder,
+                    reminderTimes = prefs.reminderTimes,
+                    customReminderTimes = prefs.customReminderTimes,
+                    mealPrepDayShift = prefs.mealPrepDayShift,
+                    mealPrepFireTime = prefs.mealPrepFireTime
+                )
+                val togetherApplied = appPreferences.applySyncedTogetherStartDate(
+                    prefs.togetherStartDate, prefs.togetherStartDateUpdatedAt
+                ) || appPreferences.applySyncedTogetherLabelName(prefs.togetherLabelName)
+                prefsApplied = weeklyMenuApplied || cookedApplied || statusesApplied ||
+                    reminderApplied || togetherApplied
             }
             if (reminderOutcome.added + reminderOutcome.updated > 0) {
                 todoReminderScheduler.reschedule()
@@ -307,8 +312,7 @@ class AppBackupManager @Inject constructor(
             } ?: error("无法读取备份文件")
 
             unzip(backupZip, workingDir)
-            val payload = File(workingDir, BACKUP_MANIFEST_NAME).readText()
-            val backup = json.decodeFromString<AppBackupPayload>(payload)
+            val backup = readVerifiedPayload(workingDir)
             return computePreview(backup, backup.syncVersion >= SYNC_ID_VERSION)
         } finally {
             workingDir.deleteRecursively()
@@ -615,13 +619,24 @@ class AppBackupManager @Inject constructor(
                 reminderTimes = appPreferences.reminderTimes.value,
                 customReminderTimes = appPreferences.customReminderTimes.value,
                 mealPrepDayShift = appPreferences.mealPrepDayShift.value,
-                mealPrepFireTime = appPreferences.mealPrepFireTime.value
+                mealPrepFireTime = appPreferences.mealPrepFireTime.value,
+                togetherStartDate = appPreferences.togetherStartDateSnapshot(),
+                togetherStartDateUpdatedAt = appPreferences.togetherUpdatedAt.value,
+                togetherLabelName = appPreferences.togetherLabelName.value
             )
         )
 
+        val manifestBytes = json.encodeToString(backup).toByteArray()
+
         ZipOutputStream(FileOutputStream(workingFile)).use { zip ->
             zip.putNextEntry(ZipEntry(BACKUP_MANIFEST_NAME))
-            zip.write(json.encodeToString(backup).toByteArray())
+            zip.write(manifestBytes)
+            zip.closeEntry()
+
+            // 完整性校验（F21）：把清单的 SHA-256 单独存一条，导入/预览时比对，
+            // 便于发现文件损坏或被外部改动。旧备份没有该条目，校验时按缺失跳过。
+            zip.putNextEntry(ZipEntry(BACKUP_CHECKSUM_NAME))
+            zip.write(sha256Hex(manifestBytes).toByteArray())
             zip.closeEntry()
 
             imageEntries.forEach { entry ->
@@ -654,8 +669,33 @@ class AppBackupManager @Inject constructor(
         }
     }
 
+    /**
+     * 读取并校验 backup.json（F21）：若 ZIP 内含校验和条目，则比对清单的 SHA-256，
+     * 不匹配说明文件损坏或被外部改动，直接抛错中止导入，避免把坏数据写进库里。
+     * 旧备份（无校验和条目）按缺失跳过，保持向后兼容。
+     */
+    private fun readVerifiedPayload(workingDir: File): AppBackupPayload {
+        val manifestBytes = File(workingDir, BACKUP_MANIFEST_NAME).readBytes()
+        val checksumFile = File(workingDir, BACKUP_CHECKSUM_NAME)
+        if (checksumFile.exists()) {
+            val expected = checksumFile.readText().trim()
+            if (!expected.equals(sha256Hex(manifestBytes), ignoreCase = true)) {
+                throw IllegalStateException("备份文件完整性校验未通过：内容可能已损坏，已中止导入。")
+            }
+        }
+        return json.decodeFromString<AppBackupPayload>(String(manifestBytes, Charsets.UTF_8))
+    }
+
+    /** 计算字节数组的 SHA-256，返回小写十六进制字符串。 */
+    private fun sha256Hex(bytes: ByteArray): String =
+        MessageDigest.getInstance("SHA-256").digest(bytes)
+            .joinToString("") { "%02x".format(it) }
+
     companion object {
         private const val BACKUP_MANIFEST_NAME = "backup.json"
+
+        /** 完整性校验条目名（F21）：内容为 backup.json 的 SHA-256 十六进制串。 */
+        private const val BACKUP_CHECKSUM_NAME = "backup.sha256"
 
         /** 支持合并的备份格式版本；缺失该字段的旧备份按 v1（仅数字 id 对齐）处理。
          * v7：纪念日类型 type（倒数日/正数日/生日），不再导出 v5 的 repeatYearly 旧字段。

@@ -5,17 +5,20 @@ import android.net.Uri
 sealed class Screen(val route: String) {
     data object Home : Screen("home")
     data object Camera : Screen("camera")
-    data object Save : Screen("save?imageUri={imageUri}&imageUris={imageUris}&mode={mode}&barcode={barcode}") {
+    data object Save : Screen("save?imageUri={imageUri}&imageUris={imageUris}&mode={mode}&barcode={barcode}&name={name}") {
         fun createRoute(
             imageUri: String? = null,
             imageUris: List<String> = emptyList(),
             mode: String = "append",
-            barcode: String? = null
+            barcode: String? = null,
+            name: String? = null
         ): String {
             val encodedUri = imageUri ?: ""
             val encodedUris = imageUris.joinToString(",") { Uri.encode(it) }
             val encodedBarcode = barcode?.let { Uri.encode(it) } ?: ""
-            return "save?imageUri=$encodedUri&imageUris=$encodedUris&mode=$mode&barcode=$encodedBarcode"
+            val encodedName = name?.let { Uri.encode(it) } ?: ""
+            return "save?imageUri=$encodedUri&imageUris=$encodedUris&mode=$mode" +
+                "&barcode=$encodedBarcode&name=$encodedName"
         }
     }
 
@@ -62,6 +65,25 @@ sealed class Screen(val route: String) {
     data object Expiry : Screen("expiry")
     data object Reminders : Screen("reminders")
     data object Anniversaries : Screen("anniversaries")
+    data object Ocr : Screen("ocr")
+
+    /** 常买物品预测（F08）：按消耗速度推算补货时机。 */
+    data object RestockForecast : Screen("restock-forecast")
+
+    /** 时间胶囊（F14）：写给未来某天的话，到期才能打开。 */
+    data object TimeCapsule : Screen("time-capsule")
+
+    /** 睡前氛围（F15）：夜里的一处安静界面 + 就寝提醒。 */
+    data object Sleep : Screen("sleep")
+
+    /** 旅行打包清单列表（F16）：按行程管理要带的东西。 */
+    data object PackingList : Screen("packing-list")
+
+    /** 单个行程的打包清单（F16）。 */
+    data object PackingTrip : Screen("packing-trip?tripId={tripId}") {
+        fun createRoute(tripId: Long): String = "packing-trip?tripId=$tripId"
+    }
+
     data object AnniversaryEdit : Screen("anniversary-edit?anniversaryId={anniversaryId}") {
         fun createRoute(anniversaryId: Long? = null): String =
             "anniversary-edit?anniversaryId=${anniversaryId ?: -1L}"
@@ -72,6 +94,15 @@ sealed class Screen(val route: String) {
     data object LedgerStats : Screen("ledger-stats")
     data object LedgerBudget : Screen("ledger-budget")
     data object LedgerAssets : Screen("ledger-assets")
+    /** 记账模板与周期记账规则管理（F05）。 */
+    data object LedgerPlan : Screen("ledger-plan")
+
+    /** 收支趋势图（F10）：近 6 个月折线与月度对比柱状，Canvas 自绘。 */
+    data object LedgerTrend : Screen("ledger-trend")
+
+    /** 年度回顾（F09）：某年的收支汇总、最高项与同比。 */
+    data object LedgerAnnualReview : Screen("ledger-annual-review")
+
     data object LedgerCategoryManage : Screen("ledger-categories?kind={kind}") {
         fun createRoute(kind: Int): String = "ledger-categories?kind=$kind"
     }

@@ -24,6 +24,12 @@ class ItemRepository @Inject constructor(
 
     fun getToBuyCount(): Flow<Int> = itemDao.getToBuyCount()
 
+    /** 按使用进度取列表（F20 详情页 scope 直连 DAO 用）。 */
+    fun getItemsByUsageStatus(usageStatus: Int): Flow<List<ItemDetail>> =
+        itemDao.getItemsByUsageStatus(usageStatus)
+
+    fun getTotalCount(): Flow<Int> = itemDao.getTotalCount()
+
     fun getItemDetailById(id: Long): Flow<ItemDetail?> = itemDao.getItemDetailById(id)
 
     fun getExpiringItems(thresholdTime: Long): Flow<List<ItemDetail>> =

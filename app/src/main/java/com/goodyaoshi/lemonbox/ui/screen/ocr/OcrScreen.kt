@@ -1,0 +1,581 @@
+package com.goodyaoshi.lemonbox.ui.screen.ocr
+
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ReceiptLong
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Inventory2
+import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.hilt.navigation.compose.hiltViewModel
+import coil.compose.AsyncImage
+import com.goodyaoshi.lemonbox.data.ocr.OcrModelState
+import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
+import com.goodyaoshi.lemonbox.ui.components.AppDialog
+import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
+import com.goodyaoshi.lemonbox.ui.components.GradientButton
+import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
+import com.goodyaoshi.lemonbox.ui.components.SectionHeader
+import com.goodyaoshi.lemonbox.ui.theme.DividerSoft
+import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
+import com.goodyaoshi.lemonbox.ui.theme.StatusExpired
+import com.goodyaoshi.lemonbox.ui.theme.StatusWarning
+import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarmDeep
+import com.goodyaoshi.lemonbox.ui.theme.TextHint
+import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
+import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
+import com.goodyaoshi.lemonbox.ui.viewmodel.OcrViewModel
+import com.goodyaoshi.lemonbox.util.LedgerMath
+import java.io.File
+import java.util.Locale
+
+/**
+ * 文字识别页（F01/F02/F03）。
+ *
+ * 模型下载遵守「用户有感知」原则：点击下载入口先弹确认框（移动数据时额外提示流量），
+ * 下载中有进度与取消按钮，绝不静默后台下载。识别全程离线，图片不出手机。
+ */
+@Composable
+fun OcrScreen(
+    onBack: () -> Unit,
+    onOpenCamera: () -> Unit,
+    cameraResultUri: String?,
+    onConsumeCameraResult: () -> Unit,
+    onNavigateToRecord: (amountCents: Long?, remark: String) -> Unit,
+    onNavigateToSave: (name: String, imagePath: String?) -> Unit,
+    viewModel: OcrViewModel = hiltViewModel()
+) {
+    val modelState by viewModel.modelState.collectAsState()
+    val state by viewModel.uiState.collectAsState()
+    val snackbar = LocalAppSnackbar.current
+    var showDownloadDialog by remember { mutableStateOf(false) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
+
+    val galleryLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri -> uri?.let(viewModel::recognize) }
+
+    // 相机页回传的图片：拿到就识别，并清掉一次性结果，避免返回时重复触发。
+    LaunchedEffect(cameraResultUri) {
+        if (!cameraResultUri.isNullOrBlank()) {
+            viewModel.recognize(Uri.parse(cameraResultUri))
+            onConsumeCameraResult()
+        }
+    }
+
+    LaunchedEffect(state.error) {
+        val message = state.error ?: return@LaunchedEffect
+        snackbar?.showMessage(message)
+        viewModel.consumeError()
+    }
+
+    val canRecognize = modelState is OcrModelState.Installed && !state.isRecognizing
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        AppDecorativeBackground()
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .verticalScroll(rememberScrollState())
+                .padding(bottom = 32.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "返回",
+                        tint = TextPrimary
+                    )
+                }
+                Text(
+                    text = "文字识别",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+            }
+
+            Column(modifier = Modifier.padding(horizontal = 20.dp)) {
+                ModelStatusCard(
+                    modelState = modelState,
+                    isConfigured = viewModel.isConfigured,
+                    onDownloadClick = { showDownloadDialog = true },
+                    onCancelDownload = viewModel::cancelDownload,
+                    onDeleteClick = { showDeleteDialog = true }
+                )
+
+                Spacer(modifier = Modifier.height(22.dp))
+
+                SectionHeader(
+                    title = "选一张图片",
+                    subtitle = if (canRecognize) null else "下载并安装识别模型后才能开始识别"
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    CaptureTile(
+                        icon = Icons.Default.PhotoCamera,
+                        label = "拍照",
+                        enabled = canRecognize,
+                        onClick = onOpenCamera,
+                        modifier = Modifier.weight(1f)
+                    )
+                    CaptureTile(
+                        icon = Icons.Default.PhotoLibrary,
+                        label = "从相册选",
+                        enabled = canRecognize,
+                        onClick = {
+                            galleryLauncher.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                            )
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                if (state.isRecognizing) {
+                    Spacer(modifier = Modifier.height(20.dp))
+                    AppSurfaceCard(
+                        shape = RoundedCornerShape(22.dp),
+                        shadowElevation = 12.dp
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp,
+                                color = OrangeStart
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                text = "正在识别文字…",
+                                fontSize = 14.sp,
+                                color = TextSecondary
+                            )
+                        }
+                    }
+                }
+
+                state.imagePath?.let { path ->
+                    Spacer(modifier = Modifier.height(20.dp))
+                    SectionHeader(title = "识别用的图片")
+                    Spacer(modifier = Modifier.height(10.dp))
+                    AsyncImage(
+                        model = File(path),
+                        contentDescription = "待识别的图片",
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 300.dp)
+                            .clip(RoundedCornerShape(22.dp))
+                    )
+                }
+
+                if (state.lines.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(20.dp))
+                    SectionHeader(title = "识别到的文字")
+                    Spacer(modifier = Modifier.height(10.dp))
+                    AppSurfaceCard(
+                        shape = RoundedCornerShape(22.dp),
+                        shadowElevation = 12.dp
+                    ) {
+                        state.lines.forEachIndexed { index, line ->
+                            if (index > 0) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 8.dp)
+                                        .height(1.dp)
+                                        .background(DividerSoft)
+                                )
+                            }
+                            Text(
+                                text = line.text,
+                                fontSize = 15.sp,
+                                color = TextPrimary
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(20.dp))
+                    SectionHeader(title = "接着做点什么")
+                    Spacer(modifier = Modifier.height(10.dp))
+                    val ledger = state.ledgerSuggestion
+                    ActionTile(
+                        icon = Icons.AutoMirrored.Filled.ReceiptLong,
+                        title = "一键记账",
+                        subtitle = ledgerAmountLabel(ledger?.amountCents, ledger?.remark),
+                        enabled = true,
+                        onClick = {
+                            onNavigateToRecord(ledger?.amountCents, ledger?.remark.orEmpty())
+                        }
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    val itemName = state.itemSuggestion?.name.orEmpty()
+                    ActionTile(
+                        icon = Icons.Default.Inventory2,
+                        title = "一键入库",
+                        subtitle = itemName.ifBlank { "没认出品名，去家当手动填写" },
+                        enabled = itemName.isNotBlank(),
+                        onClick = { onNavigateToSave(itemName, state.imagePath) }
+                    )
+                }
+            }
+        }
+    }
+
+    if (showDownloadDialog) {
+        val metered = remember { viewModel.isMeteredConnection() }
+        AppDialog(
+            title = "下载离线识别模型",
+            onDismissRequest = { showDownloadDialog = false },
+            confirmText = "开始下载",
+            onConfirm = {
+                showDownloadDialog = false
+                viewModel.startDownload()
+            }
+        ) {
+            Text(
+                text = "模型体积较大，建议在 WiFi 下下载。识别一直在手机本地完成，图片不会上传。",
+                color = TextSecondary,
+                fontSize = 14.sp
+            )
+            if (metered) {
+                Text(
+                    text = "当前是移动数据，下载会消耗流量，确定要继续吗？",
+                    color = StatusWarning,
+                    fontSize = 13.sp
+                )
+            }
+            Text(
+                text = "下载过程中可以随时取消。",
+                color = TextHint,
+                fontSize = 12.sp
+            )
+        }
+    }
+
+    if (showDeleteDialog) {
+        AppDialog(
+            title = "删除识别模型？",
+            onDismissRequest = { showDeleteDialog = false },
+            confirmText = "删除",
+            destructiveConfirm = true,
+            onConfirm = {
+                showDeleteDialog = false
+                viewModel.deleteModel()
+            }
+        ) {
+            Text(
+                text = "删除后需要重新下载才能继续识别文字。",
+                color = TextSecondary,
+                fontSize = 14.sp
+            )
+        }
+    }
+}
+
+/**
+ * 模型状态卡：未安装 / 下载中 / 已就绪 / 失败四种状态各自给明确出口。
+ * 下载入口在未配置基址时禁用并说明原因，避免用户点了没反应。
+ */
+@Composable
+private fun ModelStatusCard(
+    modelState: OcrModelState,
+    isConfigured: Boolean,
+    onDownloadClick: () -> Unit,
+    onCancelDownload: () -> Unit,
+    onDeleteClick: () -> Unit
+) {
+    AppSurfaceCard(
+        shape = RoundedCornerShape(24.dp),
+        shadowElevation = 14.dp
+    ) {
+        when (modelState) {
+            is OcrModelState.NotInstalled -> {
+                Text(
+                    text = "识别模型未安装",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+                Text(
+                    text = "首次使用需要下载离线识别模型，之后无网也能识别。",
+                    fontSize = 13.sp,
+                    color = TextSecondary,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+                if (!isConfigured) {
+                    Text(
+                        text = "尚未配置模型下载地址，暂时无法下载。",
+                        fontSize = 12.sp,
+                        color = StatusExpired,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.height(14.dp))
+                GradientButton(
+                    text = "下载模型",
+                    onClick = onDownloadClick,
+                    enabled = isConfigured
+                )
+            }
+
+            is OcrModelState.Downloading -> {
+                Text(
+                    text = "正在下载模型",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+                Text(
+                    text = "文件 ${modelState.fileIndex + 1}/${modelState.fileCount} · ${modelState.currentFile}",
+                    fontSize = 12.sp,
+                    color = TextSecondary,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                LinearProgressIndicator(
+                    progress = { modelState.fraction },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(8.dp)
+                        .clip(RoundedCornerShape(4.dp)),
+                    color = OrangeStart,
+                    trackColor = SurfaceWarmDeep
+                )
+                Text(
+                    text = "${formatBytes(modelState.downloadedBytes)} / ${formatBytes(modelState.totalBytes)}" +
+                        "  (${(modelState.fraction * 100).toInt()}%)",
+                    fontSize = 12.sp,
+                    color = TextHint,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+                Text(
+                    text = "离开本页下载也会继续，随时可以取消。",
+                    fontSize = 12.sp,
+                    color = TextHint,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+                TextButton(
+                    onClick = onCancelDownload,
+                    modifier = Modifier.padding(top = 6.dp)
+                ) {
+                    Text(text = "取消下载", color = StatusExpired, fontSize = 14.sp)
+                }
+            }
+
+            is OcrModelState.Installed -> {
+                Text(
+                    text = "模型已就绪",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+                Text(
+                    text = "离线识别可用，图片不会离开手机。",
+                    fontSize = 13.sp,
+                    color = TextSecondary,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+                TextButton(
+                    onClick = onDeleteClick,
+                    modifier = Modifier.padding(top = 8.dp)
+                ) {
+                    Text(text = "删除模型", color = TextHint, fontSize = 14.sp)
+                }
+            }
+
+            is OcrModelState.Failed -> {
+                Text(
+                    text = "下载没成功",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+                Text(
+                    text = modelState.message,
+                    fontSize = 13.sp,
+                    color = StatusExpired,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+                Spacer(modifier = Modifier.height(14.dp))
+                GradientButton(
+                    text = "重试",
+                    onClick = onDownloadClick,
+                    enabled = isConfigured
+                )
+            }
+        }
+    }
+}
+
+/** 拍照 / 相册入口方块：不可用时整体置灰，避免误点。 */
+@Composable
+private fun CaptureTile(
+    icon: ImageVector,
+    label: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    AppSurfaceCard(
+        modifier = modifier,
+        shape = RoundedCornerShape(22.dp),
+        contentPadding = PaddingValues(vertical = 18.dp),
+        shadowElevation = 12.dp,
+        enabled = enabled,
+        onClick = onClick
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = if (enabled) OrangeStart else TextHint,
+                modifier = Modifier.size(26.dp)
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = label,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = if (enabled) TextPrimary else TextHint
+            )
+        }
+    }
+}
+
+/** 结果页的「一键记账 / 一键入库」入口。 */
+@Composable
+private fun ActionTile(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    AppSurfaceCard(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(22.dp),
+        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
+        shadowElevation = 12.dp,
+        enabled = enabled,
+        onClick = onClick
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(if (enabled) OrangeStart.copy(alpha = 0.12f) else SurfaceWarmDeep),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = if (enabled) OrangeStart else TextHint,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (enabled) TextPrimary else TextHint
+                )
+                Text(
+                    text = subtitle,
+                    fontSize = 12.sp,
+                    color = TextHint
+                )
+            }
+            Icon(
+                imageVector = Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = TextHint
+            )
+        }
+    }
+}
+
+/** 一键记账的副标题：有金额展示金额与备注，否则提示将把文字作为备注。 */
+private fun ledgerAmountLabel(amountCents: Long?, remark: String?): String {
+    return when {
+        amountCents != null && !remark.isNullOrBlank() ->
+            "金额 ¥${String.format(Locale.US, "%.2f", LedgerMath.centsToYuan(amountCents))} · ${remark.trim()}"
+
+        amountCents != null ->
+            "金额 ¥${String.format(Locale.US, "%.2f", LedgerMath.centsToYuan(amountCents))}"
+
+        !remark.isNullOrBlank() -> remark.trim()
+        else -> "把识别到的文字作为备注"
+    }
+}
+
+/** 字节数格式化：MB 保留一位小数，不足 1MB 用 KB。 */
+private fun formatBytes(bytes: Long): String {
+    if (bytes <= 0) return "0 MB"
+    val mb = bytes / 1024.0 / 1024.0
+    return if (mb >= 1.0) {
+        String.format(Locale.US, "%.1f MB", mb)
+    } else {
+        String.format(Locale.US, "%.0f KB", bytes / 1024.0)
+    }
+}

@@ -12,8 +12,13 @@ import com.goodyaoshi.lemonbox.data.local.dao.LedgerAssetDao
 import com.goodyaoshi.lemonbox.data.local.dao.LedgerBudgetDao
 import com.goodyaoshi.lemonbox.data.local.dao.LedgerCategoryDao
 import com.goodyaoshi.lemonbox.data.local.dao.LedgerRecordDao
+import com.goodyaoshi.lemonbox.data.local.dao.LedgerRecurringRuleDao
+import com.goodyaoshi.lemonbox.data.local.dao.LedgerTemplateDao
 import com.goodyaoshi.lemonbox.data.local.dao.LocationDao
+import com.goodyaoshi.lemonbox.data.local.dao.PackingItemDao
+import com.goodyaoshi.lemonbox.data.local.dao.PackingTripDao
 import com.goodyaoshi.lemonbox.data.local.dao.ReminderDao
+import com.goodyaoshi.lemonbox.data.local.dao.TimeCapsuleDao
 import com.goodyaoshi.lemonbox.data.local.entity.Anniversary
 import com.goodyaoshi.lemonbox.data.local.entity.Category
 import com.goodyaoshi.lemonbox.data.local.entity.Item
@@ -21,8 +26,13 @@ import com.goodyaoshi.lemonbox.data.local.entity.LedgerAsset
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerBudget
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerCategory
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerRecord
+import com.goodyaoshi.lemonbox.data.local.entity.LedgerRecurringRule
+import com.goodyaoshi.lemonbox.data.local.entity.LedgerTemplate
 import com.goodyaoshi.lemonbox.data.local.entity.Location
+import com.goodyaoshi.lemonbox.data.local.entity.PackingItem
+import com.goodyaoshi.lemonbox.data.local.entity.PackingTrip
 import com.goodyaoshi.lemonbox.data.local.entity.Reminder
+import com.goodyaoshi.lemonbox.data.local.entity.TimeCapsule
 
 /**
  * 应用数据库装配入口。
@@ -41,9 +51,14 @@ import com.goodyaoshi.lemonbox.data.local.entity.Reminder
         LedgerRecord::class,
         LedgerCategory::class,
         LedgerAsset::class,
-        LedgerBudget::class
+        LedgerBudget::class,
+        LedgerTemplate::class,
+        LedgerRecurringRule::class,
+        TimeCapsule::class,
+        PackingTrip::class,
+        PackingItem::class
     ],
-    version = 29,
+    version = 32,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -57,6 +72,11 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun ledgerCategoryDao(): LedgerCategoryDao
     abstract fun ledgerAssetDao(): LedgerAssetDao
     abstract fun ledgerBudgetDao(): LedgerBudgetDao
+    abstract fun ledgerTemplateDao(): LedgerTemplateDao
+    abstract fun ledgerRecurringRuleDao(): LedgerRecurringRuleDao
+    abstract fun timeCapsuleDao(): TimeCapsuleDao
+    abstract fun packingTripDao(): PackingTripDao
+    abstract fun packingItemDao(): PackingItemDao
 
     companion object {
         @Volatile

@@ -55,7 +55,7 @@ class TrashViewModelTest {
         )
         val viewModel = TrashViewModel(ItemRepository(dao))
 
-        val collectJob = launch { viewModel.deletedItems.collect() }
+        val collectJob = launch { viewModel.deletedItems.collect { } }
 
         assertEquals(listOf(1L), viewModel.deletedItems.value.map { it.item.id })
         collectJob.cancel()

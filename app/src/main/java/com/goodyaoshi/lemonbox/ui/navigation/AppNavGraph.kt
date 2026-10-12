@@ -79,16 +79,23 @@ import com.goodyaoshi.lemonbox.ui.screen.category.CategoryScreen
 import com.goodyaoshi.lemonbox.ui.screen.detail.DetailScreen
 import com.goodyaoshi.lemonbox.ui.screen.edit.EditScreen
 import com.goodyaoshi.lemonbox.ui.screen.expiry.ExpiryScreen
+import com.goodyaoshi.lemonbox.ui.screen.forecast.RestockForecastScreen
 import com.goodyaoshi.lemonbox.ui.screen.home.HomeScreen
+import com.goodyaoshi.lemonbox.ui.screen.ledger.LedgerAnnualReviewScreen
 import com.goodyaoshi.lemonbox.ui.screen.ledger.LedgerAssetsScreen
 import com.goodyaoshi.lemonbox.ui.screen.ledger.LedgerBudgetScreen
 import com.goodyaoshi.lemonbox.ui.screen.ledger.LedgerCategoryDetailScreen
 import com.goodyaoshi.lemonbox.ui.screen.ledger.LedgerCategoryManageScreen
+import com.goodyaoshi.lemonbox.ui.screen.ledger.LedgerPlanScreen
 import com.goodyaoshi.lemonbox.ui.screen.ledger.LedgerScreen
 import com.goodyaoshi.lemonbox.ui.screen.ledger.LedgerStatsScreen
+import com.goodyaoshi.lemonbox.ui.screen.ledger.LedgerTrendScreen
 import com.goodyaoshi.lemonbox.ui.screen.ledger.RecordEditScreen
 import com.goodyaoshi.lemonbox.ui.screen.meal.MealScreen
 import com.goodyaoshi.lemonbox.ui.screen.meal.RecipeLibraryScreen
+import com.goodyaoshi.lemonbox.ui.screen.ocr.OcrScreen
+import com.goodyaoshi.lemonbox.ui.screen.packing.PackingListScreen
+import com.goodyaoshi.lemonbox.ui.screen.packing.PackingTripScreen
 import com.goodyaoshi.lemonbox.ui.screen.profile.ProfileScreen
 import com.goodyaoshi.lemonbox.ui.screen.reminders.RemindersScreen
 import com.goodyaoshi.lemonbox.ui.screen.save.SavePhotoMode
@@ -96,7 +103,9 @@ import com.goodyaoshi.lemonbox.ui.screen.save.SaveScreen
 import com.goodyaoshi.lemonbox.ui.screen.scan.ScanScreen
 import com.goodyaoshi.lemonbox.ui.screen.search.SearchScreen
 import com.goodyaoshi.lemonbox.ui.screen.settings.SettingsScreen
+import com.goodyaoshi.lemonbox.ui.screen.sleep.SleepScreen
 import com.goodyaoshi.lemonbox.ui.screen.sync.LanSyncScreen
+import com.goodyaoshi.lemonbox.ui.screen.timecapsule.TimeCapsuleScreen
 import com.goodyaoshi.lemonbox.ui.screen.tobuy.ToBuyScreen
 import com.goodyaoshi.lemonbox.ui.screen.trash.TrashScreen
 import com.goodyaoshi.lemonbox.ui.scan.EXTRA_BARCODE
@@ -108,6 +117,7 @@ import com.goodyaoshi.lemonbox.ui.theme.TextHint
 import com.goodyaoshi.lemonbox.ui.viewmodel.LibraryFilter
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
+import java.io.File
 
 private data class BottomNavItem(
     val route: String,
@@ -136,9 +146,10 @@ internal const val EDIT_RESULT_MODE = "edit_result_mode"
 internal const val SAVE_RESULT_IMAGE_URI = "save_result_image_uri"
 internal const val SAVE_RESULT_IMAGE_URIS = "save_result_image_uris"
 internal const val SAVE_RESULT_MODE = "save_result_mode"
+internal const val OCR_RESULT_IMAGE_URI = "ocr_result_image_uri"
 
 @Composable
-fun AppNavGraph() {
+fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
@@ -148,6 +159,17 @@ fun AppNavGraph() {
     val context = LocalContext.current
     // 页面转场动效开关：跟随系统「关闭动画」设置，关闭时退化为无转场（不堆砌动效）。
     val motionEnabled = rememberMotionEnabled()
+
+    // 快捷方式热启动导航（F13）：requestId 变化表示 App 已在前台时再次从快捷方式进入，
+    // 此时跳转到目标路由；冷启动由 startDestination 直接落在目标页，无需再跳。
+    // lastHandledRequestId 以初值标记「首帧已处理」，避免冷启动重复导航。
+    var lastHandledNavRequestId by remember { mutableStateOf(navRequestId) }
+    LaunchedEffect(navRequestId) {
+        if (navRequestId != lastHandledNavRequestId && startRoute != null) {
+            lastHandledNavRequestId = navRequestId
+            navController.navigate(startRoute) { launchSingleTop = true }
+        }
+    }
 
     val scanLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -198,7 +220,7 @@ fun AppNavGraph() {
         ) {
             NavHost(
                 navController = navController,
-                startDestination = Screen.Home.route,
+                startDestination = startRoute ?: Screen.Home.route,
                 modifier = Modifier.fillMaxSize(),
                 enterTransition = { if (motionEnabled) navForwardEnter() else EnterTransition.None },
                 exitTransition = { if (motionEnabled) navForwardExit() else ExitTransition.None },
@@ -266,6 +288,8 @@ fun AppNavGraph() {
                                         ?.set(EDIT_RESULT_MODE, target.mode.name.lowercase())
                                     navController.popBackStack()
                                 }
+
+                                CameraReturnTarget.Ocr -> navController.popBackStack()
                             }
                             pendingCameraReturn = null
                         },
@@ -288,6 +312,13 @@ fun AppNavGraph() {
                                         set(SAVE_RESULT_IMAGE_URIS, encoded)
                                         set(SAVE_RESULT_MODE, target.mode.name.lowercase())
                                     }
+                                    navController.popBackStack()
+                                }
+
+                                CameraReturnTarget.Ocr -> {
+                                    navController.previousBackStackEntry
+                                        ?.savedStateHandle
+                                        ?.set(OCR_RESULT_IMAGE_URI, firstUri)
                                     navController.popBackStack()
                                 }
 
@@ -323,12 +354,18 @@ fun AppNavGraph() {
                             type = NavType.StringType
                             defaultValue = ""
                             nullable = true
+                        },
+                        navArgument("name") {
+                            type = NavType.StringType
+                            defaultValue = ""
+                            nullable = true
                         }
                     )
                 ) { backStackEntry ->
                     val encodedUri = backStackEntry.arguments?.getString("imageUri").orEmpty()
                     val encodedUris = backStackEntry.arguments?.getString("imageUris").orEmpty()
                     val encodedBarcode = backStackEntry.arguments?.getString("barcode").orEmpty()
+                    val encodedName = backStackEntry.arguments?.getString("name").orEmpty()
                     val resultImageUri by backStackEntry.savedStateHandle
                         .getStateFlow<String?>(SAVE_RESULT_IMAGE_URI, null)
                         .collectAsState()
@@ -364,7 +401,8 @@ fun AppNavGraph() {
                         onOpenCamera = { photoMode ->
                             openCamera(CameraReturnTarget.SaveDraft(photoMode))
                         },
-                        initialBarcode = encodedBarcode.takeIf { it.isNotBlank() }?.let { Uri.decode(it) }
+                        initialBarcode = encodedBarcode.takeIf { it.isNotBlank() }?.let { Uri.decode(it) },
+                        initialName = encodedName.takeIf { it.isNotBlank() }?.let { Uri.decode(it) }
                     )
                 }
 
@@ -381,7 +419,17 @@ fun AppNavGraph() {
                         itemId = itemId,
                         scope = scope,
                         onBack = { navController.popBackStack() },
-                        onEdit = { id -> navController.navigate(Screen.Edit.createRoute(id)) }
+                        onEdit = { id -> navController.navigate(Screen.Edit.createRoute(id)) },
+                        // 「记一笔」：把物品的价格×数量作为默认金额、物品名作为备注预填进记账页（F06）。
+                        onRecordPurchase = { id, amountCents, name ->
+                            navController.navigate(
+                                Screen.RecordEdit.createRoute(
+                                    itemId = id,
+                                    amount = amountCents,
+                                    remark = name
+                                )
+                            )
+                        }
                     )
                 }
 
@@ -411,6 +459,9 @@ fun AppNavGraph() {
                                 Screen.LedgerCategoryManage.createRoute(LedgerCategory.KIND_EXPENSE)
                             )
                         },
+                        onNavigateToPlan = { navController.navigate(Screen.LedgerPlan.route) },
+                        onNavigateToTrend = { navController.navigate(Screen.LedgerTrend.route) },
+                        onNavigateToAnnualReview = { navController.navigate(Screen.LedgerAnnualReview.route) },
                         onNavigateToRecordEdit = { recordId ->
                             navController.navigate(Screen.RecordEdit.createRoute(recordId = recordId))
                         },
@@ -504,6 +555,28 @@ fun AppNavGraph() {
                     LedgerCategoryManageScreen(onBack = { navController.popBackStack() })
                 }
 
+                composable(Screen.LedgerPlan.route) {
+                    LedgerPlanScreen(onBack = { navController.popBackStack() })
+                }
+
+                composable(Screen.LedgerTrend.route) {
+                    LedgerTrendScreen(
+                        onBack = { navController.popBackStack() },
+                        onNavigateToRecordEdit = { recordId ->
+                            navController.navigate(Screen.RecordEdit.createRoute(recordId = recordId))
+                        }
+                    )
+                }
+
+                composable(Screen.LedgerAnnualReview.route) {
+                    LedgerAnnualReviewScreen(
+                        onBack = { navController.popBackStack() },
+                        onNavigateToRecordEdit = { recordId ->
+                            navController.navigate(Screen.RecordEdit.createRoute(recordId = recordId))
+                        }
+                    )
+                }
+
                 composable(Screen.Meal.route) {
                     MealScreen(
                         onNavigateToToBuy = { navController.navigate(Screen.ToBuy.route) },
@@ -526,6 +599,8 @@ fun AppNavGraph() {
                     ExpiryScreen(
                         onBack = { navController.popBackStack() },
                         onNavigateToDetail = { id -> navController.navigate(Screen.Detail.createRoute(id)) },
+                        // 「即将到期」列表项的编辑入口（F07）。
+                        onNavigateToEdit = { id -> navController.navigate(Screen.Edit.createRoute(id)) },
                         // 空态「去家当」：切回家当 Tab 根（而不是层层 popBackStack），动线更短（I11）。
                         onNavigateToHousehold = { navigateToTopLevel(Screen.Household.route) }
                     )
@@ -618,12 +693,75 @@ fun AppNavGraph() {
                     )
                 }
 
+                composable(Screen.Ocr.route) { backStackEntry ->
+                    val cameraResultUri by backStackEntry.savedStateHandle
+                        .getStateFlow<String?>(OCR_RESULT_IMAGE_URI, null)
+                        .collectAsState()
+                    OcrScreen(
+                        onBack = { navController.popBackStack() },
+                        onOpenCamera = { openCamera(CameraReturnTarget.Ocr) },
+                        cameraResultUri = cameraResultUri,
+                        onConsumeCameraResult = {
+                            backStackEntry.savedStateHandle.remove<String>(OCR_RESULT_IMAGE_URI)
+                        },
+                        onNavigateToRecord = { amountCents, remark ->
+                            navController.navigate(
+                                Screen.RecordEdit.createRoute(amount = amountCents, remark = remark)
+                            )
+                        },
+                        onNavigateToSave = { name, imagePath ->
+                            val imageUri = imagePath?.let { Uri.fromFile(File(it)).toString() }
+                            navController.navigate(
+                                Screen.Save.createRoute(imageUri = imageUri, name = name)
+                            )
+                        }
+                    )
+                }
+
+                composable(Screen.RestockForecast.route) {
+                    RestockForecastScreen(onBack = { navController.popBackStack() })
+                }
+
+                composable(Screen.TimeCapsule.route) {
+                    TimeCapsuleScreen(onBack = { navController.popBackStack() })
+                }
+
+                composable(Screen.Sleep.route) {
+                    SleepScreen(onBack = { navController.popBackStack() })
+                }
+
+                composable(Screen.PackingList.route) {
+                    PackingListScreen(
+                        onBack = { navController.popBackStack() },
+                        onOpenTrip = { tripId ->
+                            navController.navigate(Screen.PackingTrip.createRoute(tripId))
+                        }
+                    )
+                }
+
+                composable(
+                    route = Screen.PackingTrip.route,
+                    arguments = listOf(
+                        navArgument("tripId") {
+                            type = NavType.LongType
+                            defaultValue = -1L
+                        }
+                    )
+                ) {
+                    PackingTripScreen(onBack = { navController.popBackStack() })
+                }
+
                 composable(Screen.Profile.route) {
                     ProfileScreen(
                         onOpenSettings = { navController.navigate(Screen.Settings.route) },
                         onOpenLanSync = { navController.navigate(Screen.LanSync.route) },
                         onOpenReminders = { navController.navigate(Screen.Reminders.route) },
-                        onOpenAnniversaries = { navController.navigate(Screen.Anniversaries.route) }
+                        onOpenAnniversaries = { navController.navigate(Screen.Anniversaries.route) },
+                        onOpenOcr = { navController.navigate(Screen.Ocr.route) },
+                        onOpenRestockForecast = { navController.navigate(Screen.RestockForecast.route) },
+                        onOpenTimeCapsule = { navController.navigate(Screen.TimeCapsule.route) },
+                        onOpenPackingList = { navController.navigate(Screen.PackingList.route) },
+                        onOpenSleep = { navController.navigate(Screen.Sleep.route) }
                     )
                 }
 
@@ -729,6 +867,7 @@ private fun String.toSavePhotoMode(): SavePhotoMode {
 private sealed interface CameraReturnTarget {
     data class SaveDraft(val mode: SavePhotoMode) : CameraReturnTarget
     data class EditItem(val itemId: Long, val mode: SavePhotoMode) : CameraReturnTarget
+    data object Ocr : CameraReturnTarget
 }
 
 /**

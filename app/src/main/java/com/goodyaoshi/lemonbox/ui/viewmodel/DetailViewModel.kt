@@ -1,5 +1,6 @@
 package com.goodyaoshi.lemonbox.ui.viewmodel
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.goodyaoshi.lemonbox.data.local.entity.Category
@@ -9,8 +10,10 @@ import com.goodyaoshi.lemonbox.data.local.entity.Location
 import com.goodyaoshi.lemonbox.data.repository.CategoryRepository
 import com.goodyaoshi.lemonbox.data.repository.ItemRepository
 import com.goodyaoshi.lemonbox.data.repository.LocationRepository
+import com.goodyaoshi.lemonbox.ui.navigation.Screen
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -24,12 +27,20 @@ import javax.inject.Inject
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class DetailViewModel @Inject constructor(
+    savedStateHandle: SavedStateHandle,
     private val itemRepository: ItemRepository,
     categoryRepository: CategoryRepository,
     locationRepository: LocationRepository
 ) : ViewModel() {
 
     private val loading = LoadingState()
+
+    /**
+     * 导航 scope（F20）：详情页的横向滑动需要同 scope 的物品列表，
+     * 常用 scope（全部 / 待买 / 未使用 / 已用完）直接下沉为对应的 DAO 查询，
+     * 不再全量拉表后内存筛；其余 scope 语义无对应 SQL，回退全量由页面过滤。
+     */
+    private val scope: String = savedStateHandle.get<String>("scope") ?: Screen.Detail.ScopeAll
 
     /** 手动重试触发器：自增即让 [items] 重新订阅上游（P2，配合 [ErrorState] 使用）。 */
     private val refreshTrigger = MutableStateFlow(0)
@@ -42,11 +53,19 @@ class DetailViewModel @Inject constructor(
 
     val items: StateFlow<List<ItemDetail>> = refreshTrigger
         .flatMapLatest {
-            itemRepository.getAllItems()
+            scopedItems()
                 .onEach { loading.markLoaded() }
                 .catch { loading.markError(it.message) }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private fun scopedItems(): Flow<List<ItemDetail>> = when (scope) {
+        Screen.Detail.ScopeAll -> itemRepository.getAllItems()
+        Screen.Detail.ScopeToBuy -> itemRepository.getToBuyItems()
+        Screen.Detail.ScopeUnused -> itemRepository.getItemsByUsageStatus(Item.USAGE_UNUSED)
+        Screen.Detail.ScopeUsedUp -> itemRepository.getItemsByUsageStatus(Item.USAGE_USED_UP)
+        else -> itemRepository.getAllItems()
+    }
 
     /** 分类/存放位置的全量列表，用于把详情页的扁平名称还原成完整层级路径。 */
     val categories: StateFlow<List<Category>> = categoryRepository.getAllCategories()

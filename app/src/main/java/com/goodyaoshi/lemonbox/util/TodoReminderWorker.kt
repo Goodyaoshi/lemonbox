@@ -12,7 +12,9 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import com.goodyaoshi.lemonbox.data.local.dao.ItemDao
 import com.goodyaoshi.lemonbox.data.local.dao.ReminderDao
+import com.goodyaoshi.lemonbox.data.local.entity.Reminder
 import com.goodyaoshi.lemonbox.data.local.entity.ReminderRepeatType
 import com.goodyaoshi.lemonbox.data.repository.ReminderRepository
 import androidx.core.app.NotificationManagerCompat
@@ -28,6 +30,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.time.Instant
 import java.time.ZonedDateTime
+import java.time.temporal.ChronoUnit
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -118,6 +121,7 @@ class TodoReminderScheduler @Inject constructor(
 class ReminderFirer @Inject constructor(
     @ApplicationContext private val context: Context,
     private val reminderDao: ReminderDao,
+    private val itemDao: ItemDao,
     private val scheduler: TodoReminderScheduler
 ) {
     private val mutex = Mutex()
@@ -132,6 +136,7 @@ class ReminderFirer @Inject constructor(
                 context = context,
                 title = reminder.title,
                 note = reminder.note,
+                detail = medicationDetail(reminder, now),
                 reminderId = reminder.id
             )
             when (reminder.repeat) {
@@ -155,6 +160,37 @@ class ReminderFirer @Inject constructor(
             }
         }
         scheduler.reschedule()
+    }
+
+    /**
+     * 用药提醒的补充文案（F17）：疗程进度 + 库存联动。
+     * 关联了家当物品时，剩余量不够吃完疗程（未配疗程则按一天剂量）就提示补货。
+     */
+    private suspend fun medicationDetail(reminder: Reminder, now: ZonedDateTime): String? {
+        if (!reminder.isMedication) return null
+        val parts = mutableListOf<String>()
+        ReminderClock.medicationCourseDay(reminder, now.toLocalDate())?.let { day ->
+            parts += "疗程第 $day/${reminder.courseDays} 天"
+        }
+        val item = reminder.linkedItemId?.let { itemDao.getItemById(it) }
+        if (item != null) {
+            val dosesPerDay = Reminder.decodeDoseTimes(reminder.doseTimes).size.coerceAtLeast(1)
+            val needed = if (reminder.courseDays > 0) {
+                val end = ReminderClock.medicationCourseEnd(reminder)
+                val left = end
+                    ?.let { ChronoUnit.DAYS.between(now.toLocalDate(), it).toInt() + 1 }
+                    ?: 0
+                left.coerceAtLeast(0) * dosesPerDay
+            } else {
+                dosesPerDay
+            }
+            parts += if (item.quantity < needed) {
+                "库存只剩 ${item.quantity}${item.unit}，快吃完记得补"
+            } else {
+                "库存还有 ${item.quantity}${item.unit}"
+            }
+        }
+        return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
     }
 }
 

@@ -72,9 +72,11 @@ import com.goodyaoshi.lemonbox.ui.components.SearchBar
 import com.goodyaoshi.lemonbox.ui.components.SectionHeader
 import com.goodyaoshi.lemonbox.ui.components.SwipeRevealItem
 import com.goodyaoshi.lemonbox.ui.components.TreeNode
+import com.goodyaoshi.lemonbox.ui.components.VoiceInputButton
 import com.goodyaoshi.lemonbox.ui.components.buildItemSwipeActions
 import com.goodyaoshi.lemonbox.ui.components.buildTreePathLabel
 import com.goodyaoshi.lemonbox.ui.components.itemStatusColors
+import com.goodyaoshi.lemonbox.ui.components.rememberVoiceInput
 import com.goodyaoshi.lemonbox.ui.components.statusDimensionTitle
 import com.goodyaoshi.lemonbox.ui.components.statusOptionsFor
 import com.goodyaoshi.lemonbox.ui.theme.CardWhite
@@ -121,6 +123,8 @@ fun SearchScreen(
 ) {
     val query by viewModel.query.collectAsState()
     val results by viewModel.results.collectAsState()
+    // 语音输入（F13）：说出的内容直接进搜索框。
+    val startVoiceInput = rememberVoiceInput { spoken -> viewModel.updateQuery(spoken) }
     val allItems by viewModel.allItems.collectAsState()
     val filter by viewModel.filter.collectAsState()
     val presetCounts by viewModel.presetCounts.collectAsState()
@@ -258,12 +262,17 @@ fun SearchScreen(
                         onClick = onNavigateToTrash
                     )
                 }
-                SearchBar(
-                    value = query,
-                    onValueChange = viewModel::updateQuery,
-                    placeholder = "搜索物品、分类、位置或备注",
-                    showMagicIconWhenEmpty = false
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    SearchBar(
+                        value = query,
+                        onValueChange = viewModel::updateQuery,
+                        placeholder = "搜索物品、分类、位置或备注",
+                        showMagicIconWhenEmpty = false,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(modifier = Modifier.size(8.dp))
+                    VoiceInputButton(onClick = startVoiceInput)
+                }
             }
 
             Row(

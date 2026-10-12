@@ -11,9 +11,13 @@ import com.goodyaoshi.lemonbox.data.local.entity.LedgerRecord
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerRecord.Companion.TYPE_EXPENSE
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerRecord.Companion.TYPE_INCOME
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerRecord.Companion.TYPE_TRANSFER
+import com.goodyaoshi.lemonbox.data.local.entity.LedgerRecurringRule
+import com.goodyaoshi.lemonbox.data.local.entity.LedgerTemplate
+import com.goodyaoshi.lemonbox.data.repository.LedgerPlanningRepository
 import com.goodyaoshi.lemonbox.data.repository.LedgerRepository
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import com.goodyaoshi.lemonbox.util.LedgerMath
+import com.goodyaoshi.lemonbox.util.RecurringClock
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -68,6 +72,7 @@ data class RecordEditState(
 class RecordEditViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val ledgerRepository: LedgerRepository,
+    private val planningRepository: LedgerPlanningRepository,
     private val itemDao: ItemDao,
     assetDao: LedgerAssetDao,
     private val appPreferences: AppPreferences
@@ -95,6 +100,11 @@ class RecordEditViewModel @Inject constructor(
 
     val incomeCategories: StateFlow<List<LedgerCategory>> =
         ledgerRepository.observeIncomeCategories()
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** 记账模板（F05）：记一笔页顶部一键套用。 */
+    val templates: StateFlow<List<LedgerTemplate>> =
+        planningRepository.observeTemplates()
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     init {
@@ -282,5 +292,81 @@ class RecordEditViewModel @Inject constructor(
             recordDate = current.recordDate
         )
         ensureDefaults(expenseCategories.value, incomeCategories.value)
+    }
+
+    // ---------- 模板与周期规则（F05） ----------
+
+    /** 套用模板：不覆盖当前金额（模板金额为 0 时保留手输值），其余参数一键带出。 */
+    fun applyTemplate(template: LedgerTemplate) {
+        val current = _state.value
+        _state.value = current.copy(
+            type = template.type,
+            amountText = if (template.amount > 0) {
+                LedgerMath.centsToInputText(template.amount)
+            } else {
+                current.amountText
+            },
+            categoryId = if (template.type == TYPE_TRANSFER) null else template.categoryId,
+            assetId = template.assetId,
+            targetAssetId = if (template.type == TYPE_TRANSFER) template.targetAssetId else null,
+            remark = template.remark,
+            initialized = true
+        )
+    }
+
+    /** 把当前填写的参数存为模板；名称为空返回 false，不创建。 */
+    fun saveAsTemplate(name: String): Boolean {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) return false
+        val current = _state.value
+        val template = LedgerTemplate(
+            name = trimmed,
+            type = current.type,
+            amount = current.amountCents ?: 0L,
+            categoryId = if (current.type == TYPE_TRANSFER) null else current.categoryId,
+            assetId = current.assetId,
+            targetAssetId = if (current.type == TYPE_TRANSFER) current.targetAssetId else null,
+            remark = current.remark.trim()
+        )
+        viewModelScope.launch { planningRepository.saveTemplate(template) }
+        return true
+    }
+
+    /**
+     * 把当前填写的参数设为周期记账规则。首次生成时间取记录日期当天 09:00，
+     * 若已过去则按周期推进到未来。名称为空或表单不可保存时返回 false。
+     */
+    fun createRecurringRule(
+        name: String,
+        unit: LedgerRecurringRule.RepeatUnit,
+        interval: Int
+    ): Boolean {
+        val current = _state.value
+        val trimmed = name.trim()
+        if (trimmed.isEmpty() || !current.canSave) return false
+        val cents = current.amountCents ?: return false
+        val step = interval.coerceAtLeast(1)
+        val zone = ZoneId.systemDefault()
+        var first = current.recordDate.atTime(9, 0).atZone(zone).toInstant().toEpochMilli()
+        val now = System.currentTimeMillis()
+        var guard = 0
+        while (first <= now && guard < 500) {
+            first = RecurringClock.advance(first, unit, step)
+            guard++
+        }
+        val rule = LedgerRecurringRule(
+            name = trimmed,
+            type = current.type,
+            amount = cents,
+            categoryId = if (current.type == TYPE_TRANSFER) null else current.categoryId,
+            assetId = current.assetId,
+            targetAssetId = if (current.type == TYPE_TRANSFER) current.targetAssetId else null,
+            remark = current.remark.trim(),
+            repeatUnit = unit.name,
+            repeatInterval = step,
+            nextFireAt = first
+        )
+        viewModelScope.launch { planningRepository.saveRule(rule) }
+        return true
     }
 }

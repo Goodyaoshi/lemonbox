@@ -24,14 +24,17 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DatePicker
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TimePicker
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -66,6 +69,9 @@ import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
 import com.goodyaoshi.lemonbox.ui.viewmodel.SettingsViewModel
 import com.goodyaoshi.lemonbox.util.BrandCopy
 import com.goodyaoshi.lemonbox.util.ReminderReliability
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneOffset
 
 private val themeModeOptions = listOf(
     ThemeMode.SYSTEM to "跟随系统",
@@ -145,6 +151,8 @@ fun SettingsScreen(
     val mealPrepDayShift by viewModel.mealPrepDayShift.collectAsState()
     val mealPrepFireTime by viewModel.mealPrepFireTime.collectAsState()
     val budgetReminderEnabled by viewModel.budgetReminderEnabled.collectAsState()
+    val togetherStartDate by viewModel.togetherStartDate.collectAsState()
+    val togetherLabelName by viewModel.togetherLabelName.collectAsState()
     val updateState by viewModel.updateState.collectAsState()
 
     // 应用级提示通道：用于「临时关闭后台」等结果的反馈。
@@ -152,6 +160,8 @@ fun SettingsScreen(
 
     var showTimePicker by remember { mutableStateOf(false) }
     var showMealPrepTimePicker by remember { mutableStateOf(false) }
+    var showTogetherDatePicker by remember { mutableStateOf(false) }
+    var showTogetherLabelDialog by remember { mutableStateOf(false) }
 
     // 固定档位 + 用户自定义候选，合并排序后统一展示。
     val allTimeOptions =
@@ -234,6 +244,74 @@ fun SettingsScreen(
                             onClick = { viewModel.setThemeMode(mode) }
                         )
                     }
+                }
+            }
+
+            AppSurfaceCard(
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                shape = RoundedCornerShape(24.dp),
+                shadowElevation = 12.dp
+            ) {
+                Text(
+                    text = "我们",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+                Spacer(modifier = Modifier.size(6.dp))
+                Text(
+                    text = "设置「在一起」的起始日后，首页会用「${togetherLabelName}第 N 天」显示在一起的天数；也可以单独改这个前缀。",
+                    fontSize = 12.sp,
+                    color = TextSecondary
+                )
+                Spacer(modifier = Modifier.size(12.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "在一起起始日",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = TextPrimary
+                        )
+                        Text(
+                            text = togetherStartDate ?: "未设置，首页按纪念日派生天数",
+                            fontSize = 12.sp,
+                            color = if (togetherStartDate != null) OrangeStart else TextSecondary
+                        )
+                    }
+                    ActionPillButton(
+                        label = if (togetherStartDate == null) "设置" else "修改",
+                        onClick = { showTogetherDatePicker = true }
+                    )
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "计数前缀",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = TextPrimary
+                        )
+                        Text(
+                            text = "首页显示为「${togetherLabelName}第 N 天」",
+                            fontSize = 12.sp,
+                            color = OrangeStart
+                        )
+                    }
+                    ActionPillButton(
+                        label = "修改",
+                        onClick = { showTogetherLabelDialog = true }
+                    )
                 }
             }
 
@@ -603,6 +681,27 @@ fun SettingsScreen(
                     }
                 )
             }
+            if (showTogetherDatePicker) {
+                DatePickerCardDialog(
+                    title = "在一起起始日",
+                    initialDate = togetherStartDate,
+                    onDismiss = { showTogetherDatePicker = false },
+                    onConfirm = { date ->
+                        viewModel.setTogetherStartDate(date)
+                        showTogetherDatePicker = false
+                    }
+                )
+            }
+            if (showTogetherLabelDialog) {
+                TogetherLabelDialog(
+                    initialName = togetherLabelName,
+                    onDismiss = { showTogetherLabelDialog = false },
+                    onConfirm = { name ->
+                        viewModel.setTogetherLabelName(name)
+                        showTogetherLabelDialog = false
+                    }
+                )
+            }
 
             updateState.available?.let { info ->
                 AppDialog(
@@ -690,6 +789,67 @@ private fun TimePickerCardDialog(
         onConfirm = { onConfirm("%02d:%02d".format(pickerState.hour, pickerState.minute)) }
     ) {
         TimePicker(state = pickerState)
+    }
+}
+
+/** 日期选择弹窗：以 yyyy-MM-dd 文本回调；点「清除」回传 null 表示取消设置。 */
+@Composable
+@OptIn(ExperimentalMaterial3Api::class)
+private fun DatePickerCardDialog(
+    title: String,
+    initialDate: String?,
+    onDismiss: () -> Unit,
+    onConfirm: (String?) -> Unit
+) {
+    // DatePicker 以 UTC 毫秒表示日期，这里统一用 UTC 换算，避免时区导致日期偏移一天。
+    val initialMillis = remember(initialDate) {
+        initialDate
+            ?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+            ?.atStartOfDay(ZoneOffset.UTC)
+            ?.toInstant()
+            ?.toEpochMilli()
+    }
+    val pickerState = rememberDatePickerState(initialSelectedDateMillis = initialMillis)
+    AppDialog(
+        title = title,
+        onDismissRequest = onDismiss,
+        confirmText = "确定",
+        onConfirm = {
+            onConfirm(
+                pickerState.selectedDateMillis?.let {
+                    Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate().toString()
+                }
+            )
+        },
+        secondaryText = initialDate?.let { "清除" },
+        onSecondary = { onConfirm(null) }
+    ) {
+        DatePicker(state = pickerState)
+    }
+}
+
+/** 「计数前缀」编辑弹窗：限长，留空由偏好层回落到默认「我们」。 */
+@Composable
+private fun TogetherLabelDialog(
+    initialName: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit
+) {
+    var text by remember { mutableStateOf(initialName) }
+    AppDialog(
+        title = "计数前缀",
+        onDismissRequest = onDismiss,
+        subtitle = "首页会显示为「前缀第 N 天」，例如「我们第 128 天」。",
+        confirmText = "保存",
+        onConfirm = { onConfirm(text) }
+    ) {
+        OutlinedTextField(
+            value = text,
+            onValueChange = { input -> text = input.take(AppPreferences.MAX_TOGETHER_LABEL_LENGTH) },
+            singleLine = true,
+            label = { Text("前缀") },
+            modifier = Modifier.fillMaxWidth()
+        )
     }
 }
 

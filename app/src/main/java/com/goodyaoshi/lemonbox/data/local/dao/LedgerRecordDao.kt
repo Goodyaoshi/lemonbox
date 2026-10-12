@@ -20,6 +20,13 @@ data class LedgerCategorySum(
     val total: Long?
 )
 
+/** 按月 × 类型聚合的金额合计（分）；monthKey 形如 yyyy-MM。 */
+data class LedgerMonthTypeSum(
+    val monthKey: String,
+    val type: Int,
+    val total: Long?
+)
+
 @Dao
 interface LedgerRecordDao {
 
@@ -65,6 +72,39 @@ interface LedgerRecordDao {
             "GROUP BY categoryId ORDER BY total DESC"
     )
     suspend fun sumExpenseByCategoryBetween(start: Long, end: Long): List<LedgerCategorySum>
+
+    /**
+     * 某时间段按月 × 类型聚合（分），供趋势图与年度回顾。
+     * 账期键按 [monthStartDay] 位移后再取 yyyy-MM：与 LedgerMath.monthRange 的
+     * 「记账月开始日」口径一致（startDay=1 即自然月）。
+     */
+    @Query(
+        "SELECT strftime('%Y-%m', recordTime / 1000 - (:monthStartDay - 1) * 86400, 'unixepoch', 'localtime') " +
+            "AS monthKey, type, SUM(amount) AS total FROM ledger_records " +
+            "WHERE deletedAt IS NULL AND recordTime >= :start AND recordTime < :end " +
+            "GROUP BY monthKey, type ORDER BY monthKey ASC"
+    )
+    fun observeMonthTypeSumsBetween(
+        start: Long,
+        end: Long,
+        monthStartDay: Int
+    ): Flow<List<LedgerMonthTypeSum>>
+
+    /** 某时间段的记账笔数，供年度回顾展示与「有无数据」判定。 */
+    @Query(
+        "SELECT COUNT(*) FROM ledger_records " +
+            "WHERE deletedAt IS NULL AND recordTime >= :start AND recordTime < :end"
+    )
+    fun observeRecordCountBetween(start: Long, end: Long): Flow<Int>
+
+    /** 某时间段支出按分类聚合（金额降序）的响应式版本，供年度回顾取支出最高分类。 */
+    @Query(
+        "SELECT categoryId, SUM(amount) AS total FROM ledger_records " +
+            "WHERE deletedAt IS NULL AND type = 0 " +
+            "AND recordTime >= :start AND recordTime < :end " +
+            "GROUP BY categoryId ORDER BY total DESC"
+    )
+    fun observeExpenseByCategoryBetween(start: Long, end: Long): Flow<List<LedgerCategorySum>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(record: LedgerRecord): Long

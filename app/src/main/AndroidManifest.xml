@@ -92,12 +92,18 @@
             android:name=".MainActivity"
             android:exported="true"
             android:label="@string/app_short_name"
+            android:launchMode="singleTop"
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.Lemon.Launcher">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+
+            <!-- 桌面长按快捷方式（F13）：冷启动落在目标页、热启动由 onNewIntent 跳转 -->
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
         </activity>
 
         <activity
@@ -136,6 +142,18 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Keep the reminder process alive so scheduled reminders are not dropped by aggressive battery savers" />
         </service>
+
+        <!-- 桌面小组件（F04）：待买清单 / 今天的事 / 本月支出 -->
+        <receiver
+            android:name=".widget.LemonBoxWidgetProvider"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_lemonbox_info" />
+        </receiver>
 
     </application>
 

@@ -638,6 +638,140 @@ internal object Migrations {
             }
         }
 
+        /**
+         * 周期记账 + 记账模板（F05）：新增模板表与周期规则表。
+         * 模板把常用记账参数存下来供一键套用；周期规则到点由调度任务生成账单。
+         */
+        private val MIGRATION_29_30 = object : Migration(29, 30) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `ledger_templates` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `name` TEXT NOT NULL,
+                        `type` INTEGER NOT NULL,
+                        `amount` INTEGER NOT NULL,
+                        `categoryId` INTEGER,
+                        `assetId` INTEGER,
+                        `targetAssetId` INTEGER,
+                        `remark` TEXT NOT NULL,
+                        `sort` INTEGER NOT NULL,
+                        `createdAt` INTEGER NOT NULL,
+                        `syncId` TEXT,
+                        `updatedAt` INTEGER,
+                        `deletedAt` INTEGER
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `ledger_recurring_rules` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `name` TEXT NOT NULL,
+                        `type` INTEGER NOT NULL,
+                        `amount` INTEGER NOT NULL,
+                        `categoryId` INTEGER,
+                        `assetId` INTEGER,
+                        `targetAssetId` INTEGER,
+                        `remark` TEXT NOT NULL,
+                        `repeatUnit` TEXT NOT NULL,
+                        `repeatInterval` INTEGER NOT NULL,
+                        `nextFireAt` INTEGER NOT NULL,
+                        `lastFiredAt` INTEGER,
+                        `enabled` INTEGER NOT NULL,
+                        `createdAt` INTEGER NOT NULL,
+                        `syncId` TEXT,
+                        `updatedAt` INTEGER,
+                        `deletedAt` INTEGER
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_ledger_recurring_rules_nextFireAt` " +
+                        "ON `ledger_recurring_rules` (`nextFireAt`)"
+                )
+            }
+        }
+
+        /**
+         * 时间胶囊（F14）+ 旅行打包清单（F16）：新增三张表。
+         * 时间胶囊存写给未来的话与解锁时间；打包清单分行与条目两级。
+         */
+        private val MIGRATION_30_31 = object : Migration(30, 31) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `time_capsules` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `title` TEXT NOT NULL,
+                        `content` TEXT NOT NULL,
+                        `unlockAt` INTEGER NOT NULL,
+                        `openedAt` INTEGER,
+                        `forWhom` TEXT,
+                        `createdAt` INTEGER NOT NULL,
+                        `syncId` TEXT,
+                        `updatedAt` INTEGER,
+                        `deletedAt` INTEGER
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `packing_trips` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `name` TEXT NOT NULL,
+                        `destination` TEXT NOT NULL,
+                        `startDate` TEXT,
+                        `endDate` TEXT,
+                        `createdAt` INTEGER NOT NULL,
+                        `syncId` TEXT,
+                        `updatedAt` INTEGER,
+                        `deletedAt` INTEGER
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `packing_items` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `tripId` INTEGER NOT NULL,
+                        `name` TEXT NOT NULL,
+                        `quantity` INTEGER NOT NULL,
+                        `category` TEXT NOT NULL,
+                        `checked` INTEGER NOT NULL,
+                        `sort` INTEGER NOT NULL,
+                        `createdAt` INTEGER NOT NULL,
+                        `syncId` TEXT,
+                        `updatedAt` INTEGER,
+                        `deletedAt` INTEGER
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_packing_items_tripId` " +
+                        "ON `packing_items` (`tripId`)"
+                )
+            }
+        }
+
+    /** v32（F17）：reminders 增加按疗程用药字段——每日多次服药时刻、疗程起止、关联库存物品。 */
+    private val MIGRATION_31_32 = object : Migration(31, 32) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "ALTER TABLE `reminders` ADD COLUMN `doseTimes` TEXT NOT NULL DEFAULT ''"
+            )
+            db.execSQL(
+                "ALTER TABLE `reminders` ADD COLUMN `courseStartDate` TEXT"
+            )
+            db.execSQL(
+                "ALTER TABLE `reminders` ADD COLUMN `courseDays` INTEGER NOT NULL DEFAULT 0"
+            )
+            db.execSQL(
+                "ALTER TABLE `reminders` ADD COLUMN `linkedItemId` INTEGER"
+            )
+        }
+    }
+
     /** 按版本顺序排列的全部迁移，供 [AppDatabase] 一次性装配。 */
     val ALL: Array<Migration> = arrayOf(
         MIGRATION_1_2,
@@ -667,6 +801,9 @@ internal object Migrations {
         MIGRATION_25_26,
         MIGRATION_26_27,
         MIGRATION_27_28,
-        MIGRATION_28_29
+        MIGRATION_28_29,
+        MIGRATION_29_30,
+        MIGRATION_30_31,
+        MIGRATION_31_32
     )
 }

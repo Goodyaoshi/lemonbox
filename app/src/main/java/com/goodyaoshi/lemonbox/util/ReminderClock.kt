@@ -8,6 +8,7 @@ import java.time.LocalTime
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 
 /**
  * 提醒触发时间的纯计算：创建算首轮、触发/完成后推进下一轮都走这里，
@@ -43,6 +44,9 @@ object ReminderClock {
         return when (reminder.repeat) {
             ReminderRepeatType.ONCE -> null
             ReminderRepeatType.DAILY -> {
+                if (reminder.isMedication) {
+                    return nextMedicationDose(reminder, anchor, now)
+                }
                 var candidate = at(anchor, reminder.fireTime, now.zone) ?: return null
                 if (!candidate.isAfter(now)) {
                     candidate = candidate.plusDays(1)
@@ -90,14 +94,81 @@ object ReminderClock {
         return "$dayLabel ${zoned.format(TIME_FORMAT)}"
     }
 
-    /** 重复方式的展示文案：一次性 / 每天 / 每 3 天 / 每周一、周四。 */
-    fun describeRepeat(reminder: Reminder): String = when (reminder.repeat) {
-        ReminderRepeatType.ONCE -> "一次性"
-        ReminderRepeatType.DAILY -> "每天"
-        ReminderRepeatType.INTERVAL -> "每 ${reminder.intervalDays} 天"
-        ReminderRepeatType.WEEKLY -> "每" + Reminder.decodeWeekdays(reminder.weekdays)
-            .joinToString("、") { WEEKDAY_LABELS.getOrElse(it - 1) { "" } }
+    /** 重复方式的展示文案：一次性 / 每天 / 每 3 天 / 每周一、周四 / 每天 3 次（用药）。 */
+    fun describeRepeat(reminder: Reminder): String = when {
+        reminder.repeat == ReminderRepeatType.ONCE -> "一次性"
+        reminder.isMedication ->
+            "每天 ${Reminder.decodeDoseTimes(reminder.doseTimes).size.coerceAtLeast(1)} 次" +
+                describeCourse(reminder)
+        else -> when (reminder.repeat) {
+            ReminderRepeatType.DAILY -> "每天"
+            ReminderRepeatType.INTERVAL -> "每 ${reminder.intervalDays} 天"
+            ReminderRepeatType.WEEKLY -> "每" + Reminder.decodeWeekdays(reminder.weekdays)
+                .joinToString("、") { WEEKDAY_LABELS.getOrElse(it - 1) { "" } }
+            else -> "一次性"
+        }
     }
+
+    /** 疗程进度文案（F17）：疗程还剩 3 天 / 不限疗程。 */
+    fun describeCourse(reminder: Reminder): String {
+        val end = medicationCourseEnd(reminder) ?: return " · 不限疗程"
+        val today = LocalDate.now()
+        val left = ChronoUnit.DAYS.between(today, end)
+        return when {
+            left < 0 -> " · 疗程已结束"
+            left == 0L -> " · 疗程今天结束"
+            else -> " · 疗程还剩 $left 天"
+        }
+    }
+
+    /** 疗程结束日（含当天）；未配疗程返回 null。 */
+    fun medicationCourseEnd(reminder: Reminder): LocalDate? {
+        val start = reminder.courseStartDate
+            ?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: return null
+        val days = reminder.courseDays
+        if (days <= 0) return null
+        return start.plusDays(days.toLong() - 1)
+    }
+
+    /** 今天是疗程第 N 天；未配疗程或已超出返回 null。 */
+    fun medicationCourseDay(reminder: Reminder, today: LocalDate = LocalDate.now()): Int? {
+        val start = reminder.courseStartDate
+            ?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: return null
+        val days = reminder.courseDays
+        if (days <= 0) return null
+        val day = ChronoUnit.DAYS.between(start, today).toInt() + 1
+        return day.takeIf { it in 1..days }
+    }
+
+    /**
+     * 按疗程用药的下一剂（F17）：疗程内每天按 [Reminder.doseTimes] 的时刻多次服药。
+     * 从锚点日逐格推进到第一个晚于 now 的时刻；停机错过的剂量直接跳过不补发，
+     * 疗程走完返回 null（调用方会把提醒停用）。
+     */
+    private fun nextMedicationDose(
+        reminder: Reminder,
+        anchor: LocalDate,
+        now: ZonedDateTime
+    ): Long? {
+        val times = Reminder.decodeDoseTimes(reminder.doseTimes)
+        if (times.isEmpty()) return null
+        val end = medicationCourseEnd(reminder) ?: anchor.plusDays(MEDICATION_SCAN_LIMIT_DAYS.toLong())
+        var date = anchor
+        var guard = 0
+        while (!date.isAfter(end) && guard <= MEDICATION_SCAN_LIMIT_DAYS) {
+            for (time in times) {
+                val candidate = date.atTime(time).atZone(now.zone)
+                if (candidate.isAfter(now)) {
+                    return candidate.toInstant().toEpochMilli()
+                }
+            }
+            date = date.plusDays(1)
+            guard++
+        }
+        return null
+    }
+
+    private const val MEDICATION_SCAN_LIMIT_DAYS = 60
 
     private fun at(date: LocalDate?, fireTime: String, zone: ZoneId): ZonedDateTime? {
         val time = runCatching { LocalTime.parse(fireTime.trim(), TIME_FORMAT) }.getOrNull()

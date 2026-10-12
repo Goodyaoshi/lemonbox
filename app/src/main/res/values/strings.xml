@@ -2,4 +2,16 @@
 <resources>
     <string name="app_name">柠檬百宝箱</string>
     <string name="app_short_name">柠檬百宝</string>
+
+    <!-- 桌面快捷方式标签（F13） -->
+    <string name="shortcut_record_short">记一笔</string>
+    <string name="shortcut_record_long">快速记一笔账</string>
+    <string name="shortcut_tobuy_short">待买清单</string>
+    <string name="shortcut_tobuy_long">看看还要买什么</string>
+    <string name="shortcut_camera_short">拍张照</string>
+    <string name="shortcut_camera_long">拍照或扫条码入库</string>
+
+    <!-- 桌面小组件（F04） -->
+    <string name="widget_lemonbox_label">待买与今日速览</string>
+    <string name="widget_lemonbox_description">不解锁就能看到待买清单、今天的事和本月支出</string>
 </resources>

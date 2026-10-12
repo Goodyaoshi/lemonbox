@@ -17,14 +17,22 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Alarm
+import androidx.compose.material.icons.filled.AutoGraph
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.DocumentScanner
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Luggage
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.MailOutline
+import androidx.compose.material.icons.filled.NightsStay
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sync
@@ -48,6 +56,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -63,6 +73,7 @@ import com.goodyaoshi.lemonbox.ui.theme.LemonStart
 import com.goodyaoshi.lemonbox.ui.theme.OnLemon
 import com.goodyaoshi.lemonbox.ui.theme.OnLemonSoft
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
+import com.goodyaoshi.lemonbox.ui.theme.StatusExpired
 import com.goodyaoshi.lemonbox.ui.theme.TagOrange
 import com.goodyaoshi.lemonbox.ui.theme.TagOrangeText
 import com.goodyaoshi.lemonbox.ui.theme.TextHint
@@ -77,6 +88,11 @@ fun ProfileScreen(
     onOpenLanSync: () -> Unit = {},
     onOpenReminders: () -> Unit = {},
     onOpenAnniversaries: () -> Unit = {},
+    onOpenOcr: () -> Unit = {},
+    onOpenRestockForecast: () -> Unit = {},
+    onOpenTimeCapsule: () -> Unit = {},
+    onOpenPackingList: () -> Unit = {},
+    onOpenSleep: () -> Unit = {},
     viewModel: ProfileViewModel = hiltViewModel()
 ) {
     val dueReminderCount by viewModel.dueReminderCount.collectAsState()
@@ -85,7 +101,9 @@ fun ProfileScreen(
     val nickname by viewModel.nickname.collectAsState()
     var showBackupDialog by remember { mutableStateOf(false) }
     var showNicknameDialog by remember { mutableStateOf(false) }
+    var showAppLockDialog by remember { mutableStateOf(false) }
     var nicknameInput by remember { mutableStateOf("") }
+    val appLockEnabled by viewModel.appLockEnabled.collectAsState()
 
     val exportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/zip")
@@ -97,6 +115,12 @@ fun ProfileScreen(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
         uri?.let(viewModel::importBackup)
+    }
+
+    val readableLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("text/html")
+    ) { uri ->
+        uri?.let(viewModel::exportReadable)
     }
 
     LaunchedEffect(backupState.message) {
@@ -209,6 +233,51 @@ fun ProfileScreen(
             }
 
             SectionTitle(
+                title = "小工具",
+                modifier = Modifier.padding(start = 24.dp, top = 18.dp, bottom = 8.dp)
+            )
+            AppSurfaceCard(
+                modifier = Modifier.padding(horizontal = 20.dp),
+                shape = RoundedCornerShape(24.dp),
+                shadowElevation = 12.dp
+            ) {
+                MenuRow(
+                    icon = Icons.Default.DocumentScanner,
+                    title = "文字识别",
+                    subtitle = "拍张照，自动认出发票、清单或物品名",
+                    onClick = onOpenOcr
+                )
+                DividerSpacer()
+                MenuRow(
+                    icon = Icons.Default.AutoGraph,
+                    title = "补货预测",
+                    subtitle = "按平时的消耗速度，算算哪些快用完了",
+                    onClick = onOpenRestockForecast
+                )
+                DividerSpacer()
+                MenuRow(
+                    icon = Icons.Default.MailOutline,
+                    title = "时间胶囊",
+                    subtitle = "写段话给未来的自己，到那天才能打开",
+                    onClick = onOpenTimeCapsule
+                )
+                DividerSpacer()
+                MenuRow(
+                    icon = Icons.Default.Luggage,
+                    title = "打包清单",
+                    subtitle = "出行前列好要带的东西，出发前照着勾",
+                    onClick = onOpenPackingList
+                )
+                DividerSpacer()
+                MenuRow(
+                    icon = Icons.Default.NightsStay,
+                    title = "睡前氛围",
+                    subtitle = "夜里的一处安静角落，还有就寝提醒",
+                    onClick = onOpenSleep
+                )
+            }
+
+            SectionTitle(
                 title = "设置与数据",
                 modifier = Modifier.padding(start = 24.dp, top = 18.dp, bottom = 8.dp)
             )
@@ -250,10 +319,30 @@ fun ProfileScreen(
                 )
                 DividerSpacer()
                 MenuRow(
+                    icon = Icons.Default.Description,
+                    title = "导出可读报告",
+                    subtitle = "生成可阅读、可打印的清单（家当 / 临期 / 收支 / 纪念日）",
+                    onClick = {
+                        readableLauncher.launch("lemonbox-report-${System.currentTimeMillis()}.html")
+                    }
+                )
+                DividerSpacer()
+                MenuRow(
                     icon = Icons.Default.Refresh,
                     title = "恢复内置分类",
                     subtitle = "补齐食材/零食等内置分类，误删或同步后丢失也能找回",
                     onClick = viewModel::restoreBuiltInData
+                )
+                DividerSpacer()
+                MenuRow(
+                    icon = Icons.Default.Lock,
+                    title = "应用锁",
+                    subtitle = if (appLockEnabled) {
+                        "已开启，进入需要 PIN 或系统密码 / 指纹"
+                    } else {
+                        "给私人内容加一道锁（PIN + 系统密码 / 指纹）"
+                    },
+                    onClick = { showAppLockDialog = true }
                 )
             }
 
@@ -293,6 +382,22 @@ fun ProfileScreen(
                 modifier = Modifier.fillMaxWidth()
             )
         }
+    }
+
+    if (showAppLockDialog) {
+        AppLockSettingsDialog(
+            enabled = appLockEnabled,
+            onDismiss = { showAppLockDialog = false },
+            onEnable = { pin ->
+                viewModel.enableAppLock(pin)
+                showAppLockDialog = false
+            },
+            verifyPin = viewModel::verifyAppLockPin,
+            onDisable = {
+                viewModel.disableAppLock()
+                showAppLockDialog = false
+            }
+        )
     }
 
     if (backupState.isBusy) {
@@ -441,3 +546,82 @@ private fun DividerSpacer() {
             .height(1.dp)
     )
 }
+
+/** 应用锁设置弹窗（F19）：未开启时设 PIN 开启；已开启时输 PIN 关闭。 */
+@Composable
+private fun AppLockSettingsDialog(
+    enabled: Boolean,
+    onDismiss: () -> Unit,
+    onEnable: (String) -> Unit,
+    verifyPin: (String) -> Boolean,
+    onDisable: () -> Unit
+) {
+    var pin by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf(false) }
+
+    if (enabled) {
+        AppDialog(
+            title = "关闭应用锁",
+            onDismissRequest = onDismiss,
+            confirmText = "关闭",
+            destructiveConfirm = true,
+            confirmEnabled = pin.length >= MIN_PIN_LENGTH,
+            onConfirm = {
+                if (verifyPin(pin)) onDisable() else error = true
+            }
+        ) {
+            Text(
+                text = "输入当前 PIN 以关闭应用锁。",
+                color = TextSecondary,
+                fontSize = 13.sp
+            )
+            PinField(value = pin, onValueChange = { pin = it; error = false }, isError = error)
+        }
+    } else {
+        AppDialog(
+            title = "开启应用锁",
+            onDismissRequest = onDismiss,
+            confirmText = "开启",
+            confirmEnabled = pin.length >= MIN_PIN_LENGTH,
+            onConfirm = { onEnable(pin) }
+        ) {
+            Text(
+                text = "设一个 4-12 位数字 PIN。之后进入 App 需要验证，也可以用系统密码 / 指纹。",
+                color = TextSecondary,
+                fontSize = 13.sp
+            )
+            PinField(value = pin, onValueChange = { pin = it }, isError = false)
+        }
+    }
+}
+
+@Composable
+private fun PinField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    isError: Boolean
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = { onValueChange(it.filter { ch -> ch.isDigit() }.take(MAX_PIN_LENGTH)) },
+            singleLine = true,
+            label = { Text("PIN") },
+            isError = isError,
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+            modifier = Modifier.fillMaxWidth()
+        )
+        if (isError) {
+            Text(
+                text = "PIN 不对，再试一次",
+                color = StatusExpired,
+                fontSize = 12.sp,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+        }
+    }
+}
+
+private const val MIN_PIN_LENGTH = 4
+private const val MAX_PIN_LENGTH = 12

@@ -2,8 +2,10 @@ package com.goodyaoshi.lemonbox.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.goodyaoshi.lemonbox.data.local.entity.ItemDetail
 import com.goodyaoshi.lemonbox.data.local.entity.Reminder
 import com.goodyaoshi.lemonbox.data.local.entity.ReminderRepeatType
+import com.goodyaoshi.lemonbox.data.repository.ItemRepository
 import com.goodyaoshi.lemonbox.data.repository.ReminderRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
@@ -15,7 +17,8 @@ import javax.inject.Inject
 
 @HiltViewModel
 class RemindersViewModel @Inject constructor(
-    private val reminderRepository: ReminderRepository
+    private val reminderRepository: ReminderRepository,
+    itemRepository: ItemRepository
 ) : ViewModel() {
 
     private val loading = LoadingState()
@@ -28,6 +31,10 @@ class RemindersViewModel @Inject constructor(
         .onEach { loading.markLoaded() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    /** 在库家当（F17）：用药提醒弹窗里选「关联库存」用。 */
+    val activeItems: StateFlow<List<ItemDetail>> = itemRepository.getActiveItems()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     /** 新建提醒；时刻已过等非法输入返回 false，由页面提示。 */
     fun create(
         title: String,
@@ -37,6 +44,9 @@ class RemindersViewModel @Inject constructor(
         intervalDays: Int,
         weekdays: List<Int>,
         fireTime: String,
+        doseTimes: List<String> = emptyList(),
+        courseDays: Int = 0,
+        linkedItemId: Long? = null,
         onResult: (Boolean) -> Unit
     ) {
         viewModelScope.launch {
@@ -48,7 +58,15 @@ class RemindersViewModel @Inject constructor(
                     intervalDays = intervalDays.coerceAtLeast(1),
                     weekdays = Reminder.encodeWeekdays(weekdays),
                     fireTime = fireTime,
-                    targetDate = targetDate
+                    targetDate = targetDate,
+                    doseTimes = Reminder.encodeDoseTimes(doseTimes),
+                    courseStartDate = if (courseDays > 0 && doseTimes.isNotEmpty()) {
+                        java.time.LocalDate.now().toString()
+                    } else {
+                        null
+                    },
+                    courseDays = courseDays.coerceAtLeast(0),
+                    linkedItemId = linkedItemId
                 )
             )
             onResult(saved)

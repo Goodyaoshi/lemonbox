@@ -3,6 +3,8 @@ package com.goodyaoshi.lemonbox.data.repository
 import com.goodyaoshi.lemonbox.data.local.dao.LedgerAssetDao
 import com.goodyaoshi.lemonbox.data.local.dao.LedgerBudgetDao
 import com.goodyaoshi.lemonbox.data.local.dao.LedgerCategoryDao
+import com.goodyaoshi.lemonbox.data.local.dao.LedgerCategorySum
+import com.goodyaoshi.lemonbox.data.local.dao.LedgerMonthTypeSum
 import com.goodyaoshi.lemonbox.data.local.dao.LedgerRecordDao
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerAsset
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerBudget
@@ -75,6 +77,22 @@ class LedgerRepository @Inject constructor(
     /** 某账期支出按分类聚合（分，金额降序），供统计页使用。 */
     suspend fun expenseByCategory(start: Long, end: Long) =
         recordDao.sumExpenseByCategoryBetween(start, end)
+
+    /** 某时间段按月 × 类型聚合（分，响应式），供趋势图使用。 */
+    fun observeMonthTypeSumsBetween(
+        start: Long,
+        end: Long,
+        monthStartDay: Int
+    ): Flow<List<LedgerMonthTypeSum>> =
+        recordDao.observeMonthTypeSumsBetween(start, end, monthStartDay)
+
+    /** 某时间段的记账笔数（响应式），供年度回顾使用。 */
+    fun observeRecordCountBetween(start: Long, end: Long): Flow<Int> =
+        recordDao.observeRecordCountBetween(start, end)
+
+    /** 某时间段支出按分类聚合（分，金额降序，响应式），供年度回顾取最高分类。 */
+    fun observeExpenseByCategoryBetween(start: Long, end: Long): Flow<List<LedgerCategorySum>> =
+        recordDao.observeExpenseByCategoryBetween(start, end)
 
     // ---------- 记账分类 ----------
 

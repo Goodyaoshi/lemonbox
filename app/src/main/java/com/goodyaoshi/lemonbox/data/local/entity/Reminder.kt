@@ -3,6 +3,8 @@ package com.goodyaoshi.lemonbox.data.local.entity
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import java.time.LocalTime
+import java.time.format.DateTimeFormatter
 
 /** 提醒的重复方式。 */
 enum class ReminderRepeatType {
@@ -25,7 +27,10 @@ enum class ReminderSource {
     MANUAL,
 
     /** 由未来菜谱的某一餐生成（提醒提前准备/解冻食材）。 */
-    MEAL_PREP
+    MEAL_PREP,
+
+    /** 由时间胶囊生成（F14）：解锁日当天提醒去打开这封未来的信。 */
+    CAPSULE
 }
 
 /**
@@ -62,6 +67,14 @@ data class Reminder(
     val source: String = ReminderSource.MANUAL.name,
     /** [ReminderSource.MEAL_PREP] 的防重复键（meal_prep:日期），一天最多生成一条。 */
     val sourceKey: String? = null,
+    /** 药品每日多次的服药时刻（HH:mm 逗号分隔，如 "08:00,12:30"）；非空表示按疗程用药（F17）。 */
+    val doseTimes: String = "",
+    /** 疗程开始日期（yyyy-MM-dd）。 */
+    val courseStartDate: String? = null,
+    /** 疗程天数；0 = 不限疗程，一直提醒到手动关闭。 */
+    val courseDays: Int = 0,
+    /** 关联的家当物品 id（药品库存），到点提醒时顺带播报剩余量、不够时提示补货。 */
+    val linkedItemId: Long? = null,
     val createdAt: Long = System.currentTimeMillis(),
     /** 跨设备合并的稳定标识（v23 起；备份/同步用）。 */
     val syncId: String? = null,
@@ -81,6 +94,10 @@ data class Reminder(
     val awaitingConfirmation: Boolean
         get() = enabled && notifiedAt > 0
 
+    /** 是否按疗程用药（F17）：填了每日多次的服药时刻即视为用药提醒。 */
+    val isMedication: Boolean
+        get() = doseTimes.isNotBlank()
+
     companion object {
         /** 周几集合的持久化格式：去重排序后逗号连接。 */
         fun encodeWeekdays(days: List<Int>): String =
@@ -89,5 +106,19 @@ data class Reminder(
         /** 解析周几集合；非法 token 忽略。 */
         fun decodeWeekdays(weekdays: String): List<Int> =
             weekdays.split(",").mapNotNull { it.trim().toIntOrNull() }.filter { it in 1..7 }.distinct().sorted()
+
+        /** 服药时刻的持久化格式：解析合法的 HH:mm、去重排序后逗号连接。 */
+        fun encodeDoseTimes(times: List<String>): String =
+            times.mapNotNull { time ->
+                runCatching { LocalTime.parse(time.trim(), DOSE_TIME_FORMAT) }.getOrNull()
+            }.distinct().sorted().joinToString(",") { it.format(DOSE_TIME_FORMAT) }
+
+        /** 解析服药时刻；非法 token 忽略。 */
+        fun decodeDoseTimes(doseTimes: String): List<LocalTime> =
+            doseTimes.split(",").mapNotNull { token ->
+                runCatching { LocalTime.parse(token.trim(), DOSE_TIME_FORMAT) }.getOrNull()
+            }.distinct().sorted()
+
+        private val DOSE_TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
     }
 }

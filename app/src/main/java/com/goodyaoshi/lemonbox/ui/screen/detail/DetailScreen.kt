@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Delete
@@ -93,6 +94,7 @@ import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
 import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
 import com.goodyaoshi.lemonbox.ui.viewmodel.DetailViewModel
 import com.goodyaoshi.lemonbox.util.DateUtil
+import com.goodyaoshi.lemonbox.util.LedgerMath
 import kotlinx.coroutines.launch
 
 @Composable
@@ -101,6 +103,9 @@ fun DetailScreen(
     scope: String,
     onBack: () -> Unit,
     onEdit: (Long) -> Unit,
+    // 「记一笔」入口：把当前物品的价格×数量作为默认金额预填进记账页（F06）。
+    // 默认空实现以免调用方（如预览）必须提供。
+    onRecordPurchase: (itemId: Long, amountCents: Long, name: String) -> Unit = { _, _, _ -> },
     viewModel: DetailViewModel = hiltViewModel()
 ) {
     val items by viewModel.items.collectAsState()
@@ -452,6 +457,25 @@ fun DetailScreen(
                     onClick = { viewModel.setNeedRestock(item.id, !item.needRestock) }
                 )
                 DetailInfoRow("备注", item.note.ifBlank { "无" })
+                DetailInfoRow(
+                    label = "记一笔",
+                    value = "把这件东西的花销记进账本",
+                    tail = {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ReceiptLong,
+                            contentDescription = null,
+                            tint = OrangeStart,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    },
+                    onClick = {
+                        onRecordPurchase(
+                            item.id,
+                            LedgerMath.itemPriceToCents(item.price ?: 0.0, item.quantity),
+                            item.name
+                        )
+                    }
+                )
 
             }
         }

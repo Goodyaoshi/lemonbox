@@ -40,6 +40,7 @@ import com.goodyaoshi.lemonbox.util.DateUtil
 import com.goodyaoshi.lemonbox.util.LedgerMath
 import java.time.LocalDate
 import java.time.ZoneId
+import java.time.temporal.ChronoUnit
 import javax.inject.Inject
 
 /** 首页「本月账」速览条的数据：当月支出与总预算（分，未设总预算时为 null）。 */
@@ -106,18 +107,34 @@ class HomeViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /**
-     * Hero 里那个「只有你们懂的数字」：取累计型（TYPE_COUNTUP）里开始最早的一条，
-     * 拼成「在一起第 N 天」。用户没建这类纪念日时不显示，Hero 保持原样。
+     * Hero 里那个「只有你们懂的数字」：
+     * 优先用设置里配置的「在一起」起始日算「前缀第 N 天」；
+     * 未配置时回退到累计型（TYPE_COUNTUP）纪念日里开始最早的一条派生，兼容老数据。
      */
-    val togetherDays: StateFlow<String?> = anniversaryRepository.getActiveAnniversaries()
-        .map { list ->
-            val today = LocalDate.now()
-            list.map { it.toRow(today) }
-                .filter { it.anniversary.type == Anniversary.TYPE_COUNTUP && (it.days ?: 0L) <= 0L }
-                .minByOrNull { it.days ?: 0L }
-                ?.let { "${it.name}第 ${-(it.days ?: 0L) + 1} 天" }
-        }
+    val togetherDays: StateFlow<String?> = combine(
+        appPreferences.togetherStartDate,
+        appPreferences.togetherLabelName,
+        anniversaryRepository.getActiveAnniversaries()
+    ) { startDate, label, list ->
+        configuredTogetherDays(startDate, label) ?: derivedTogetherDays(list)
+    }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    /** 用设置里配置的起始日计算「前缀第 N 天」；未配置或起算不足 1 天时返回 null。 */
+    private fun configuredTogetherDays(startDate: String?, label: String): String? {
+        val start = startDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: return null
+        val days = ChronoUnit.DAYS.between(start, LocalDate.now()) + 1
+        return if (days < 1) null else "${label}第 $days 天"
+    }
+
+    /** 旧派生逻辑：取累计型纪念日里开始最早的一条，拼成「名称第 N 天」。 */
+    private fun derivedTogetherDays(list: List<Anniversary>): String? {
+        val today = LocalDate.now()
+        return list.map { it.toRow(today) }
+            .filter { it.anniversary.type == Anniversary.TYPE_COUNTUP && (it.days ?: 0L) <= 0L }
+            .minByOrNull { it.days ?: 0L }
+            ?.let { "${it.name}第 ${-(it.days ?: 0L) + 1} 天" }
+    }
 
     /** 一餐做完：仓库内幂等（已做不重复扣料）。 */
     fun markDayCooked(dateKey: String) {

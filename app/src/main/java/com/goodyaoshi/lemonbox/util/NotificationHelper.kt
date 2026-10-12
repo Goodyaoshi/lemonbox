@@ -31,6 +31,10 @@ object NotificationHelper {
     private const val KEEP_ALIVE_CHANNEL_NAME = "提醒保活"
     const val KEEP_ALIVE_NOTIFICATION_ID = 1999
 
+    private const val SLEEP_CHANNEL_ID = "sleep_reminder"
+    private const val SLEEP_CHANNEL_NAME = "就寝提醒"
+    private const val SLEEP_NOTIFICATION_ID = 1003
+
     /** 汇总通知里单件物品的展示信息。 */
     data class ExpiryNotificationItem(
         val name: String,
@@ -80,6 +84,15 @@ object NotificationHelper {
             ).apply {
                 description = "保持提醒服务常驻，避免被系统省电策略终止提醒"
                 setShowBadge(false)
+            }
+        )
+        manager.createNotificationChannel(
+            NotificationChannel(
+                SLEEP_CHANNEL_ID,
+                SLEEP_CHANNEL_NAME,
+                NotificationManager.IMPORTANCE_DEFAULT
+            ).apply {
+                description = "到点提醒该休息了，陪你收个尾"
             }
         )
     }
@@ -221,12 +234,14 @@ object NotificationHelper {
      * 单条待办提醒通知（解冻肉、洗衣服等）。点通知打开应用，首页卡片能看到当天待办；
      * 通知自带「完成」按钮，点一下直接完结这条待办。
      * 防重复由调用方 [TodoReminderWorker] 通过 notifiedAt 标记负责。
+     * [detail] 为补充行（F17 用药提醒的疗程进度 / 库存提示），非空时换行展示。
      */
     fun showTodoReminder(
         context: Context,
         title: String,
         note: String,
-        reminderId: Long
+        reminderId: Long,
+        detail: String? = null
     ) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(
@@ -253,10 +268,15 @@ object NotificationHelper {
             android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
         )
 
+        val contentText = buildString {
+            append(note.ifBlank { "别忘了这件事" })
+            if (!detail.isNullOrBlank()) append("\n").append(detail)
+        }
         val notification = NotificationCompat.Builder(context, TODO_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title)
-            .setContentText(note.ifBlank { "别忘了这件事" })
+            .setContentText(contentText)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(contentText))
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setContentIntent(pendingIntent)
             .addAction(0, "完成", completeIntent)
@@ -265,6 +285,43 @@ object NotificationHelper {
 
         NotificationManagerCompat.from(context)
             .notify((TODO_NOTIFICATION_ID_BASE + reminderId).toInt(), notification)
+    }
+
+    /**
+     * 就寝提醒（F15）：到点轻声提醒该休息了。语气放松，不制造焦虑。
+     * 去重（按天）由调用方 [SleepReminderWorker] 通过 AppPreferences 负责。
+     */
+    fun showSleepReminder(context: Context, nickname: String) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+
+        val contentIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+        val pendingIntent = contentIntent?.let {
+            android.app.PendingIntent.getActivity(
+                context,
+                0,
+                it,
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT or
+                    android.app.PendingIntent.FLAG_IMMUTABLE
+            )
+        }
+
+        val notification = NotificationCompat.Builder(context, SLEEP_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle("$nickname，该休息啦")
+            .setContentText("把今天先放下，早点睡，明天再一起打理。")
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+            .build()
+
+        NotificationManagerCompat.from(context).notify(SLEEP_NOTIFICATION_ID, notification)
     }
 
     /** 保活服务独立拉起时确保渠道存在（幂等，与 createChannel 重复调用无副作用）。 */

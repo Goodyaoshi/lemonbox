@@ -9,11 +9,14 @@ import com.goodyaoshi.lemonbox.data.meal.MealSpec
 import com.goodyaoshi.lemonbox.data.meal.Recipe
 import com.goodyaoshi.lemonbox.data.meal.RecipeIngredient
 import com.goodyaoshi.lemonbox.util.DateUtil
+import com.goodyaoshi.lemonbox.util.MonotonicClock
 import com.goodyaoshi.lemonbox.util.UserCopy
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.security.MessageDigest
+import java.time.LocalDate
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -69,6 +72,65 @@ class AppPreferences @Inject constructor(
             ?.take(MAX_NICKNAME_LENGTH)
             ?.ifBlank { null }
             ?: UserCopy.NICKNAME
+
+    private val _togetherStartDate = MutableStateFlow(loadTogetherStartDate())
+
+    /**
+     * 「在一起」的起始日（yyyy-MM-dd）。设置后首页 Hero 用它算「第 N 天」；
+     * 未设置（null）时首页回退到累计型纪念日派生，兼容老数据。
+     */
+    val togetherStartDate: StateFlow<String?> = _togetherStartDate.asStateFlow()
+
+    private val _togetherUpdatedAt = MutableStateFlow(
+        preferences.getLong(KEY_TOGETHER_UPDATED_AT, 0L)
+    )
+
+    /** 起始日最近一次修改的时间戳（毫秒）；多设备合并时按它「较新者胜」。 */
+    val togetherUpdatedAt: StateFlow<Long> = _togetherUpdatedAt.asStateFlow()
+
+    private val _togetherLabelName = MutableStateFlow(loadTogetherLabelName())
+
+    /** 首页计数前缀（默认「我们」），拼成「我们第 N 天」；可在设置页修改。 */
+    val togetherLabelName: StateFlow<String> = _togetherLabelName.asStateFlow()
+
+    /** 设置起始日；传 null 表示清除。同时刷新 updatedAt，供多设备合并比较。 */
+    fun setTogetherStartDate(date: String?) {
+        persistTogetherStartDate(normalizeTogetherDate(date), MonotonicClock.now())
+    }
+
+    /** 设置首页计数前缀；留空回落到默认「我们」。 */
+    fun setTogetherLabelName(value: String) {
+        val normalized = value.trim().take(MAX_TOGETHER_LABEL_LENGTH).ifBlank { DEFAULT_TOGETHER_LABEL_NAME }
+        preferences.edit().putString(KEY_TOGETHER_LABEL_NAME, normalized).apply()
+        _togetherLabelName.value = normalized
+    }
+
+    private fun persistTogetherStartDate(date: String?, updatedAt: Long) {
+        val editor = preferences.edit().putLong(KEY_TOGETHER_UPDATED_AT, updatedAt)
+        if (date == null) {
+            editor.remove(KEY_TOGETHER_START_DATE)
+        } else {
+            editor.putString(KEY_TOGETHER_START_DATE, date)
+        }
+        editor.apply()
+        _togetherStartDate.value = date
+        _togetherUpdatedAt.value = updatedAt
+    }
+
+    /** 归一化起始日：空白与非法日期一律视为未设置（null）。 */
+    private fun normalizeTogetherDate(raw: String?): String? =
+        raw?.trim()?.takeIf { it.isNotEmpty() }
+            ?.let { runCatching { LocalDate.parse(it).toString() }.getOrNull() }
+
+    private fun loadTogetherStartDate(): String? =
+        normalizeTogetherDate(preferences.getString(KEY_TOGETHER_START_DATE, null))
+
+    private fun loadTogetherLabelName(): String =
+        preferences.getString(KEY_TOGETHER_LABEL_NAME, null)
+            ?.trim()
+            ?.take(MAX_TOGETHER_LABEL_LENGTH)
+            ?.ifBlank { null }
+            ?: DEFAULT_TOGETHER_LABEL_NAME
 
     private val _budgetReminderEnabled = MutableStateFlow(
         preferences.getBoolean(KEY_BUDGET_REMINDER_ENABLED, true)
@@ -173,6 +235,76 @@ class AppPreferences @Inject constructor(
             .filter { it in REMINDER_TIME_OPTIONS }
             .distinct()
             .sorted()
+
+    private val _bedtimeReminderEnabled = MutableStateFlow(
+        preferences.getBoolean(KEY_BEDTIME_REMINDER_ENABLED, false)
+    )
+
+    /** 就寝提醒开关（F15）：开启后每晚到点提醒该休息了。默认关闭。 */
+    val bedtimeReminderEnabled: StateFlow<Boolean> = _bedtimeReminderEnabled.asStateFlow()
+
+    private val _bedtimeTime = MutableStateFlow(
+        normalizeBedtimeTime(preferences.getString(KEY_BEDTIME_TIME, null)) ?: DEFAULT_BEDTIME_TIME
+    )
+
+    /** 就寝时间（HH:mm），默认 22:30。 */
+    val bedtimeTime: StateFlow<String> = _bedtimeTime.asStateFlow()
+
+    fun setBedtimeReminderEnabled(enabled: Boolean) {
+        preferences.edit().putBoolean(KEY_BEDTIME_REMINDER_ENABLED, enabled).apply()
+        _bedtimeReminderEnabled.value = enabled
+    }
+
+    fun setBedtimeTime(time: String) {
+        val normalized = normalizeBedtimeTime(time) ?: return
+        preferences.edit().putString(KEY_BEDTIME_TIME, normalized).apply()
+        _bedtimeTime.value = normalized
+    }
+
+    /** 就寝提醒去重键（yyyy-MM-dd@HH:mm）；设备本地状态，不进备份。 */
+    fun bedtimeNotifiedDate(): String? = preferences.getString(KEY_BEDTIME_NOTIFIED_DATE, null)
+
+    fun setBedtimeNotifiedDate(value: String) {
+        preferences.edit().putString(KEY_BEDTIME_NOTIFIED_DATE, value).apply()
+    }
+
+    private fun normalizeBedtimeTime(raw: String?): String? {
+        val parts = raw?.trim()?.split(":") ?: return null
+        val hour = parts.getOrNull(0)?.toIntOrNull() ?: return null
+        val minute = parts.getOrNull(1)?.toIntOrNull() ?: return null
+        if (hour !in 0..23 || minute !in 0..59) return null
+        return "%02d:%02d".format(hour, minute)
+    }
+
+    private val _appLockEnabled = MutableStateFlow(
+        preferences.getBoolean(KEY_APP_LOCK_ENABLED, false)
+    )
+
+    /** 应用锁开关（F19）：开启后每次进入需验证 PIN 或系统密码/指纹。默认关闭。 */
+    val appLockEnabled: StateFlow<Boolean> = _appLockEnabled.asStateFlow()
+
+    private val _appLockPinHash = MutableStateFlow(
+        preferences.getString(KEY_APP_LOCK_PIN_HASH, null)
+    )
+
+    /** 应用锁 PIN 的哈希（不存明文）；null 表示尚未设置 PIN。 */
+    val appLockPinHash: StateFlow<String?> = _appLockPinHash.asStateFlow()
+
+    fun setAppLockEnabled(enabled: Boolean) {
+        preferences.edit().putBoolean(KEY_APP_LOCK_ENABLED, enabled).apply()
+        _appLockEnabled.value = enabled
+    }
+
+    /** 设置应用锁 PIN：只存哈希，明文不落盘。 */
+    fun setAppLockPin(pin: String) {
+        val hash = hashPin(pin)
+        preferences.edit().putString(KEY_APP_LOCK_PIN_HASH, hash).apply()
+        _appLockPinHash.value = hash
+    }
+
+    /** 校验 PIN 是否与已存哈希一致。 */
+    fun verifyAppLockPin(pin: String): Boolean =
+        _appLockPinHash.value?.let { it == hashPin(pin) } ?: false
 
     private val _continuousEntry = MutableStateFlow(
         preferences.getBoolean(KEY_CONTINUOUS_ENTRY, false)
@@ -760,6 +892,28 @@ class AppPreferences @Inject constructor(
         return applied
     }
 
+    /** 「在一起」起始日快照，备份导出用。 */
+    fun togetherStartDateSnapshot(): String? = _togetherStartDate.value
+
+    /**
+     * 合并导入「在一起」起始日：按 updatedAt「较新者胜」。
+     * 对方时间戳不晚于本地（含双方都为 0 的旧备份）则不改动本地，天然兼容老数据。
+     */
+    fun applySyncedTogetherStartDate(date: String?, updatedAt: Long?): Boolean {
+        val incomingAt = updatedAt ?: 0L
+        if (incomingAt <= _togetherUpdatedAt.value) return false
+        persistTogetherStartDate(normalizeTogetherDate(date), incomingAt)
+        return true
+    }
+
+    /** 合并导入「在一起」计数前缀：非空即覆盖，留空忽略。 */
+    fun applySyncedTogetherLabelName(name: String?): Boolean {
+        val normalized = name?.trim()?.take(MAX_TOGETHER_LABEL_LENGTH)?.takeIf { it.isNotEmpty() } ?: return false
+        if (normalized == _togetherLabelName.value) return false
+        setTogetherLabelName(normalized)
+        return true
+    }
+
     /** 去掉空白食材并清理首尾空格，保证展示与匹配都干净。 */
     private fun normalizeIngredients(ingredients: List<RecipeIngredient>): List<RecipeIngredient> =
         ingredients.mapNotNull { ingredient ->
@@ -821,6 +975,19 @@ class AppPreferences @Inject constructor(
         /** 默认的每日提醒时间点：早上 8:00、晚上 19:00。 */
         val DEFAULT_REMINDER_TIMES = listOf("08:00", "19:00")
 
+        /** 默认就寝提醒时间（F15）。 */
+        const val DEFAULT_BEDTIME_TIME = "22:30"
+
+        /** 应用锁 PIN 的加盐盐值（F19）：只存哈希，不存明文。 */
+        private const val PIN_SALT = "lemonbox::applock::v1"
+
+        /** 计算 PIN 的加盐 SHA-256 十六进制串（F19）。 */
+        fun hashPin(pin: String): String {
+            val digest = MessageDigest.getInstance("SHA-256")
+            val bytes = digest.digest((PIN_SALT + pin).toByteArray(Charsets.UTF_8))
+            return bytes.joinToString("") { "%02x".format(it) }
+        }
+
         /** 提醒时间点的候选档位（HH:mm），设置页与调度器共用。 */
         val REMINDER_TIME_OPTIONS = listOf(
             "07:00", "08:00", "09:00", "12:00", "18:00", "19:00", "20:00", "21:00"
@@ -830,6 +997,12 @@ class AppPreferences @Inject constructor(
 
         /** 昵称最大长度（按字符计），避免过长的称呼撑坏标题与通知。 */
         const val MAX_NICKNAME_LENGTH = 12
+
+        /** 「在一起」计数前缀的默认值。 */
+        const val DEFAULT_TOGETHER_LABEL_NAME = "我们"
+
+        /** 「在一起」计数前缀的最大长度（按字符计），避免撑坏首页 Hero。 */
+        const val MAX_TOGETHER_LABEL_LENGTH = 8
 
         /** 水位线缺失时的哨兵值。 */
         private const val NO_WATERMARK = Long.MIN_VALUE
@@ -846,6 +1019,9 @@ class AppPreferences @Inject constructor(
 
         private const val PREFS_NAME = "lemon_preferences"
         private const val KEY_NICKNAME = "nickname"
+        private const val KEY_TOGETHER_START_DATE = "together_start_date"
+        private const val KEY_TOGETHER_UPDATED_AT = "together_start_date_updated_at"
+        private const val KEY_TOGETHER_LABEL_NAME = "together_label_name"
         private const val KEY_REMINDER_DAYS = "reminder_days"
         private const val KEY_REMINDER_LADDER = "reminder_ladder"
         private const val REMINDER_LADDER_SEPARATOR = ","
@@ -860,6 +1036,11 @@ class AppPreferences @Inject constructor(
         private const val KEY_AUTO_START_CONFIRMED = "auto_start_confirmed"
         private const val KEY_LAST_MAINTENANCE_AT = "last_maintenance_at"
         private const val KEY_CUSTOM_REMINDER_TIMES = "custom_reminder_times"
+        private const val KEY_BEDTIME_REMINDER_ENABLED = "bedtime_reminder_enabled"
+        private const val KEY_BEDTIME_TIME = "bedtime_time"
+        private const val KEY_BEDTIME_NOTIFIED_DATE = "bedtime_notified_date"
+        private const val KEY_APP_LOCK_ENABLED = "app_lock_enabled"
+        private const val KEY_APP_LOCK_PIN_HASH = "app_lock_pin_hash"
         private const val KEY_MEAL_PREP_DAY_SHIFT = "meal_prep_day_shift"
         private const val KEY_MEAL_PREP_FIRE_TIME = "meal_prep_fire_time"
 

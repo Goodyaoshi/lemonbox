@@ -106,11 +106,17 @@ class BackupSnapshotTest {
             ),
             reminderLadder = listOf(1, 3, 7),
             reminderTimes = listOf("09:00"),
-            mealPrepDayShift = -1
+            mealPrepDayShift = -1,
+            togetherStartDate = "2021-05-20",
+            togetherStartDateUpdatedAt = 12_345L,
+            togetherLabelName = "我们"
         )
         val decoded = json.decodeFromString<PreferencesSnapshot>(json.encodeToString(prefs))
         assertEquals(prefs, decoded)
         assertEquals("借给人", decoded.customStatuses.first().label)
+        assertEquals("2021-05-20", decoded.togetherStartDate)
+        assertEquals(12_345L, decoded.togetherStartDateUpdatedAt)
+        assertEquals("我们", decoded.togetherLabelName)
     }
 
     @Test
@@ -129,6 +135,10 @@ class BackupSnapshotTest {
         assertTrue(prefs.cookedMenuDates.isEmpty())
         assertTrue(prefs.reminderLadder.isEmpty())
         assertNull(prefs.mealPrepDayShift)
+        // v8 起的「在一起」字段在旧备份里缺省为 null
+        assertNull(prefs.togetherStartDate)
+        assertNull(prefs.togetherStartDateUpdatedAt)
+        assertNull(prefs.togetherLabelName)
     }
 
     @Test

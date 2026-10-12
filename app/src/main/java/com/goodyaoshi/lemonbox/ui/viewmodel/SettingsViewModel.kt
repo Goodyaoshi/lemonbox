@@ -59,6 +59,20 @@ class SettingsViewModel @Inject constructor(
 
     val budgetReminderEnabled: StateFlow<Boolean> = appPreferences.budgetReminderEnabled
 
+    /** 「在一起」起始日（yyyy-MM-dd）；null 表示未设置。 */
+    val togetherStartDate: StateFlow<String?> = appPreferences.togetherStartDate
+
+    /** 首页计数前缀（如「我们」）。 */
+    val togetherLabelName: StateFlow<String> = appPreferences.togetherLabelName
+
+    fun setTogetherStartDate(date: String?) {
+        appPreferences.setTogetherStartDate(date)
+    }
+
+    fun setTogetherLabelName(name: String) {
+        appPreferences.setTogetherLabelName(name)
+    }
+
     /** 在线更新状态：检查、下载进度与待确认的新版本。 */
     private val _updateState = MutableStateFlow(UpdateUiState())
     val updateState: StateFlow<UpdateUiState> = _updateState.asStateFlow()

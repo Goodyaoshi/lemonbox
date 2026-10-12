@@ -250,6 +250,17 @@ interface ItemDao {
     @Query("SELECT COUNT(*) FROM items WHERE usageStatus = 2 AND disposition = 0 AND deletedAt IS NULL")
     fun getUsedUpCount(): Flow<Int>
 
+    /** 在库且未用完（F20）：家当域「在库」预设胶囊的计数，SQL 直算替代全量重数。 */
+    @Query(
+        "SELECT COUNT(*) FROM items WHERE disposition = 0 AND usageStatus <> 2 " +
+            "AND deletedAt IS NULL"
+    )
+    fun getInStockNotUsedUpCount(): Flow<Int>
+
+    /** 已离手（借出/送人/丢弃，F20）：家当域「已离手」预设胶囊的计数。 */
+    @Query("SELECT COUNT(*) FROM items WHERE disposition <> 0 AND deletedAt IS NULL")
+    fun getOffHandCount(): Flow<Int>
+
     @Query(
         "SELECT COALESCE(SUM(price * quantity), 0.0) FROM items " +
             "WHERE disposition = 0 AND deletedAt IS NULL"

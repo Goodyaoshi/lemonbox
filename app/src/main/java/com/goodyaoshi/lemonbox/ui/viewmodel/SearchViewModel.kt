@@ -21,7 +21,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -197,14 +196,25 @@ class SearchViewModel @Inject constructor(
     val locations: StateFlow<List<Location>> = locationRepository.getAllLocations()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    /** 每个快捷预设有多少件物品，用于胶囊上的数量。 */
-    val presetCounts: StateFlow<Map<LibraryPreset, Int>> = allItems
-        .map { items ->
-            LibraryPreset.entries.associateWith { preset ->
-                items.count { matchesPreset(it, preset) }
-            }
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+    /**
+     * 每个快捷预设有多少件物品，用于胶囊上的数量。
+     * F20：五条计数全部下沉为 SQL COUNT 直算，不再每次物品变动对全量列表 × 5 个预设重算。
+     */
+    val presetCounts: StateFlow<Map<LibraryPreset, Int>> = combine(
+        itemDao.getTotalCount(),
+        itemDao.getInStockNotUsedUpCount(),
+        itemDao.getUsedUpCount(),
+        itemDao.getToBuyCount(),
+        itemDao.getOffHandCount()
+    ) { total, inStock, usedUp, toBuy, offHand ->
+        mapOf(
+            LibraryPreset.ALL to total,
+            LibraryPreset.IN_STOCK to inStock,
+            LibraryPreset.USED_UP to usedUp,
+            LibraryPreset.TO_BUY to toBuy,
+            LibraryPreset.OFF_HAND to offHand
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     val results: StateFlow<List<ItemDetail>> = combine(
         allItems,
@@ -306,23 +316,6 @@ class SearchViewModel @Inject constructor(
     fun setNeedRestock(id: Long, needRestock: Boolean) {
         viewModelScope.launch {
             itemRepository.setNeedRestock(id, needRestock)
-        }
-    }
-
-    private fun matchesPreset(itemDetail: ItemDetail, preset: LibraryPreset): Boolean {
-        val item = itemDetail.item
-        return when (preset) {
-            LibraryPreset.ALL -> true
-            LibraryPreset.IN_STOCK ->
-                item.disposition == Item.DISPOSITION_IN_STOCK && item.usageStatus != Item.USAGE_USED_UP
-
-            LibraryPreset.USED_UP ->
-                item.disposition == Item.DISPOSITION_IN_STOCK && item.usageStatus == Item.USAGE_USED_UP
-
-            LibraryPreset.TO_BUY ->
-                item.needRestock && item.disposition != Item.DISPOSITION_DISCARDED
-
-            LibraryPreset.OFF_HAND -> item.disposition != Item.DISPOSITION_IN_STOCK
         }
     }
 

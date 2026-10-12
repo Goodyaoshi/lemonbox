@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.goodyaoshi.lemonbox.data.backup.AppBackupManager
 import com.goodyaoshi.lemonbox.data.backup.toUserMessage
+import com.goodyaoshi.lemonbox.data.export.ReadableExportManager
 import com.goodyaoshi.lemonbox.data.repository.AnniversaryRepository
 import com.goodyaoshi.lemonbox.data.repository.ReminderRepository
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
@@ -32,6 +33,7 @@ data class BackupUiState(
 @HiltViewModel
 class ProfileViewModel @Inject constructor(
     private val backupManager: AppBackupManager,
+    private val readableExportManager: ReadableExportManager,
     reminderRepository: ReminderRepository,
     anniversaryRepository: AnniversaryRepository,
     private val appPreferences: AppPreferences
@@ -59,6 +61,23 @@ class ProfileViewModel @Inject constructor(
     val anniversaryCount: StateFlow<Int> = anniversaryRepository.observeCount()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
+    /** 应用锁是否开启（F19）。 */
+    val appLockEnabled: StateFlow<Boolean> = appPreferences.appLockEnabled
+
+    /** 开启应用锁并设置 PIN。 */
+    fun enableAppLock(pin: String) {
+        appPreferences.setAppLockPin(pin)
+        appPreferences.setAppLockEnabled(true)
+    }
+
+    /** 关闭应用锁。 */
+    fun disableAppLock() {
+        appPreferences.setAppLockEnabled(false)
+    }
+
+    /** 校验 PIN，用于关闭应用锁前确认身份。 */
+    fun verifyAppLockPin(pin: String): Boolean = appPreferences.verifyAppLockPin(pin)
+
     private val _backupState = MutableStateFlow(BackupUiState())
     val backupState: StateFlow<BackupUiState> = _backupState.asStateFlow()
 
@@ -66,6 +85,15 @@ class ProfileViewModel @Inject constructor(
         viewModelScope.launch {
             runBackupAction(successMessage = "备份导出完成", busyLabel = "正在导出备份包…") {
                 backupManager.exportBackup(targetUri)
+            }
+        }
+    }
+
+    /** 人类可读报告导出（F12）：生成可阅读、可打印的 HTML 清单。 */
+    fun exportReadable(targetUri: Uri) {
+        viewModelScope.launch {
+            runBackupAction(successMessage = "可读报告已导出", busyLabel = "正在生成报告…") {
+                readableExportManager.exportHtml(targetUri)
             }
         }
     }

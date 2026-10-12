@@ -282,6 +282,13 @@ class LedgerRepositoryTest {
             update(records.single { it.id == id }.copy(deletedAt = deletedAt, updatedAt = deletedAt))
         }
 
+        override suspend fun restoreFromTrash(id: Long, updatedAt: Long) {
+            val index = records.indexOfFirst { it.id == id }
+            if (index >= 0) {
+                records[index] = records[index].copy(deletedAt = null, updatedAt = updatedAt)
+            }
+        }
+
         override suspend fun getAllSnapshot(): List<LedgerRecord> = records.toList()
 
         override suspend fun getCount(): Int = records.size

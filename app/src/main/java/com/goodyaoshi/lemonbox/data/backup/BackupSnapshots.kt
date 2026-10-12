@@ -78,6 +78,7 @@ data class CustomStatusSnapshot(
 /**
  * 偏好内容快照（v5 起）：菜谱库、周菜单、已做日期、自定义状态与提醒相关设置。
  * 外观/录入等设备个性化设置不进备份。
+ * togetherStartDate/togetherStartDateUpdatedAt/togetherLabelName 是 v8 起的「在一起」计数配置。
  */
 @Serializable
 data class PreferencesSnapshot(
@@ -89,7 +90,13 @@ data class PreferencesSnapshot(
     val reminderTimes: List<String> = emptyList(),
     val customReminderTimes: Set<String> = emptySet(),
     val mealPrepDayShift: Int? = null,
-    val mealPrepFireTime: String? = null
+    val mealPrepFireTime: String? = null,
+    /** 「在一起」起始日（yyyy-MM-dd）；null 表示未设置。 */
+    val togetherStartDate: String? = null,
+    /** 起始日最近修改时间戳（毫秒），多设备合并按「较新者胜」。 */
+    val togetherStartDateUpdatedAt: Long? = null,
+    /** 首页计数前缀（如「我们」）。 */
+    val togetherLabelName: String? = null
 )
 
 /**

@@ -28,6 +28,15 @@ android {
         ndk {
             abiFilters += "arm64-v8a"
         }
+
+        // 离线文字识别（F01）：模型约 30MB，按硬性规则不进仓库、也不随包分发，
+        // 由用户在应用内显式确认后从独立渠道下载。基址通过 local.properties 注入，
+        // 未配置时（空串）应用内会明确提示「未配置下载地址」，不会静默失败。
+        buildConfigField(
+            "String",
+            "OCR_MODEL_BASE_URL",
+            "\"${(findProperty("lemonOcrModelBaseUrl") as String?) ?: ""}\""
+        )
     }
 
     signingConfigs {
@@ -73,6 +82,12 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+
+    testOptions {
+        // 纯 JVM 单测里用到极简 FakeContext（ContextWrapper）承载 SharedPreferences；
+        // 让 mockable android.jar 的未实现方法返回默认值而非抛 "not mocked"。
+        unitTests.isReturnDefaultValues = true
     }
 }
 
@@ -152,6 +167,9 @@ dependencies {
 
     // 局域网同步（同一 WiFi 内互传）
     implementation(libs.nanohttpd)
+
+    // 端侧离线文字识别（F01）：ONNX Runtime 推理引擎；模型文件按需下载，不随包分发
+    implementation(libs.onnxruntime.android)
 
     // 农历换算（纪念日农历生日按农历推算每年循环；MIT）
     implementation("cn.6tail:tyme4kt-android:1.5.0")

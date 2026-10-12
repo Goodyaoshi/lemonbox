@@ -9,14 +9,33 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
 class ExpiryViewModel @Inject constructor(
-    itemRepository: ItemRepository
+    private val itemRepository: ItemRepository
 ) : ViewModel() {
 
     val expirableItems: StateFlow<List<ItemDetail>> = itemRepository.getActiveItems()
         .map { items -> items.filter { it.item.expireTime != null } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** 到期列表快捷操作：标记为「已用完」。 */
+    fun markAsUsed(id: Long) {
+        viewModelScope.launch { itemRepository.markAsUsed(id) }
+    }
+
+    /** 到期列表快捷操作：标记为「已丢弃」。 */
+    fun markAsDiscarded(id: Long) {
+        viewModelScope.launch { itemRepository.markAsDiscarded(id) }
+    }
+
+    /**
+     * 到期列表快捷操作：把物品加入待买清单（F07）。
+     * 只置「需要补货」位，不改使用状态：快到期但还在用，先记着回头买。
+     */
+    fun addToBuy(id: Long) {
+        viewModelScope.launch { itemRepository.setNeedRestock(id, true) }
+    }
 }

@@ -4,7 +4,9 @@ import com.goodyaoshi.lemonbox.data.local.entity.Category
 import com.goodyaoshi.lemonbox.data.local.entity.Item
 import com.goodyaoshi.lemonbox.data.repository.CategoryRepository
 import com.goodyaoshi.lemonbox.data.repository.ItemRepository
+import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import com.goodyaoshi.lemonbox.testing.FakeCategoryDao
+import com.goodyaoshi.lemonbox.testing.FakeContext
 import com.goodyaoshi.lemonbox.testing.FakeItemDao
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -55,9 +57,13 @@ class ToBuyViewModelTest {
                 Category(id = 10L, name = "日用品")
             )
         )
-        val viewModel = ToBuyViewModel(ItemRepository(itemDao), CategoryRepository(categoryDao))
+        val viewModel = ToBuyViewModel(
+            ItemRepository(itemDao),
+            CategoryRepository(categoryDao),
+            AppPreferences(FakeContext())
+        )
 
-        val collectJob = launch { viewModel.filteredItems.collect() }
+        val collectJob = launch { viewModel.filteredItems.collect { } }
 
         // 未选分类时展示全部待买项。
         assertEquals(listOf(100L, 101L), viewModel.filteredItems.value.map { it.item.id })
@@ -75,13 +81,17 @@ class ToBuyViewModelTest {
     @Test
     fun addToBuy_ignoresBlankNameAndMarksNeedRestock() = runTest(mainDispatcher) {
         val itemDao = FakeItemDao()
-        val viewModel = ToBuyViewModel(ItemRepository(itemDao), CategoryRepository(FakeCategoryDao()))
+        val viewModel = ToBuyViewModel(
+            ItemRepository(itemDao),
+            CategoryRepository(FakeCategoryDao()),
+            AppPreferences(FakeContext())
+        )
 
-        viewModel.addToBuy(name = "   ", quantity = 1, unit = "件", categoryId = null)
+        viewModel.addToBuy(name = "   ", quantity = 1, unit = "件", categoryId = null, forWhom = null)
         advanceUntilIdle()
         assertTrue(itemDao.snapshot().isEmpty())
 
-        viewModel.addToBuy(name = " 洗洁精 ", quantity = 2, unit = "瓶", categoryId = 3L)
+        viewModel.addToBuy(name = " 洗洁精 ", quantity = 2, unit = "瓶", categoryId = 3L, forWhom = null)
         advanceUntilIdle()
 
         val created = itemDao.snapshot().single()

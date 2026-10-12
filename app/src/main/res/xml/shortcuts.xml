@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    桌面长按图标快捷方式（F13）：直达「记一笔 / 待买清单 / 拍张照」三条常用动线。
+    三者均为应用内既有的导航路由，Intent 携带对应 action，由 MainActivity 解析后
+    （冷启动走 NavHost 起始页、热启动走导航请求）跳到该路由。
+-->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutId="record"
+        android:shortcutShortLabel="@string/shortcut_record_short"
+        android:shortcutLongLabel="@string/shortcut_record_long">
+        <intent
+            android:action="com.goodyaoshi.lemonbox.shortcut.RECORD"
+            android:targetClass="com.goodyaoshi.lemonbox.MainActivity"
+            android:targetPackage="com.goodyaoshi.lemonbox" />
+    </shortcut>
+
+    <shortcut
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutId="to_buy"
+        android:shortcutShortLabel="@string/shortcut_tobuy_short"
+        android:shortcutLongLabel="@string/shortcut_tobuy_long">
+        <intent
+            android:action="com.goodyaoshi.lemonbox.shortcut.TO_BUY"
+            android:targetClass="com.goodyaoshi.lemonbox.MainActivity"
+            android:targetPackage="com.goodyaoshi.lemonbox" />
+    </shortcut>
+
+    <shortcut
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutId="camera"
+        android:shortcutShortLabel="@string/shortcut_camera_short"
+        android:shortcutLongLabel="@string/shortcut_camera_long">
+        <intent
+            android:action="com.goodyaoshi.lemonbox.shortcut.CAMERA"
+            android:targetClass="com.goodyaoshi.lemonbox.MainActivity"
+            android:targetPackage="com.goodyaoshi.lemonbox" />
+    </shortcut>
+</shortcuts>

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 桌面小组件背景：暖白圆角卡片，与 App 内 AppSurfaceCard 的观感一致。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#FCF7F0" />
+    <corners android:radius="20dp" />
+    <stroke
+        android:width="1dp"
+        android:color="#F0E3D2" />
+</shape>

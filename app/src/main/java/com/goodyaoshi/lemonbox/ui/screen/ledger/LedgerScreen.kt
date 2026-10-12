@@ -22,11 +22,14 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ShowChart
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PieChart
+import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.Savings
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Wallet
@@ -99,6 +102,9 @@ fun LedgerScreen(
     onNavigateToBudget: () -> Unit,
     onNavigateToAssets: () -> Unit,
     onNavigateToCategories: () -> Unit,
+    onNavigateToPlan: () -> Unit,
+    onNavigateToTrend: () -> Unit,
+    onNavigateToAnnualReview: () -> Unit,
     onNavigateToRecordEdit: (Long?) -> Unit,
     onNavigateToItemDetail: (Long) -> Unit,
     viewModel: LedgerViewModel = hiltViewModel()
@@ -161,6 +167,9 @@ fun LedgerScreen(
                 // 「资产」改名「资产负债」，与目标页标题/语义对齐（I10）。
                 HeaderActionPill(icon = Icons.Filled.Wallet, label = "资产负债", onClick = onNavigateToAssets)
                 HeaderActionPill(icon = Icons.Filled.Category, label = "分类", onClick = onNavigateToCategories)
+                HeaderActionPill(icon = Icons.Filled.Repeat, label = "计划", onClick = onNavigateToPlan)
+                HeaderActionPill(icon = Icons.AutoMirrored.Filled.ShowChart, label = "趋势", onClick = onNavigateToTrend)
+                HeaderActionPill(icon = Icons.Filled.CalendarMonth, label = "年度", onClick = onNavigateToAnnualReview)
             }
 
             // 固定月份条：翻流水时也能随时换月（与统计页一致，不嵌在滚动列表里）。

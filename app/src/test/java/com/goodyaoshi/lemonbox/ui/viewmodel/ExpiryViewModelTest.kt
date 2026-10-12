@@ -48,10 +48,59 @@ class ExpiryViewModelTest {
         )
         val viewModel = ExpiryViewModel(ItemRepository(dao))
 
-        val collectJob = launch { viewModel.expirableItems.collect() }
+        val collectJob = launch { viewModel.expirableItems.collect { } }
 
         assertEquals(listOf(1L), viewModel.expirableItems.value.map { it.item.id })
         collectJob.cancel()
+    }
+
+    @Test
+    fun markAsUsed_setsUsedUpAndNeedRestock() = runTest(mainDispatcher) {
+        val dao = FakeItemDao(mutableListOf(activeItem(id = 1L).copy(expireTime = 1_000L)))
+        val viewModel = ExpiryViewModel(ItemRepository(dao))
+
+        viewModel.markAsUsed(1L)
+
+        val item = dao.snapshot().first { it.id == 1L }
+        assertEquals(Item.USAGE_USED_UP, item.usageStatus)
+        assertEquals(true, item.needRestock)
+    }
+
+    @Test
+    fun markAsDiscarded_setsDiscardedAndClearsNeedRestock() = runTest(mainDispatcher) {
+        val dao = FakeItemDao(
+            mutableListOf(
+                activeItem(id = 1L).copy(expireTime = 1_000L, needRestock = true)
+            )
+        )
+        val viewModel = ExpiryViewModel(ItemRepository(dao))
+
+        viewModel.markAsDiscarded(1L)
+
+        val item = dao.snapshot().first { it.id == 1L }
+        assertEquals(Item.DISPOSITION_DISCARDED, item.disposition)
+        assertEquals(false, item.needRestock)
+    }
+
+    /** 加入待买（F07）：只置「需要补货」位，使用状态保持不变。 */
+    @Test
+    fun addToBuy_setsNeedRestockWithoutChangingUsageStatus() = runTest(mainDispatcher) {
+        val dao = FakeItemDao(
+            mutableListOf(
+                activeItem(id = 1L).copy(
+                    expireTime = 1_000L,
+                    usageStatus = Item.USAGE_IN_USE,
+                    needRestock = false
+                )
+            )
+        )
+        val viewModel = ExpiryViewModel(ItemRepository(dao))
+
+        viewModel.addToBuy(1L)
+
+        val item = dao.snapshot().first { it.id == 1L }
+        assertEquals(true, item.needRestock)
+        assertEquals(Item.USAGE_IN_USE, item.usageStatus)
     }
 
     /** 在库、未删除的家当。 */

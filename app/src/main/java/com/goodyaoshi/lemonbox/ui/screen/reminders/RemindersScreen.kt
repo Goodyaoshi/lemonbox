@@ -13,18 +13,22 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Alarm
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -53,6 +57,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.goodyaoshi.lemonbox.data.local.entity.ItemDetail
 import com.goodyaoshi.lemonbox.data.local.entity.Reminder
 import com.goodyaoshi.lemonbox.data.local.entity.ReminderRepeatType
 import com.goodyaoshi.lemonbox.data.local.entity.ReminderSource
@@ -93,6 +98,7 @@ fun RemindersScreen(
     viewModel: RemindersViewModel = hiltViewModel()
 ) {
     val reminders by viewModel.reminders.collectAsState()
+    val activeItems by viewModel.activeItems.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     var showAddDialog by remember { mutableStateOf(false) }
 
@@ -211,6 +217,7 @@ fun RemindersScreen(
         // 保存失败时的就地提示（I10）：留在对话框内显示，不再用一闪而过的 Toast。
         var addError by remember { mutableStateOf<String?>(null) }
         AddReminderDialog(
+            activeItems = activeItems,
             errorMessage = addError,
             onDismissRequest = {
                 addError = null
@@ -225,7 +232,10 @@ fun RemindersScreen(
                     targetDate = reminder.targetDate,
                     intervalDays = reminder.intervalDays,
                     weekdays = Reminder.decodeWeekdays(reminder.weekdays),
-                    fireTime = reminder.fireTime
+                    fireTime = reminder.fireTime,
+                    doseTimes = Reminder.decodeDoseTimes(reminder.doseTimes).map { it.toString() },
+                    courseDays = reminder.courseDays,
+                    linkedItemId = reminder.linkedItemId
                 ) { saved ->
                     if (saved) {
                         showAddDialog = false
@@ -291,6 +301,14 @@ private fun ReminderRow(
                             text = "菜谱准备",
                             backgroundColor = TagBlue,
                             contentColor = TagBlueText
+                        )
+                    }
+                    if (reminder.isMedication) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        PillTag(
+                            text = "用药",
+                            backgroundColor = TagGreen,
+                            contentColor = TagGreenText
                         )
                     }
                     if (reminder.awaitingConfirmation) {
@@ -361,10 +379,11 @@ private fun ReminderRow(
     }
 }
 
-/** 新建提醒：标题、重复方式（一次/每天/每隔 N 天/每周几）、提醒时间。 */
+/** 新建提醒：标题、重复方式（一次/每天/每隔 N 天/每周几）、提醒时间；「按疗程用药」（F17）覆盖为每日多次服药。 */
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 private fun AddReminderDialog(
+    activeItems: List<ItemDetail>,
     onDismissRequest: () -> Unit,
     onConfirm: (Reminder) -> Unit,
     errorMessage: String? = null
@@ -376,6 +395,12 @@ private fun AddReminderDialog(
     var weekdays by remember { mutableStateOf(setOf(1)) }
     var fireTime by remember { mutableStateOf("19:00") }
     var showTimePicker by remember { mutableStateOf(false) }
+    var medication by remember { mutableStateOf(false) }
+    var doseTimes by remember { mutableStateOf(setOf("08:00", "20:00")) }
+    var courseDays by remember { mutableIntStateOf(7) }
+    var linkedItemId by remember { mutableStateOf<Long?>(null) }
+    var showDoseTimePicker by remember { mutableStateOf(false) }
+    var showItemPicker by remember { mutableStateOf(false) }
 
     val targetDate = remember(dayOffset) { LocalDate.now().plusDays(dayOffset.toLong()).toString() }
     val targetLabel = remember(dayOffset) {
@@ -386,6 +411,7 @@ private fun AddReminderDialog(
             else -> "${date.monthValue}/${date.dayOfMonth}"
         }
     }
+    val linkedItemName = activeItems.firstOrNull { it.item.id == linkedItemId }?.item?.name
 
     // 自定义时间选择器：固定档位之外可以精确到任意分钟（如「14:35 提醒我拿快递」）。
     if (showTimePicker) {
@@ -407,12 +433,67 @@ private fun AddReminderDialog(
         }
     }
 
+    // 用药时刻选择器（F17）：选中的时刻加入每日服药计划。
+    if (showDoseTimePicker) {
+        val pickerState = rememberTimePickerState(initialHour = 12, initialMinute = 0, is24Hour = true)
+        AppDialog(
+            title = "加一个服药时刻",
+            onDismissRequest = { showDoseTimePicker = false },
+            confirmText = "添加",
+            onConfirm = {
+                doseTimes = doseTimes + "%02d:%02d".format(pickerState.hour, pickerState.minute)
+                showDoseTimePicker = false
+            }
+        ) {
+            TimePicker(state = pickerState)
+        }
+    }
+
+    // 关联库存选择器（F17）：从在库家当里挑一盒药，提醒里播报剩余量。
+    if (showItemPicker) {
+        AppDialog(
+            title = "关联药品库存",
+            subtitle = "到点提醒会带上剩余量，不够吃完疗程时提示补货。",
+            onDismissRequest = { showItemPicker = false },
+            dismissText = "关闭"
+        ) {
+            PickerRow(text = "不关联", selected = linkedItemId == null) {
+                linkedItemId = null
+                showItemPicker = false
+            }
+            if (activeItems.isEmpty()) {
+                Text(
+                    text = "还没有在库家当，先去「家当」里入库这盒药吧。",
+                    fontSize = 12.sp,
+                    color = TextHint,
+                    modifier = Modifier.padding(vertical = 12.dp)
+                )
+            } else {
+                Column(
+                    modifier = Modifier
+                        .heightIn(max = 320.dp)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    activeItems.forEach { detail ->
+                        PickerRow(
+                            text = "${detail.item.name}（剩 ${detail.item.quantity}${detail.item.unit}）",
+                            selected = detail.item.id == linkedItemId
+                        ) {
+                            linkedItemId = detail.item.id
+                            showItemPicker = false
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     AppDialog(
         title = "新提醒",
         subtitle = "到点发通知提醒你做事，比如「今晚解冻肉」「每周三清理洗碗机」。",
         onDismissRequest = onDismissRequest,
         confirmText = "保存",
-        confirmEnabled = title.isNotBlank(),
+        confirmEnabled = title.isNotBlank() && (!medication || doseTimes.isNotEmpty()),
         onConfirm = {
             onConfirm(
                 Reminder(
@@ -421,7 +502,10 @@ private fun AddReminderDialog(
                     intervalDays = intervalDays,
                     weekdays = Reminder.encodeWeekdays(weekdays.toList()),
                     fireTime = fireTime,
-                    targetDate = targetDate.takeIf { repeatType == ReminderRepeatType.ONCE }
+                    targetDate = targetDate.takeIf { repeatType == ReminderRepeatType.ONCE },
+                    doseTimes = if (medication) Reminder.encodeDoseTimes(doseTimes.toList()) else "",
+                    courseDays = if (medication) courseDays else 0,
+                    linkedItemId = if (medication) linkedItemId else null
                 )
             )
         }
@@ -433,7 +517,7 @@ private fun AddReminderDialog(
         OutlinedTextField(
             value = title,
             onValueChange = { title = it },
-            label = { Text("要做的事") },
+            label = { Text(if (medication) "药名 / 要做的事" else "要做的事") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth()
         )
@@ -442,17 +526,75 @@ private fun AddReminderDialog(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            repeatOptions.forEach { (type, label) ->
-                EditorSelectionChip(
-                    text = label,
-                    selected = repeatType == type,
-                    onClick = { repeatType = type }
-                )
+            if (!medication) {
+                repeatOptions.forEach { (type, label) ->
+                    EditorSelectionChip(
+                        text = label,
+                        selected = repeatType == type,
+                        onClick = { repeatType = type }
+                    )
+                }
             }
+            // 按疗程用药（F17）：每日多次 + 疗程天数 + 库存联动，重复方式固定为每天。
+            EditorSelectionChip(
+                text = "按疗程用药",
+                selected = medication,
+                onClick = {
+                    medication = !medication
+                    if (medication) repeatType = ReminderRepeatType.DAILY
+                }
+            )
         }
 
-        when (repeatType) {
-            ReminderRepeatType.ONCE -> {
+        when {
+            medication -> {
+                Text(
+                    text = "每天在选中时刻各提醒一次，到点带疗程进度和库存余量。",
+                    fontSize = 12.sp,
+                    color = TextHint
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val doseOptions = AppPreferences.REMINDER_TIME_OPTIONS +
+                        doseTimes.filter { it !in AppPreferences.REMINDER_TIME_OPTIONS }
+                    doseOptions.distinct().forEach { time ->
+                        EditorSelectionChip(
+                            text = time,
+                            selected = time in doseTimes,
+                            onClick = {
+                                doseTimes = if (time in doseTimes) doseTimes - time else doseTimes + time
+                            }
+                        )
+                    }
+                    EditorSelectionChip(
+                        text = "加时刻…",
+                        selected = false,
+                        onClick = { showDoseTimePicker = true }
+                    )
+                }
+                StepRow(label = "疗程天数") {
+                    StepButton("−") { courseDays = (courseDays - 1).coerceAtLeast(0) }
+                    Text(
+                        text = if (courseDays == 0) "不限" else "$courseDays 天",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = TextPrimary,
+                        modifier = Modifier.padding(horizontal = 16.dp)
+                    )
+                    StepButton("+") { courseDays = (courseDays + 1).coerceAtMost(90) }
+                }
+                StepRow(label = "关联库存") {
+                    EditorSelectionChip(
+                        text = linkedItemName?.let { "已关联：$it" } ?: "选一盒药…",
+                        selected = linkedItemId != null,
+                        onClick = { showItemPicker = true }
+                    )
+                }
+            }
+
+            repeatType == ReminderRepeatType.ONCE -> {
                 StepRow(label = "提醒日期") {
                     StepButton("−") { dayOffset = (dayOffset - 1).coerceAtLeast(0) }
                     Text(
@@ -466,7 +608,7 @@ private fun AddReminderDialog(
                 }
             }
 
-            ReminderRepeatType.INTERVAL -> {
+            repeatType == ReminderRepeatType.INTERVAL -> {
                 StepRow(label = "每隔几天") {
                     StepButton("−") { intervalDays = (intervalDays - 1).coerceAtLeast(1) }
                     Text(
@@ -480,7 +622,7 @@ private fun AddReminderDialog(
                 }
             }
 
-            ReminderRepeatType.WEEKLY -> {
+            repeatType == ReminderRepeatType.WEEKLY -> {
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -501,26 +643,59 @@ private fun AddReminderDialog(
                     }
                 }
             }
-
-            ReminderRepeatType.DAILY -> Unit
         }
 
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            AppPreferences.REMINDER_TIME_OPTIONS.forEach { time ->
+        if (!medication) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                AppPreferences.REMINDER_TIME_OPTIONS.forEach { time ->
+                    EditorSelectionChip(
+                        text = time,
+                        selected = fireTime == time,
+                        onClick = { fireTime = time }
+                    )
+                }
+                // 档位之外的时间走自定义；选中态显示当前自定义的时间。
                 EditorSelectionChip(
-                    text = time,
-                    selected = fireTime == time,
-                    onClick = { fireTime = time }
+                    text = if (fireTime in AppPreferences.REMINDER_TIME_OPTIONS) "自定义…" else fireTime,
+                    selected = fireTime !in AppPreferences.REMINDER_TIME_OPTIONS,
+                    onClick = { showTimePicker = true }
                 )
             }
-            // 档位之外的时间走自定义；选中态显示当前自定义的时间。
-            EditorSelectionChip(
-                text = if (fireTime in AppPreferences.REMINDER_TIME_OPTIONS) "自定义…" else fireTime,
-                selected = fireTime !in AppPreferences.REMINDER_TIME_OPTIONS,
-                onClick = { showTimePicker = true }
+        }
+    }
+}
+
+/** 弹窗里的单行选择项（F17 关联库存选择器用）。 */
+@Composable
+private fun PickerRow(
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = text,
+            fontSize = 14.sp,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            color = if (selected) OrangeStart else TextPrimary,
+            modifier = Modifier.weight(1f)
+        )
+        if (selected) {
+            Icon(
+                imageVector = Icons.Default.Check,
+                contentDescription = "已选",
+                tint = OrangeStart,
+                modifier = Modifier.size(18.dp)
             )
         }
     }

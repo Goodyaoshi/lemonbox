@@ -110,6 +110,7 @@ fun SaveScreen(
     onSaved: () -> Unit,
     onOpenCamera: (mode: SavePhotoMode) -> Unit,
     initialBarcode: String? = null,
+    initialName: String? = null,
     viewModel: SaveViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
@@ -168,6 +169,13 @@ fun SaveScreen(
     LaunchedEffect(initialBarcode) {
         if (!initialBarcode.isNullOrBlank()) {
             viewModel.updateBarcode(initialBarcode)
+        }
+    }
+
+    // OCR 一键入库（F03）：把识别出的品名预填进名称，用户再确认细节。
+    LaunchedEffect(initialName) {
+        if (!initialName.isNullOrBlank()) {
+            viewModel.updateName(initialName)
         }
     }
 

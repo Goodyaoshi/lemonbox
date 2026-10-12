@@ -3,6 +3,7 @@ package com.goodyaoshi.lemonbox.ui.screen.ledger
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,6 +24,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.BookmarkAdd
+import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -43,6 +46,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerRecord.Companion.TYPE_INCOME
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerRecord.Companion.TYPE_TRANSFER
+import com.goodyaoshi.lemonbox.data.local.entity.LedgerRecurringRule
 import com.goodyaoshi.lemonbox.ui.components.AmountKeyboard
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
@@ -51,6 +55,7 @@ import com.goodyaoshi.lemonbox.ui.components.EditorInputBox
 import com.goodyaoshi.lemonbox.ui.components.EditorSectionLabel
 import com.goodyaoshi.lemonbox.ui.components.EditorSelectionChip
 import com.goodyaoshi.lemonbox.ui.components.ExpiryPickerDialog
+import com.goodyaoshi.lemonbox.ui.components.HeaderActionPill
 import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
 import com.goodyaoshi.lemonbox.ui.components.PillTag
 import com.goodyaoshi.lemonbox.ui.components.PrimaryActionBar
@@ -65,6 +70,7 @@ import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
 import com.goodyaoshi.lemonbox.ui.viewmodel.RecordEditState
 import com.goodyaoshi.lemonbox.ui.viewmodel.RecordEditViewModel
 import com.goodyaoshi.lemonbox.util.LedgerMath
+import com.goodyaoshi.lemonbox.util.RecurringClock
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -81,10 +87,13 @@ fun RecordEditScreen(
     val incomeCategories by viewModel.incomeCategories.collectAsState()
     val assets by viewModel.assets.collectAsState()
     val continuousEntry by viewModel.continuousEntry.collectAsState()
+    val templates by viewModel.templates.collectAsState()
     // 全局提示通道（I10）：保存成功改走统一 Snackbar，替代易被忽略的系统 Toast。
     val appSnackbar = LocalAppSnackbar.current
     var showDatePicker by remember { mutableStateOf(false) }
     var showDiscardDialog by remember { mutableStateOf(false) }
+    var showSaveTemplateDialog by remember { mutableStateOf(false) }
+    var showRecurringDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(expenseCategories, incomeCategories, assets) {
         viewModel.ensureDefaults(expenseCategories, incomeCategories)
@@ -241,6 +250,42 @@ fun RecordEditScreen(
                                 color = TextSecondary
                             )
                         }
+                    }
+                }
+
+                // F05：记账模板一键套用（有模板时才出现）。
+                if (templates.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        templates.forEach { template ->
+                            EditorSelectionChip(
+                                text = template.name,
+                                selected = false,
+                                onClick = { viewModel.applyTemplate(template) }
+                            )
+                        }
+                    }
+                }
+
+                // F05：把当前填写存为模板 / 设为周期记账（仅新增记账时提供）。
+                if (state.recordId == 0L) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        HeaderActionPill(
+                            icon = Icons.Filled.BookmarkAdd,
+                            label = "存为模板",
+                            onClick = { showSaveTemplateDialog = true }
+                        )
+                        HeaderActionPill(
+                            icon = Icons.Filled.Repeat,
+                            label = "设为周期",
+                            onClick = { showRecurringDialog = true }
+                        )
                     }
                 }
 
@@ -418,6 +463,83 @@ fun RecordEditScreen(
                 fontSize = 14.sp,
                 color = TextSecondary
             )
+        }
+    }
+
+    // F05：把当前填写存为模板。
+    if (showSaveTemplateDialog) {
+        var templateName by remember { mutableStateOf(state.remark.trim()) }
+        AppDialog(
+            title = "存为模板",
+            subtitle = "把当前填写的参数保存下来，下次记一笔时一键套用。",
+            onDismissRequest = { showSaveTemplateDialog = false },
+            confirmText = "保存",
+            confirmEnabled = templateName.isNotBlank(),
+            onConfirm = {
+                if (viewModel.saveAsTemplate(templateName)) {
+                    showSaveTemplateDialog = false
+                    appSnackbar?.postMessage("已存为模板")
+                }
+            }
+        ) {
+            EditorInputBox(
+                value = templateName,
+                onValueChange = { templateName = it },
+                placeholder = "模板名称，比如 早餐"
+            )
+        }
+    }
+
+    // F05：把当前填写设为周期记账规则。
+    if (showRecurringDialog) {
+        val units = LedgerRecurringRule.RepeatUnit.entries
+        var ruleName by remember { mutableStateOf(state.remark.trim()) }
+        var unitIndex by remember { mutableStateOf(units.indexOf(LedgerRecurringRule.RepeatUnit.MONTH)) }
+        var interval by remember { mutableStateOf(1) }
+        AppDialog(
+            title = "设为周期记账",
+            subtitle = "到点会自动生成一笔账单，可在记账计划的入口里随时停用。",
+            onDismissRequest = { showRecurringDialog = false },
+            confirmText = "开启",
+            confirmEnabled = ruleName.isNotBlank() && state.canSave,
+            onConfirm = {
+                if (viewModel.createRecurringRule(ruleName, units[unitIndex], interval)) {
+                    showRecurringDialog = false
+                    appSnackbar?.postMessage("已开启周期记账")
+                }
+            }
+        ) {
+            EditorInputBox(
+                value = ruleName,
+                onValueChange = { ruleName = it },
+                placeholder = "规则名称，比如 房租"
+            )
+            Spacer(modifier = Modifier.height(14.dp))
+            EditorSectionLabel(label = "周期")
+            Spacer(modifier = Modifier.height(8.dp))
+            SegmentedTabs(
+                labels = listOf("每天", "每周", "每月", "每年"),
+                selectedIndex = unitIndex,
+                onSelect = { unitIndex = it }
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(1, 2, 3).forEach { n ->
+                    EditorSelectionChip(
+                        text = "每 $n ${RecurringClock.unitLabel(units[unitIndex])}",
+                        selected = interval == n,
+                        onClick = { interval = n }
+                    )
+                }
+            }
+            if (!state.canSave) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "先填好金额和账户，才能开启周期记账。",
+                    fontSize = 13.sp,
+                    color = TextSecondary
+                )
+            }
         }
     }
 }

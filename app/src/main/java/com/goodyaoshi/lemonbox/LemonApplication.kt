@@ -3,13 +3,18 @@ package com.goodyaoshi.lemonbox
 import android.app.Application
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
+import com.goodyaoshi.lemonbox.data.repository.LedgerPlanningRepository
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import com.goodyaoshi.lemonbox.util.AnniversaryCheckWorker
 import com.goodyaoshi.lemonbox.util.AppMaintenance
 import com.goodyaoshi.lemonbox.util.ExpiryCheckWorker
 import com.goodyaoshi.lemonbox.util.MaintenanceWorker
 import com.goodyaoshi.lemonbox.util.NotificationHelper
+import com.goodyaoshi.lemonbox.util.RecurringLedgerWorker
+import com.goodyaoshi.lemonbox.util.SleepReminderScheduler
 import com.goodyaoshi.lemonbox.util.TodoReminderScheduler
+import com.goodyaoshi.lemonbox.util.WidgetRefreshWorker
+import com.goodyaoshi.lemonbox.widget.LemonWidgetUpdater
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -32,6 +37,15 @@ class LemonApplication : Application(), Configuration.Provider {
     @Inject
     lateinit var appMaintenance: AppMaintenance
 
+    @Inject
+    lateinit var ledgerPlanningRepository: LedgerPlanningRepository
+
+    @Inject
+    lateinit var widgetUpdater: LemonWidgetUpdater
+
+    @Inject
+    lateinit var sleepReminderScheduler: SleepReminderScheduler
+
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onCreate() {
@@ -43,9 +57,23 @@ class LemonApplication : Application(), Configuration.Provider {
         // 去重 / 清理这类重活改为每天凌晨跑一次，见 MaintenanceWorker；
         // 提醒保活前台服务只在用户打开应用时拉起（见 MainActivity），避免后台常驻占用内存。
         MaintenanceWorker.schedule(this)
+        // 周期记账（房租/工资等）：每 6 小时检查一次到点规则。
+        RecurringLedgerWorker.schedule(this)
+        // 桌面小组件（F04）：后台每 30 分钟刷新一次。
+        WidgetRefreshWorker.schedule(this)
+        // 就寝提醒（F15）：按偏好对齐任务（开启则排期，关闭则取消）。
+        sleepReminderScheduler.sync()
+        applicationScope.launch {
+            // 打开应用时顺手刷新一次桌面小组件，让数据立刻最新。
+            widgetUpdater.refresh()
+        }
         applicationScope.launch {
             // 待办提醒（解冻肉/洗衣服等）：启动时按最新数据重排一次性任务。
             todoReminderScheduler.reschedule()
+        }
+        applicationScope.launch {
+            // 周期记账：打开应用时立即补生成到点账单，保证用户第一时间看到。
+            ledgerPlanningRepository.fireDueRules()
         }
         applicationScope.launch {
             // 冷启动补算：距上次维护超过一天才在打开时补跑一次，避免重复重活。
