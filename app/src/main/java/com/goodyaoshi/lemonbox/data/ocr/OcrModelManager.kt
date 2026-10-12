@@ -172,7 +172,7 @@ class OcrModelManager @Inject constructor(
                 )
                 val target = File(dir, spec.name)
                 val tmp = File(dir, "${spec.name}.tmp")
-                downloadTo(OcrModelCatalog.fileUrl(spec.name), tmp) { downloaded, _ ->
+                downloadWithFallback(OcrModelCatalog.fileUrl(spec.name), tmp) { downloaded, _ ->
                     _state.value = OcrModelState.Downloading(
                         currentFile = spec.name,
                         fileIndex = index,
@@ -203,15 +203,46 @@ class OcrModelManager @Inject constructor(
     }
 
     private suspend fun fetchManifest(): OcrManifest = withContext(Dispatchers.IO) {
-        val conn = openConnection(OcrModelCatalog.manifestUrl)
-        try {
-            val code = conn.responseCode
-            if (code !in 200..299) throw IOException("HTTP $code")
-            val text = conn.inputStream.bufferedReader().use { it.readText() }
-            jsonCodec.decodeFromString(OcrManifest.serializer(), text)
-        } finally {
-            conn.disconnect()
+        var lastError: IOException? = null
+        for (url in downloadUrls(OcrModelCatalog.manifestUrl)) {
+            try {
+                val conn = openConnection(url)
+                try {
+                    val code = conn.responseCode
+                    if (code !in 200..299) throw IOException("HTTP $code")
+                    val text = conn.inputStream.bufferedReader().use { it.readText() }
+                    return@withContext jsonCodec.decodeFromString(OcrManifest.serializer(), text)
+                } finally {
+                    conn.disconnect()
+                }
+            } catch (e: IOException) {
+                lastError = e
+            }
         }
+        throw lastError ?: IOException("模型清单下载失败")
+    }
+
+    /** 依次尝试的下载地址：gh-proxy 加速优先，直连兜底（与 AppUpdater 同一策略）。 */
+    private fun downloadUrls(url: String): List<String> = listOf(PROXY_PREFIX + url, url)
+
+    /** 逐个候选地址尝试下载，全部失败时抛出最后一个异常。 */
+    private suspend fun downloadWithFallback(
+        url: String,
+        target: File,
+        onProgress: (downloaded: Long, total: Long) -> Unit
+    ) {
+        var lastError: Exception? = null
+        for (candidate in downloadUrls(url)) {
+            try {
+                downloadTo(candidate, target, onProgress)
+                return
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                lastError = e
+            }
+        }
+        throw lastError ?: IOException("模型下载失败")
     }
 
     private suspend fun downloadTo(
@@ -294,6 +325,9 @@ class OcrModelManager @Inject constructor(
     private companion object {
         const val CONNECT_TIMEOUT_MS = 10_000
         const val READ_TIMEOUT_MS = 60_000
+
+        /** 与 AppUpdater 一致的 GitHub 加速前缀；模型托管在 GitHub Release。 */
+        const val PROXY_PREFIX = "https://gh-proxy.com/"
 
         val jsonCodec = Json { ignoreUnknownKeys = true }
     }

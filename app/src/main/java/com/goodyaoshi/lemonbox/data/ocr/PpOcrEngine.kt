@@ -14,13 +14,16 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * 基于 PP-OCRv4（ONNX Runtime）的离线识别引擎。
+ * 基于 PP-OCRv6 tiny（ONNX Runtime）的离线识别引擎。
  *
  * 流程：DB 检测（[detect]）得到文本框 → 逐框裁剪缩放（[recognizeBox]）→ CTC 贪心解码。
  *
  * 说明（与报告原描述的偏差）：
  * - **不引入 OpenCV**：检测后处理用纯 Kotlin 连通域求轴对齐框，避免额外原生依赖；
  * - **不做 180° 方向分类（cls）**，正常拍摄的收据/小票场景足够。
+ *
+ * v6 适配要点：检测模型沿用 ImageNet 均值方差归一化；识别模型输入 3×48×动态宽、
+ * (x-0.5)/0.5 归一化，与 v4 一致；二值化阈值与 unclip 比例取 v6 官方 yml 的推荐值。
  */
 @Singleton
 class PpOcrEngine @Inject constructor(
@@ -301,8 +304,8 @@ class PpOcrEngine @Inject constructor(
         /** 输入宽高下限。 */
         const val MIN_SIDE = 32
 
-        /** 概率阈值。 */
-        const val DET_THRESHOLD = 0.3f
+        /** 概率阈值（取 v6 官方 yml 的 thresh 0.2）。 */
+        const val DET_THRESHOLD = 0.2f
 
         /** 连通域最小像素数。 */
         const val MIN_AREA = 3
@@ -310,8 +313,8 @@ class PpOcrEngine @Inject constructor(
         /** 过滤过矮的文本框（原图像素）。 */
         const val MIN_TEXT_HEIGHT = 6.0
 
-        /** DB unclip 扩边比例与上限。 */
-        const val UNCLIP_RATIO = 1.5
+        /** DB unclip 扩边比例与上限（比例取 v6 官方 yml 的 1.4）。 */
+        const val UNCLIP_RATIO = 1.4
         const val MAX_UNCLIP = 20
 
         /** 识别输入高度与最大宽度。 */

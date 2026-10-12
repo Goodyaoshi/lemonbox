@@ -24,16 +24,16 @@ object OcrModelCatalog {
     val isConfigured: Boolean = baseUrl.isNotEmpty()
 
     /** 模型版本号：变更模型文件时递增，用于分目录存放与失效判断。 */
-    const val MODEL_VERSION = "ppocr-v4"
+    const val MODEL_VERSION = "ppocr-v6"
 
-    /** 文字检测模型。 */
-    const val DET_FILE = "ch_PP-OCRv4_det_infer.onnx"
+    /** 文字检测模型（PP-OCRv6 tiny，ONNX）。 */
+    const val DET_FILE = "PP-OCRv6_tiny_det.onnx"
 
-    /** 文字识别模型。 */
-    const val REC_FILE = "ch_PP-OCRv4_rec_infer.onnx"
+    /** 文字识别模型（PP-OCRv6 tiny，ONNX）。 */
+    const val REC_FILE = "PP-OCRv6_tiny_rec.onnx"
 
-    /** 识别字典（每行一个字符）。 */
-    const val DICT_FILE = "ppocr_keys_v1.txt"
+    /** 识别字典（每行一个字符，取自 v6 rec 模型 inference.yml 的 character_dict）。 */
+    const val DICT_FILE = "ppocrv6_dict.txt"
 
     /** 必须齐备的模型文件。 */
     val requiredFiles: List<String> = listOf(DET_FILE, REC_FILE, DICT_FILE)

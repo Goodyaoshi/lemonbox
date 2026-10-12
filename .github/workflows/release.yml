@@ -90,6 +90,7 @@ jobs:
           ./gradlew assembleRelease --no-daemon --console=plain \
             -PlemonVersionName="${{ steps.version.outputs.name }}" \
             -PlemonVersionCode="${{ steps.version.outputs.code }}" \
+            -PlemonOcrModelBaseUrl="https://github.com/Goodyaoshi/lemonbox/releases/download/ocr-models-ppocr-v6" \
             -PlemonApkOutputDir="$RUNNER_TEMP/dist"
 
       - name: Rename APK to versioned ASCII name

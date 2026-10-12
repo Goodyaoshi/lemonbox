@@ -458,6 +458,8 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
                     val initialQuery = entry.arguments?.getString("query").orEmpty()
                     HouseholdScreen(
                         initialQuery = initialQuery,
+                        // 仅带词跳入的实例有返回箭头（回首页）；Tab 根进入时不传，无箭头。
+                        onBack = { navController.popBackStack() },
                         onNavigateToDetail = { id, filter ->
                             navController.navigate(Screen.Detail.createRoute(id, filter.toDetailScope()))
                         },

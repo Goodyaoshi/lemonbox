@@ -120,7 +120,9 @@ fun AppDialog(
                                 highlight = true,
                                 destructive = destructiveConfirm,
                                 enabled = confirmEnabled,
-                                onClick = { onConfirm?.invoke() }
+                                // 纯提示弹窗（如「知道了」「看完了」）不传 onConfirm 时，
+                                // 确认即关闭，而不是点了没反应；传了 onConfirm 的行为不变。
+                                onClick = { (onConfirm ?: onDismissRequest).invoke() }
                             )
                         }
                     }

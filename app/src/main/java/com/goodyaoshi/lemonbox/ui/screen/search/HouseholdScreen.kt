@@ -2,6 +2,7 @@ package com.goodyaoshi.lemonbox.ui.screen.search
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
@@ -28,6 +29,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.History
@@ -85,6 +87,7 @@ import com.goodyaoshi.lemonbox.ui.components.rememberVoiceInput
 import com.goodyaoshi.lemonbox.ui.components.statusDimensionTitle
 import com.goodyaoshi.lemonbox.ui.components.statusOptionsFor
 import com.goodyaoshi.lemonbox.ui.theme.CardWhite
+import com.goodyaoshi.lemonbox.ui.theme.DividerSoft
 import com.goodyaoshi.lemonbox.ui.theme.LemonEnd
 import com.goodyaoshi.lemonbox.ui.theme.LemonStart
 import com.goodyaoshi.lemonbox.ui.theme.OnLemon
@@ -124,6 +127,8 @@ private val presetChipOrder = listOf(
 fun HouseholdScreen(
     // 首页搜索回车带词跳转（IA-2）：进入时把关键词接进本页搜索框，复用同一套筛选。
     initialQuery: String = "",
+    // 带词跳入时提供返回动线（返回上一页）；作为 Tab 根进入时为空，不显示返回箭头。
+    onBack: (() -> Unit)? = null,
     onNavigateToDetail: (Long, LibraryFilter) -> Unit,
     onNavigateToEdit: (Long) -> Unit,
     onNavigateToSave: () -> Unit = {},
@@ -291,12 +296,34 @@ fun HouseholdScreen(
                 .padding(top = 10.dp)
         ) {
             Column(modifier = Modifier.padding(horizontal = 20.dp)) {
-                Text(
-                    text = "家当",
-                    fontSize = 30.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextPrimary
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // 从首页搜索带词跳入时展示返回箭头，否则用户只能靠系统手势离开（IA-2 追加）。
+                    if (onBack != null && initialQuery.isNotBlank()) {
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(RoundedCornerShape(19.dp))
+                                .background(CardWhite.copy(alpha = 0.96f))
+                                .border(1.dp, DividerSoft, RoundedCornerShape(19.dp))
+                                .clickable { onBack.invoke() },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "返回",
+                                tint = TextPrimary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                    }
+                    Text(
+                        text = "家当",
+                        fontSize = 30.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
+                }
                 Text(
                     text = "搜索与筛选都在这里，条件可以自由叠加。",
                     fontSize = 13.sp,
