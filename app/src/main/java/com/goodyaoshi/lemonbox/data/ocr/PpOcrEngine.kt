@@ -23,8 +23,10 @@ import javax.inject.Singleton
  * - **不做 180° 方向分类（cls）**，正常拍摄的收据/小票场景足够。
  *
  * v6 适配要点：检测模型沿用 ImageNet 均值方差归一化；识别模型输入 3×48×动态宽、
- * (x-0.5)/0.5 归一化，与 v4 一致；二值化阈值与 unclip 比例取 v6 官方 yml 的推荐值
- * （tiny 与 small 两档的后处理参数一致）。
+ * (x-0.5)/0.5 归一化，与 v4 一致。检测阈值、框置信度阈值与 unclip 比例对齐
+ * PaddleOCR 官方 Android demo 的默认参数（detThresh 0.3 / detBoxThresh 0.6 /
+ * detUnclipRatio 1.5），resize 采用官方 v6 的短边放大策略、长边上限按移动端
+ * 性能收窄（tiny 与 small 两档的后处理参数一致）。
  */
 @Singleton
 class PpOcrEngine @Inject constructor(
@@ -105,7 +107,15 @@ class PpOcrEngine @Inject constructor(
         if (srcW <= 0 || srcH <= 0) return emptyList()
 
         val maxSide = maxOf(srcW, srcH)
-        val ratio = if (maxSide > DET_LIMIT) DET_LIMIT.toDouble() / maxSide else 1.0
+        val minSide = minOf(srcW, srcH)
+        // 官方 v6 resize 策略：短边不足 64 时放大，长边超限时缩小（上限见 DET_MAX_SIDE_LIMIT）。
+        var ratio = 1.0
+        if (minSide < DET_MIN_SIDE_LIMIT) {
+            ratio = DET_MIN_SIDE_LIMIT.toDouble() / minSide
+        }
+        if (maxSide * ratio > DET_MAX_SIDE_LIMIT) {
+            ratio = DET_MAX_SIDE_LIMIT.toDouble() / maxSide
+        }
         var inputH = Math.round(srcH * ratio).toInt().coerceAtLeast(MIN_SIDE)
         var inputW = Math.round(srcW * ratio).toInt().coerceAtLeast(MIN_SIDE)
         inputH = (inputH + ALIGN - 1) / ALIGN * ALIGN
@@ -139,11 +149,13 @@ class PpOcrEngine @Inject constructor(
             var maxX = 0
             var maxY = 0
             var area = 0
+            var scoreSum = 0f
             while (sp > 0) {
                 val cur = stack[--sp]
                 val x = cur % inputW
                 val y = cur / inputW
                 area++
+                scoreSum += prob[cur]
                 if (x < minX) minX = x
                 if (x > maxX) maxX = x
                 if (y < minY) minY = y
@@ -164,6 +176,8 @@ class PpOcrEngine @Inject constructor(
                 }
             }
             if (area < MIN_AREA) continue
+            // 框内平均置信度过滤，对齐官方 demo 的 detBoxThresh。
+            if (scoreSum / area < BOX_THRESHOLD) continue
             val h = maxY - minY + 1
             if (h * inverseRatio < MIN_TEXT_HEIGHT) continue
 
@@ -311,8 +325,14 @@ class PpOcrEngine @Inject constructor(
     private companion object {
         const val BLANK = "blank"
 
-        /** 检测输入最长边上限。 */
-        const val DET_LIMIT = 960
+        /** 短边低于该值时放大（对齐官方 demo detLimitSideLen=64 / detLimitType=min）。 */
+        const val DET_MIN_SIDE_LIMIT = 64
+
+        /**
+         * 检测输入长边上限。官方 demo 为 4000，但 det 推理耗时随像素线性增长，
+         * 4000 长边在低端机需要数秒，按移动端性能收窄到 1280。
+         */
+        const val DET_MAX_SIDE_LIMIT = 1280
 
         /** 输入宽高对齐到 32 的倍数。 */
         const val ALIGN = 32
@@ -320,8 +340,11 @@ class PpOcrEngine @Inject constructor(
         /** 输入宽高下限。 */
         const val MIN_SIDE = 32
 
-        /** 概率阈值（取 v6 官方 yml 的 thresh 0.2）。 */
-        const val DET_THRESHOLD = 0.2f
+        /** 概率二值化阈值（对齐官方 demo detThresh 0.3）。 */
+        const val DET_THRESHOLD = 0.3f
+
+        /** 文本框平均置信度下限（对齐官方 demo detBoxThresh 0.6）。 */
+        const val BOX_THRESHOLD = 0.6f
 
         /** 连通域最小像素数。 */
         const val MIN_AREA = 3
@@ -329,8 +352,8 @@ class PpOcrEngine @Inject constructor(
         /** 过滤过矮的文本框（原图像素）。 */
         const val MIN_TEXT_HEIGHT = 6.0
 
-        /** DB unclip 扩边比例与上限（比例取 v6 官方 yml 的 1.4）。 */
-        const val UNCLIP_RATIO = 1.4
+        /** DB unclip 扩边比例与上限（比例对齐官方 demo detUnclipRatio 1.5）。 */
+        const val UNCLIP_RATIO = 1.5
         const val MAX_UNCLIP = 20
 
         /** 识别输入高度与最大宽度。 */
