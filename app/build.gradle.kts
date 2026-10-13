@@ -65,6 +65,17 @@ android {
         }
     }
 
+    // .so 压缩（包体优化）：AGP 4.2 起默认 useLegacyPackaging = false —— .so 不压缩、按页对齐存放，
+    // 便于 mmap 直接加载，代价是原始体积原样进包。本应用以「直接分发 APK 给用户下载」为主
+    // （见文件末尾的 copyReleaseApkForDistribution），下载体积比安装后占用更敏感，
+    // 故改回压缩存储换取更小的下载包。
+    // 代价：安装时解压到应用 lib 目录，安装后磁盘占用增加、首次加载略慢。
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -163,8 +174,12 @@ dependencies {
     // 局域网同步（同一 WiFi 内互传）
     implementation(libs.nanohttpd)
 
-    // 端侧离线文字识别（F01）：ONNX Runtime 推理引擎；模型文件按需下载，不随包分发
-    implementation(libs.onnxruntime.android)
+    // 端侧离线文字识别（F01）：ONNX Runtime **mobile** 精简版推理引擎；模型文件按需下载，不随包分发。
+    // 选 mobile 是为包体：arm64 的 libonnxruntime.so 由完整版的 16.76MB 降到 3.56MB。代码只用到
+    // 基础推理 API（OrtEnvironment / OrtSession / OnnxTensor），两版接口一致。mobile 停更于 1.18.0，
+    // 故版本随之定为 1.18.0。
+    // ⚠️ mobile 是精简算子集（不含 RNN/LSTM/GRU 等）：换版后必须在真机跑一次 OCR 确认模型可加载。
+    implementation(libs.onnxruntime.mobile)
 
     // 农历换算（纪念日农历生日按农历推算每年循环；MIT）
     implementation("cn.6tail:tyme4kt-android:1.5.0")
