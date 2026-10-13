@@ -1,9 +1,6 @@
 package com.goodyaoshi.lemonbox.ui.screen.ocr
 
 import android.net.Uri
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -65,6 +62,7 @@ import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.GradientButton
 import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
 import com.goodyaoshi.lemonbox.ui.components.SectionHeader
+import com.goodyaoshi.lemonbox.ui.components.rememberGalleryPickerLauncher
 import com.goodyaoshi.lemonbox.ui.theme.DividerSoft
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.StatusExpired
@@ -117,9 +115,11 @@ fun OcrScreen(
         }
     }
 
-    val galleryLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia()
-    ) { uri -> uri?.let(viewModel::recognize) }
+    // 自适应选图：有 Photo Picker 就用它（免权限），否则申请权限后走 MediaStore 打开真图库。
+    val pickFromGallery = rememberGalleryPickerLauncher(
+        onPicked = { uris -> uris.firstOrNull()?.let(viewModel::recognize) },
+        onPermissionDenied = { snackbar?.postMessage("需要相册权限才能从图库选图") }
+    )
 
     // 相机页回传的图片：拿到就识别，并清掉一次性结果，避免返回时重复触发。
     LaunchedEffect(cameraResultUri) {
@@ -208,11 +208,7 @@ fun OcrScreen(
                         icon = Icons.Default.PhotoLibrary,
                         label = "从相册选",
                         enabled = canRecognize,
-                        onClick = {
-                            galleryLauncher.launch(
-                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                            )
-                        },
+                        onClick = { pickFromGallery() },
                         modifier = Modifier.weight(1f)
                     )
                 }

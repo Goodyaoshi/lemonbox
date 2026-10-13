@@ -4,7 +4,6 @@ import android.Manifest
 import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
@@ -67,6 +66,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil.compose.AsyncImage
 import com.goodyaoshi.lemonbox.ui.components.InlineNotice
+import com.goodyaoshi.lemonbox.ui.components.rememberGalleryPickerLauncher
 import com.goodyaoshi.lemonbox.ui.theme.LemonEnd
 import com.goodyaoshi.lemonbox.ui.theme.LemonStart
 import java.io.File
@@ -121,17 +121,19 @@ fun CameraScreen(
         }
     }
 
-    // 系统图库选择器（Android 13+ 为原生 Photo Picker）：
-    // 原用 GetMultipleContents 会拉起文件浏览器让用户翻目录，与「打开图库」的语义不符。
-    val galleryLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickMultipleVisualMedia()
-    ) { uris ->
-        if (uris.isNotEmpty()) {
-            capturedUris.clear()
-            capturedUris.addAll(uris)
-            selectedTab = CameraTab.GALLERY
-        }
-    }
+    // 自适应选图：有 Photo Picker 就用它（免权限、可多选）；旧设备申请权限后走 MediaStore
+    // 的 ACTION_PICK 打开真图库——该路径只支持单选，多选请求会降级为单选。
+    val pickFromGallery = rememberGalleryPickerLauncher(
+        allowMultiple = true,
+        onPicked = { uris ->
+            if (uris.isNotEmpty()) {
+                capturedUris.clear()
+                capturedUris.addAll(uris)
+                selectedTab = CameraTab.GALLERY
+            }
+        },
+        onPermissionDenied = { cameraNotice = "需要相册权限才能从图库选图" }
+    )
 
     LaunchedEffect(Unit) {
         permissionLauncher.launch(Manifest.permission.CAMERA)
@@ -236,11 +238,7 @@ fun CameraScreen(
                 } else if (capturedUris.isEmpty()) {
                     EmptyGalleryState(
                         modifier = Modifier.align(Alignment.Center),
-                        onPickGallery = {
-                            galleryLauncher.launch(
-                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                            )
-                        }
+                        onPickGallery = pickFromGallery
                     )
                 } else {
                     AsyncImage(
@@ -474,11 +472,7 @@ fun CameraScreen(
                                 CameraTab.GALLERY -> {
                                     selectedTab = tab
                                     if (capturedUris.isEmpty()) {
-                                        galleryLauncher.launch(
-                                            PickVisualMediaRequest(
-                                                ActivityResultContracts.PickVisualMedia.ImageOnly
-                                            )
-                                        )
+                                        pickFromGallery()
                                     }
                                 }
                                 CameraTab.CAMERA -> selectedTab = tab

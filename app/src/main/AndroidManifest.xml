@@ -34,9 +34,12 @@
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
 
-    <!-- 选图一律走系统图库（PickVisualMedia）与 SAF（OpenDocument / CreateDocument），
-         两者都凭 URI 临时授权读取，不需要请求媒体/存储读取权限，故不声明
-         READ_MEDIA_IMAGES 与 READ_EXTERNAL_STORAGE。 -->
+    <!-- 选图走系统图库：Android 13+ 的原生 Photo Picker 凭 URI 临时授权读取、无需权限，
+         但旧设备（无 Photo Picker）需回落到 MediaStore 的 ACTION_PICK 才能打开真正的图库，
+         那条路径返回 content://media/... 不带授权，必须持有媒体读取权限。 -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
 
     <!-- 在线更新：从 GitHub Release 下载 APK 后调起系统安装器 -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
