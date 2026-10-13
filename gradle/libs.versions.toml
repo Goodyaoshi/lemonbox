@@ -23,9 +23,12 @@ junit4 = "4.13.2"
 serializationJson = "1.8.0"
 haze = "1.6.10"
 nanohttpd = "2.3.1"
-# ONNX Runtime：mobile 精简版最后发布于 1.18.0（之后仅有完整版 onnxruntime-android）。
-# 选 mobile 是为包体：arm64 的 libonnxruntime.so 由 16.76MB 降到 3.56MB。
-onnxruntime = "1.18.0"
+# ONNX Runtime：用完整版 onnxruntime-android。
+# mobile 精简版虽小（arm64 的 libonnxruntime.so 3.56MB，完整版 16.76MB），但其精简构建
+# 不含完整的 ONNX 模型解析器，直接加载 .onnx 会报
+# "ORT_INVALID_ARGUMENT: ONNX format model is not supported"，实测 PP-OCRv6 模型确认不可用。
+# 故体积只能改由 useLegacyPackaging 压缩 .so 来减（见 app/build.gradle.kts）。
+onnxruntime = "1.20.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -75,8 +78,8 @@ haze-materials = { group = "dev.chrisbanes.haze", name = "haze-materials", versi
 # 局域网同步：只在内网起一个极简 HTTP 服务，不访问互联网
 nanohttpd = { group = "org.nanohttpd", name = "nanohttpd", version.ref = "nanohttpd" }
 
-# 端侧离线文字识别：ONNX Runtime mobile 跑 PP-OCR 模型，模型文件不随包分发、按需下载（F01）
-onnxruntime-mobile = { group = "com.microsoft.onnxruntime", name = "onnxruntime-mobile", version.ref = "onnxruntime" }
+# 端侧离线文字识别：ONNX Runtime 跑 PP-OCR 模型，模型文件不随包分发、按需下载（F01）
+onnxruntime-android = { group = "com.microsoft.onnxruntime", name = "onnxruntime-android", version.ref = "onnxruntime" }
 
 # Hilt
 hilt-android = { group = "com.google.dagger", name = "hilt-android", version.ref = "hilt" }
