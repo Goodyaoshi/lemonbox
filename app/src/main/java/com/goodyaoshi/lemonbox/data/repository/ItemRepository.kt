@@ -71,6 +71,18 @@ class ItemRepository @Inject constructor(
         item.copy(updatedAt = MonotonicClock.now())
     )
 
+    /**
+     * 只登记云端对象键（F20），刻意不走 [update]。
+     *
+     * 两点讲究：
+     * - **不刷新 updatedAt**：图片刚传上去是同步的副产品，不是用户改了物品内容。
+     *   若刷新时间戳，跨设备合并按「较新者胜」时本机会盖掉对方真实的编辑。
+     * - **整列覆盖**：`imageObjectKeys` 与图片列表按下标对齐，只能整体替换；
+     *   调用方用 [Item.withImages] 生成等长列表最稳妥，避免逐个改造成错位。
+     */
+    suspend fun updateImageObjectKeys(item: Item) =
+        itemDao.updateImageObjectKeys(item.id, item.imageObjectKeys.orEmpty())
+
     suspend fun delete(item: Item) = itemDao.delete(item)
 
     /** 合并导入专用：保留备份中的 id 与 updatedAt，按原样落库。 */

@@ -174,6 +174,14 @@ interface ItemDao {
     @Update
     suspend fun update(item: Item)
 
+    /**
+     * 只更新云端对象键（F20）。刻意不改 updatedAt：
+     * 这是「图片刚传上去」的副产品，不是用户对物品内容的编辑；
+     * 若刷新时间戳，本机会被当成「更新」，跨设备合并时按较新者胜会覆盖对方真实的修改。
+     */
+    @Query("UPDATE items SET imageObjectKeys = :encodedKeys WHERE id = :id")
+    suspend fun updateImageObjectKeys(id: Long, encodedKeys: String)
+
     @Delete
     suspend fun delete(item: Item)
 

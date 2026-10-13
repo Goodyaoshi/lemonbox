@@ -550,7 +550,10 @@ class AppBackupManager @Inject constructor(
             localSnapshots = snapshotJsonMap(localItems, useSyncIds, { it.syncId }, { it.id }) {
                 ItemSnapshot.fromEntity(
                     item = it,
+                    // 变更清单只比字段、不看图片（imagePaths 在 DIFF_EXCLUDED_FIELDS 里），
+                    // 因此图片与对象键都传空，避免把本地文件反复读进来。
                     imagePaths = emptyList(),
+                    imageObjectKeys = emptyList(),
                     categorySyncId = it.categoryId?.let { id -> categorySyncIdById[id] },
                     locationSyncId = it.locationId?.let { id -> locationSyncIdById[id] }
                 )
@@ -975,19 +978,24 @@ class AppBackupManager @Inject constructor(
                 )
             },
             items = items.map { item ->
-                val images = item.imagePathList().mapIndexedNotNull { index, path ->
+                // 图片与对象键必须同步过滤：只有文件真实存在的图才进备份，
+                // 对应的键也要跟着少，否则导入时键会整体前移、安到别人的图上。
+                val objectKeys = item.imageObjectKeyList()
+                val keptImages = mutableListOf<String>()
+                val keptObjectKeys = mutableListOf<String>()
+                item.imagePathList().forEachIndexed { index, path ->
                     val file = File(path)
-                    if (!file.exists()) {
-                        null
-                    } else {
+                    if (file.exists()) {
                         val relativePath = "images/${item.id}_${index}_${file.name}"
                         imageEntries += ImageEntry(relativePath, file)
-                        relativePath
+                        keptImages += relativePath
+                        keptObjectKeys += objectKeys.getOrNull(index).orEmpty()
                     }
                 }
                 ItemSnapshot.fromEntity(
                     item = item,
-                    imagePaths = images,
+                    imagePaths = keptImages,
+                    imageObjectKeys = keptObjectKeys,
                     categorySyncId = item.categoryId?.let { categorySyncIdById[it] },
                     locationSyncId = item.locationId?.let { locationSyncIdById[it] }
                 )

@@ -1,6 +1,8 @@
 package com.goodyaoshi.lemonbox.ui.screen.ocr
 
+import android.content.Intent
 import android.net.Uri
+import android.provider.Settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -49,6 +51,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -94,6 +97,10 @@ fun OcrScreen(
     onNavigateToRecord: (amountCents: Long?, remark: String) -> Unit,
     onNavigateToSave: (name: String, imagePath: String?) -> Unit,
     modeLabel: String? = null,
+    // 出口按来路收敛（IA-3）：从「快速录入」进来的只回录入、从「记一笔」进来的只回记账。
+    // 此前两个动作恒并列展示，会把想「录入家当」的用户推去记账，与来意相反。
+    showRecordAction: Boolean = true,
+    showSaveAction: Boolean = true,
     viewModel: OcrViewModel = hiltViewModel()
 ) {
     val modelState by viewModel.modelState.collectAsState()
@@ -116,9 +123,13 @@ fun OcrScreen(
     }
 
     // 自适应选图：有 Photo Picker 就用它（免权限），否则申请权限后走 MediaStore 打开真图库。
+    val context = LocalContext.current
+    var showGalleryPermissionDialog by remember { mutableStateOf(false) }
     val pickFromGallery = rememberGalleryPickerLauncher(
         onPicked = { uris -> uris.firstOrNull()?.let(viewModel::recognize) },
-        onPermissionDenied = { snackbar?.postMessage("需要相册权限才能从图库选图") }
+        // 被拒后不再只丢一句提示：给出「去设置」的出路，并点明可直接改用「拍照」这条不需要授权
+        // 的替代路径。旧设备（无 Photo Picker）才会走到这里，是新系统上也存在的少数权限申请点。
+        onPermissionDenied = { showGalleryPermissionDialog = true }
     )
 
     // 相机页回传的图片：拿到就识别，并清掉一次性结果，避免返回时重复触发。
@@ -276,28 +287,39 @@ fun OcrScreen(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(20.dp))
-                    SectionHeader(title = "接着做点什么")
-                    Spacer(modifier = Modifier.height(10.dp))
-                    val ledger = state.ledgerSuggestion
-                    ActionTile(
-                        icon = Icons.AutoMirrored.Filled.ReceiptLong,
-                        title = "一键记账",
-                        subtitle = ledgerAmountLabel(ledger?.amountCents, ledger?.remark),
-                        enabled = true,
-                        onClick = {
-                            onNavigateToRecord(ledger?.amountCents, ledger?.remark.orEmpty())
-                        }
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    val itemName = state.itemSuggestion?.name.orEmpty()
-                    ActionTile(
-                        icon = Icons.Default.Inventory2,
-                        title = "一键入库",
-                        subtitle = itemName.ifBlank { "没认出品名，去家当手动填写" },
-                        enabled = itemName.isNotBlank(),
-                        onClick = { onNavigateToSave(itemName, state.imagePath) }
-                    )
+                    // 出口按来路收敛（IA-3）：只保留与本次来意一致的那一个动作，
+                    // 不再把「记账」与「入库」并列摆给所有人看。
+                    if (showRecordAction || showSaveAction) {
+                        Spacer(modifier = Modifier.height(20.dp))
+                        SectionHeader(title = "接着做点什么")
+                        Spacer(modifier = Modifier.height(10.dp))
+                    }
+                    if (showRecordAction) {
+                        val ledger = state.ledgerSuggestion
+                        ActionTile(
+                            icon = Icons.AutoMirrored.Filled.ReceiptLong,
+                            title = "一键记账",
+                            subtitle = ledgerAmountLabel(ledger?.amountCents, ledger?.remark),
+                            enabled = true,
+                            onClick = {
+                                onNavigateToRecord(ledger?.amountCents, ledger?.remark.orEmpty())
+                            }
+                        )
+                        if (showSaveAction) Spacer(modifier = Modifier.height(12.dp))
+                    }
+                    if (showSaveAction) {
+                        val itemName = state.itemSuggestion?.name.orEmpty()
+                        ActionTile(
+                            icon = Icons.Default.Inventory2,
+                            title = "一键入库",
+                            subtitle = itemName.ifBlank { "没认出品名，去家当手动填写" },
+                            // 认不出品名时不禁用：按钮就在入口页头上，禁用会把用户困在
+                            // 「唯一出口点不动」的死路上（这正是原先被推向记账的原因）。
+                            // 改为照常进入录入页，由用户手动补品名。
+                            enabled = true,
+                            onClick = { onNavigateToSave(itemName, state.imagePath) }
+                        )
+                    }
                 }
             }
         }
@@ -349,6 +371,29 @@ fun OcrScreen(
         ) {
             Text(
                 text = "删除后需要重新下载才能继续识别文字。",
+                color = TextSecondary,
+                fontSize = 14.sp
+            )
+        }
+    }
+
+    if (showGalleryPermissionDialog) {
+        AppDialog(
+            title = "需要相册权限",
+            onDismissRequest = { showGalleryPermissionDialog = false },
+            confirmText = "去设置",
+            onConfirm = {
+                showGalleryPermissionDialog = false
+                context.startActivity(
+                    Intent(
+                        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        Uri.fromParts("package", context.packageName, null)
+                    )
+                )
+            }
+        ) {
+            Text(
+                text = "从相册选图需要读取图片的权限。也可以直接用「拍照」识别，那条路不需要授权。",
                 color = TextSecondary,
                 fontSize = 14.sp
             )

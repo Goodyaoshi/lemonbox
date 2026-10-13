@@ -85,6 +85,16 @@ data class Item(
     val note: String = "",
     val imagePath: String = "",
     val imagePaths: String = "",
+    /**
+     * 与 [imagePaths] **下标一一对应**的云端对象键，换行分隔（F20）。
+     *
+     * 为什么按行对齐、而不是存成一个集合：图片是「有序的多张」，第一张是主图，
+     * 用户可以拖动排序，因此"第几张图对应哪个对象"必须能表达。
+     * 空串表示该位置在云端还没有对象（未上传的成功、或功能未开启）。
+     *
+     * 为 null 表示该物品从未参与过云端同步（历史数据），一律按「全部未上传」处理。
+     */
+    val imageObjectKeys: String? = null,
     val createdAt: Long = System.currentTimeMillis(),
     /** 跨设备合并用的稳定标识：本地新建自动生成，历史数据由迁移回填。 */
     val syncId: String? = UUID.randomUUID().toString(),
@@ -99,9 +109,36 @@ data class Item(
         return decodeImagePaths(imagePaths, imagePath)
     }
 
+    /** 与 [imagePathList] 等长的对象键列表；无键的位置是空串。 */
+    fun imageObjectKeyList(): List<String> =
+        decodeImageObjectKeys(imageObjectKeys, imagePathList().size)
+
+    /**
+     * 第 [index] 张图在云端的对象键；没有则 null。
+     * 调用方据此决定能否从云端取图（本地文件缺失时的兜底来源）。
+     */
+    fun imageObjectKeyAt(index: Int): String? =
+        imageObjectKeyList().getOrNull(index)?.takeIf { it.isNotBlank() }
+
+    /**
+     * 同时替换图片列表与对象键列表，保证两者始终等长、下标不错位。
+     * 图片被增删或重排后必须走这里，不要单独改 [imagePaths]——
+     * 一旦错位，就会出现「A 图的键安到了 B 图上」，会把别人的图显示出来。
+     */
+    fun withImages(paths: List<String>, objectKeys: List<String>): Item = copy(
+        imagePath = paths.firstOrNull().orEmpty(),
+        imagePaths = encodeImagePaths(paths),
+        imageObjectKeys = encodeImageObjectKeys(
+            List(paths.size) { objectKeys.getOrNull(it).orEmpty() }
+        )
+    )
+
     fun primaryImagePath(): String {
         return imagePathList().firstOrNull().orEmpty()
     }
+
+    /** 主图在云端的对象键；没有则 null（未上传或功能未开启）。 */
+    fun primaryImageObjectKey(): String? = imageObjectKeyAt(0)
 
     companion object {
         /** 使用进度：还没开始用。 */
@@ -269,6 +306,28 @@ data class Item(
                 legacyPrimaryPath.isNotBlank() -> listOf(legacyPrimaryPath)
                 else -> emptyList()
             }
+        }
+
+        /**
+         * 编码对象键列表：**不做去空过滤**，空项以空行占位。
+         * 与 [encodeImagePaths] 的差别是刻意的——图片路径里的空项没有意义，
+         * 而对象键里的空项表示「这一张还没上传」，省略它会让后面所有键下标前移、全部错位。
+         */
+        fun encodeImageObjectKeys(keys: List<String>): String =
+            keys.joinToString("\n") { it.trim() }
+
+        /**
+         * 解码对象键并与 [count]（图片张数）对齐：
+         * 少了补空串、多了截断，无论如何都返回恰好 [count] 项。
+         * 这样即使历史数据、或图片被增删后两者长度不符，也不会按下标取到别人的键。
+         */
+        fun decodeImageObjectKeys(encoded: String?, count: Int): List<String> {
+            if (count <= 0) return emptyList()
+            val parsed = encoded.orEmpty()
+                .lineSequence()
+                .map { it.trim() }
+                .toList()
+            return List(count) { parsed.getOrNull(it).orEmpty() }
         }
     }
 }

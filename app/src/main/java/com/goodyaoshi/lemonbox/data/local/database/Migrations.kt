@@ -772,6 +772,19 @@ internal object Migrations {
         }
     }
 
+    /**
+     * v33（F20）：items 增加云端对象键列——与 imagePaths 按下标一一对应，
+     * 让「这张图在云端对应哪个对象」有据可查，本地文件缺失时才能从云端取回。
+     *
+     * 保持可空、且不加 DEFAULT：语义上「还没上传」就是「没有值」，
+     * 也让本迁移的 ADD COLUMN 与实体注解天然一致（不依赖 DEFAULT 字面量的写法）。
+     */
+    private val MIGRATION_32_33 = object : Migration(32, 33) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE `items` ADD COLUMN `imageObjectKeys` TEXT")
+        }
+    }
+
     /** 按版本顺序排列的全部迁移，供 [AppDatabase] 一次性装配。 */
     val ALL: Array<Migration> = arrayOf(
         MIGRATION_1_2,
@@ -804,6 +817,7 @@ internal object Migrations {
         MIGRATION_28_29,
         MIGRATION_29_30,
         MIGRATION_30_31,
-        MIGRATION_31_32
+        MIGRATION_31_32,
+        MIGRATION_32_33
     )
 }

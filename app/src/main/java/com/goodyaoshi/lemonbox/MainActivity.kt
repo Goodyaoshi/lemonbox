@@ -26,6 +26,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import com.goodyaoshi.lemonbox.data.imagecloud.ImageUrlResolver
 import com.goodyaoshi.lemonbox.data.local.entity.ItemStatusCatalog
 import com.goodyaoshi.lemonbox.data.local.entity.StatusDimension
 import com.goodyaoshi.lemonbox.data.repository.ItemRepository
@@ -35,6 +36,7 @@ import com.goodyaoshi.lemonbox.ui.components.AppLockOverlay
 import com.goodyaoshi.lemonbox.ui.components.AppSnackbarState
 import com.goodyaoshi.lemonbox.ui.components.ItemStatusCatalogState
 import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
+import com.goodyaoshi.lemonbox.ui.components.LocalImageUrlResolver
 import com.goodyaoshi.lemonbox.ui.components.LocalItemStatusOptions
 import com.goodyaoshi.lemonbox.ui.navigation.AppNavGraph
 import com.goodyaoshi.lemonbox.ui.navigation.Screen
@@ -63,6 +65,13 @@ class MainActivity : ComponentActivity() {
 
     @Inject
     lateinit var itemRepository: ItemRepository
+
+    /**
+     * 图片来源解析（F20）：把「本地路径 + 云端对象键」解析成图片加载器可用的 model。
+     * 在根部注入一次、经 CompositionLocal 下发，避免每个用到图的地方各自持有。
+     */
+    @Inject
+    lateinit var imageUrlResolver: ImageUrlResolver
 
     /** 桌面快捷方式发起的导航请求（F13）：冷启动落在起始页，热启动触发一次导航。 */
     private val navRequest = MutableStateFlow(ShortcutNavRequest(route = null, requestId = 0L))
@@ -144,7 +153,9 @@ class MainActivity : ComponentActivity() {
 
                 CompositionLocalProvider(
                     LocalItemStatusOptions provides statusCatalog,
-                    LocalAppSnackbar provides appSnackbar
+                    LocalAppSnackbar provides appSnackbar,
+                    // 图片一律经解析器取：本地有就用本地（离线可看），本地没了才按对象键从云端取。
+                    LocalImageUrlResolver provides imageUrlResolver
                 ) {
                     Box(modifier = Modifier.fillMaxSize()) {
                         if (showSplash) {

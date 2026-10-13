@@ -79,11 +79,9 @@ import com.goodyaoshi.lemonbox.ui.components.SelectionActionButton
 import com.goodyaoshi.lemonbox.ui.components.SelectionTopBar
 import com.goodyaoshi.lemonbox.ui.components.SwipeRevealItem
 import com.goodyaoshi.lemonbox.ui.components.TreeNode
-import com.goodyaoshi.lemonbox.ui.components.VoiceInputButton
 import com.goodyaoshi.lemonbox.ui.components.buildItemSwipeActions
 import com.goodyaoshi.lemonbox.ui.components.buildTreePathLabel
 import com.goodyaoshi.lemonbox.ui.components.itemStatusColors
-import com.goodyaoshi.lemonbox.ui.components.rememberVoiceInput
 import com.goodyaoshi.lemonbox.ui.components.statusDimensionTitle
 import com.goodyaoshi.lemonbox.ui.components.statusOptionsFor
 import com.goodyaoshi.lemonbox.ui.theme.CardWhite
@@ -127,8 +125,11 @@ private val presetChipOrder = listOf(
 fun HouseholdScreen(
     // 首页搜索回车带词跳转（IA-2）：进入时把关键词接进本页搜索框，复用同一套筛选。
     initialQuery: String = "",
-    // 带词跳入时提供返回动线（返回上一页）；作为 Tab 根进入时为空，不显示返回箭头。
+    // 带词跳入时提供返回动线（返回上一页）；作为 Tab 根进入时不显示返回箭头。
     onBack: (() -> Unit)? = null,
+    // 是否显示返回箭头由导航层显式传入：原先用「onBack 非空 + 词非空」就地推断，
+    // 判定条件散落在页面内，导航侧一改就失配（首页带空词跳入时不显示返回箭头即源于此）。
+    showBackArrow: Boolean = false,
     onNavigateToDetail: (Long, LibraryFilter) -> Unit,
     onNavigateToEdit: (Long) -> Unit,
     onNavigateToSave: () -> Unit = {},
@@ -144,8 +145,6 @@ fun HouseholdScreen(
         if (initialQuery.isNotBlank()) viewModel.updateQuery(initialQuery)
     }
     val results by viewModel.results.collectAsState()
-    // 语音输入（F13）：说出的内容直接进搜索框。
-    val startVoiceInput = rememberVoiceInput { spoken -> viewModel.updateQuery(spoken) }
     val allItems by viewModel.allItems.collectAsState()
     val filter by viewModel.filter.collectAsState()
     val presetCounts by viewModel.presetCounts.collectAsState()
@@ -298,7 +297,7 @@ fun HouseholdScreen(
             Column(modifier = Modifier.padding(horizontal = 20.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     // 从首页搜索带词跳入时展示返回箭头，否则用户只能靠系统手势离开（IA-2 追加）。
-                    if (onBack != null && initialQuery.isNotBlank()) {
+                    if (showBackArrow && onBack != null) {
                         Box(
                             modifier = Modifier
                                 .size(38.dp)
@@ -364,17 +363,13 @@ fun HouseholdScreen(
                         onClick = onNavigateToTrash
                     )
                 }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    SearchBar(
-                        value = query,
-                        onValueChange = viewModel::updateQuery,
-                        placeholder = "搜索物品、分类、位置或备注",
-                        showMagicIconWhenEmpty = false,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Spacer(modifier = Modifier.size(8.dp))
-                    VoiceInputButton(onClick = startVoiceInput)
-                }
+                SearchBar(
+                    value = query,
+                    onValueChange = viewModel::updateQuery,
+                    placeholder = "搜索物品、分类、位置或备注",
+                    showMagicIconWhenEmpty = false,
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
 
             Row(

@@ -37,6 +37,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
@@ -83,7 +84,10 @@ fun EditorInputBox(
     minHeight: Int = 56,
     readOnly: Boolean = false,
     onFocus: (() -> Unit)? = null,
-    trailingContent: (@Composable () -> Unit)? = null
+    trailingContent: (@Composable () -> Unit)? = null,
+    // 需要打码的输入（如访问密钥）传 PasswordVisualTransformation()；
+    // 默认 None，既有调用点行为逐字不变。
+    visualTransformation: VisualTransformation = VisualTransformation.None
 ) {
     Box(
         modifier = modifier
@@ -118,6 +122,7 @@ fun EditorInputBox(
                     .focusable(enabled = !readOnly),
                 singleLine = singleLine,
                 readOnly = readOnly,
+                visualTransformation = visualTransformation,
                 textStyle = TextStyle(
                     fontSize = 15.sp,
                     color = TextPrimary

@@ -10,6 +10,7 @@ import com.goodyaoshi.lemonbox.data.local.entity.Location
 import com.goodyaoshi.lemonbox.data.repository.CategoryRepository
 import com.goodyaoshi.lemonbox.data.repository.ItemRepository
 import com.goodyaoshi.lemonbox.data.repository.LocationRepository
+import com.goodyaoshi.lemonbox.data.imagecloud.ImageCloudSyncManager
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import com.goodyaoshi.lemonbox.util.ImageUtil
 import com.goodyaoshi.lemonbox.util.MonotonicClock
@@ -56,7 +57,9 @@ class SaveViewModel @Inject constructor(
     private val itemRepository: ItemRepository,
     private val categoryRepository: CategoryRepository,
     private val locationRepository: LocationRepository,
-    private val appPreferences: AppPreferences
+    private val appPreferences: AppPreferences,
+    // 保存成功后把该物品的图片后台送上云（F20）。开关关闭或未配置时内部静默跳过。
+    private val imageCloudSync: ImageCloudSyncManager
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SaveItemState())
@@ -271,6 +274,9 @@ class SaveViewModel @Inject constructor(
                 return@launch
             }
             _state.value = _state.value.copy(isSaving = false, isSaved = true)
+            // 落库成功后再上传：此刻物品已在库里，同步器能按 id 读到它的图片。
+            // 该调用不阻塞、不抛异常、失败静默——云端同步不该干扰「存好了」这件事本身。
+            savedItemId?.let(imageCloudSync::syncItem)
         }
     }
 

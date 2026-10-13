@@ -59,6 +59,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.navigation.NavController
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -66,7 +67,6 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import com.goodyaoshi.lemonbox.data.local.entity.Item
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerCategory
 import com.goodyaoshi.lemonbox.ui.components.AppSnackbarHost
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
@@ -81,6 +81,7 @@ import com.goodyaoshi.lemonbox.ui.screen.edit.EditScreen
 import com.goodyaoshi.lemonbox.ui.screen.expiry.ExpiryScreen
 import com.goodyaoshi.lemonbox.ui.screen.forecast.RestockForecastScreen
 import com.goodyaoshi.lemonbox.ui.screen.home.HomeScreen
+import com.goodyaoshi.lemonbox.ui.screen.imagecloud.ImageCloudScreen
 import com.goodyaoshi.lemonbox.ui.screen.ledger.LedgerAnnualReviewScreen
 import com.goodyaoshi.lemonbox.ui.screen.ledger.LedgerAssetsScreen
 import com.goodyaoshi.lemonbox.ui.screen.ledger.LedgerBudgetScreen
@@ -116,7 +117,7 @@ import com.goodyaoshi.lemonbox.ui.theme.CardWhite
 import com.goodyaoshi.lemonbox.ui.theme.GlassWhite
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.TextHint
-import com.goodyaoshi.lemonbox.ui.viewmodel.LibraryFilter
+import com.goodyaoshi.lemonbox.ui.viewmodel.encodeLibraryFilter
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import java.io.File
@@ -149,12 +150,18 @@ internal const val SAVE_RESULT_IMAGE_URI = "save_result_image_uri"
 internal const val SAVE_RESULT_IMAGE_URIS = "save_result_image_uris"
 internal const val SAVE_RESULT_MODE = "save_result_mode"
 internal const val OCR_RESULT_IMAGE_URI = "ocr_result_image_uri"
+internal const val OCR_RESULT_ITEM_NAME = "ocr_result_item_name"
 
 @Composable
 fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
-    val currentRoute = navBackStackEntry?.destination?.route
+    // destination.route 返回的是「注册时的模式串」：带可选参数的目的地（家当注册为
+    // household?query={query}）拿到的是整串，而非 Screen.Household.route 的 "household"。
+    // 底栏的可见性与 Tab 选中态都拿它比对无参常量路由，错配会让「家当」既不高亮、
+    // 又因不在底栏白名单里导致整条底栏消失——这正是「点家当后无法返回」的直接原因。
+    // 故统一按 '?' 前的主干比较，两种注册形式都能对上。
+    val currentRoute = navBackStackEntry?.destination?.route?.substringBefore('?')
     var cameraExitGuard by remember { mutableStateOf(false) }
     var pendingCameraReturn by remember { mutableStateOf<CameraReturnTarget?>(null) }
     val hazeState = remember { HazeState() }
@@ -179,15 +186,26 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
         if (result.resultCode == Activity.RESULT_OK) {
             val scanned = result.data?.getStringExtra(EXTRA_BARCODE)
             if (!scanned.isNullOrBlank()) {
-                navController.navigate(Screen.Scan.createRoute(scanned))
+                navController.navigateSingleTop(Screen.Scan.createRoute(scanned))
             }
         }
     }
     val openScan: () -> Unit = { scanLauncher.launch(Intent(context, ScanActivity::class.java)) }
 
+    /**
+     * 切到某个一级 Tab：以图根为基准清理返回栈，并保留被弹页面的状态。
+     *
+     * 图根通常是首页，但桌面快捷方式冷启动会让 startDestination 直接落在二级页
+     * （记一笔 / 待买 / 拍照），此时 findStartDestination() 指向的不是首页。若仍按
+     * 「保留图根」清理，首页会被压在那个二级页之下——用户切到首页后按返回，退回的却是
+     * 一个二级页，观感上像「点 Tab 回不到首页」。故图根不是首页时，连图根一并弹出，
+     * 让返回栈回到干净状态；图根就是首页时不加 inclusive，保持原有行为逐字不变。
+     */
     val navigateToTopLevel: (String) -> Unit = { route ->
+        val graphStart = navController.graph.findStartDestination()
         navController.navigate(route) {
-            popUpTo(navController.graph.findStartDestination().id) {
+            popUpTo(graphStart.id) {
+                inclusive = graphStart.route != Screen.Home.route
                 saveState = true
             }
             launchSingleTop = true
@@ -197,7 +215,7 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
 
     val openCamera: (CameraReturnTarget) -> Unit = { target ->
         pendingCameraReturn = target
-        navController.navigate(Screen.Camera.route)
+        navController.navigateSingleTop(Screen.Camera.route)
     }
 
     LaunchedEffect(currentRoute) {
@@ -231,22 +249,31 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
             ) {
                 composable(Screen.Home.route) {
                     HomeScreen(
-                        onNavigateToDetail = { id -> navController.navigate(Screen.Detail.createRoute(id)) },
-                        onNavigateToEdit = { id -> navController.navigate(Screen.Edit.createRoute(id)) },
-                        onNavigateToExpiry = { navController.navigate(Screen.Expiry.route) },
+                        onNavigateToDetail = { id -> navController.navigateSingleTop(Screen.Detail.createRoute(id)) },
+                        onNavigateToEdit = { id -> navController.navigateSingleTop(Screen.Edit.createRoute(id)) },
+                        onNavigateToExpiry = { navController.navigateSingleTop(Screen.Expiry.route) },
                         onNavigateToScan = openScan,
                         // IA-2：首页搜索回车带关键词跳家当 Tab，复用同一套筛选。
+                        // 走切 Tab 的导航（popUpTo 起始页 + launchSingleTop + restoreState），
+                        // 而不是往栈顶 push 一个新实例：后者会让家当与底栏 Tab 不同源，
+                        // 连点还会叠出多个家当页。
                         onSearchInHousehold = { query ->
-                            navController.navigate(Screen.Household.createRoute(query))
+                            navController.navigate(Screen.Household.createRoute(query)) {
+                                popUpTo(navController.graph.findStartDestination().id) {
+                                    saveState = true
+                                }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
                         },
-                        onNavigateToToBuy = { navController.navigate(Screen.ToBuy.route) },
-                        onNavigateToReminders = { navController.navigate(Screen.Reminders.route) },
+                        onNavigateToToBuy = { navController.navigateSingleTop(Screen.ToBuy.route) },
+                        onNavigateToReminders = { navController.navigateSingleTop(Screen.Reminders.route) },
                         onNavigateToLedger = { navigateToTopLevel(Screen.Ledger.route) },
                         onNavigateToMeal = { navigateToTopLevel(Screen.Meal.route) },
-                        onNavigateToAnniversaries = { navController.navigate(Screen.Anniversaries.route) },
+                        onNavigateToAnniversaries = { navController.navigateSingleTop(Screen.Anniversaries.route) },
                         // IA-3：首页纪念日条点行直达该条目的编辑页。
                         onNavigateToAnniversaryEdit = { id ->
-                            navController.navigate(Screen.AnniversaryEdit.createRoute(id))
+                            navController.navigateSingleTop(Screen.AnniversaryEdit.createRoute(id))
                         }
                     )
                 }
@@ -265,10 +292,10 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
                         barcode = Uri.decode(scannedBarcode),
                         onBack = { navController.popBackStack() },
                         onNavigateToDetail = { id ->
-                            navController.navigate(Screen.Detail.createRoute(id))
+                            navController.navigateSingleTop(Screen.Detail.createRoute(id))
                         },
                         onNavigateToSaveForBarcode = { code ->
-                            navController.navigate(Screen.Save.createRoute(barcode = code))
+                            navController.navigateSingleTop(Screen.Save.createRoute(barcode = code))
                         }
                     )
                 }
@@ -403,15 +430,19 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
                             backStackEntry.savedStateHandle.remove<String>(SAVE_RESULT_MODE)
                         },
                         onBack = { navController.popBackStack() },
+                        // 保存后回到发起录入的那一页（家当 / 扫码结果 / 首页），而不是一律清栈回首页：
+                        // 从家当进来录入，保存后应还能看到刚存进去的那件，来源页的筛选条件也不丢。
+                        // 「连续录入」走 SaveScreen 内部的分支、不经这里，行为不变。
+                        // 栈底无处可退时（理论上不可达）退回首页，避免用户停在已清空的表单上。
                         onSaved = {
-                            navController.navigate(Screen.Home.route) {
-                                popUpTo(Screen.Home.route) { inclusive = true }
+                            if (!navController.popBackStack()) {
+                                navController.navigateSingleTop(Screen.Home.route)
                             }
                         },
                         onOpenCamera = { photoMode ->
                             openCamera(CameraReturnTarget.SaveDraft(photoMode))
                         },
-                        onOpenOcr = { navController.navigate(Screen.Ocr.route) },
+                        onOpenOcr = { navController.navigateSingleTop(Screen.Ocr.route) },
                         initialBarcode = encodedBarcode.takeIf { it.isNotBlank() }?.let { Uri.decode(it) },
                         initialName = encodedName.takeIf { it.isNotBlank() }?.let { Uri.decode(it) }
                     )
@@ -421,7 +452,19 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
                     route = Screen.Detail.route,
                     arguments = listOf(
                         navArgument("itemId") { type = NavType.LongType },
-                        navArgument("scope") { type = NavType.StringType }
+                        navArgument("scope") { type = NavType.StringType },
+                        // 家当入口携带的完整筛选条件（见 Screen.Detail）：可选参数，
+                        // 缺省时详情页按 scope 过滤，与既有非家当入口完全一致。
+                        navArgument("filterJson") {
+                            type = NavType.StringType
+                            defaultValue = ""
+                            nullable = true
+                        },
+                        navArgument("query") {
+                            type = NavType.StringType
+                            defaultValue = ""
+                            nullable = true
+                        }
                     )
                 ) { backStackEntry ->
                     val itemId = backStackEntry.arguments?.getLong("itemId") ?: return@composable
@@ -430,10 +473,10 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
                         itemId = itemId,
                         scope = scope,
                         onBack = { navController.popBackStack() },
-                        onEdit = { id -> navController.navigate(Screen.Edit.createRoute(id)) },
+                        onEdit = { id -> navController.navigateSingleTop(Screen.Edit.createRoute(id)) },
                         // 「记一笔」：把物品的价格×数量作为默认金额、物品名作为备注预填进记账页（F06）。
                         onRecordPurchase = { id, amountCents, name ->
-                            navController.navigate(
+                            navController.navigateSingleTop(
                                 Screen.RecordEdit.createRoute(
                                     itemId = id,
                                     amount = amountCents,
@@ -454,44 +497,58 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
                             defaultValue = ""
                         }
                     )
-                ) { entry ->
-                    val initialQuery = entry.arguments?.getString("query").orEmpty()
+                ) {
+                    // query 为空时不留导航参数，使本次导航与底栏 Tab 的 "household" 完全同构，
+                    // launchSingleTop 才能生效，避免连点首页搜索条叠出多个家当实例。
+                    val initialQuery = navBackStackEntry?.arguments?.getString("query").orEmpty()
+                    // 返回箭头只在「从首页搜索带词跳入」时有意义（切 Tab 导航不留 query）；
+                    // 作为 Tab 根进入则不显示，与其余一级入口一致，靠底栏切换离开。
+                    val showBackArrow = initialQuery.isNotBlank()
                     HouseholdScreen(
                         initialQuery = initialQuery,
-                        // 仅带词跳入的实例有返回箭头（回首页）；Tab 根进入时不传，无箭头。
+                        showBackArrow = showBackArrow,
                         onBack = { navController.popBackStack() },
+                        // 带上完整筛选条件（状态 / 分类 / 位置 / 关键词），详情页左右翻页才不会
+                        // 翻出当前筛选之外的物品（第 5 条）。scope 缺省为 ScopeAll：集合改由 filterJson
+                        // 表达，与家当列表共用同一份 SearchEngine 语义。
                         onNavigateToDetail = { id, filter ->
-                            navController.navigate(Screen.Detail.createRoute(id, filter.toDetailScope()))
+                            navController.navigateSingleTop(
+                                Screen.Detail.createRoute(
+                                    itemId = id,
+                                    filterJson = encodeLibraryFilter(filter),
+                                    query = initialQuery
+                                )
+                            )
                         },
-                        onNavigateToEdit = { id -> navController.navigate(Screen.Edit.createRoute(id)) },
-                        onNavigateToSave = { navController.navigate(Screen.Save.createRoute()) },
+                        onNavigateToEdit = { id -> navController.navigateSingleTop(Screen.Edit.createRoute(id)) },
+                        onNavigateToSave = { navController.navigateSingleTop(Screen.Save.createRoute()) },
                         // 家当域的子页面（家当设置 / 待买 / 到期 / 回收站）从「我的」迁回本 Tab 根（I9）。
-                        onNavigateToCategory = { navController.navigate(Screen.Category.route) },
-                        onNavigateToToBuy = { navController.navigate(Screen.ToBuy.route) },
-                        onNavigateToExpiry = { navController.navigate(Screen.Expiry.route) },
-                        onNavigateToTrash = { navController.navigate(Screen.Trash.route) }
+                        onNavigateToCategory = { navController.navigateSingleTop(Screen.Category.route) },
+                        onNavigateToToBuy = { navController.navigateSingleTop(Screen.ToBuy.route) },
+                        onNavigateToExpiry = { navController.navigateSingleTop(Screen.Expiry.route) },
+                        onNavigateToTrash = { navController.navigateSingleTop(Screen.Trash.route) }
                     )
                 }
 
                 composable(Screen.Ledger.route) {
                     LedgerScreen(
-                        onNavigateToStats = { navController.navigate(Screen.LedgerStats.route) },
-                        onNavigateToBudget = { navController.navigate(Screen.LedgerBudget.route) },
-                        onNavigateToAssets = { navController.navigate(Screen.LedgerAssets.route) },
+                        onNavigateToStats = { navController.navigateSingleTop(Screen.LedgerStats.route) },
+                        onNavigateToBudget = { navController.navigateSingleTop(Screen.LedgerBudget.route) },
+                        onNavigateToAssets = { navController.navigateSingleTop(Screen.LedgerAssets.route) },
                         // 记账分类管理原本挂在「我的」，属记账域，收拢到记账页页头（I10）。
                         onNavigateToCategories = {
-                            navController.navigate(
+                            navController.navigateSingleTop(
                                 Screen.LedgerCategoryManage.createRoute(LedgerCategory.KIND_EXPENSE)
                             )
                         },
-                        onNavigateToPlan = { navController.navigate(Screen.LedgerPlan.route) },
-                        onNavigateToTrend = { navController.navigate(Screen.LedgerTrend.route) },
-                        onNavigateToAnnualReview = { navController.navigate(Screen.LedgerAnnualReview.route) },
+                        onNavigateToPlan = { navController.navigateSingleTop(Screen.LedgerPlan.route) },
+                        onNavigateToTrend = { navController.navigateSingleTop(Screen.LedgerTrend.route) },
+                        onNavigateToAnnualReview = { navController.navigateSingleTop(Screen.LedgerAnnualReview.route) },
                         onNavigateToRecordEdit = { recordId ->
-                            navController.navigate(Screen.RecordEdit.createRoute(recordId = recordId))
+                            navController.navigateSingleTop(Screen.RecordEdit.createRoute(recordId = recordId))
                         },
                         onNavigateToItemDetail = { id ->
-                            navController.navigate(Screen.Detail.createRoute(id))
+                            navController.navigateSingleTop(Screen.Detail.createRoute(id))
                         }
                     )
                 }
@@ -519,7 +576,7 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
                 ) {
                     RecordEditScreen(
                         onBack = { navController.popBackStack() },
-                        onOpenOcr = { navController.navigate(Screen.Ocr.route) }
+                        onOpenOcr = { navController.navigateSingleTop(Screen.Ocr.route) }
                     )
                 }
 
@@ -527,13 +584,13 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
                     LedgerStatsScreen(
                         onBack = { navController.popBackStack() },
                         onOpenCategory = { kind, categoryId, monthKey ->
-                            navController.navigate(
+                            navController.navigateSingleTop(
                                 Screen.LedgerCategoryDetail.createRoute(kind, categoryId, monthKey)
                             )
                         },
                         // 统计页空态「记一笔」直达记账编辑（I5），与记账主页 FAB 同一跳转。
                         onNavigateToRecordEdit = { recordId ->
-                            navController.navigate(Screen.RecordEdit.createRoute(recordId = recordId))
+                            navController.navigateSingleTop(Screen.RecordEdit.createRoute(recordId = recordId))
                         }
                     )
                 }
@@ -566,7 +623,7 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
                     LedgerCategoryDetailScreen(
                         onBack = { navController.popBackStack() },
                         onNavigateToRecordEdit = { recordId ->
-                            navController.navigate(Screen.RecordEdit.createRoute(recordId = recordId))
+                            navController.navigateSingleTop(Screen.RecordEdit.createRoute(recordId = recordId))
                         }
                     )
                 }
@@ -591,7 +648,7 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
                     LedgerTrendScreen(
                         onBack = { navController.popBackStack() },
                         onNavigateToRecordEdit = { recordId ->
-                            navController.navigate(Screen.RecordEdit.createRoute(recordId = recordId))
+                            navController.navigateSingleTop(Screen.RecordEdit.createRoute(recordId = recordId))
                         }
                     )
                 }
@@ -600,18 +657,18 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
                     LedgerAnnualReviewScreen(
                         onBack = { navController.popBackStack() },
                         onNavigateToRecordEdit = { recordId ->
-                            navController.navigate(Screen.RecordEdit.createRoute(recordId = recordId))
+                            navController.navigateSingleTop(Screen.RecordEdit.createRoute(recordId = recordId))
                         }
                     )
                 }
 
                 composable(Screen.Meal.route) {
                     MealScreen(
-                        onNavigateToToBuy = { navController.navigate(Screen.ToBuy.route) },
+                        onNavigateToToBuy = { navController.navigateSingleTop(Screen.ToBuy.route) },
                         onNavigateToDetail = { id ->
-                            navController.navigate(Screen.Detail.createRoute(id))
+                            navController.navigateSingleTop(Screen.Detail.createRoute(id))
                         },
-                        onNavigateToRecipeLibrary = { navController.navigate(Screen.RecipeLibrary.route) }
+                        onNavigateToRecipeLibrary = { navController.navigateSingleTop(Screen.RecipeLibrary.route) }
                     )
                 }
 
@@ -626,9 +683,9 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
                 composable(Screen.Expiry.route) {
                     ExpiryScreen(
                         onBack = { navController.popBackStack() },
-                        onNavigateToDetail = { id -> navController.navigate(Screen.Detail.createRoute(id)) },
+                        onNavigateToDetail = { id -> navController.navigateSingleTop(Screen.Detail.createRoute(id)) },
                         // 「即将到期」列表项的编辑入口（F07）。
-                        onNavigateToEdit = { id -> navController.navigate(Screen.Edit.createRoute(id)) },
+                        onNavigateToEdit = { id -> navController.navigateSingleTop(Screen.Edit.createRoute(id)) },
                         // 空态「去家当」：切回家当 Tab 根（而不是层层 popBackStack），动线更短（I11）。
                         onNavigateToHousehold = { navigateToTopLevel(Screen.Household.route) }
                     )
@@ -644,7 +701,7 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
                     AnniversaryScreen(
                         onBack = { navController.popBackStack() },
                         onOpenEdit = { id ->
-                            navController.navigate(Screen.AnniversaryEdit.createRoute(id))
+                            navController.navigateSingleTop(Screen.AnniversaryEdit.createRoute(id))
                         }
                     )
                 }
@@ -694,6 +751,10 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
                     val resultMode by backStackEntry.savedStateHandle
                         .getStateFlow<String?>(EDIT_RESULT_MODE, null)
                         .collectAsState()
+                    // OCR 回填的品名（第 6 条）：编辑页进 OCR 识别后经这里带回来。
+                    val resultItemName by backStackEntry.savedStateHandle
+                        .getStateFlow<String?>(OCR_RESULT_ITEM_NAME, null)
+                        .collectAsState()
                     val uri = encodedUri.takeIf { it.isNotBlank() }?.let { Uri.parse(Uri.decode(it)) }
                     val uris = encodedUris
                         .split(",")
@@ -708,6 +769,10 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
                         resultImageUri = resultImageUri?.let(Uri::parse),
                         resultImageUris = resultImageUris.map(Uri::parse),
                         resultPhotoMode = resultMode?.toSavePhotoMode(),
+                        resultItemName = resultItemName,
+                        onConsumeResultName = {
+                            backStackEntry.savedStateHandle.remove<String>(OCR_RESULT_ITEM_NAME)
+                        },
                         onConsumePendingResult = {
                             backStackEntry.savedStateHandle.remove<String>(EDIT_RESULT_IMAGE_URI)
                             backStackEntry.savedStateHandle.remove<List<String>>(EDIT_RESULT_IMAGE_URIS)
@@ -717,16 +782,25 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
                         onSaved = { navController.popBackStack() },
                         onOpenCamera = { photoMode ->
                             openCamera(CameraReturnTarget.EditItem(itemId, photoMode))
-                        }
+                        },
+                        // 编辑页补齐 OCR 入口（第 6 条）：与录入页一致，编辑物品时也能拍照识字。
+                        onOpenOcr = { navController.navigateSingleTop(Screen.Ocr.route) }
                     )
                 }
 
                 composable(Screen.Ocr.route) { backStackEntry ->
-                    // OCR 模式外显（IA-8）：三个入口共用同一路由，按来路路由判定模式文案，
-                    // 进页即说清识别完会去哪；从「我的」进入或来路未知时按独立工具交代。
-                    val ocrModeLabel = when (navController.previousBackStackEntry?.destination?.route) {
-                        Screen.Save.route -> "存物录入 · 识别后去填物品表单"
-                        Screen.RecordEdit.route -> "记账 · 识别后去填账目"
+                    // 模式文案与可用出口同源（IA-3）：都由来路路由判定，避免「文案说去录入、
+                    // 动作却把人推去记账」。独立进入（快捷方式冷启动）无来路，保留两个出口自选。
+                    // 与 destination.route 逐字比较即可命中：目的地都以 Screen.*.route 的
+                    // 模式串注册，previousBackStackEntry 拿到的正是同一个串。
+                    val previousRoute = navController.previousBackStackEntry?.destination?.route
+                    val cameFromSave = previousRoute == Screen.Save.route
+                    val cameFromEdit = previousRoute == Screen.Edit.route
+                    val cameFromRecordEdit = previousRoute == Screen.RecordEdit.route
+                    val ocrModeLabel = when {
+                        cameFromSave -> "存物录入 · 识别后去填物品表单"
+                        cameFromEdit -> "编辑物品 · 识别后回填品名"
+                        cameFromRecordEdit -> "记账 · 识别后去填账目"
                         else -> "独立工具 · 识别完自己选去向"
                     }
                     val cameraResultUri by backStackEntry.savedStateHandle
@@ -734,6 +808,9 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
                         .collectAsState()
                     OcrScreen(
                         modeLabel = ocrModeLabel,
+                        // 出口按来意收敛：录入与编辑物品都不该被建议去记账，记账页则只回记账。
+                        showRecordAction = !cameFromSave && !cameFromEdit,
+                        showSaveAction = !cameFromRecordEdit,
                         onBack = { navController.popBackStack() },
                         onOpenCamera = { openCamera(CameraReturnTarget.Ocr) },
                         cameraResultUri = cameraResultUri,
@@ -742,18 +819,32 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
                         },
                         onNavigateToRecord = { amountCents, remark ->
                             // 从记一笔页进来识别后回跳：替换栈里的旧表单，避免返回时又见空白页（IA-3）。
+                            // 来路不是记一笔时栈内没有该目的地，按来路才 popUpTo，否则会静默失效并叠页。
                             navController.navigate(
                                 Screen.RecordEdit.createRoute(amount = amountCents, remark = remark)
                             ) {
-                                popUpTo(Screen.RecordEdit.route) { inclusive = true }
+                                if (cameFromRecordEdit) {
+                                    popUpTo(Screen.RecordEdit.route) { inclusive = true }
+                                }
                             }
                         },
                         onNavigateToSave = { name, imagePath ->
-                            val imageUri = imagePath?.let { Uri.fromFile(File(it)).toString() }
-                            navController.navigate(
-                                Screen.Save.createRoute(imageUri = imageUri, name = name)
-                            ) {
-                                popUpTo(Screen.Save.route) { inclusive = true }
+                            if (cameFromEdit) {
+                                // 从编辑页进来：品名回填到编辑页本身。
+                                // 这里绝不能再走「新建物品」那条跳转——编辑已有物品却跳到新建，
+                                // 语义相反，而且栈里没有 Save 目的地、popUpTo 会静默失效。
+                                navController.previousBackStackEntry
+                                    ?.savedStateHandle
+                                    ?.set(OCR_RESULT_ITEM_NAME, name)
+                                navController.popBackStack()
+                            } else {
+                                val imageUri = imagePath?.let { Uri.fromFile(File(it)).toString() }
+                                navController.navigate(
+                                    Screen.Save.createRoute(imageUri = imageUri, name = name)
+                                ) {
+                                    // 同理：只有从快速录入进来才替换栈里那个旧表单。
+                                    if (cameFromSave) popUpTo(Screen.Save.route) { inclusive = true }
+                                }
                             }
                         }
                     )
@@ -775,7 +866,7 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
                     PackingListScreen(
                         onBack = { navController.popBackStack() },
                         onOpenTrip = { tripId ->
-                            navController.navigate(Screen.PackingTrip.createRoute(tripId))
+                            navController.navigateSingleTop(Screen.PackingTrip.createRoute(tripId))
                         }
                     )
                 }
@@ -794,28 +885,35 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
 
                 composable(Screen.Profile.route) {
                     ProfileScreen(
-                        onOpenSettings = { navController.navigate(Screen.Settings.route) },
-                        onOpenDataCenter = { navController.navigate(Screen.DataCenter.route) },
-                        onOpenReminders = { navController.navigate(Screen.Reminders.route) },
-                        onOpenAnniversaries = { navController.navigate(Screen.Anniversaries.route) },
-                        onOpenTimeCapsule = { navController.navigate(Screen.TimeCapsule.route) },
-                        onOpenPackingList = { navController.navigate(Screen.PackingList.route) },
-                        onOpenSleep = { navController.navigate(Screen.Sleep.route) }
+                        onOpenSettings = { navController.navigateSingleTop(Screen.Settings.route) },
+                        onOpenDataCenter = { navController.navigateSingleTop(Screen.DataCenter.route) },
+                        onOpenReminders = { navController.navigateSingleTop(Screen.Reminders.route) },
+                        onOpenAnniversaries = { navController.navigateSingleTop(Screen.Anniversaries.route) },
+                        onOpenTimeCapsule = { navController.navigateSingleTop(Screen.TimeCapsule.route) },
+                        onOpenPackingList = { navController.navigateSingleTop(Screen.PackingList.route) },
+                        onOpenSleep = { navController.navigateSingleTop(Screen.Sleep.route) }
                     )
                 }
 
                 composable(Screen.DataCenter.route) {
                     DataCenterScreen(
                         onBack = { navController.popBackStack() },
-                        onOpenLanSync = { navController.navigate(Screen.LanSync.route) }
+                        onOpenLanSync = { navController.navigateSingleTop(Screen.LanSync.route) },
+                        onOpenImageCloud = {
+                            navController.navigateSingleTop(Screen.ImageCloud.route)
+                        }
                     )
+                }
+
+                composable(Screen.ImageCloud.route) {
+                    ImageCloudScreen(onBack = { navController.popBackStack() })
                 }
 
                 composable(Screen.ToBuy.route) {
                     ToBuyScreen(
                         onBack = { navController.popBackStack() },
                         onRecordPurchase = { itemId, amountCents, name ->
-                            navController.navigate(
+                            navController.navigateSingleTop(
                                 Screen.RecordEdit.createRoute(
                                     itemId = itemId,
                                     amount = amountCents,
@@ -823,7 +921,7 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
                                 )
                             )
                         },
-                        onOpenRestockForecast = { navController.navigate(Screen.RestockForecast.route) }
+                        onOpenRestockForecast = { navController.navigateSingleTop(Screen.RestockForecast.route) }
                     )
                 }
 
@@ -837,7 +935,7 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
                     SettingsScreen(
                         onBack = { navController.popBackStack() },
                         onOpenNotificationReliability = {
-                            navController.navigate(Screen.NotificationReliability.route)
+                            navController.navigateSingleTop(Screen.NotificationReliability.route)
                         }
                     )
                 }
@@ -885,39 +983,30 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
     }
 }
 
-/**
- * 把家当的组合筛选条件映射成详情页的翻页范围。
- * 详情页的 scope 只按状态维度过滤，因此这里只取「能唯一判定」的常见组合，
- * 其余（例如叠加了分类/位置等条件）回退到 [Screen.Detail.ScopeAll]，不影响浏览。
- */
-private fun LibraryFilter.toDetailScope(): String {
-    val inStockOnly = dispositions == setOf(Item.DISPOSITION_IN_STOCK)
-    return when {
-        needRestockOnly -> Screen.Detail.ScopeToBuy
-        dispositions == setOf(Item.DISPOSITION_LENT_OUT) -> Screen.Detail.ScopeLentOut
-        dispositions == setOf(Item.DISPOSITION_GIVEN_AWAY) -> Screen.Detail.ScopeGivenAway
-        dispositions == setOf(Item.DISPOSITION_DISCARDED) -> Screen.Detail.ScopeDiscarded
-        dispositions == OFF_HAND_DISPOSITIONS && usageStatuses.isEmpty() -> Screen.Detail.ScopeOffHand
-        inStockOnly && usageStatuses == setOf(Item.USAGE_UNUSED) -> Screen.Detail.ScopeInStockUnused
-        inStockOnly && usageStatuses == setOf(Item.USAGE_IN_USE) -> Screen.Detail.ScopeInStockInUse
-        inStockOnly && usageStatuses == setOf(Item.USAGE_USED_UP) -> Screen.Detail.ScopeInStockUsedUp
-        inStockOnly && (usageStatuses.isEmpty() ||
-            usageStatuses == setOf(Item.USAGE_UNUSED, Item.USAGE_IN_USE)) -> Screen.Detail.ScopeInStock
-        else -> Screen.Detail.ScopeAll
-    }
-}
-
-private val OFF_HAND_DISPOSITIONS = setOf(
-    Item.DISPOSITION_LENT_OUT,
-    Item.DISPOSITION_GIVEN_AWAY,
-    Item.DISPOSITION_DISCARDED
-)
-
 private fun String.toSavePhotoMode(): SavePhotoMode {
     return when (lowercase()) {
         SavePhotoMode.REPLACE_PRIMARY.name.lowercase() -> SavePhotoMode.REPLACE_PRIMARY
         else -> SavePhotoMode.APPEND
     }
+}
+
+/**
+ * 单实例导航：等价于 [NavController.navigate]，但显式声明 [launchSingleTop]。
+ *
+ * 本文件里详情 / 编辑 / 各二级页的跳转有 50 余处，全是「一对一的页面切换」，
+ * 底栏与状态栏都没有拦截连点的机制——快速双击就会把同一个目的地入栈两次，
+ * 用户按返回得连按两下才退得出去。
+ *
+ * 之所以收敛成扩展函数而不是逐处写 builder：逐处补 `navigate(route) { launchSingleTop = true }`
+ * 会把 50 余处单行跳转膨胀成三行，且后续新增跳转极易漏掉。命名明确的入口让
+ * 「允不允许重复入栈」成为调用点上的一次显式选择：需要 popUpTo / restoreState 等
+ * 复杂行为的跳转，仍直接调 [NavController.navigate] 并自带 builder。
+ *
+ * 用扩展函数而非包装 [NavController] 的持有者类，是为了不改动
+ * `rememberNavController()` 的既有接线，避免在此引入额外的导航状态对象。
+ */
+private fun NavController.navigateSingleTop(route: String) {
+    navigate(route) { launchSingleTop = true }
 }
 
 private sealed interface CameraReturnTarget {

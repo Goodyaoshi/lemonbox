@@ -72,6 +72,7 @@ import com.goodyaoshi.lemonbox.ui.components.EditorSelectionChip
 import com.goodyaoshi.lemonbox.ui.components.HierarchicalPickerDialog
 import com.goodyaoshi.lemonbox.ui.components.InlineNotice
 import com.goodyaoshi.lemonbox.ui.components.ItemImageGallery
+import com.goodyaoshi.lemonbox.ui.components.ScanInputChoiceDialog
 import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
 import com.goodyaoshi.lemonbox.ui.components.PrimaryActionBar
 import com.goodyaoshi.lemonbox.ui.components.QuantityStepper
@@ -129,6 +130,9 @@ fun SaveScreen(
     // 「更多信息」默认折叠，展开后跨会话记住用户的选择（I6）。
     val showAdvanced by viewModel.advancedExpanded.collectAsState()
     var showDiscardDialog by remember { mutableStateOf(false) }
+    // 「扫一扫」的方式选择弹窗（第 6 条）：扫条码与拍照识字共用一个入口，
+    // 原先「拍照识字」单独占着页头，与图片区的「扫码关联」语义重复且位置分散。
+    var showScanChoice by remember { mutableStateOf(false) }
     var showDatePicker by remember { mutableStateOf(false) }
     var showPurchaseDatePicker by remember { mutableStateOf(false) }
     var showProductionDatePicker by remember { mutableStateOf(false) }
@@ -291,18 +295,6 @@ fun SaveScreen(
                     fontWeight = FontWeight.SemiBold
                 )
                 Spacer(modifier = Modifier.weight(1f))
-                // OCR 前置入口（IA-3）：拍张照认出物品名再回来预填，不用跨页绕路。
-                Text(
-                    text = "拍照识字",
-                    color = Color.White,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(999.dp))
-                        .background(Color.White.copy(alpha = 0.14f))
-                        .clickable(onClick = onOpenOcr)
-                        .padding(horizontal = 12.dp, vertical = 8.dp)
-                )
                 Spacer(modifier = Modifier.size(8.dp))
                 Text(
                     text = if (continuousEntry) "连续录入·开" else "连续录入",
@@ -350,9 +342,7 @@ fun SaveScreen(
                             imagePaths = state.imagePaths,
                             onCapturePrimary = { onOpenCamera(SavePhotoMode.REPLACE_PRIMARY) },
                             onCaptureDetail = { onOpenCamera(SavePhotoMode.APPEND) },
-                            onScanBarcode = {
-                                scanLauncher.launch(Intent(context, ScanActivity::class.java))
-                            },
+                            onScanBarcode = { showScanChoice = true },
                             onRemoveImage = viewModel::removePhoto,
                             onMoveImage = viewModel::movePhoto
                         )
@@ -725,6 +715,21 @@ fun SaveScreen(
                 )
             }
         }
+    }
+
+    // 「扫一扫」（第 6 条）：入口统一后先问方式，再各自走既有的扫码 / OCR 链路。
+    if (showScanChoice) {
+        ScanInputChoiceDialog(
+            onDismiss = { showScanChoice = false },
+            onScanBarcode = {
+                showScanChoice = false
+                scanLauncher.launch(Intent(context, ScanActivity::class.java))
+            },
+            onRecognizeText = {
+                showScanChoice = false
+                onOpenOcr()
+            }
+        )
     }
 }
 

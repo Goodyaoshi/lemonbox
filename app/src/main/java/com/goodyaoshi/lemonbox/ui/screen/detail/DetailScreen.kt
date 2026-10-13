@@ -74,6 +74,7 @@ import com.goodyaoshi.lemonbox.ui.components.StatusPickerDialog
 import com.goodyaoshi.lemonbox.ui.components.TreeNode
 import com.goodyaoshi.lemonbox.ui.components.buildTreePathLabel
 import com.goodyaoshi.lemonbox.ui.components.itemStatusOption
+import com.goodyaoshi.lemonbox.ui.components.rememberImageModel
 import com.goodyaoshi.lemonbox.ui.components.statusDimensionTitle
 import com.goodyaoshi.lemonbox.ui.navigation.Screen
 import com.goodyaoshi.lemonbox.ui.theme.BackgroundTop
@@ -224,9 +225,12 @@ fun DetailScreen(
                 ) { page ->
                     val pageItem = pagerItems[page].item
                     val primaryImagePath = pageItem.primaryImagePath()
-                    if (primaryImagePath.isNotEmpty()) {
+                    val primaryImageObjectKey = pageItem.primaryImageObjectKey()
+                    val primaryImageModel = rememberImageModel(primaryImagePath, primaryImageObjectKey)
+                    // 有图不等于本地有文件：换设备后可能只有对象键、文件还没落地。
+                    if (primaryImagePath.isNotEmpty() || primaryImageObjectKey != null) {
                         AsyncImage(
-                            model = primaryImagePath,
+                            model = primaryImageModel,
                             contentDescription = pageItem.name,
                             modifier = Modifier
                                 .fillMaxSize()
@@ -536,6 +540,9 @@ fun DetailScreen(
         if (imagePaths.isNotEmpty()) {
             ImagePreviewOverlay(
                 imagePaths = imagePaths,
+                // 预览要与列表看到的是同一组图：把每张的对象键一起带上，
+                // 本地原图缺失时预览也能从云端取回。
+                imageObjectKeys = item.imageObjectKeyList(),
                 initialIndex = index,
                 onDismissRequest = { previewImageIndex = null }
             )

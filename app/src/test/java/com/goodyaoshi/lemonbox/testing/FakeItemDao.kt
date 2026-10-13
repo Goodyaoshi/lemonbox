@@ -128,6 +128,13 @@ class FakeItemDao(
         replace(item)
     }
 
+    /** 与 DAO 语义一致：只改键列，不动 updatedAt（见 ItemDao 上的说明）。 */
+    override suspend fun updateImageObjectKeys(id: Long, encodedKeys: String) {
+        items.replaceAll { item ->
+            if (item.id == id) item.copy(imageObjectKeys = encodedKeys) else item
+        }
+    }
+
     override suspend fun delete(item: Item) {
         items.removeAll { it.id == item.id }
     }

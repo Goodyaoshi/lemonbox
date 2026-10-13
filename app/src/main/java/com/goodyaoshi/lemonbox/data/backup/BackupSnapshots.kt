@@ -445,6 +445,12 @@ data class ItemSnapshot(
     val deletedAt: Long?,
     val note: String,
     val imagePaths: List<String>,
+    /**
+     * 与 [imagePaths] 一一对应的云端对象键（F20）。
+     * 为 null 表示旧备份没有这项；此时导入按「全部未上传」处理，
+     * 图片仍可用（本地文件会随备份还原），只是暂时不知道云端对应哪个对象。
+     */
+    val imageObjectKeys: List<String>? = null,
     val createdAt: Long,
     val syncId: String? = null,
     val categorySyncId: String? = null,
@@ -454,6 +460,7 @@ data class ItemSnapshot(
     fun toItem(
         targetId: Long,
         resolvedImages: List<String>,
+        resolvedObjectKeys: List<String>,
         categoryId: Long?,
         locationId: Long?
     ): Item {
@@ -484,6 +491,11 @@ data class ItemSnapshot(
             note = note,
             imagePath = resolvedImages.firstOrNull().orEmpty(),
             imagePaths = Item.encodeImagePaths(resolvedImages),
+            // 键与图等长对齐后才落库：导入时若有图片条目缺失（备份不完整），
+            // 两者会同步少一项，不会让后面的键前移错位。
+            imageObjectKeys = Item.encodeImageObjectKeys(
+                List(resolvedImages.size) { resolvedObjectKeys.getOrNull(it).orEmpty() }
+            ),
             createdAt = createdAt,
             syncId = syncId,
             updatedAt = updatedAt ?: createdAt
@@ -517,6 +529,7 @@ data class ItemSnapshot(
         fun fromEntity(
             item: Item,
             imagePaths: List<String>,
+            imageObjectKeys: List<String>,
             categorySyncId: String?,
             locationSyncId: String?
         ): ItemSnapshot {
@@ -545,6 +558,7 @@ data class ItemSnapshot(
                 deletedAt = item.deletedAt,
                 note = item.note,
                 imagePaths = imagePaths,
+                imageObjectKeys = imageObjectKeys,
                 createdAt = item.createdAt,
                 syncId = item.syncId,
                 categorySyncId = categorySyncId,

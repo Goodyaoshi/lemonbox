@@ -10,7 +10,6 @@ import com.goodyaoshi.lemonbox.data.local.entity.Location
 import com.goodyaoshi.lemonbox.data.repository.CategoryRepository
 import com.goodyaoshi.lemonbox.data.repository.ItemRepository
 import com.goodyaoshi.lemonbox.data.repository.LocationRepository
-import com.goodyaoshi.lemonbox.data.search.SearchCriteria
 import com.goodyaoshi.lemonbox.data.search.SearchEngine
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -536,46 +535,7 @@ class HouseholdViewModel @Inject constructor(
         }
     }
 
-    private fun LibraryFilter.toSearchCriteria(
-        query: String,
-        categories: List<Category>,
-        locations: List<Location>
-    ): SearchCriteria {
-        val categoryIds = categoryId?.let { buildCategoryDescendants(categories)[it].orEmpty() }.orEmpty()
-        val locationIds = locationId?.let { buildLocationDescendants(locations)[it].orEmpty() }.orEmpty()
-        return SearchCriteria(
-            text = query,
-            categoryIds = categoryIds,
-            locationIds = locationIds,
-            usageStatuses = usageStatuses,
-            dispositions = dispositions,
-            needRestockOnly = needRestockOnly
-        )
-    }
 }
 
 private fun Set<Int>.toggle(value: Int): Set<Int> =
     if (value in this) this - value else this + value
-
-/** 每个节点自身 + 全部后代的 id 集合，用于「选父级也能看到子级内容」的筛选。 */
-private fun buildCategoryDescendants(categories: List<Category>): Map<Long, Set<Long>> =
-    buildDescendantIds(categories, idOf = { it.id }, parentIdOf = { it.parentId })
-
-private fun buildLocationDescendants(locations: List<Location>): Map<Long, Set<Long>> =
-    buildDescendantIds(locations, idOf = { it.id }, parentIdOf = { it.parentId })
-
-private fun <T> buildDescendantIds(
-    nodes: List<T>,
-    idOf: (T) -> Long,
-    parentIdOf: (T) -> Long?
-): Map<Long, Set<Long>> {
-    val childrenMap = nodes.groupBy { parentIdOf(it) }
-    val cache = mutableMapOf<Long, Set<Long>>()
-
-    fun collect(id: Long): Set<Long> = cache.getOrPut(id) {
-        val childIds = childrenMap[id].orEmpty().flatMap { collect(idOf(it)) }
-        setOf(id) + childIds
-    }
-
-    return nodes.associate { idOf(it) to collect(idOf(it)) }
-}

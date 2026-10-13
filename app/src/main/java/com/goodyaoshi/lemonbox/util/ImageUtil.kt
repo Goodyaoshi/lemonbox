@@ -8,6 +8,7 @@ import androidx.core.net.toUri
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
+import java.security.MessageDigest
 import java.util.UUID
 
 object ImageUtil {
@@ -32,11 +33,7 @@ object ImageUtil {
     ): String? {
         return try {
             val inputStream = inputStreamProvider() ?: return null
-            val imagesDir = File(context.filesDir, "images")
-            if (!imagesDir.exists()) imagesDir.mkdirs()
-
-            val fileName = "item_${UUID.randomUUID()}.jpg"
-            val file = File(imagesDir, fileName)
+            val file = File(imagesDir(context), "item_${UUID.randomUUID()}.jpg")
 
             BitmapFactory.decodeStream(inputStream)?.let { bitmap ->
                 FileOutputStream(file).use { out ->
@@ -65,15 +62,44 @@ object ImageUtil {
         }.distinct()
     }
 
-    fun copyImageInto(context: Context, sourcePath: String, targetName: String): String? {
-        val sourceFile = File(sourcePath)
-        if (!sourceFile.exists()) return null
+    /** 图片落盘目录（内部存储），不存在时创建。 */
+    internal fun imagesDir(context: Context): File =
+        File(context.filesDir, "images").apply { if (!exists()) mkdirs() }
+
+    /**
+     * 文件内容的 SHA-256（小写十六进制）；读取失败返回 null。
+     *
+     * 「是不是同一张图」一律以此判定，而不是文件名或路径：
+     * 云端对象键、导入去重都靠它，因而同一份内容在各处推导出的标识必然一致。
+     */
+    fun contentHash(file: File): String? = runCatching {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buffer = ByteArray(64 * 1024)
+            while (true) {
+                val read = input.read(buffer)
+                if (read < 0) break
+                digest.update(buffer, 0, read)
+            }
+        }
+        digest.digest().joinToString("") { "%02x".format(it) }
+    }.getOrNull()
+
+    /**
+     * 按内容落盘：文件名取内容的 SHA-256，**同一内容永远落到同一个文件**。
+     *
+     * 与 [saveImageToInternal] 的 UUID 命名不同，这里存在即复用：
+     * 导入备份时若本地已有同一张图，就不会再复制一份（导入自己的备份曾使本地图片翻倍）。
+     *
+     * [hash] 由调用方传入，避免同一文件被重复读盘计算。
+     */
+    fun saveImageByContent(context: Context, sourceFile: File, hash: String): String? {
         return try {
-            val imagesDir = File(context.filesDir, "images")
-            if (!imagesDir.exists()) imagesDir.mkdirs()
-            val targetFile = File(imagesDir, targetName)
-            sourceFile.copyTo(targetFile, overwrite = true)
-            targetFile.absolutePath
+            val target = File(imagesDir(context), "item_$hash.jpg")
+            // 已有同内容：直接复用，不复制、不覆盖。
+            if (target.isFile) return target.absolutePath
+            sourceFile.copyTo(target, overwrite = true)
+            target.absolutePath
         } catch (e: Exception) {
             e.printStackTrace()
             null

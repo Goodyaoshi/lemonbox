@@ -41,7 +41,12 @@ import kotlinx.coroutines.launch
 fun ImagePreviewOverlay(
     imagePaths: List<String>,
     initialIndex: Int,
-    onDismissRequest: () -> Unit
+    onDismissRequest: () -> Unit,
+    /**
+     * 与 [imagePaths] 一一对应的云端对象键（F20）：本地文件缺失时用它取回原图。
+     * 默认空列表表示不参与云端取图，行为与本功能引入之前一致。
+     */
+    imageObjectKeys: List<String> = emptyList()
 ) {
     val pagerState = rememberPagerState(
         initialPage = initialIndex.coerceIn(0, imagePaths.lastIndex),
@@ -62,7 +67,10 @@ fun ImagePreviewOverlay(
                 state = pagerState,
                 modifier = Modifier.fillMaxSize()
             ) { page ->
-                ZoomableImage(imagePath = imagePaths[page])
+                ZoomableImage(
+                    imagePath = imagePaths[page],
+                    objectKey = imageObjectKeys.getOrNull(page)
+                )
             }
 
             PreviewIconButton(
@@ -116,7 +124,9 @@ fun ImagePreviewOverlay(
 }
 
 @Composable
-private fun ZoomableImage(imagePath: String) {
+private fun ZoomableImage(imagePath: String, objectKey: String?) {
+    // 预览页同样走统一解析：本地原图不在时从云端取，保证换设备也能放大看。
+    val model = rememberImageModel(imagePath, objectKey)
     var scale by remember(imagePath) { mutableFloatStateOf(1f) }
     var offsetX by remember(imagePath) { mutableFloatStateOf(0f) }
     var offsetY by remember(imagePath) { mutableFloatStateOf(0f) }
@@ -140,7 +150,7 @@ private fun ZoomableImage(imagePath: String) {
         contentAlignment = Alignment.Center
     ) {
         AsyncImage(
-            model = imagePath,
+            model = model,
             contentDescription = "图片预览",
             modifier = Modifier
                 .fillMaxSize()

@@ -72,6 +72,11 @@ fun ItemCard(
 ) {
     val item = itemDetail.item
     val primaryImagePath = item.primaryImagePath()
+    val primaryImageObjectKey = item.primaryImageObjectKey()
+    // 图片来源交给统一解析：本地文件在就用本地（离线可看），本地没了才回退云端。
+    val primaryImageModel = rememberImageModel(primaryImagePath, primaryImageObjectKey)
+    // 有没有图不能只看本地路径：换设备后路径可能还没落地、但对象键已经在库里。
+    val hasPrimaryImage = primaryImagePath.isNotEmpty() || primaryImageObjectKey != null
     val inSelectionMode = selectionSelected != null
 
     AppSurfaceCard(
@@ -121,9 +126,9 @@ fun ItemCard(
                 }
                 Spacer(modifier = Modifier.width(8.dp))
             }
-            if (primaryImagePath.isNotEmpty()) {
+            if (hasPrimaryImage) {
                 AsyncImage(
-                    model = primaryImagePath,
+                    model = primaryImageModel,
                     contentDescription = item.name,
                     modifier = Modifier
                         .size(62.dp)

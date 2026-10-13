@@ -10,6 +10,7 @@ import com.goodyaoshi.lemonbox.data.local.entity.Location
 import com.goodyaoshi.lemonbox.data.repository.CategoryRepository
 import com.goodyaoshi.lemonbox.data.repository.ItemRepository
 import com.goodyaoshi.lemonbox.data.repository.LocationRepository
+import com.goodyaoshi.lemonbox.data.imagecloud.ImageCloudSyncManager
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import com.goodyaoshi.lemonbox.util.ImageUtil
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -33,6 +34,12 @@ data class EditItemState(
     val expireTime: Long? = null,
     val note: String = "",
     val imagePaths: List<String> = emptyList(),
+    /**
+     * 与 [imagePaths] 一一对应的云端对象键（F20）。
+     * 编辑时必须原样维护：`Item` 是整体覆盖写入的，漏带就等于把已上传的键清空，
+     * 之后每次同步都会重探、且本地文件丢失时再也取不回原图。
+     */
+    val imageObjectKeys: List<String> = emptyList(),
     /** 该物品单独的到期提醒阶梯（天）；为空表示跟随全局默认阶梯。 */
     val reminderDays: List<Int> = emptyList(),
     /** 购买日期；未记录为 null。 */
@@ -61,7 +68,9 @@ class EditViewModel @Inject constructor(
     private val itemRepository: ItemRepository,
     private val categoryRepository: CategoryRepository,
     private val locationRepository: LocationRepository,
-    private val appPreferences: AppPreferences
+    private val appPreferences: AppPreferences,
+    // 编辑保存后把该物品的图片后台送上云（F20）；开关关闭或未配置时静默跳过。
+    private val imageCloudSync: ImageCloudSyncManager
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(EditItemState())
@@ -100,6 +109,7 @@ class EditViewModel @Inject constructor(
                 expireTime = item.expireTime,
                 note = item.note,
                 imagePaths = item.imagePathList(),
+                imageObjectKeys = item.imageObjectKeyList(),
                 reminderDays = Item.decodeReminderDays(item.reminderDays),
                 purchaseDate = item.purchaseDate,
                 productionDate = item.productionDate,
@@ -120,40 +130,66 @@ class EditViewModel @Inject constructor(
         if (uris.isEmpty()) return
         val savedPaths = uris.mapNotNull { ImageUtil.saveImageToInternal(context, it) }
         if (savedPaths.isEmpty()) return
-        _state.value = _state.value.copy(
-            imagePaths = (_state.value.imagePaths + savedPaths).distinct()
+        val current = _state.value
+        // 追加的图片都是刚拍的，云端还没有对应对象，键位补空串以保持等长对齐。
+        _state.value = current.copy(
+            imagePaths = (current.imagePaths + savedPaths).distinct(),
+            imageObjectKeys = current.imageObjectKeys +
+                List(savedPaths.size) { "" }
         )
     }
 
     fun replacePrimaryPhoto(context: Context, uris: List<Uri>) {
         val savedPaths = uris.mapNotNull { ImageUtil.saveImageToInternal(context, it) }
         if (savedPaths.isEmpty()) return
-        val currentPaths = _state.value.imagePaths.toMutableList()
+        val current = _state.value
+        val currentPaths = current.imagePaths.toMutableList()
+        val currentKeys = current.imageObjectKeys.toMutableList()
         currentPaths.firstOrNull()?.let(ImageUtil::deleteImage)
         if (currentPaths.isEmpty()) {
             currentPaths += savedPaths
+            // 原来没有图，新图同样没有云端对象。
+            currentKeys.clear()
+            currentKeys += List(savedPaths.size) { "" }
         } else {
             // 一次连拍多张：第一张替换原主图，其余顺延为细节图。
+            // 被替换掉的主图其键随之作废（新图还未上传），其余键保持原位。
             currentPaths[0] = savedPaths.first()
+            if (currentKeys.isEmpty()) currentKeys.add("") else currentKeys[0] = ""
             currentPaths += savedPaths.drop(1)
+            currentKeys += List(savedPaths.size - 1) { "" }
         }
-        _state.value = _state.value.copy(imagePaths = currentPaths.distinct())
+        _state.value = current.copy(
+            imagePaths = currentPaths.distinct(),
+            imageObjectKeys = currentKeys
+        )
     }
 
     fun removePhoto(index: Int) {
-        val currentPaths = _state.value.imagePaths.toMutableList()
+        val current = _state.value
+        val currentPaths = current.imagePaths.toMutableList()
         val removed = currentPaths.getOrNull(index) ?: return
         currentPaths.removeAt(index)
         ImageUtil.deleteImage(removed)
-        _state.value = _state.value.copy(imagePaths = currentPaths)
+        // 键要跟着删掉同一位置，否则后面所有键会前移、安到别的图上。
+        val currentKeys = current.imageObjectKeys.toMutableList()
+        if (index in currentKeys.indices) currentKeys.removeAt(index)
+        _state.value = current.copy(imagePaths = currentPaths, imageObjectKeys = currentKeys)
     }
 
     fun movePhoto(fromIndex: Int, toIndex: Int) {
-        val currentPaths = _state.value.imagePaths.toMutableList()
+        val current = _state.value
+        val currentPaths = current.imagePaths.toMutableList()
         if (fromIndex !in currentPaths.indices || toIndex !in currentPaths.indices || fromIndex == toIndex) return
         val moved = currentPaths.removeAt(fromIndex)
         currentPaths.add(toIndex, moved)
-        _state.value = _state.value.copy(imagePaths = currentPaths)
+        // 键与图同步换位，保证「第几张图对应哪个对象」不错位。
+        val currentKeys = current.imageObjectKeys.toMutableList()
+        if (fromIndex in currentKeys.indices) {
+            val movedKey = currentKeys.removeAt(fromIndex)
+            currentKeys.add(toIndex.coerceIn(0, currentKeys.size), movedKey)
+        }
+        _state.value = current.copy(imagePaths = currentPaths, imageObjectKeys = currentKeys)
     }
 
     fun updateName(name: String) {
@@ -223,7 +259,17 @@ class EditViewModel @Inject constructor(
         _state.value = current.copy(isSaving = true)
         viewModelScope.launch {
             val original = itemRepository.getItemById(current.itemId)
-            val normalizedImages = current.imagePaths.distinct()
+            // 去重时把键一起配对带走：若只对路径 distinct，键的下标会与图错位，
+            // 结果就是「这张图的键指向了另一张图」。
+            val pathToKey = LinkedHashMap<String, String>()
+            current.imagePaths.forEachIndexed { index, raw ->
+                val path = raw.trim()
+                if (path.isNotEmpty() && !pathToKey.containsKey(path)) {
+                    pathToKey[path] = current.imageObjectKeys.getOrNull(index).orEmpty()
+                }
+            }
+            val normalizedImages = pathToKey.keys.toList()
+            val normalizedKeys = pathToKey.values.toList()
             val item = Item(
                 id = current.itemId,
                 name = trimmedName,
@@ -255,11 +301,15 @@ class EditViewModel @Inject constructor(
                 note = current.note.trim(),
                 imagePath = normalizedImages.firstOrNull().orEmpty(),
                 imagePaths = Item.encodeImagePaths(normalizedImages),
+                // 原样带上对象键，否则整体覆盖写入会把已上传的记录清空。
+                imageObjectKeys = Item.encodeImageObjectKeys(normalizedKeys),
                 createdAt = original?.createdAt ?: System.currentTimeMillis(),
                 syncId = current.syncId ?: original?.syncId
             )
             itemRepository.update(item)
             _state.value = _state.value.copy(isSaving = false, isSaved = true)
+            // 编辑时可能刚补了照片，同样给一次上传机会（幂等：已传过的会被跳过）。
+            imageCloudSync.syncItem(current.itemId)
         }
     }
 }

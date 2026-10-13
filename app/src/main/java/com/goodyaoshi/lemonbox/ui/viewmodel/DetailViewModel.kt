@@ -10,6 +10,7 @@ import com.goodyaoshi.lemonbox.data.local.entity.Location
 import com.goodyaoshi.lemonbox.data.repository.CategoryRepository
 import com.goodyaoshi.lemonbox.data.repository.ItemRepository
 import com.goodyaoshi.lemonbox.data.repository.LocationRepository
+import com.goodyaoshi.lemonbox.data.search.SearchEngine
 import com.goodyaoshi.lemonbox.ui.navigation.Screen
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -18,6 +19,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
@@ -51,13 +53,43 @@ class DetailViewModel @Inject constructor(
     /** 读取失败时的错误文案；为 null 表示正常（P2）。 */
     val error: StateFlow<String?> = loading.error
 
+    /** 分类/存放位置的全量列表，用于把详情页的扁平名称还原成完整层级路径。 */
+    val categories: StateFlow<List<Category>> = categoryRepository.getAllCategories()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val locations: StateFlow<List<Location>> = locationRepository.getAllLocations()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /**
+     * 从家当页点入时随路由携带的完整筛选条件（状态 / 分类 / 位置 / 关键词）。
+     * 为 null 表示不是从家当页进来、或参数无法解析，此时沿用按 [scope] 的旧路径。
+     */
+    private val entryFilter: LibraryFilter? =
+        decodeLibraryFilter(savedStateHandle.get<String>("filterJson"))
+    private val query: String = savedStateHandle.get<String>("query").orEmpty()
+    private val searchEngine = SearchEngine()
+
     val items: StateFlow<List<ItemDetail>> = refreshTrigger
         .flatMapLatest {
-            scopedItems()
+            filteredItems()
                 .onEach { loading.markLoaded() }
                 .catch { loading.markError(it.message) }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /**
+     * 详情页左右翻页所依据的同组物品。
+     *
+     * 家当入口带着完整筛选条件进来，这里就用与家当列表同一套 [SearchEngine] 复现来源集合：
+     * [categories]/[locations] 必须参与分类与位置的「含子孙」展开，所以用 combine 等它们就绪。
+     * 其余入口只按 [scope] 取数，语义与本改动之前逐字一致。
+     */
+    private fun filteredItems(): Flow<List<ItemDetail>> {
+        val filter = entryFilter ?: return scopedItems()
+        return combine(itemRepository.getAllItems(), categories, locations) { all, cats, locs ->
+            searchEngine.filter(all, locs, filter.toSearchCriteria(query, cats, locs))
+        }
+    }
 
     private fun scopedItems(): Flow<List<ItemDetail>> = when (scope) {
         Screen.Detail.ScopeAll -> itemRepository.getAllItems()
@@ -66,13 +98,6 @@ class DetailViewModel @Inject constructor(
         Screen.Detail.ScopeUsedUp -> itemRepository.getItemsByUsageStatus(Item.USAGE_USED_UP)
         else -> itemRepository.getAllItems()
     }
-
-    /** 分类/存放位置的全量列表，用于把详情页的扁平名称还原成完整层级路径。 */
-    val categories: StateFlow<List<Category>> = categoryRepository.getAllCategories()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    val locations: StateFlow<List<Location>> = locationRepository.getAllLocations()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /** 重试：复位加载态并重新订阅上游（P2，供错误态上的「重试」按钮调用）。 */
     fun retry() {

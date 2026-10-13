@@ -26,6 +26,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.FileUpload
@@ -77,6 +78,8 @@ import kotlinx.coroutines.launch
 fun DataCenterScreen(
     onBack: () -> Unit,
     onOpenLanSync: () -> Unit,
+    // 图片云端存储入口（F20）：与设备同步同属「数据怎么走」，放同一张卡里。
+    onOpenImageCloud: () -> Unit = {},
     viewModel: ProfileViewModel = hiltViewModel()
 ) {
     val backupState by viewModel.backupState.collectAsState()
@@ -154,6 +157,13 @@ fun DataCenterScreen(
                     title = "局域网同步",
                     subtitle = "同一 WiFi 下用配对码互相补齐数据",
                     onClick = onOpenLanSync
+                )
+                DividerSpacer()
+                MenuRow(
+                    icon = Icons.Default.CloudUpload,
+                    title = "图片云端存储",
+                    subtitle = "把家当图片备份到你的对象存储，仅正式版可用",
+                    onClick = onOpenImageCloud
                 )
             }
 

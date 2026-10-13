@@ -60,6 +60,7 @@ import com.goodyaoshi.lemonbox.ui.components.EditorSelectionChip
 import com.goodyaoshi.lemonbox.ui.components.ExpiryPickerDialog
 import com.goodyaoshi.lemonbox.ui.components.HierarchicalPickerDialog
 import com.goodyaoshi.lemonbox.ui.components.ItemImageGallery
+import com.goodyaoshi.lemonbox.ui.components.ScanInputChoiceDialog
 import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
 import com.goodyaoshi.lemonbox.ui.components.PrimaryActionBar
 import com.goodyaoshi.lemonbox.ui.components.QuantityStepper
@@ -99,6 +100,12 @@ fun EditScreen(
     onBack: () -> Unit,
     onSaved: () -> Unit,
     onOpenCamera: (SavePhotoMode) -> Unit,
+    // 「扫一扫」的拍照识字分支（第 6 条）：与录入页一致，编辑时也能拍照识字填品名。
+    onOpenOcr: () -> Unit = {},
+    // OCR 回填的品名（第 6 条）：从编辑页进 OCR 识别后把品名带回来预填，
+    // 而不是跳去「新建物品」——那与「编辑已有物品」的来意相反。
+    resultItemName: String? = null,
+    onConsumeResultName: () -> Unit = {},
     viewModel: EditViewModel = hiltViewModel()
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -118,6 +125,8 @@ fun EditScreen(
     var showStartUseDatePicker by remember { mutableStateOf(false) }
     var showCategoryPicker by remember { mutableStateOf(false) }
     var showLocationPicker by remember { mutableStateOf(false) }
+    // 「扫一扫」的方式选择弹窗（第 6 条）：扫条码与拍照识字共用一个入口。
+    var showScanChoice by remember { mutableStateOf(false) }
     // 必填项「物品名称」是否被触碰过：只在用户点过输入框、又清空内容时才提示。
     var nameTouched by remember { mutableStateOf(false) }
 
@@ -148,6 +157,14 @@ fun EditScreen(
 
     LaunchedEffect(itemId) {
         viewModel.loadItem(itemId)
+    }
+
+    // OCR 回填品名（第 6 条）：一次性消费，避免再次返回编辑页时反复覆盖用户已改的名字。
+    LaunchedEffect(resultItemName) {
+        if (!resultItemName.isNullOrBlank()) {
+            viewModel.updateName(resultItemName)
+            onConsumeResultName()
+        }
     }
 
     LaunchedEffect(pendingImageUri, pendingImageUris, pendingPhotoMode) {
@@ -264,11 +281,11 @@ fun EditScreen(
                 ) {
                     ItemImageGallery(
                         imagePaths = state.imagePaths,
+                        // 带上对象键：编辑已有物品时本地文件可能已不在，改从云端取图显示。
+                        imageObjectKeys = state.imageObjectKeys,
                         onCapturePrimary = { onOpenCamera(SavePhotoMode.REPLACE_PRIMARY) },
                         onCaptureDetail = { onOpenCamera(SavePhotoMode.APPEND) },
-                        onScanBarcode = {
-                            scanLauncher.launch(Intent(context, ScanActivity::class.java))
-                        },
+                        onScanBarcode = { showScanChoice = true },
                         onRemoveImage = viewModel::removePhoto,
                         onMoveImage = viewModel::movePhoto
                     )
@@ -630,5 +647,20 @@ fun EditScreen(
                 )
             }
         }
+    }
+
+    // 「扫一扫」（第 6 条）：入口统一后先问方式，再各自走既有的扫码 / OCR 链路。
+    if (showScanChoice) {
+        ScanInputChoiceDialog(
+            onDismiss = { showScanChoice = false },
+            onScanBarcode = {
+                showScanChoice = false
+                scanLauncher.launch(Intent(context, ScanActivity::class.java))
+            },
+            onRecognizeText = {
+                showScanChoice = false
+                onOpenOcr()
+            }
+        )
     }
 }

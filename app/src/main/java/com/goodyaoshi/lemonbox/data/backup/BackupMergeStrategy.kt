@@ -208,6 +208,9 @@ internal suspend fun AppBackupManager.mergeItems(
     categoryIdByKey: Map<String, Long>,
     locationIdByKey: Map<String, Long>
 ): ItemMergeOutcome {
+    // 导入去重（F20）：整个导入过程只建一次本地内容索引。备份里的图若本地已有同一张，
+    // 直接复用、不再复制——否则导入自己刚导出的备份会让本地图片直接翻倍。
+    val contentIndex = LocalImageContentIndex(ImageUtil.imagesDir(context))
     val localItems = itemRepository.getAllItemsSnapshot()
     val localByKey = localItems.associateBy { keyOf(it.syncId, it.id, useSyncIds) }
     // 预填充本地记录，保证 idByKey 对增量包中未出现的记录也能解析。
@@ -220,11 +223,12 @@ internal suspend fun AppBackupManager.mergeItems(
         val key = keyOf(snapshot.syncId, snapshot.id, useSyncIds)
         val local = localByKey[key]
         if (local == null) {
-            val images = resolveImages(snapshot.imagePaths, workingDir)
+            val (images, objectKeys) = resolveImagesAndKeys(snapshot, workingDir, contentIndex)
             val newId = itemRepository.insertSynced(
                 snapshot.toItem(
                     targetId = 0,
                     resolvedImages = images,
+                    resolvedObjectKeys = objectKeys,
                     categoryId = resolveReferenceId(
                         syncId = snapshot.categorySyncId,
                         fallbackId = snapshot.categoryId,
@@ -249,11 +253,12 @@ internal suspend fun AppBackupManager.mergeItems(
                 kept++
                 return@forEach
             }
-            val images = resolveImages(snapshot.imagePaths, workingDir)
+            val (images, objectKeys) = resolveImagesAndKeys(snapshot, workingDir, contentIndex)
             itemRepository.updateSynced(
                 snapshot.toItem(
                     targetId = local.id,
                     resolvedImages = images,
+                    resolvedObjectKeys = objectKeys,
                     categoryId = resolveReferenceId(
                         syncId = snapshot.categorySyncId,
                         fallbackId = snapshot.categoryId,
@@ -615,18 +620,87 @@ internal suspend fun AppBackupManager.mergeReminders(
     return MergeOutcome(added, updated, emptyMap())
 }
 
-internal fun AppBackupManager.resolveImages(relativePaths: List<String>, workingDir: File): List<String> {
-    return relativePaths.mapNotNull { relativePath ->
+/**
+ * 还原备份里的图片，并把与之一一对应的云端对象键一起带出（F20）。
+ *
+ * 图片与键必须**成对**处理：导入时若有图片条目缺失（备份不完整 / 文件读不出来），
+ * 键也要同步少一项，否则后面所有键都会前移、安到别的图上——
+ * 那会导致「看着是这个物品、显示的却是另一张图」。
+ *
+ * 去重：[contentIndex] 认出「本地已经有同一张图」时复用其路径，不再复制新文件。
+ */
+internal fun AppBackupManager.resolveImagesAndKeys(
+    snapshot: ItemSnapshot,
+    workingDir: File,
+    contentIndex: LocalImageContentIndex
+): Pair<List<String>, List<String>> {
+    val images = mutableListOf<String>()
+    val objectKeys = mutableListOf<String>()
+    snapshot.imagePaths.forEachIndexed { index, relativePath ->
         val sourceFile = File(workingDir, relativePath)
-        if (!sourceFile.exists()) {
-            null
-        } else {
-            ImageUtil.copyImageInto(
-                context = context,
-                sourcePath = sourceFile.absolutePath,
-                targetName = "import_${UUID.randomUUID()}.jpg"
-            )
+        if (!sourceFile.exists()) return@forEachIndexed
+        // 内容哈希既是「找本地有没有同一张图」的依据，也是落盘文件名的来源。
+        val hash = ImageUtil.contentHash(sourceFile) ?: return@forEachIndexed
+        val target = contentIndex.findByHash(hash, sourceFile.length()) ?: run {
+            val saved = ImageUtil.saveImageByContent(context, sourceFile, hash)
+                ?: return@forEachIndexed
+            // 登记给本次导入的后续图片复用，避免同一份内容在同一个备份里被处理多次。
+            contentIndex.register(hash, saved)
+            saved
         }
+        images += target
+        objectKeys += snapshot.imageObjectKeys?.getOrNull(index).orEmpty()
+    }
+    return images to objectKeys
+}
+
+/**
+ * 导入时的本地图片内容索引（F20）。
+ *
+ * 解决什么问题：备份导入把图片逐张复制进本地，若本地已有内容相同的图，再复制一份
+ * 纯属浪费——导入自己刚导出的备份会让本地图片直接翻倍。
+ *
+ * 为什么按大小预筛：内容不同而大小恰好相同的概率很低，先按文件大小分组，
+ * 只在「大小相同」的候选里真正读盘算 SHA-256，避免为每张图遍历整个图片目录；
+ * 算过的哈希会缓存，同一文件不会被反复读。
+ *
+ * 只是导入过程内的临时结构，用完即弃，不做持久化——判断依据始终是文件内容本身。
+ */
+internal class LocalImageContentIndex(imagesDir: File) {
+
+    private val filesBySize = HashMap<Long, MutableList<File>>()
+    private val hashByPath = HashMap<String, String>()
+    private val pathByHash = HashMap<String, String>()
+
+    init {
+        imagesDir.listFiles()?.forEach { file ->
+            if (file.isFile) filesBySize.getOrPut(file.length()) { mutableListOf() } += file
+        }
+    }
+
+    /** 找本地已有的同内容文件；没有则返回 null。[size] 由调用方给出，免得再 stat 一次。 */
+    fun findByHash(hash: String, size: Long): String? {
+        // 先看已登记的（含本次导入刚落盘的），再在「大小相同」的候选里懒算哈希——
+        // 后者覆盖历史遗留的 UUID 命名文件，它们同样按内容参与去重。
+        pathByHash[hash]?.let { path -> if (File(path).isFile) return path }
+        filesBySize[size]?.forEach { candidate ->
+            val candidateHash = hashByPath.getOrPut(candidate.absolutePath) {
+                ImageUtil.contentHash(candidate).orEmpty()
+            }
+            if (candidateHash == hash) {
+                pathByHash[hash] = candidate.absolutePath
+                return candidate.absolutePath
+            }
+        }
+        return null
+    }
+
+    /** 登记刚落盘的文件，供本次导入中后续图片命中。 */
+    fun register(hash: String, path: String) {
+        pathByHash[hash] = path
+        hashByPath[path] = hash
+        val bucket = filesBySize.getOrPut(File(path).length()) { mutableListOf() }
+        if (bucket.none { it.absolutePath == path }) bucket += File(path)
     }
 }
 

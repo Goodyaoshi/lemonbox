@@ -5,7 +5,6 @@
     <!-- Camera permission -->
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-permission android:name="android.permission.CAMERA" />
-    <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <!-- Notifications -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -49,16 +48,6 @@
         否则重启后提醒会一直静默到用户下次打开应用。
     -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-
-    <!--
-        语音录入（F13）：Android 11+ 的包可见性过滤要求显式声明要查询的语音识别服务，
-        否则 queryIntentServices 查不到任何 RecognitionService，语音入口会被误判为「设备不支持」。
-    -->
-    <queries>
-        <intent>
-            <action android:name="android.speech.RecognitionService" />
-        </intent>
-    </queries>
 
     <application
         android:name=".LemonApplication"

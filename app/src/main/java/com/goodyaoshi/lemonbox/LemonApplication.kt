@@ -3,6 +3,12 @@ package com.goodyaoshi.lemonbox
 import android.app.Application
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
+import coil.ImageLoader
+import coil.ImageLoaderFactory
+import coil.disk.DiskCache
+import com.goodyaoshi.lemonbox.data.imagecloud.ImageCloudConfig
+import com.goodyaoshi.lemonbox.data.imagecloud.ImageCloudPreferences
+import com.goodyaoshi.lemonbox.data.imagecloud.ImageCloudSyncScheduler
 import com.goodyaoshi.lemonbox.data.repository.LedgerPlanningRepository
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import com.goodyaoshi.lemonbox.util.AnniversaryCheckWorker
@@ -23,7 +29,7 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltAndroidApp
-class LemonApplication : Application(), Configuration.Provider {
+class LemonApplication : Application(), Configuration.Provider, ImageLoaderFactory {
 
     @Inject
     lateinit var workerFactory: HiltWorkerFactory
@@ -46,6 +52,15 @@ class LemonApplication : Application(), Configuration.Provider {
     @Inject
     lateinit var sleepReminderScheduler: SleepReminderScheduler
 
+    @Inject
+    lateinit var imageCloudSyncScheduler: ImageCloudSyncScheduler
+
+    @Inject
+    lateinit var imageCloudPreferences: ImageCloudPreferences
+
+    @Inject
+    lateinit var imageCloudConfig: ImageCloudConfig
+
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onCreate() {
@@ -63,6 +78,13 @@ class LemonApplication : Application(), Configuration.Provider {
         WidgetRefreshWorker.schedule(this)
         // 就寝提醒（F15）：按偏好对齐任务（开启则排期，关闭则取消）。
         sleepReminderScheduler.sync()
+        // 图片云端补传（F20）：仅当「正式包 + 用户已开启 + 允许后台补传」三者齐备才排期，
+        // 否则撤掉——避免给没在用该功能的人留下无谓的后台唤醒。
+        imageCloudSyncScheduler.syncSchedule(
+            supported = imageCloudConfig.supported,
+            enabled = imageCloudPreferences.enabled.value,
+            backgroundSync = imageCloudPreferences.backgroundSync.value
+        )
         applicationScope.launch {
             // 打开应用时顺手刷新一次桌面小组件，让数据立刻最新。
             widgetUpdater.refresh()
@@ -88,4 +110,30 @@ class LemonApplication : Application(), Configuration.Provider {
         get() = Configuration.Builder()
             .setWorkerFactory(workerFactory)
             .build()
+
+    /**
+     * 图片加载器的磁盘缓存（F20）。
+     *
+     * 为什么必须显式配置：云端图片的预签名 URL 每次都不同，若沿用「以 URL 为缓存键」的默认行为，
+     * 缓存永远不命中、每帧都可能重新下载，离线更是一张都看不到。配合
+     * [com.goodyaoshi.lemonbox.data.imagecloud.ImageUrlResolver] 把缓存键固定为对象键
+     * （内容哈希），同一张图无论取回多少次都命中同一份磁盘缓存。
+     *
+     * 容量取 256MB：家当图片以缩略浏览为主，这个量级足以覆盖常用图；超出后 Coil 按 LRU 淘汰。
+     * 沿用 Coil 的其他默认行为（不额外开 crossfade 等），避免顺带改变现有本地图片的观感。
+     */
+    override fun newImageLoader(): ImageLoader =
+        ImageLoader.Builder(this)
+            .diskCache {
+                DiskCache.Builder()
+                    .directory(cacheDir.resolve(IMAGE_DISK_CACHE_DIR))
+                    .maxSizeBytes(IMAGE_DISK_CACHE_MAX_BYTES)
+                    .build()
+            }
+            .build()
+
+    private companion object {
+        const val IMAGE_DISK_CACHE_DIR = "image_cache"
+        const val IMAGE_DISK_CACHE_MAX_BYTES = 256L * 1024 * 1024
+    }
 }

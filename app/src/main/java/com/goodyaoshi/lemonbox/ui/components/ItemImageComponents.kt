@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DocumentScanner
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material3.Icon
@@ -59,7 +60,12 @@ fun ItemImageGallery(
     onCaptureDetail: () -> Unit,
     onScanBarcode: (() -> Unit)? = null,
     onRemoveImage: (Int) -> Unit,
-    onMoveImage: (fromIndex: Int, toIndex: Int) -> Unit
+    onMoveImage: (fromIndex: Int, toIndex: Int) -> Unit,
+    /**
+     * 与 [imagePaths] 一一对应的云端对象键（F20）。
+     * 编辑已有物品时，本地文件可能已不在（换设备 / 被清理），靠它从云端把图取回来显示。
+     */
+    imageObjectKeys: List<String> = emptyList()
 ) {
     val scanBarcodeAction = onScanBarcode
 
@@ -85,8 +91,8 @@ fun ItemImageGallery(
                     modifier = Modifier.weight(1f)
                 )
                 ActionImageSlot(
-                    title = "扫码关联",
-                    subtitle = "扫描条码或二维码",
+                    title = "扫一扫",
+                    subtitle = "扫条码或拍照识字",
                     icon = Icons.Default.QrCodeScanner,
                     onClick = scanBarcodeAction,
                     modifier = Modifier.weight(1f)
@@ -135,6 +141,8 @@ fun ItemImageGallery(
                 }
                 DraggableImageCard(
                     imagePath = path,
+                    // 键按原始下标取：拖动只是预览顺序变化，图的归属没变。
+                    objectKey = imageObjectKeys.getOrNull(sourceIndex),
                     title = if (index == 0) "主图" else "细节图",
                     onRemove = { onRemoveImage(sourceIndex) },
                     onMove = { deltaX ->
@@ -184,7 +192,7 @@ fun ItemImageGallery(
         }
 
         // 图片多的时候，操作入口不再塞进横向滚动列表，改为固定在下方一行，
-        // 免去「扫码关联」被推到最右边、要一直往右滑才能点到。
+        // 免去「扫一扫」被推到最右边、要一直往右滑才能点到。
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -200,8 +208,8 @@ fun ItemImageGallery(
             )
             if (scanBarcodeAction != null) {
                 ActionImageSlot(
-                    title = "扫码关联",
-                    subtitle = "扫描条码或二维码",
+                    title = "扫一扫",
+                    subtitle = "扫条码或拍照识字",
                     icon = Icons.Default.QrCodeScanner,
                     onClick = scanBarcodeAction,
                     modifier = Modifier.weight(1f)
@@ -214,6 +222,7 @@ fun ItemImageGallery(
 @Composable
 private fun DraggableImageCard(
     imagePath: String,
+    objectKey: String?,
     title: String,
     onRemove: () -> Unit,
     onMove: (Float) -> Unit,
@@ -248,6 +257,7 @@ private fun DraggableImageCard(
     ) {
         ImagePreviewCard(
             imagePath = imagePath,
+            objectKey = objectKey,
             title = title,
             onRemove = onRemove,
             modifier = Modifier.matchParentSize()
@@ -268,17 +278,20 @@ private fun calculateDragSteps(offsetPx: Float, stepPx: Float): Int {
 @Composable
 private fun ImagePreviewCard(
     imagePath: String,
+    objectKey: String?,
     title: String,
     onRemove: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    // 与其它图片位一致：本地在就用本地，本地没了才按对象键从云端取。
+    val model = rememberImageModel(imagePath, objectKey)
     Box(
         modifier = modifier
             .height(120.dp)
             .clip(RoundedCornerShape(24.dp))
     ) {
         AsyncImage(
-            model = imagePath,
+            model = model,
             contentDescription = title,
             modifier = Modifier.matchParentSize(),
             contentScale = ContentScale.Crop
@@ -318,6 +331,49 @@ private fun ImagePreviewCard(
                 color = Color.White,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Medium
+            )
+        }
+    }
+}
+
+/**
+ * 「扫一扫」识别方式选择（第 6 条）。
+ *
+ * 条码解码与文字识别各有独立的底层实现（前者走 ZXingLite 的相机扫码页，
+ * 后者走离线 OCR 页），但用户的心智只有一个：「用相机帮我填表」。
+ * 因此入口收成一个，点开后再选具体方式，省得表单里出现两个语义相近、
+ * 位置还分开的识别入口（原先「拍照识字」在页头、「扫码关联」在图片区）。
+ *
+ * 两个 ActionImageSlot 复用图片区已有的方块样式，让选项与入口观感连续。
+ */
+@Composable
+fun ScanInputChoiceDialog(
+    onDismiss: () -> Unit,
+    onScanBarcode: () -> Unit,
+    onRecognizeText: () -> Unit
+) {
+    AppDialog(
+        title = "扫一扫",
+        subtitle = "选择识别方式，识别完自动回到这里填表",
+        onDismissRequest = onDismiss
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            ActionImageSlot(
+                title = "扫条码",
+                subtitle = "适合包装上的条码",
+                icon = Icons.Default.QrCodeScanner,
+                onClick = onScanBarcode,
+                modifier = Modifier.weight(1f)
+            )
+            ActionImageSlot(
+                title = "拍照识字",
+                subtitle = "读出文字填品名",
+                icon = Icons.Default.DocumentScanner,
+                onClick = onRecognizeText,
+                modifier = Modifier.weight(1f)
             )
         }
     }

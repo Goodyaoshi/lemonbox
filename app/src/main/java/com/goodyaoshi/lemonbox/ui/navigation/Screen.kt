@@ -13,7 +13,7 @@ sealed class Screen(val route: String) {
             barcode: String? = null,
             name: String? = null
         ): String {
-            val encodedUri = imageUri ?: ""
+            val encodedUri = imageUri?.let { Uri.encode(it) } ?: ""
             val encodedUris = imageUris.joinToString(",") { Uri.encode(it) }
             val encodedBarcode = barcode?.let { Uri.encode(it) } ?: ""
             val encodedName = name?.let { Uri.encode(it) } ?: ""
@@ -26,7 +26,16 @@ sealed class Screen(val route: String) {
         fun createRoute(barcode: String): String = "scan?barcode=${Uri.encode(barcode)}"
     }
 
-    data object Detail : Screen("detail/{itemId}/{scope}") {
+    /**
+     * 物品详情。[scope] 承载「从哪一类列表点进来」的翻页范围；
+     * [filterJson] / [query] 则是从家当页点入时携带的**完整**筛选条件。
+     *
+     * 为什么要多这两个参数：家当的筛选是「状态维度 + 分类 + 位置 + 关键词」在内存里
+     * 组合出来的，无法压缩成少数几个 scope 常量。只带 scope 会让详情页左右翻页时
+     * 翻出筛选之外的物品。带上原始条件后，详情页能复现与来源列表完全一致的集合
+     * （见 DetailViewModel 的 entryFilter 分支）。
+     */
+    data object Detail : Screen("detail/{itemId}/{scope}?filterJson={filterJson}&query={query}") {
         const val ScopeAll = "all"
         const val ScopeToBuy = "to_buy"
         const val ScopeUnused = "unused"
@@ -42,7 +51,16 @@ sealed class Screen(val route: String) {
         const val ScopeInStockUsedUp = "in_stock_used_up"
         const val ScopeOffHand = "off_hand"
 
-        fun createRoute(itemId: Long, scope: String = ScopeAll): String = "detail/$itemId/$scope"
+        fun createRoute(
+            itemId: Long,
+            scope: String = ScopeAll,
+            filterJson: String? = null,
+            query: String? = null
+        ): String {
+            val encodedFilter = filterJson?.let { Uri.encode(it) } ?: ""
+            val encodedQuery = query?.let { Uri.encode(it) } ?: ""
+            return "detail/$itemId/$scope?filterJson=$encodedFilter&query=$encodedQuery"
+        }
     }
 
     /**
@@ -54,7 +72,12 @@ sealed class Screen(val route: String) {
          * 首页搜索回车带词跳转（IA-2）：家当 Tab 支持携带初始关键词。
          * query 为可选参数，底栏 Tab 仍导航不带参的 [route]，两者都能匹配同一目的地。
          */
-        fun createRoute(query: String): String = "household?query=${Uri.encode(query)}"
+        /**
+         * 带词跳入家当：query 为空时不携带可选参数，返回的串与底栏 Tab 用的 [route] 完全一致，
+         * 使 launchSingleTop 能命中同一目的地，不会与 Tab 根并存两份家当页。
+         */
+        fun createRoute(query: String): String =
+            if (query.isBlank()) route else "household?query=${Uri.encode(query)}"
     }
 
     data object Meal : Screen("meal")
@@ -69,6 +92,9 @@ sealed class Screen(val route: String) {
 
     /** 通知可靠性（SET1）：电池白名单、自启动与常驻保活的独立二级页。 */
     data object NotificationReliability : Screen("notification-reliability")
+
+    /** 图片云端存储（F20）：把家当图片备份到 S3 兼容对象存储，仅正式包支持。 */
+    data object ImageCloud : Screen("image-cloud")
 
     data object ToBuy : Screen("to-buy")
     data object Trash : Screen("trash")
@@ -154,7 +180,7 @@ sealed class Screen(val route: String) {
             imageUris: List<String> = emptyList(),
             mode: String = "append"
         ): String {
-            val encodedUri = imageUri ?: ""
+            val encodedUri = imageUri?.let { Uri.encode(it) } ?: ""
             val encodedUris = imageUris.joinToString(",") { Uri.encode(it) }
             return "edit/$itemId?imageUri=$encodedUri&imageUris=$encodedUris&mode=$mode"
         }

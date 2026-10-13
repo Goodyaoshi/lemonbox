@@ -7,6 +7,13 @@ plugins {
     alias(libs.plugins.hilt.android)
 }
 
+/**
+ * 把 Gradle 属性值渲染成 buildConfigField 可用的字符串字面量。
+ * 值来自 CI Secrets / local.properties，可能含引号或反斜杠，必须先转义再嵌入。
+ */
+fun String.asBuildConfigLiteral(): String =
+    "\"" + replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+
 android {
     namespace = "com.goodyaoshi.lemonbox"
     compileSdk = 35
@@ -48,8 +55,44 @@ android {
     }
 
     buildTypes {
+        // 图片云端存储（S3 兼容）：debug 包一律不支持，避免开发期把测试图片传进真实存储桶。
+        debug {
+            buildConfigField("boolean", "IMAGE_CLOUD_SUPPORTED", "false")
+            buildConfigField("String", "S3_ENDPOINT", "\"\"")
+            buildConfigField("String", "S3_REGION", "\"\"")
+            buildConfigField("String", "S3_BUCKET", "\"\"")
+            buildConfigField("String", "S3_PREFIX", "\"\"")
+        }
+
         release {
             isMinifyEnabled = true
+            // 图片云端存储（仅正式包）——「配置进包、凭据手填」：
+            // endpoint / region / bucket / prefix 属非敏感配置，随包分发、由 CI Secrets 注入，
+            // 省去每台设备手填；AccessKey / SecretKey 绝不进包（BuildConfig 是明文字符串，
+            // 反编译即可读出），改由用户在应用内填写并以 Android Keystore 加密存本地。
+            // 本地未配这些属性时（如开发者自己跑 assembleRelease）为空串，
+            // App 据此提示「此版本未内置云配置」，而不是崩溃。
+            buildConfigField("boolean", "IMAGE_CLOUD_SUPPORTED", "true")
+            buildConfigField(
+                "String",
+                "S3_ENDPOINT",
+                (findProperty("LEMON_S3_ENDPOINT") as String? ?: "").asBuildConfigLiteral()
+            )
+            buildConfigField(
+                "String",
+                "S3_REGION",
+                (findProperty("LEMON_S3_REGION") as String? ?: "").asBuildConfigLiteral()
+            )
+            buildConfigField(
+                "String",
+                "S3_BUCKET",
+                (findProperty("LEMON_S3_BUCKET") as String? ?: "").asBuildConfigLiteral()
+            )
+            buildConfigField(
+                "String",
+                "S3_PREFIX",
+                (findProperty("LEMON_S3_PREFIX") as String? ?: "").asBuildConfigLiteral()
+            )
             isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
