@@ -26,3 +26,6 @@ UI草图.png
 # Local screenshots / references
 /image/screenshots/
 /image/references/
+
+# 设计文档与方案笔记：只留在本地，不进版本库
+/docs/
