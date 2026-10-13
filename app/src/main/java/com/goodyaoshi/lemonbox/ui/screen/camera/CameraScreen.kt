@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
@@ -120,8 +121,10 @@ fun CameraScreen(
         }
     }
 
+    // 系统图库选择器（Android 13+ 为原生 Photo Picker）：
+    // 原用 GetMultipleContents 会拉起文件浏览器让用户翻目录，与「打开图库」的语义不符。
     val galleryLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.GetMultipleContents()
+        ActivityResultContracts.PickMultipleVisualMedia()
     ) { uris ->
         if (uris.isNotEmpty()) {
             capturedUris.clear()
@@ -233,7 +236,11 @@ fun CameraScreen(
                 } else if (capturedUris.isEmpty()) {
                     EmptyGalleryState(
                         modifier = Modifier.align(Alignment.Center),
-                        onPickGallery = { galleryLauncher.launch("image/*") }
+                        onPickGallery = {
+                            galleryLauncher.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                            )
+                        }
                     )
                 } else {
                     AsyncImage(
@@ -467,7 +474,11 @@ fun CameraScreen(
                                 CameraTab.GALLERY -> {
                                     selectedTab = tab
                                     if (capturedUris.isEmpty()) {
-                                        galleryLauncher.launch("image/*")
+                                        galleryLauncher.launch(
+                                            PickVisualMediaRequest(
+                                                ActivityResultContracts.PickVisualMedia.ImageOnly
+                                            )
+                                        )
                                     }
                                 }
                                 CameraTab.CAMERA -> selectedTab = tab
