@@ -29,14 +29,9 @@ android {
             abiFilters += "arm64-v8a"
         }
 
-        // 离线文字识别（F01）：模型约 30MB，按硬性规则不进仓库、也不随包分发，
-        // 由用户在应用内显式确认后从独立渠道下载。基址通过 local.properties 注入，
-        // 未配置时（空串）应用内会明确提示「未配置下载地址」，不会静默失败。
-        buildConfigField(
-            "String",
-            "OCR_MODEL_BASE_URL",
-            "\"${(findProperty("lemonOcrModelBaseUrl") as String?) ?: ""}\""
-        )
+        // 离线文字识别（F01）：模型约 6~31MB，按硬性规则不进仓库、也不随包分发，
+        // 由用户在应用内显式确认后从官方百度 BOS 直链下载（地址与校验值固定在 OcrModelTier）；
+        // 识别字典随 APK 走 assets，无需远程清单与编译期地址注入。
     }
 
     signingConfigs {

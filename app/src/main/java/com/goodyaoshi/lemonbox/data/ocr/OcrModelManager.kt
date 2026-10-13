@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import com.goodyaoshi.lemonbox.BuildConfig
+import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -27,12 +28,12 @@ import javax.inject.Singleton
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.coroutines.coroutineContext
 
-/** 模型安装状态，供 UI 观察。 */
+/** 模型安装状态，供 UI 观察；状态始终描述当前所选档位。 */
 sealed interface OcrModelState {
     /** 尚未安装（或已删除）。 */
     data object NotInstalled : OcrModelState
 
-    /** 下载中。[downloadedBytes]/[totalBytes] 为全部文件的累计进度。 */
+    /** 下载中。[downloadedBytes]/[totalBytes] 为全部分发包的累计进度。 */
     data class Downloading(
         val currentFile: String,
         val fileIndex: Int,
@@ -57,46 +58,51 @@ sealed interface OcrModelState {
  * 设计要点（严格遵守「用户有感知」原则）：
  * - **不提供任何后台/静默自动下载**：只暴露显式 [startDownload]，由 UI 在用户点击并确认后调用。
  * - 下载过程通过 [state] 暴露进度，UI 可展示；[cancelDownload] 随时可中断。
- * - 每个文件下载到 `*.tmp`，校验大小与 SHA-256 后才原子改名，最后写 `installed.json`。
- * - 模型存于 `noBackupFilesDir/ocr-models/{版本}`，不参与系统备份，[delete] 可清除。
+ * - 每个分发包从官方百度 BOS 直链下载到临时文件，校验大小与 SHA-256 后解压出 ONNX，
+ *   最后写 `installed.json`；下载源与校验值固定在 [OcrModelTier]，无需远程清单。
+ * - 两档模型各自独立目录安装，切换档位不删对方文件；升级后遗留的旧版本目录自动清理。
  * - 下载作业由本类自持协程作用域（应用生命周期），离开屏幕不会中断大文件下载。
  */
 @Singleton
 class OcrModelManager @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val preferences: AppPreferences
 ) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lock = Any()
     private var downloadJob: Job? = null
 
-    private val _state = MutableStateFlow(computeInitialState())
+    /** 当前所选档位，透传自 [AppPreferences]（设备本地状态，不进备份）。 */
+    val selectedTier: StateFlow<OcrModelTier> = preferences.ocrModelTier
+
+    private val _state = MutableStateFlow(computeInitialState(preferences.ocrModelTier.value))
     val state: StateFlow<OcrModelState> = _state.asStateFlow()
 
-    /** 是否已在 `local.properties` 配置模型下载地址。 */
-    val isConfigured: Boolean get() = OcrModelCatalog.isConfigured
-
-    /** 模型是否已安装且文件齐备。 */
-    fun isInstalled(): Boolean {
-        if (!OcrModelCatalog.markerFile(context).exists()) return false
-        val dir = OcrModelCatalog.modelDir(context)
-        return OcrModelCatalog.requiredFiles.all { File(dir, it).exists() }
+    /** 切换识别模型档位：中断进行中的下载，状态回落到新档位的安装情况。 */
+    fun selectTier(tier: OcrModelTier) {
+        synchronized(lock) {
+            if (tier == selectedTier.value && downloadJob?.isActive != true) return
+            downloadJob?.cancel()
+            downloadJob = null
+            preferences.setOcrModelTier(tier)
+            _state.value = if (isInstalled(tier)) OcrModelState.Installed else OcrModelState.NotInstalled
+        }
     }
 
-    /** 已安装版本号；未安装返回 null。 */
-    fun installedVersion(): String? {
-        val marker = OcrModelCatalog.markerFile(context)
-        if (!marker.exists()) return null
-        return runCatching {
-            jsonCodec.decodeFromString(OcrInstalledMarker.serializer(), marker.readText()).version
-        }.getOrNull()
+    /** 指定档位是否已安装且文件齐备。 */
+    fun isInstalled(tier: OcrModelTier = selectedTier.value): Boolean {
+        if (!OcrModelCatalog.markerFile(context, tier).exists()) return false
+        val dir = OcrModelCatalog.modelDir(context, tier)
+        return tier.downloads.all { File(dir, it.fileName).exists() }
     }
 
-    /** 指定模型文件的本地路径。 */
-    fun filePath(name: String): File = File(OcrModelCatalog.modelDir(context), name)
+    /** 当前档位下指定模型文件的本地路径。 */
+    fun filePath(name: String): File = filePath(name, selectedTier.value)
 
-    /** 模型安装目录。 */
-    fun modelDir(): File = OcrModelCatalog.modelDir(context)
+    /** 指定档位下模型文件的本地路径。 */
+    fun filePath(name: String, tier: OcrModelTier): File =
+        File(OcrModelCatalog.modelDir(context, tier), name)
 
     /** 当前是否处于按流量计费的移动数据网络（下载前应弹窗确认）。 */
     fun isMeteredConnection(): Boolean {
@@ -108,25 +114,22 @@ class OcrModelManager @Inject constructor(
     }
 
     /**
-     * 显式开始下载模型（必须在用户确认后调用）。
+     * 显式开始下载当前档位的模型（必须在用户确认后调用）。
      * 已在下载中或已安装时不重复执行。
      */
     fun startDownload() {
         synchronized(lock) {
             if (downloadJob?.isActive == true) return
-            if (!isConfigured) {
-                _state.value = OcrModelState.Failed("未配置模型下载地址")
-                return
-            }
-            if (isInstalled()) {
+            val tier = selectedTier.value
+            if (isInstalled(tier)) {
                 _state.value = OcrModelState.Installed
                 return
             }
-            downloadJob = scope.launch { runDownload() }
+            downloadJob = scope.launch { runDownload(tier) }
         }
     }
 
-    /** 取消正在进行的下载。状态回落到已安装或未安装。 */
+    /** 取消正在进行的下载。状态回落到当前档位已安装或未安装。 */
     fun cancelDownload() {
         synchronized(lock) {
             downloadJob?.cancel()
@@ -135,66 +138,58 @@ class OcrModelManager @Inject constructor(
         _state.value = if (isInstalled()) OcrModelState.Installed else OcrModelState.NotInstalled
     }
 
-    /** 删除已安装模型并清理临时文件。 */
+    /** 删除当前档位已安装的模型并清理临时文件，另一档位的安装不受影响。 */
     fun delete() {
         synchronized(lock) {
             downloadJob?.cancel()
             downloadJob = null
         }
-        OcrModelCatalog.modelDir(context).deleteRecursively()
+        OcrModelCatalog.modelDir(context, selectedTier.value).deleteRecursively()
         _state.value = if (isInstalled()) OcrModelState.Installed else OcrModelState.NotInstalled
     }
 
-    private suspend fun runDownload() {
-        val dir = OcrModelCatalog.modelDir(context)
+    private suspend fun runDownload(tier: OcrModelTier) {
+        val dir = OcrModelCatalog.modelDir(context, tier)
         try {
-            val manifest = fetchManifest()
-            val byName = manifest.files.associateBy { it.name }
-            val missing = OcrModelCatalog.requiredFiles.filter { !byName.containsKey(it) }
-            if (missing.isNotEmpty()) {
-                _state.value = OcrModelState.Failed("模型清单缺少文件：${missing.joinToString()}")
-                return
-            }
             dir.mkdirs()
-            val specs = OcrModelCatalog.requiredFiles.map { byName.getValue(it) }
-            val totalBytes = specs.sumOf { it.size }
-            val fileCount = specs.size
+            val fileCount = tier.downloads.size
+            val totalBytes = tier.totalBytes
 
             var completedBytes = 0L
-            specs.forEachIndexed { index, spec ->
+            tier.downloads.forEachIndexed { index, spec ->
                 val base = completedBytes
                 _state.value = OcrModelState.Downloading(
-                    currentFile = spec.name,
+                    currentFile = spec.fileName,
                     fileIndex = index,
                     fileCount = fileCount,
                     downloadedBytes = base,
                     totalBytes = totalBytes
                 )
-                val target = File(dir, spec.name)
-                val tmp = File(dir, "${spec.name}.tmp")
-                downloadWithFallback(OcrModelCatalog.fileUrl(spec.name), tmp) { downloaded, _ ->
+                val tmp = File(dir, "${spec.fileName}.download")
+                downloadTo(spec.url, tmp) { downloaded, _ ->
                     _state.value = OcrModelState.Downloading(
-                        currentFile = spec.name,
+                        currentFile = spec.fileName,
                         fileIndex = index,
                         fileCount = fileCount,
                         downloadedBytes = base + downloaded,
                         totalBytes = totalBytes
                     )
                 }
-                verifyFile(tmp, spec)
-                if (target.exists()) target.delete()
-                if (!tmp.renameTo(target)) {
-                    tmp.copyTo(target, overwrite = true)
-                    tmp.delete()
+                verifyArchive(tmp, spec)
+                val target = File(dir, spec.fileName)
+                tmp.inputStream().use { input ->
+                    TarExtractor.extract(input, spec.entry, target)
                 }
+                if (!tmp.delete()) tmp.deleteOnExit()
                 completedBytes = base + spec.size
             }
 
-            writeMarker(manifest)
+            writeMarker(tier)
+            cleanupStaleInstalls(tier)
             _state.value = OcrModelState.Installed
         } catch (e: CancellationException) {
             cleanTmp(dir)
-            _state.value = if (isInstalled()) OcrModelState.Installed else OcrModelState.NotInstalled
+            _state.value = if (isInstalled(tier)) OcrModelState.Installed else OcrModelState.NotInstalled
             throw e
         } catch (e: Exception) {
             cleanTmp(dir)
@@ -202,58 +197,16 @@ class OcrModelManager @Inject constructor(
         }
     }
 
-    private suspend fun fetchManifest(): OcrManifest = withContext(Dispatchers.IO) {
-        var lastError: IOException? = null
-        for (url in downloadUrls(OcrModelCatalog.manifestUrl)) {
-            try {
-                val conn = openConnection(url)
-                try {
-                    val code = conn.responseCode
-                    if (code !in 200..299) throw IOException("HTTP $code")
-                    val text = conn.inputStream.bufferedReader().use { it.readText() }
-                    return@withContext jsonCodec.decodeFromString(OcrManifest.serializer(), text)
-                } finally {
-                    conn.disconnect()
-                }
-            } catch (e: IOException) {
-                lastError = e
-            }
-        }
-        throw lastError ?: IOException("模型清单下载失败")
-    }
-
-    /** 依次尝试的下载地址：gh-proxy 加速优先，直连兜底（与 AppUpdater 同一策略）。 */
-    private fun downloadUrls(url: String): List<String> = listOf(PROXY_PREFIX + url, url)
-
-    /** 逐个候选地址尝试下载，全部失败时抛出最后一个异常。 */
-    private suspend fun downloadWithFallback(
-        url: String,
-        target: File,
-        onProgress: (downloaded: Long, total: Long) -> Unit
-    ) {
-        var lastError: Exception? = null
-        for (candidate in downloadUrls(url)) {
-            try {
-                downloadTo(candidate, target, onProgress)
-                return
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                lastError = e
-            }
-        }
-        throw lastError ?: IOException("模型下载失败")
-    }
-
+    /** 下载分发包并断言完整：大小与 SHA-256 都与编译期固定值一致。 */
     private suspend fun downloadTo(
         url: String,
         target: File,
         onProgress: (downloaded: Long, total: Long) -> Unit
-    ) {
+    ) = withContext(Dispatchers.IO) {
         val conn = openConnection(url)
         try {
             val code = conn.responseCode
-            if (code !in 200..299) throw IOException("HTTP $code")
+            if (code !in 200..299) throw IOException("下载失败（HTTP $code）")
             conn.inputStream.use { input ->
                 target.outputStream().use { output ->
                     val buffer = ByteArray(64 * 1024)
@@ -273,6 +226,16 @@ class OcrModelManager @Inject constructor(
         }
     }
 
+    private fun verifyArchive(file: File, spec: OcrModelDownload) {
+        if (file.length() != spec.size) {
+            throw IOException("${spec.fileName} 大小校验失败，请重试")
+        }
+        val actual = sha256Hex(file)
+        if (!actual.equals(spec.sha256, ignoreCase = true)) {
+            throw IOException("${spec.fileName} 完整性校验失败，请重试")
+        }
+    }
+
     private fun openConnection(url: String): HttpURLConnection =
         (URL(url).openConnection() as HttpURLConnection).apply {
             connectTimeout = CONNECT_TIMEOUT_MS
@@ -280,18 +243,6 @@ class OcrModelManager @Inject constructor(
             instanceFollowRedirects = true
             setRequestProperty("User-Agent", "LemonBox/${BuildConfig.VERSION_NAME}")
         }
-
-    private fun verifyFile(file: File, spec: OcrManifestFile) {
-        if (spec.size > 0 && file.length() != spec.size) {
-            throw IOException("文件 ${spec.name} 大小校验失败")
-        }
-        if (spec.sha256.isNotBlank()) {
-            val actual = sha256Hex(file)
-            if (!actual.equals(spec.sha256, ignoreCase = true)) {
-                throw IOException("文件 ${spec.name} 校验失败，请重试")
-            }
-        }
-    }
 
     private fun sha256Hex(file: File): String {
         val digest = MessageDigest.getInstance("SHA-256")
@@ -306,46 +257,44 @@ class OcrModelManager @Inject constructor(
         return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
-    private fun writeMarker(manifest: OcrManifest) {
-        val marker = OcrModelCatalog.markerFile(context)
+    private fun writeMarker(tier: OcrModelTier) {
+        val marker = OcrModelCatalog.markerFile(context, tier)
         val data = OcrInstalledMarker(
-            version = manifest.version.ifBlank { OcrModelCatalog.MODEL_VERSION },
-            files = manifest.files.map { OcrInstalledFile(it.name, it.sha256) }
+            version = tier.modelVersion,
+            files = tier.downloads.map { OcrInstalledFile(it.fileName, it.sha256) }
         )
         marker.writeText(jsonCodec.encodeToString(OcrInstalledMarker.serializer(), data))
     }
 
-    private fun computeInitialState(): OcrModelState =
-        if (isInstalled()) OcrModelState.Installed else OcrModelState.NotInstalled
+    /**
+     * 清理升级遗留：旧版本目录（如 v0.0.8 之前的 `ppocr-v6`）直接删除；
+     * 另一档位若已完整安装则保留，只清掉它的半成品目录。
+     */
+    private fun cleanupStaleInstalls(current: OcrModelTier) {
+        val root = OcrModelCatalog.modelDir(context, current).parentFile ?: return
+        root.listFiles()
+            ?.filter { it.isDirectory && it.name != current.modelVersion }
+            ?.forEach { stale ->
+                val otherTier = OcrModelTier.entries.firstOrNull { it.modelVersion == stale.name }
+                if (otherTier != null && isInstalled(otherTier)) return@forEach
+                stale.deleteRecursively()
+            }
+    }
+
+    private fun computeInitialState(tier: OcrModelTier): OcrModelState =
+        if (isInstalled(tier)) OcrModelState.Installed else OcrModelState.NotInstalled
 
     private fun cleanTmp(dir: File) {
-        dir.listFiles()?.filter { it.name.endsWith(".tmp") }?.forEach { it.delete() }
+        dir.listFiles()?.filter { it.name.endsWith(".download") }?.forEach { it.delete() }
     }
 
     private companion object {
         const val CONNECT_TIMEOUT_MS = 10_000
         const val READ_TIMEOUT_MS = 60_000
 
-        /** 与 AppUpdater 一致的 GitHub 加速前缀；模型托管在 GitHub Release。 */
-        const val PROXY_PREFIX = "https://gh-proxy.com/"
-
         val jsonCodec = Json { ignoreUnknownKeys = true }
     }
 }
-
-/** 服务端 `manifest.json` 结构。 */
-@Serializable
-data class OcrManifest(
-    val version: String = "",
-    val files: List<OcrManifestFile> = emptyList()
-)
-
-@Serializable
-data class OcrManifestFile(
-    val name: String = "",
-    val size: Long = 0L,
-    val sha256: String = ""
-)
 
 /** 安装完成标记。 */
 @Serializable

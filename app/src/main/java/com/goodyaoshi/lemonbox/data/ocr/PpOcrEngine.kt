@@ -14,7 +14,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * 基于 PP-OCRv6 tiny（ONNX Runtime）的离线识别引擎。
+ * 基于 PP-OCRv6（ONNX Runtime）的离线识别引擎，支持轻量版（tiny）/ 精准版（small）双档模型。
  *
  * 流程：DB 检测（[detect]）得到文本框 → 逐框裁剪缩放（[recognizeBox]）→ CTC 贪心解码。
  *
@@ -23,7 +23,8 @@ import javax.inject.Singleton
  * - **不做 180° 方向分类（cls）**，正常拍摄的收据/小票场景足够。
  *
  * v6 适配要点：检测模型沿用 ImageNet 均值方差归一化；识别模型输入 3×48×动态宽、
- * (x-0.5)/0.5 归一化，与 v4 一致；二值化阈值与 unclip 比例取 v6 官方 yml 的推荐值。
+ * (x-0.5)/0.5 归一化，与 v4 一致；二值化阈值与 unclip 比例取 v6 官方 yml 的推荐值
+ * （tiny 与 small 两档的后处理参数一致）。
  */
 @Singleton
 class PpOcrEngine @Inject constructor(
@@ -36,47 +37,62 @@ class PpOcrEngine @Inject constructor(
     private var detSession: OrtSession? = null
     private var recSession: OrtSession? = null
 
+    /** 当前已加载的模型档位；与所选档位不一致时在下一次识别前自动重载。 */
+    private var loadedTier: OcrModelTier? = null
+
     /** 识别字符表：`["blank"] + 字典 + [" "]`。 */
     private var character: List<String> = emptyList()
 
     override fun isReady(): Boolean = modelManager.isInstalled()
 
     override suspend fun recognize(bitmap: Bitmap): OcrResult = withContext(Dispatchers.Default) {
-        ensureLoaded()
-        val det = detSession!!
-        val rec = recSession!!
-        val boxes = detect(det, bitmap)
-        val lines = boxes.mapNotNull { box -> runCatching { recognizeBox(rec, bitmap, box) }.getOrNull() }
-        OcrResult(lines = lines, fullText = lines.joinToString("\n") { it.text })
+        // 整个推理持同一把锁：档位切换会关闭并重建会话，避免推理中途会话被释放。
+        synchronized(lock) {
+            ensureLoaded()
+            val det = detSession!!
+            val rec = recSession!!
+            val boxes = detect(det, bitmap)
+            val lines = boxes.mapNotNull { box -> runCatching { recognizeBox(rec, bitmap, box) }.getOrNull() }
+            OcrResult(lines = lines, fullText = lines.joinToString("\n") { it.text })
+        }
     }
 
     private fun ensureLoaded() {
-        if (detSession != null && recSession != null && character.isNotEmpty()) return
+        val tier = modelManager.selectedTier.value
+        if (loadedTier == tier && detSession != null && recSession != null && character.isNotEmpty()) return
         synchronized(lock) {
-            if (detSession != null && recSession != null && character.isNotEmpty()) return
+            val currentTier = modelManager.selectedTier.value
+            if (loadedTier == currentTier && detSession != null && recSession != null && character.isNotEmpty()) return
             val environment = OrtEnvironment.getEnvironment()
             env = environment
-            character = loadCharacter()
+            character = loadCharacter(currentTier)
+            // 档位变化时先释放旧会话再加载新档位，两档模型不共存于内存。
+            detSession?.close()
+            recSession?.close()
             val options = OrtSession.SessionOptions()
             try {
                 options.setIntraOpNumThreads(2)
                 options.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
                 detSession = environment.createSession(
-                    modelManager.filePath(OcrModelCatalog.DET_FILE).absolutePath, options
+                    modelManager.filePath(OcrModelCatalog.DET_FILE, currentTier).absolutePath, options
                 )
                 recSession = environment.createSession(
-                    modelManager.filePath(OcrModelCatalog.REC_FILE).absolutePath, options
+                    modelManager.filePath(OcrModelCatalog.REC_FILE, currentTier).absolutePath, options
                 )
             } finally {
                 options.close()
             }
+            loadedTier = currentTier
         }
     }
 
-    private fun loadCharacter(): List<String> {
-        val file = modelManager.filePath(OcrModelCatalog.DICT_FILE)
-        if (!file.exists()) return emptyList()
-        val dict = file.readLines().filter { it.isNotEmpty() }
+    /** 字典随 APK 打包在 assets，与模型档位一一对应。 */
+    private fun loadCharacter(tier: OcrModelTier): List<String> {
+        val dict = runCatching {
+            context.assets.open(tier.dictAsset).bufferedReader(Charsets.UTF_8).use { reader ->
+                reader.readLines().filter { it.isNotEmpty() }
+            }
+        }.getOrDefault(emptyList())
         return listOf(BLANK) + dict + listOf(" ")
     }
 

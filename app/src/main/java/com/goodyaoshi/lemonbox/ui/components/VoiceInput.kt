@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.speech.RecognitionListener
+import android.speech.RecognitionService
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -119,7 +120,7 @@ fun rememberVoiceInput(onResult: (String) -> Unit): () -> Unit {
 /** 设备是否装有语音识别服务（与 isRecognitionAvailable 同判据，规避其弃用标记）。 */
 private fun hasRecognitionService(context: Context): Boolean =
     context.packageManager.queryIntentServices(
-        Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH), 0
+        Intent(RecognitionService.SERVICE_INTERFACE), 0
     ).isNotEmpty()
 
 /**
@@ -165,6 +166,8 @@ private fun VoiceRecordDialog(
                     SpeechRecognizer.ERROR_NETWORK,
                     SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "语音识别需要联网，请检查网络"
                     SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "缺少麦克风权限"
+                    SpeechRecognizer.ERROR_CLIENT ->
+                        "设备语音服务缺少识别资源，可在系统设置里检查语音引擎，或联网后重试"
                     else -> "识别出错了，请再试一次"
                 }
             }

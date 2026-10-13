@@ -8,6 +8,7 @@ import com.goodyaoshi.lemonbox.data.local.entity.StatusDimension
 import com.goodyaoshi.lemonbox.data.meal.MealSpec
 import com.goodyaoshi.lemonbox.data.meal.Recipe
 import com.goodyaoshi.lemonbox.data.meal.RecipeIngredient
+import com.goodyaoshi.lemonbox.data.ocr.OcrModelTier
 import com.goodyaoshi.lemonbox.data.sync.SyncReport
 import com.goodyaoshi.lemonbox.util.DateUtil
 import com.goodyaoshi.lemonbox.util.MonotonicClock
@@ -147,6 +148,18 @@ class AppPreferences @Inject constructor(
             ?.take(MAX_TOGETHER_LABEL_LENGTH)
             ?.ifBlank { null }
             ?: DEFAULT_TOGETHER_LABEL_NAME
+
+    private val _ocrModelTier = MutableStateFlow(
+        OcrModelTier.fromId(preferences.getString(KEY_OCR_MODEL_TIER, null))
+    )
+
+    /** 识别模型档位（F01）：轻量版 / 精准版，默认轻量版。设备本地状态，不进备份。 */
+    val ocrModelTier: StateFlow<OcrModelTier> = _ocrModelTier.asStateFlow()
+
+    fun setOcrModelTier(tier: OcrModelTier) {
+        preferences.edit().putString(KEY_OCR_MODEL_TIER, tier.id).apply()
+        _ocrModelTier.value = tier
+    }
 
     private val _budgetReminderEnabled = MutableStateFlow(
         preferences.getBoolean(KEY_BUDGET_REMINDER_ENABLED, true)
@@ -1154,6 +1167,7 @@ class AppPreferences @Inject constructor(
         private const val KEY_BEDTIME_NOTIFIED_DATE = "bedtime_notified_date"
         private const val KEY_APP_LOCK_ENABLED = "app_lock_enabled"
         private const val KEY_APP_LOCK_PIN_HASH = "app_lock_pin_hash"
+        private const val KEY_OCR_MODEL_TIER = "ocr_model_tier"
         private const val KEY_MEAL_PREP_DAY_SHIFT = "meal_prep_day_shift"
         private const val KEY_MEAL_PREP_FIRE_TIME = "meal_prep_fire_time"
 

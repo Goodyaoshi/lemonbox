@@ -10,6 +10,7 @@ import com.goodyaoshi.lemonbox.data.ocr.OcrEngine
 import com.goodyaoshi.lemonbox.data.ocr.OcrLine
 import com.goodyaoshi.lemonbox.data.ocr.OcrModelManager
 import com.goodyaoshi.lemonbox.data.ocr.OcrModelState
+import com.goodyaoshi.lemonbox.data.ocr.OcrModelTier
 import com.goodyaoshi.lemonbox.data.ocr.OcrTextParser
 import com.goodyaoshi.lemonbox.util.ImageUtil
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -47,11 +48,20 @@ class OcrViewModel @Inject constructor(
     private val engine: OcrEngine
 ) : ViewModel() {
 
-    /** 模型安装状态，直接透传管理器，UI 据此展示下载/进度/已就绪。 */
+    /** 模型安装状态，直接透传管理器（描述当前所选档位），UI 据此展示下载/进度/已就绪。 */
     val modelState: StateFlow<OcrModelState> = modelManager.state
 
-    /** 是否已配置模型下载地址（编译期决定），未配置时 UI 禁用下载入口并给出说明。 */
-    val isConfigured: Boolean get() = modelManager.isConfigured
+    /** 当前所选模型档位（轻量版 / 精准版），持久化在本地偏好。 */
+    val selectedTier: StateFlow<OcrModelTier> = modelManager.selectedTier
+
+    /** 指定档位是否已在本地安装（切换档位时判断是直接切换还是要先下载）。 */
+    fun isTierInstalled(tier: OcrModelTier): Boolean = modelManager.isInstalled(tier)
+
+    /** 切换模型档位；识别结果来自旧档位，一并清空保持一致。 */
+    fun selectTier(tier: OcrModelTier) {
+        modelManager.selectTier(tier)
+        resetResult()
+    }
 
     private val _uiState = MutableStateFlow(OcrUiState())
     val uiState: StateFlow<OcrUiState> = _uiState.asStateFlow()

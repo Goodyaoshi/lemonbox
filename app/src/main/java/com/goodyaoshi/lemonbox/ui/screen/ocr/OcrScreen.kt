@@ -5,6 +5,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -47,6 +49,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -55,6 +58,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.goodyaoshi.lemonbox.data.ocr.OcrModelState
+import com.goodyaoshi.lemonbox.data.ocr.OcrModelTier
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
@@ -95,10 +99,23 @@ fun OcrScreen(
     viewModel: OcrViewModel = hiltViewModel()
 ) {
     val modelState by viewModel.modelState.collectAsState()
+    val selectedTier by viewModel.selectedTier.collectAsState()
     val state by viewModel.uiState.collectAsState()
     val snackbar = LocalAppSnackbar.current
     var showDownloadDialog by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var pendingTier by remember { mutableStateOf(OcrModelTier.DEFAULT) }
+
+    // 请求某个档位：已安装直接切换；未安装弹下载确认（确认后切档并开始下载）。
+    val requestTier: (OcrModelTier) -> Unit = { tier ->
+        if (viewModel.isTierInstalled(tier)) {
+            viewModel.selectTier(tier)
+            snackbar?.postMessage("已切换到${tier.displayName}")
+        } else {
+            pendingTier = tier
+            showDownloadDialog = true
+        }
+    }
 
     val galleryLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
@@ -164,10 +181,12 @@ fun OcrScreen(
                 }
                 ModelStatusCard(
                     modelState = modelState,
-                    isConfigured = viewModel.isConfigured,
-                    onDownloadClick = { showDownloadDialog = true },
+                    selectedTier = selectedTier,
+                    isTierInstalled = viewModel::isTierInstalled,
+                    onDownloadClick = { requestTier(selectedTier) },
                     onCancelDownload = viewModel::cancelDownload,
-                    onDeleteClick = { showDeleteDialog = true }
+                    onDeleteClick = { showDeleteDialog = true },
+                    onSelectTier = requestTier
                 )
 
                 Spacer(modifier = Modifier.height(22.dp))
@@ -289,18 +308,20 @@ fun OcrScreen(
     }
 
     if (showDownloadDialog) {
-        val metered = remember { viewModel.isMeteredConnection() }
+        val metered = remember(showDownloadDialog) { viewModel.isMeteredConnection() }
         AppDialog(
-            title = "下载离线识别模型",
+            title = "下载${pendingTier.displayName}模型",
             onDismissRequest = { showDownloadDialog = false },
             confirmText = "开始下载",
             onConfirm = {
                 showDownloadDialog = false
+                viewModel.selectTier(pendingTier)
                 viewModel.startDownload()
             }
         ) {
             Text(
-                text = "模型体积较大，建议在 WiFi 下下载。识别一直在手机本地完成，图片不会上传。",
+                text = "模型约 ${formatBytes(pendingTier.totalBytes)}，建议在 WiFi 下下载。" +
+                    "识别一直在手机本地完成，图片不会上传。",
                 color = TextSecondary,
                 fontSize = 14.sp
             )
@@ -340,65 +361,63 @@ fun OcrScreen(
 }
 
 /**
- * 模型状态卡：未安装 / 下载中 / 已就绪 / 失败四种状态各自给明确出口。
- * 下载入口在未配置基址时禁用并说明原因，避免用户点了没反应。
+ * 模型状态卡：顶部常驻两档模型（轻量版 / 精准版）的选择行，
+ * 选中已安装的档位直接切换、未安装的档位弹出下载确认；下方按
+ * 未安装 / 下载中 / 已就绪 / 失败四种状态给出对应出口。
  */
 @Composable
 private fun ModelStatusCard(
     modelState: OcrModelState,
-    isConfigured: Boolean,
+    selectedTier: OcrModelTier,
+    isTierInstalled: (OcrModelTier) -> Boolean,
     onDownloadClick: () -> Unit,
     onCancelDownload: () -> Unit,
-    onDeleteClick: () -> Unit
+    onDeleteClick: () -> Unit,
+    onSelectTier: (OcrModelTier) -> Unit
 ) {
     AppSurfaceCard(
         shape = RoundedCornerShape(24.dp),
         shadowElevation = 14.dp
     ) {
+        Text(
+            text = "识别模型",
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Bold,
+            color = TextPrimary
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        OcrModelTier.entries.forEachIndexed { index, tier ->
+            TierOptionRow(
+                tier = tier,
+                selected = tier == selectedTier,
+                installed = isTierInstalled(tier),
+                enabled = modelState !is OcrModelState.Downloading,
+                onClick = { onSelectTier(tier) }
+            )
+            if (index < OcrModelTier.entries.lastIndex) {
+                Spacer(modifier = Modifier.height(10.dp))
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
         when (modelState) {
             is OcrModelState.NotInstalled -> {
                 Text(
-                    text = "识别模型未安装",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextPrimary
-                )
-                Text(
-                    text = "首次使用需要下载离线识别模型，之后无网也能识别。",
+                    text = "「${selectedTier.displayName}」未安装，首次使用需要下载，之后无网也能识别。",
                     fontSize = 13.sp,
-                    color = TextSecondary,
-                    modifier = Modifier.padding(top = 4.dp)
+                    color = TextSecondary
                 )
-                if (!isConfigured) {
-                    Text(
-                        text = "尚未配置模型下载地址，暂时无法下载。",
-                        fontSize = 12.sp,
-                        color = StatusExpired,
-                        modifier = Modifier.padding(top = 8.dp)
-                    )
-                }
-                Spacer(modifier = Modifier.height(14.dp))
-                GradientButton(
-                    text = "下载模型",
-                    onClick = onDownloadClick,
-                    enabled = isConfigured
-                )
+                Spacer(modifier = Modifier.height(12.dp))
+                GradientButton(text = "下载模型", onClick = onDownloadClick)
             }
 
             is OcrModelState.Downloading -> {
                 Text(
-                    text = "正在下载模型",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextPrimary
+                    text = "正在下载「${selectedTier.displayName}」",
+                    fontSize = 13.sp,
+                    color = TextSecondary
                 )
-                Text(
-                    text = "文件 ${modelState.fileIndex + 1}/${modelState.fileCount} · ${modelState.currentFile}",
-                    fontSize = 12.sp,
-                    color = TextSecondary,
-                    modifier = Modifier.padding(top = 4.dp)
-                )
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(10.dp))
                 LinearProgressIndicator(
                     progress = { modelState.fraction },
                     modifier = Modifier
@@ -431,20 +450,13 @@ private fun ModelStatusCard(
 
             is OcrModelState.Installed -> {
                 Text(
-                    text = "模型已就绪",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextPrimary
-                )
-                Text(
-                    text = "离线识别可用，图片不会离开手机。",
+                    text = "「${selectedTier.displayName}」已就绪，识别全程离线，图片不会离开手机。",
                     fontSize = 13.sp,
-                    color = TextSecondary,
-                    modifier = Modifier.padding(top = 4.dp)
+                    color = TextSecondary
                 )
                 TextButton(
                     onClick = onDeleteClick,
-                    modifier = Modifier.padding(top = 8.dp)
+                    modifier = Modifier.padding(top = 6.dp)
                 ) {
                     Text(text = "删除模型", color = TextHint, fontSize = 14.sp)
                 }
@@ -452,25 +464,81 @@ private fun ModelStatusCard(
 
             is OcrModelState.Failed -> {
                 Text(
-                    text = "下载没成功",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextPrimary
-                )
-                Text(
                     text = modelState.message,
                     fontSize = 13.sp,
-                    color = StatusExpired,
-                    modifier = Modifier.padding(top = 4.dp)
+                    color = StatusExpired
                 )
-                Spacer(modifier = Modifier.height(14.dp))
-                GradientButton(
-                    text = "重试",
-                    onClick = onDownloadClick,
-                    enabled = isConfigured
-                )
+                Spacer(modifier = Modifier.height(12.dp))
+                GradientButton(text = "重试", onClick = onDownloadClick)
             }
         }
+    }
+}
+
+/** 单个档位的选择行：单选圆点 + 名称与说明 + 体积与安装状态。 */
+@Composable
+private fun TierOptionRow(
+    tier: OcrModelTier,
+    selected: Boolean,
+    installed: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit
+) {
+    val shape = RoundedCornerShape(16.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(if (selected) OrangeStart.copy(alpha = 0.10f) else SurfaceWarmDeep)
+            .then(
+                if (selected) Modifier.border(1.dp, OrangeStart.copy(alpha = 0.35f), shape) else Modifier
+            )
+            .clickable(enabled = enabled && !selected, onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(18.dp)
+                .clip(CircleShape)
+                .background(if (selected) OrangeStart else Color.Transparent)
+                .border(
+                    width = 2.dp,
+                    color = if (selected) OrangeStart else TextHint.copy(alpha = 0.6f),
+                    shape = CircleShape
+                )
+        )
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = tier.displayName,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (enabled) TextPrimary else TextHint
+                )
+                if (installed) {
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "已安装",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = OrangeStart
+                    )
+                }
+            }
+            Text(
+                text = tier.summary,
+                fontSize = 12.sp,
+                color = TextHint,
+                modifier = Modifier.padding(top = 2.dp)
+            )
+        }
+        Text(
+            text = "约 ${formatBytes(tier.totalBytes)}",
+            fontSize = 12.sp,
+            color = TextHint
+        )
     }
 }
 
