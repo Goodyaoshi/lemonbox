@@ -93,7 +93,7 @@ sealed class Screen(val route: String) {
     /** 通知可靠性（SET1）：电池白名单、自启动与常驻保活的独立二级页。 */
     data object NotificationReliability : Screen("notification-reliability")
 
-    /** 图片云端存储（F20）：把家当图片备份到 S3 兼容对象存储，仅正式包支持。 */
+    /** 云存储（F20）：把家当图片备份到 S3 兼容对象存储，仅正式包支持。 */
     data object ImageCloud : Screen("image-cloud")
 
     data object ToBuy : Screen("to-buy")

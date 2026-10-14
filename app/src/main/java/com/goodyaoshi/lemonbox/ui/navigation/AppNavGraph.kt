@@ -937,6 +937,10 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
                         onBack = { navController.popBackStack() },
                         onOpenNotificationReliability = {
                             navController.navigateSingleTop(Screen.NotificationReliability.route)
+                        },
+                        // 提醒阶梯（提前几天）在家当设置里配，设置页只放时间点。
+                        onOpenHouseholdSettings = {
+                            navController.navigateSingleTop(Screen.Category.route)
                         }
                     )
                 }

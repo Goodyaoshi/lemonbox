@@ -53,7 +53,7 @@ class ImageCloudReadinessTest {
             hasCredentials = false,
             enabled = false
         )
-        assertEquals("当前版本不支持图片云端存储，请使用正式版", state.firstBlocker)
+        assertEquals("当前版本不支持云存储，请使用正式版", state.firstBlocker)
     }
 
     @Test
@@ -74,7 +74,7 @@ class ImageCloudReadinessTest {
 
     @Test
     fun firstBlocker_reportsDisabledLast() {
-        assertEquals("图片云端存储未开启", readiness(enabled = false).firstBlocker)
+        assertEquals("图片上传未开启", readiness(enabled = false).firstBlocker)
     }
 
     // ---------- 后台重试判定 ----------

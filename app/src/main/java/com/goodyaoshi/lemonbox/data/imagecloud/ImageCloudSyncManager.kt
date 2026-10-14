@@ -156,7 +156,7 @@ class ImageCloudSyncManager @Inject constructor(
             if (!readiness.ready || s3 == null) {
                 _state.value = ImageCloudSyncState(
                     running = false,
-                    lastError = readiness.firstBlocker ?: "图片云端存储尚未就绪"
+                    lastError = readiness.firstBlocker ?: "图片上传尚未就绪"
                 )
                 job = null
                 return@launch
@@ -476,10 +476,14 @@ class ImageCloudSyncManager @Inject constructor(
 
     /**
      * 未上传张数（本地算哈希后与账本比对，**不发任何网络请求**）。
-     * 未就绪时返回 0：功能没开就不该在界面上吓唬用户。
+     *
+     * 未就绪时返回 **null 而不是 0**：这两个值在界面上含义完全不同——
+     * 0 表示「统计过，都传完了」，null 表示「没统计」。早先一律返回 0，
+     * 于是关掉开关或没填凭据时，界面会显示「所有图片都已上传」，
+     * 让用户误以为云端已有备份。
      */
-    suspend fun countPendingUploads(): Int = withContext(Dispatchers.IO) {
-        if (!config.readiness().ready) return@withContext 0
+    suspend fun countPendingUploads(): Int? = withContext(Dispatchers.IO) {
+        if (!config.readiness().ready) return@withContext null
         loadAllImages().count { image -> image.objectKey !in knownRemoteKeys }
     }
 }

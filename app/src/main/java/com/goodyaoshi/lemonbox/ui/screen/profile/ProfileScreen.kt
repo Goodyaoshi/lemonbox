@@ -243,7 +243,7 @@ fun ProfileScreen(
                 MenuRow(
                     icon = Icons.Default.Storage,
                     title = "数据中心",
-                    subtitle = "局域网同步、备份导出导入与可读报告",
+                    subtitle = "局域网同步、云存储与图片备份、导出可读报告",
                     onClick = onOpenDataCenter
                 )
             }

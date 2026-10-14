@@ -5,7 +5,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * 图片云端存储的就绪度：分开表达「缺哪一项」，界面据此给出精确引导，
+ * 云存储的就绪度：分开表达「缺哪一项」，界面据此给出精确引导，
  * 而不是笼统说一句「未配置」。这四态也决定了上传路径是否应该动作。
  */
 data class ImageCloudReadiness(
@@ -25,16 +25,16 @@ data class ImageCloudReadiness(
     /** 第一处待补齐的事项，用于界面文案；都齐时返回 null。 */
     val firstBlocker: String?
         get() = when {
-            !supported -> "当前版本不支持图片云端存储，请使用正式版"
+            !supported -> "当前版本不支持云存储，请使用正式版"
             !hasConnectionConfig -> "缺少存储地址配置"
             !hasCredentials -> "还未填写访问凭据"
-            !enabled -> "图片云端存储未开启"
+            !enabled -> "图片上传未开启"
             else -> null
         }
 }
 
 /**
- * 图片云端存储的配置来源。
+ * 云存储的配置来源。
  *
  * 连接参数（endpoint / region / bucket / prefix）**只认包内内置值**，不提供修改入口：
  * 所有客户端必须指向同一处存储，才能互相看到对方上传的图片；一旦允许各自修改，
@@ -74,6 +74,25 @@ class ImageCloudConfig @Inject constructor(
         hasCredentials = credentialStore.load() != null,
         enabled = preferences.enabled.value
     )
+
+    /**
+     * 多设备同步（文字数据）的第一处待补齐事项；都齐时返回 null。
+     *
+     * **与 [readiness] 的区别是刻意的**：这里看 [ImageCloudPreferences.cloudSyncEnabled]，
+     * 不看图片上传开关。两者取舍不同——图片占空间与流量，文字数据体积很小，
+     * 有人只想让数据不丢、不愿把照片传上去。早先共用同一个开关时，
+     * 关掉图片上传会把文字同步一并停掉，与用户意愿相悖。
+     */
+    fun cloudSyncBlocker(): String? = when {
+        !supported -> "当前版本不支持云同步，请使用正式版"
+        !hasConnectionConfig() -> "缺少存储地址配置"
+        credentialStore.load() == null -> "还未填写访问凭据"
+        !preferences.cloudSyncEnabled.value -> "多设备同步未开启"
+        else -> null
+    }
+
+    /** 多设备同步是否具备一切条件。 */
+    fun isCloudSyncReady(): Boolean = cloudSyncBlocker() == null
 
     /**
      * 合成最终配置；任一条件不满足返回 null。

@@ -422,8 +422,11 @@ private fun TodaySection(
         SectionHeader(
             title = "今天的事",
             subtitle = if (events.isNotEmpty()) "共 ${events.size} 件" else null,
-            // IA-1：空态与满态都给「管理提醒」，主动管理入口不再只藏在「我的」二级页。
-            action = "管理提醒 ›",
+            // IA-1：空态与满态都给管理入口，主动管理不再只藏在「我的」二级页。
+            // 文案取「待办」而非「提醒」：该入口跳的是「待办提醒」页，只管得着 chips 里的
+            // 「提醒」一类（临期 / 待买各自有页面）。早先写「管理提醒」，与 chip 标签字面
+            // 相同，容易让人以为点它能管理全部四类。
+            action = "管理待办 ›",
             onActionClick = onManageReminders
         )
         Spacer(modifier = Modifier.height(10.dp))

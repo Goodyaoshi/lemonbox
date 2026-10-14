@@ -75,7 +75,7 @@ import kotlinx.coroutines.launch
 fun DataCenterScreen(
     onBack: () -> Unit,
     onOpenLanSync: () -> Unit,
-    // 图片云端存储入口（F20）：与设备同步同属「数据怎么走」，放同一张卡里。
+    // 云存储入口（F20）：与设备同步同属「数据怎么走」，放同一张卡里。
     onOpenImageCloud: () -> Unit = {},
     viewModel: ProfileViewModel = hiltViewModel()
 ) {
@@ -129,7 +129,7 @@ fun DataCenterScreen(
             }
 
             SectionTitle(
-                title = "设备同步",
+                title = "数据同步",
                 modifier = Modifier.padding(start = 24.dp, top = 10.dp, bottom = 8.dp)
             )
             AppSurfaceCard(
@@ -146,14 +146,15 @@ fun DataCenterScreen(
                 DividerSpacer()
                 MenuRow(
                     icon = Icons.Default.CloudUpload,
-                    title = "图片云端存储",
-                    subtitle = "把家当图片存到你的对象存储，仅正式版可用",
+                    title = "云存储与同步",
+                    // 名称与页面内容对齐：该页不只有图片上传，还有文字数据的多设备同步。
+                    subtitle = "图片上云、多设备数据同步，仅正式版可用",
                     onClick = onOpenImageCloud
                 )
             }
 
             SectionTitle(
-                title = "文件备份",
+                title = "导出与维护",
                 modifier = Modifier.padding(start = 24.dp, top = 18.dp, bottom = 8.dp)
             )
             AppSurfaceCard(

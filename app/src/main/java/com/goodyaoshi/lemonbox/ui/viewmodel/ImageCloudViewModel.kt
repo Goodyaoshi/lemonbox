@@ -11,6 +11,7 @@ import com.goodyaoshi.lemonbox.data.imagecloud.ImageCredentialStore
 import com.goodyaoshi.lemonbox.data.imagecloud.ImageCredentials
 import com.goodyaoshi.lemonbox.data.imagecloud.S3Outcome
 import com.goodyaoshi.lemonbox.data.sync.CloudSyncManager
+import com.goodyaoshi.lemonbox.data.sync.CloudSyncScheduler
 import com.goodyaoshi.lemonbox.data.sync.CloudSyncState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,7 +22,7 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 /**
- * 图片云端存储的设置页状态（F20）。
+ * 云存储的设置页状态（F20）。
  *
  * 存储连接参数不在此列：它们随包内置、界面不展示也不可改，用户唯一能填的是访问凭据。
  */
@@ -30,6 +31,10 @@ data class ImageCloudUiState(
     val enabled: Boolean = false,
     val autoUpload: Boolean = true,
     val backgroundSync: Boolean = true,
+    /** 多设备数据同步（文字数据，不含图片）；与 [enabled] 相互独立。 */
+    val cloudSyncEnabled: Boolean = true,
+    /** 云同步的第一处待补齐事项；null 表示已就绪。 */
+    val cloudSyncBlocker: String? = null,
     /** 仅用于新填写；已保存的凭据回显为空，不把明文读回界面。 */
     val accessKey: String = "",
     val secretKey: String = "",
@@ -49,7 +54,8 @@ class ImageCloudViewModel @Inject constructor(
     private val credentialStore: ImageCredentialStore,
     private val syncManager: ImageCloudSyncManager,
     private val syncScheduler: ImageCloudSyncScheduler,
-    private val cloudSyncManager: CloudSyncManager
+    private val cloudSyncManager: CloudSyncManager,
+    private val cloudSyncScheduler: CloudSyncScheduler
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(
@@ -58,6 +64,8 @@ class ImageCloudViewModel @Inject constructor(
             enabled = preferences.enabled.value,
             autoUpload = preferences.autoUpload.value,
             backgroundSync = preferences.backgroundSync.value,
+            cloudSyncEnabled = preferences.cloudSyncEnabled.value,
+            cloudSyncBlocker = config.cloudSyncBlocker(),
             hasCredentials = credentialStore.hasCredentials(),
             readinessBlocker = config.readiness().firstBlocker
         )
@@ -96,6 +104,19 @@ class ImageCloudViewModel @Inject constructor(
     fun setBackgroundSync(value: Boolean) {
         preferences.setBackgroundSync(value)
         syncBackgroundWork()
+        refresh()
+    }
+
+    /**
+     * 多设备数据同步开关：与图片上传开关相互独立。
+     * 改了要重排后台任务——否则关掉后周期任务仍会唤醒网络。
+     */
+    fun setCloudSyncEnabled(value: Boolean) {
+        preferences.setCloudSyncEnabled(value)
+        cloudSyncScheduler.syncSchedule(
+            supported = config.supported,
+            enabled = preferences.cloudSyncEnabled.value
+        )
         refresh()
     }
 
@@ -183,6 +204,9 @@ class ImageCloudViewModel @Inject constructor(
             it.copy(
                 enabled = preferences.enabled.value,
                 autoUpload = preferences.autoUpload.value,
+                backgroundSync = preferences.backgroundSync.value,
+                cloudSyncEnabled = preferences.cloudSyncEnabled.value,
+                cloudSyncBlocker = config.cloudSyncBlocker(),
                 hasCredentials = credentialStore.hasCredentials(),
                 readinessBlocker = config.readiness().firstBlocker
             )

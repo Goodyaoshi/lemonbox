@@ -18,6 +18,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -53,7 +54,7 @@ import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
 import com.goodyaoshi.lemonbox.ui.viewmodel.ImageCloudViewModel
 
 /**
- * 图片云端存储设置（F20 · 仅正式包）。
+ * 云存储与同步设置（F20 · 仅正式包）：图片上传 + 多设备数据同步。
  *
  * 存储连接参数随包内置（CI Secrets 注入）、界面上**不展示也不可改**：所有客户端必须指向
  * 同一处存储才能互相看到图片，暴露给用户只会带来误改。用户唯一需要填的是自己的访问凭据——
@@ -101,7 +102,7 @@ fun ImageCloudScreen(
                     )
                 }
                 Text(
-                    text = "图片云端存储",
+                    text = "云存储与同步",
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary
@@ -126,7 +127,7 @@ fun ImageCloudScreen(
                             color = TextPrimary
                         )
                         Text(
-                            text = "图片云端存储只在正式发布版中提供，开发调试版已关闭，避免测试图片传进真实存储桶。",
+                            text = "云存储与同步只在正式发布版中提供，开发调试版已关闭，避免测试图片传进真实存储桶。",
                             fontSize = 13.sp,
                             color = TextSecondary,
                             modifier = Modifier.padding(top = 6.dp)
@@ -136,21 +137,24 @@ fun ImageCloudScreen(
                 }
 
                 Spacer(modifier = Modifier.height(18.dp))
-                EditorSectionLabel(label = "开关")
+                EditorSectionLabel(label = "图片上传")
                 Spacer(modifier = Modifier.height(8.dp))
                 AppSurfaceCard(shape = RoundedCornerShape(22.dp), shadowElevation = 12.dp) {
                     SwitchRow(
-                        title = "启用图片云端存储",
-                        subtitle = if (state.enabled) "已开启，可上传图片" else "关闭时不做任何上传",
+                        title = "启用图片上传",
+                        subtitle = if (state.enabled) "已开启，可上传图片" else "关闭时图片只存本机",
                         checked = state.enabled,
                         onCheckedChange = viewModel::setEnabled
                     )
                     DividerLine()
+                    // 下面两项都依赖上面的总开关，关闭时置灰——否则点了没有任何反应，
+                    // 用户会以为是坏了。
                     SwitchRow(
                         title = "保存后自动上传",
                         subtitle = if (state.autoUpload) "新录入的图片随手传" else "只在手动同步时上传",
                         checked = state.autoUpload,
-                        onCheckedChange = viewModel::setAutoUpload
+                        onCheckedChange = viewModel::setAutoUpload,
+                        enabled = state.enabled
                     )
                     DividerLine()
                     SwitchRow(
@@ -161,14 +165,17 @@ fun ImageCloudScreen(
                             "已关闭，漏传的只会在手动同步时补"
                         },
                         checked = state.backgroundSync,
-                        onCheckedChange = viewModel::setBackgroundSync
+                        onCheckedChange = viewModel::setBackgroundSync,
+                        enabled = state.enabled
                     )
                 }
 
                 // 未就绪时先说清差什么，免得用户在一片表单里自己找原因。
+                // 颜色按语义分：开关没开是**正常状态**（默认值），用中性色；
+                // 开了却还缺东西才算问题，才用红字。早先一律红字，把默认状态渲染成了错误。
                 state.readinessBlocker?.let { blocker ->
                     Spacer(modifier = Modifier.height(10.dp))
-                    NoticeLine(text = blocker, isError = true)
+                    NoticeLine(text = blocker, isError = state.enabled)
                 }
 
                 Spacer(modifier = Modifier.height(20.dp))
@@ -185,6 +192,24 @@ fun ImageCloudScreen(
                         fontSize = 12.sp,
                         color = TextHint
                     )
+                    // 安全提示：阿里云 / AWS 等厂商官方均不推荐在移动端直存长期 AccessKey
+                    // （存在被逆向提取的风险）。如实告知，并给出可操作的缓解办法。
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.Top) {
+                        Icon(
+                            imageVector = Icons.Default.Warning,
+                            contentDescription = null,
+                            tint = StatusExpired,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.size(6.dp))
+                        Text(
+                            text = "建议单独创建一个只有该存储桶读写权限的子账号，" +
+                                "不要填主账号密钥——客户端长期密钥有被逆向提取的风险。",
+                            fontSize = 12.sp,
+                            color = StatusExpired
+                        )
+                    }
                     Spacer(modifier = Modifier.height(10.dp))
                     EditorInputBox(
                         value = state.accessKey,
@@ -323,12 +348,21 @@ fun ImageCloudScreen(
                 Spacer(modifier = Modifier.height(8.dp))
                 AppSurfaceCard(shape = RoundedCornerShape(22.dp), shadowElevation = 12.dp) {
                     Text(
-                        text = "把本机数据与同一存储上的其他设备合并：各设备各推自己的变更，再各自合并，"
-                            + "谁都不覆盖谁。打开 App 时与后台会各自动同步一次。",
+                        text = "把本机数据（物品、记账等）与同一存储上的其他设备合并：各设备各推自己的变更，"
+                            + "再各自合并，谁都不覆盖谁。不含图片——图片是否上传由上面的开关单独决定。",
                         fontSize = 12.sp,
                         color = TextHint
                     )
                     Spacer(modifier = Modifier.height(10.dp))
+                    // 独立开关：图片占空间与流量、文字数据体积很小，两者取舍不同。
+                    // 早先共用「启用图片上传」，想省空间的人一关，连数据都不再同步了。
+                    SwitchRow(
+                        title = "启用多设备同步",
+                        subtitle = if (state.cloudSyncEnabled) "已开启，打开 App 时自动同步" else "关闭后本机数据不再对外同步",
+                        checked = state.cloudSyncEnabled,
+                        onCheckedChange = viewModel::setCloudSyncEnabled
+                    )
+                    DividerLine()
                     Text(
                         text = cloud.lastSyncedAt?.let { "上次同步：${formatSyncTime(it)}" } ?: "还没同步过",
                         fontSize = 13.sp,
@@ -344,7 +378,16 @@ fun ImageCloudScreen(
                             color = TextPrimary
                         )
                     } else {
-                        GradientButton(text = "立即同步", onClick = viewModel::syncNow)
+                        GradientButton(
+                            text = "立即同步",
+                            onClick = viewModel::syncNow,
+                            enabled = state.cloudSyncEnabled
+                        )
+                    }
+                    // 未就绪的原因直接说清（缺凭据 / 未开启），比只在按钮上变灰有用。
+                    state.cloudSyncBlocker?.let { blocker ->
+                        Spacer(modifier = Modifier.height(8.dp))
+                        NoticeLine(text = blocker, isError = state.cloudSyncEnabled)
                     }
                     cloud.lastError?.let { error ->
                         Spacer(modifier = Modifier.height(8.dp))
@@ -368,7 +411,9 @@ private fun SwitchRow(
     title: String,
     subtitle: String,
     checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit
+    onCheckedChange: (Boolean) -> Unit,
+    // 子开关在总开关关闭时置灰：它们依赖总开关，但视觉上原本毫无区分。
+    enabled: Boolean = true
 ) {
     Row(
         modifier = Modifier
@@ -381,11 +426,16 @@ private fun SwitchRow(
                 text = title,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = TextPrimary
+                // 禁用时同时压暗文字，让「暂时不可用」一眼可辨。
+                color = if (enabled) TextPrimary else TextHint
             )
-            Text(text = subtitle, fontSize = 12.sp, color = TextSecondary)
+            Text(
+                text = subtitle,
+                fontSize = 12.sp,
+                color = if (enabled) TextSecondary else TextHint
+            )
         }
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
+        Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
     }
 }
 

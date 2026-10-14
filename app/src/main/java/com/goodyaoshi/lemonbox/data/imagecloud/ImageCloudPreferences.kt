@@ -9,7 +9,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * 图片云端存储的用户偏好：开关、自动上传、后台补传。
+ * 云存储的用户偏好：图片上传开关、自动上传、后台补传，以及**独立**的多设备同步开关。
  *
  * 独立的 SharedPreferences 文件：与其他偏好零耦合，且不会被备份 / 导出流程
  * 顺带打包走（凭据同理，见 [ImageCredentialStore]）。
@@ -26,12 +26,28 @@ class ImageCloudPreferences @Inject constructor(
 
     private val _enabled = MutableStateFlow(preferences.getBoolean(KEY_ENABLED, false))
 
-    /** 是否启用图片云端存储；关闭时一切上传路径都不动作。 */
+    /** 是否启用**图片上传**；关闭时图片上传路径都不动作（已传的图仍可从云端读取）。 */
     val enabled: StateFlow<Boolean> = _enabled.asStateFlow()
 
     fun setEnabled(value: Boolean) {
         preferences.edit().putBoolean(KEY_ENABLED, value).apply()
         _enabled.value = value
+    }
+
+    /**
+     * 是否启用**多设备数据同步**（物品、记账等文字数据，不含图片）。
+     *
+     * 与 [enabled] 相互独立：图片上传耗空间与流量，文字同步体积很小，
+     * 两者的取舍不同——有人只想让数据不丢、不愿把照片传上去。
+     * 默认开启：真正的门槛是「是否填了凭据」，没凭据时本就不会动作。
+     */
+    private val _cloudSyncEnabled = MutableStateFlow(preferences.getBoolean(KEY_CLOUD_SYNC_ENABLED, true))
+
+    val cloudSyncEnabled: StateFlow<Boolean> = _cloudSyncEnabled.asStateFlow()
+
+    fun setCloudSyncEnabled(value: Boolean) {
+        preferences.edit().putBoolean(KEY_CLOUD_SYNC_ENABLED, value).apply()
+        _cloudSyncEnabled.value = value
     }
 
     private val _autoUpload = MutableStateFlow(preferences.getBoolean(KEY_AUTO_UPLOAD, true))
@@ -59,5 +75,6 @@ class ImageCloudPreferences @Inject constructor(
         const val KEY_ENABLED = "enabled"
         const val KEY_AUTO_UPLOAD = "auto_upload"
         const val KEY_BACKGROUND_SYNC = "background_sync"
+        const val KEY_CLOUD_SYNC_ENABLED = "cloud_sync_enabled"
     }
 }

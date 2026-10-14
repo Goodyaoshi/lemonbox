@@ -94,9 +94,10 @@ class LemonApplication : Application(), Configuration.Provider, ImageLoaderFacto
             backgroundSync = imageCloudPreferences.backgroundSync.value
         )
         // 多设备同步：按「正式包 + 用户已开启」排期；未开启则撤掉。
+        // 用云同步自己的开关，不看图片上传开关——两者取舍不同。
         cloudSyncScheduler.syncSchedule(
             supported = imageCloudConfig.supported,
-            enabled = imageCloudPreferences.enabled.value
+            enabled = imageCloudPreferences.cloudSyncEnabled.value
         )
         applicationScope.launch {
             // 打开应用时顺手刷新一次桌面小组件，让数据立刻最新。

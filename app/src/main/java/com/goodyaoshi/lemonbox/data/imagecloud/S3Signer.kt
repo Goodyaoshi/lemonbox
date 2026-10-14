@@ -5,7 +5,7 @@ import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 
 /**
- * AWS Signature Version 4 签名（S3 兼容对象存储通用，见 F20 图片云端存储）。
+ * AWS Signature Version 4 签名（S3 兼容对象存储通用，见 F20 云存储）。
  *
  * 自实现而不引 AWS SDK：SDK for Android 会带入数 MB 依赖，而本项目以直接分发 APK 为主、
  * 对包体敏感（见 build.gradle.kts 的 ABI 收敛与 .so 压缩），且这里只需 PUT / HEAD 两种签名。

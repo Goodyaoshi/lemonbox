@@ -77,13 +77,13 @@ class CloudSyncManager @Inject constructor(
      */
     suspend fun syncNow(): CloudSyncResult = withContext(Dispatchers.IO) {
         if (_state.value.running) return@withContext CloudSyncResult(0, 0, 0, "同步正在进行中")
-        // 用 readiness（含 enabled）而不是只 resolve：用户在设置页关掉开关后，
-        // 打开 App 的自动同步与手动「立即同步」都必须停下——关了开关数据还在往外传，
-        // 与用户意愿相悖。resolve() 只覆盖「是否有配置」，不含开关。
-        val readiness = config.readiness()
+        // 用云同步专用的就绪判断，**不看图片上传开关**：同步的是文字数据（物品、记账等），
+        // 与「要不要把照片传上去」是两回事。早先共用同一开关时，关掉图片上传会把
+        // 文字同步一并停掉——用户只想省空间，却连数据都不再同步了。
+        val blocker = config.cloudSyncBlocker()
         val s3 = config.resolve()
-        if (!readiness.ready || s3 == null) {
-            val reason = readiness.firstBlocker ?: "云同步不可用"
+        if (blocker != null || s3 == null) {
+            val reason = blocker ?: "云同步不可用"
             _state.value = _state.value.copy(lastError = reason)
             return@withContext CloudSyncResult(0, 0, 0, reason)
         }
@@ -205,12 +205,6 @@ class CloudSyncManager @Inject constructor(
         if (newWatermark > watermark) appPreferences.setPullWatermark(PEER_ID, newWatermark)
         return downloaded to mergedCount
     }
-
-    private fun resolveConfig(): S3Config? = config.resolve()
-
-    /** 未就绪时给用户一句具体的原因，而不是笼统的「未配置」。 */
-    private fun readinessReason(): String =
-        config.readiness().firstBlocker ?: "云同步不可用"
 
     private fun buildMessage(pushed: Int, pulled: Int, merged: Int): String = when {
         pushed == 0 && pulled == 0 -> "已是最新"

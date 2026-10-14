@@ -134,6 +134,8 @@ private fun ActionPillButton(
 fun SettingsScreen(
     onBack: () -> Unit,
     onOpenNotificationReliability: () -> Unit = {},
+    /** 跳「家当设置」：提醒阶梯（提前几天）在那里配，设置页只放时间点。 */
+    onOpenHouseholdSettings: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val reminderTimes by viewModel.reminderTimes.collectAsState()
@@ -278,18 +280,50 @@ fun SettingsScreen(
                 shadowElevation = 12.dp
             ) {
                 Text(
-                    text = "提醒时间",
+                    text = "提醒",
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary
                 )
                 Spacer(modifier = Modifier.size(6.dp))
                 Text(
+                    text = "通知时间点、备菜预填与预算超支提示。",
+                    fontSize = 12.sp,
+                    color = TextSecondary
+                )
+                Spacer(modifier = Modifier.size(14.dp))
+
+                // ---- 小组：通知时间 ----
+                Text(
+                    text = "通知时间",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = TextPrimary
+                )
+                Spacer(modifier = Modifier.size(4.dp))
+                Text(
+                    // 提前几天（提醒阶梯）在家当设置里配，这里明说去处并给出跳转，
+                    // 免得用户读完「命中提醒阶梯」却找不到在哪调。
                     text = "可多选。命中提醒阶梯的物品会在这些时间点汇总通知你。",
                     fontSize = 12.sp,
                     color = TextSecondary
                 )
-                Spacer(modifier = Modifier.size(12.dp))
+                Spacer(modifier = Modifier.size(4.dp))
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable(onClick = onOpenHouseholdSettings)
+                        .padding(vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "提前几天提醒 ›",
+                        fontSize = 12.sp,
+                        color = OrangeStart,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+                Spacer(modifier = Modifier.size(10.dp))
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -327,26 +361,23 @@ fun SettingsScreen(
                     color = OrangeStart,
                     fontWeight = FontWeight.Medium
                 )
-            }
 
-            AppSurfaceCard(
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
-                shape = RoundedCornerShape(24.dp),
-                shadowElevation = 12.dp
-            ) {
+                Spacer(modifier = Modifier.size(18.dp))
+
+                // ---- 小组：备菜提醒默认 ----
                 Text(
                     text = "备菜提醒默认",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
                     color = TextPrimary
                 )
-                Spacer(modifier = Modifier.size(6.dp))
+                Spacer(modifier = Modifier.size(4.dp))
                 Text(
                     text = "点周菜谱的「提醒准备」时会按这里预填。",
                     fontSize = 12.sp,
                     color = TextSecondary
                 )
-                Spacer(modifier = Modifier.size(12.dp))
+                Spacer(modifier = Modifier.size(10.dp))
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -388,26 +419,10 @@ fun SettingsScreen(
                     color = OrangeStart,
                     fontWeight = FontWeight.Medium
                 )
-            }
 
-            AppSurfaceCard(
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
-                shape = RoundedCornerShape(24.dp),
-                shadowElevation = 12.dp
-            ) {
-                Text(
-                    text = "记账提醒",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextPrimary
-                )
-                Spacer(modifier = Modifier.size(6.dp))
-                Text(
-                    text = "设了月度预算后，超支时首页和记账页会亮出提示条。",
-                    fontSize = 12.sp,
-                    color = TextSecondary
-                )
-                Spacer(modifier = Modifier.size(8.dp))
+                Spacer(modifier = Modifier.size(18.dp))
+
+                // ---- 小组：预算超支提醒（属提醒主题，不再单开一张与「外观」平级的卡）----
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -422,7 +437,11 @@ fun SettingsScreen(
                             color = TextPrimary
                         )
                         Text(
-                            text = if (budgetReminderEnabled) "超支时会在首页提示" else "已关闭，不再提示超支",
+                            text = if (budgetReminderEnabled) {
+                                "设了月度预算后，超支时首页和记账页会亮出提示条。"
+                            } else {
+                                "已关闭，不再提示超支"
+                            },
                             fontSize = 12.sp,
                             color = TextSecondary
                         )
