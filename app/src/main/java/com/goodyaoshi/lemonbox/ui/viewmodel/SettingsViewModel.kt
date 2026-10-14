@@ -21,18 +21,18 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-/** 在线更新的界面状态：检查中 / 下载进度 / 待确认版本 / 提示语。 */
+/** 在线更新的界面状态：检查中 / 待确认版本 / 可下载的安装包 / 提示语。 */
 data class UpdateUiState(
     val checking: Boolean = false,
-    val downloading: Boolean = false,
-    /** 下载进度 0..1；-1 表示总大小未知。 */
-    val progress: Float = -1f,
+    /** 有新版本时非空：用于「发现新版本」弹窗。 */
     val available: UpdateInfo? = null,
-    val message: String? = null,
-    /** 需要用户先到系统里允许「安装未知来源应用」。 */
-    val needInstallPermission: Boolean = false,
-    /** 处于移动数据网络，等待用户确认是否用流量下载。 */
-    val awaitingDataConfirm: Boolean = false
+    /**
+     * 最近一次检查得到的安装包信息，**「已是最新」时同样非空**。
+     * 常驻的「下载安装包」入口据此工作：重装、或把安装包分享给他人时都会用到，
+     * 没有它就只能干看着一句「已是最新版本」。
+     */
+    val downloadable: UpdateInfo? = null,
+    val message: String? = null
 )
 
 @HiltViewModel
@@ -152,20 +152,23 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    /** 检查 GitHub 上的最新版本，有新版本则弹窗确认。 */
+    /** 检查 GitHub 上的最新版本；有新版本则弹窗，没有则只更新可下载信息。 */
     fun checkForUpdate() {
-        if (_updateState.value.checking || _updateState.value.downloading) return
+        if (_updateState.value.checking) return
         _updateState.value = _updateState.value.copy(checking = true, message = null, available = null)
         viewModelScope.launch {
             when (val result = appUpdater.checkForUpdate()) {
+                // 「已是最新」也带回安装包信息：常驻下载入口靠它保持可用。
                 is UpdateCheckResult.UpToDate -> _updateState.value = _updateState.value.copy(
                     checking = false,
+                    downloadable = result.info,
                     message = "已是最新版本 v${result.currentVersion}"
                 )
 
                 is UpdateCheckResult.Available -> _updateState.value = _updateState.value.copy(
                     checking = false,
-                    available = result.info
+                    available = result.info,
+                    downloadable = result.info
                 )
 
                 is UpdateCheckResult.Failed -> _updateState.value = _updateState.value.copy(
@@ -177,82 +180,59 @@ class SettingsViewModel @Inject constructor(
     }
 
     /**
-     * 下载并调起安装。
+     * 交给浏览器下载安装包（[direct] 为 false 走加速地址、true 走直连）。
      *
-     * WiFi 下直接下载；移动数据（按流量计费）下先弹窗让用户确认是否用流量，
-     * 用户同意后再继续（见 [confirmDownloadOverData]）。未授权「未知来源安装」时先提示去系统设置放行。
+     * 应用内下载与安装已移除：设备上普遍拿不到「安装未知来源应用」授权，应用内调起的
+     * 安装器在多数机型走不通。改为浏览器下载，完成后用户在通知栏点开安装包，是各 ROM
+     * 放行度最高的路径，安装授权也由浏览器侧引导。
+     *
+     * 弹窗与常驻入口共用本方法：常驻入口可能在还没检查过版本时被点，此时先查一次再下载；
+     * 用户点这个按钮的意图就是下载，因此不再弹确认窗打断。
      */
-    fun downloadAndInstallUpdate() {
-        val info = _updateState.value.available ?: return
-        if (_updateState.value.downloading) return
-        if (appUpdater.isMeteredConnection()) {
-            _updateState.value = _updateState.value.copy(awaitingDataConfirm = true)
+    fun downloadInBrowser(direct: Boolean) {
+        val known = _updateState.value.available ?: _updateState.value.downloadable
+        if (known != null) {
+            openBrowser(known, direct)
             return
         }
-        startDownload(info)
-    }
-
-    /** 用户在「用移动数据下载」弹窗里确认后继续下载。 */
-    fun confirmDownloadOverData() {
-        _updateState.value = _updateState.value.copy(awaitingDataConfirm = false)
-        val info = _updateState.value.available ?: return
-        startDownload(info)
-    }
-
-    /** 关闭「用移动数据下载」弹窗，停在原处不下载。 */
-    fun dismissDataConfirm() {
-        _updateState.value = _updateState.value.copy(awaitingDataConfirm = false)
-    }
-
-    private fun startDownload(info: UpdateInfo) {
-        if (_updateState.value.downloading) return
-        if (!appUpdater.canInstallPackages()) {
-            _updateState.value = _updateState.value.copy(needInstallPermission = true)
-            return
-        }
-        _updateState.value = _updateState.value.copy(downloading = true, progress = 0f, message = null)
+        if (_updateState.value.checking) return
+        _updateState.value = _updateState.value.copy(checking = true, message = null)
         viewModelScope.launch {
-            val file = runCatching {
-                appUpdater.downloadApk(info) { downloaded, total ->
-                    val progress = if (total > 0) downloaded.toFloat() / total else -1f
-                    _updateState.value = _updateState.value.copy(progress = progress)
+            when (val result = appUpdater.checkForUpdate()) {
+                is UpdateCheckResult.UpToDate -> {
+                    _updateState.value =
+                        _updateState.value.copy(checking = false, downloadable = result.info)
+                    openBrowser(result.info, direct)
                 }
-            }.getOrElse { error ->
-                _updateState.value = _updateState.value.copy(
-                    downloading = false,
-                    message = error.message ?: "下载失败，请稍后重试"
+
+                is UpdateCheckResult.Available -> {
+                    _updateState.value = _updateState.value.copy(
+                        checking = false,
+                        available = result.info,
+                        downloadable = result.info
+                    )
+                    openBrowser(result.info, direct)
+                }
+
+                is UpdateCheckResult.Failed -> _updateState.value = _updateState.value.copy(
+                    checking = false,
+                    message = result.message
                 )
-                return@launch
             }
-            // 安装器调起被机型拦截（纯净模式、安装审计等）时保留新版本弹窗，
-            // 让用户能立刻改用浏览器下载的兜底路径，而不是只看到一条报错。
-            val installLaunched = runCatching { appUpdater.installApk(file) }.isSuccess
-            _updateState.value = _updateState.value.copy(
-                downloading = false,
-                available = if (installLaunched) null else _updateState.value.available,
-                message = if (installLaunched) {
-                    "已开始安装，请按系统提示完成更新"
-                } else {
-                    "系统没能开始安装，可在弹窗里改用浏览器下载安装"
-                }
-            )
         }
     }
 
-    /**
-     * 用浏览器下载安装包：应用内安装被机型限制（纯净模式、未授权未知来源等）时的兜底。
-     * [direct] 为 false 走加速地址、true 走直连地址；下载完成后由用户在通知栏点开安装。
-     */
-    fun downloadApkInBrowser(direct: Boolean) {
-        val info = _updateState.value.available ?: return
+    /** 打开浏览器下载并给出结果提示；已跳转浏览器，弹窗使命结束，一并关掉。 */
+    private fun openBrowser(info: UpdateInfo, direct: Boolean) {
         val urls = appUpdater.browserDownloadUrls(info.apkUrl)
-        val url = if (direct) {
-            urls.lastOrNull()
-        } else {
-            urls.firstOrNull()
-        } ?: return
+        val url = if (direct) urls.lastOrNull() else urls.firstOrNull()
+        if (url == null) {
+            _updateState.value = _updateState.value.copy(message = "没有可用的下载地址")
+            return
+        }
         val launched = appUpdater.openInBrowser(url)
         _updateState.value = _updateState.value.copy(
+            available = null,
             message = if (launched) {
                 "已交给浏览器下载，完成后在通知栏点开安装包即可更新"
             } else {
@@ -264,16 +244,6 @@ class SettingsViewModel @Inject constructor(
     /** 关闭「新版本」弹窗，保留用户稍后再更新。 */
     fun dismissUpdateDialog() {
         _updateState.value = _updateState.value.copy(available = null)
-    }
-
-    /** 去系统设置允许「安装未知来源应用」。 */
-    fun openInstallPermission() {
-        appUpdater.openInstallPermissionSettings()
-        _updateState.value = _updateState.value.copy(needInstallPermission = false)
-    }
-
-    fun dismissInstallPermissionHint() {
-        _updateState.value = _updateState.value.copy(needInstallPermission = false)
     }
 
     fun consumeUpdateMessage() {

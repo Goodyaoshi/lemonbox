@@ -27,7 +27,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
@@ -65,7 +64,6 @@ import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarmDeep
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
 import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
 import com.goodyaoshi.lemonbox.ui.viewmodel.SettingsViewModel
-import com.goodyaoshi.lemonbox.util.BrandCopy
 
 private val themeModeOptions = listOf(
     ThemeMode.SYSTEM to "跟随系统",
@@ -153,6 +151,8 @@ fun SettingsScreen(
     // 「关于与更新」整块默认折叠（IA-5）：GitHub 检查更新 / 下载 / 安装引导是低频操作，
     // 平铺会把外观、提醒时间等高频设置淹掉；折叠后只留一行标题。
     var aboutExpanded by remember { mutableStateOf(false) }
+    // 常驻「下载安装包」入口的加速 / 直连选择框。
+    var showDownloadChoice by remember { mutableStateOf(false) }
 
     // 固定档位 + 用户自定义候选，合并排序后统一展示。
     val allTimeOptions =
@@ -502,7 +502,8 @@ fun SettingsScreen(
                 }
                 if (aboutExpanded) {
                     Text(
-                        text = "有新版本时可在这里直接下载安装；WiFi 下直接下，移动数据会先提示。装不上时可改用浏览器下载。",
+                        text = "可检查新版本，也可随时下载安装包（重装、分享给他人）。下载交给浏览器，" +
+                            "完成后在通知栏点开安装包即可。",
                         fontSize = 12.sp,
                         color = TextSecondary,
                         modifier = Modifier.padding(top = 6.dp)
@@ -523,7 +524,6 @@ fun SettingsScreen(
                             )
                             Text(
                                 text = when {
-                                    updateState.downloading -> "正在下载新版本…"
                                     updateState.checking -> "正在检查更新…"
                                     else -> "从 GitHub Release 获取最新版本"
                                 },
@@ -543,6 +543,31 @@ fun SettingsScreen(
                                 onClick = { viewModel.checkForUpdate() }
                             )
                         }
+                    }
+                    // 常驻下载入口：没有新版本时同样可用——重装、或把安装包分享给他人
+                    // 都需要拿到当前版本的安装包，不该只在「有新版本」时才出现。
+                    Spacer(modifier = Modifier.size(2.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "下载安装包",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = TextPrimary
+                            )
+                            Text(
+                                text = "交给浏览器下载，完成后在通知栏点开安装",
+                                fontSize = 12.sp,
+                                color = TextSecondary
+                            )
+                        }
+                        ActionPillButton(
+                            label = "去下载",
+                            onClick = { showDownloadChoice = true }
+                        )
                     }
                     updateState.message?.let { message ->
                         Spacer(modifier = Modifier.size(4.dp))
@@ -622,80 +647,66 @@ fun SettingsScreen(
                             append(info.notes)
                         }
                     },
-                    confirmText = if (updateState.downloading) "下载中…" else "下载并安装",
-                    onConfirm = { viewModel.downloadAndInstallUpdate() },
-                    confirmEnabled = !updateState.downloading,
                     dismissText = "稍后"
                 ) {
-                    if (updateState.downloading) {
-                        val progress = updateState.progress
-                        if (progress >= 0f) {
-                            LinearProgressIndicator(
-                                progress = { progress },
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        } else {
-                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                        }
-                        Spacer(modifier = Modifier.size(8.dp))
-                        Text(
-                            text = if (progress >= 0f) {
-                                "已下载 ${(progress * 100).toInt()}%"
-                            } else {
-                                "正在下载…"
-                            },
-                            fontSize = 12.sp,
-                            color = TextSecondary
-                        )
-                    } else {
-                        // 浏览器兜底：应用内安装被机型拦截（纯净模式等）或不想授安装权限时，
-                        // 交给浏览器下载，完成后在通知栏点开安装，是各 ROM 放行度最高的路径。
-                        Spacer(modifier = Modifier.size(12.dp))
-                        Text(
-                            text = "应用内装不上？也可以交给浏览器下载，完成后在通知栏点开安装包：",
-                            fontSize = 12.sp,
-                            color = TextSecondary
-                        )
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    // 应用内安装已移除：安装授权在各机型上普遍拿不到，统一交给浏览器下载，
+                    // 完成后在通知栏点开安装包，是各 ROM 放行度最高的路径。
+                    Text(
+                        text = "请选择下载方式，完成后在通知栏点开安装包即可更新：",
+                        fontSize = 12.sp,
+                        color = TextSecondary
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        TextButton(
+                            onClick = { viewModel.downloadInBrowser(direct = false) },
+                            modifier = Modifier.weight(1f)
                         ) {
-                            TextButton(
-                                onClick = { viewModel.downloadApkInBrowser(direct = false) },
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text(text = "浏览器·加速下载", fontSize = 13.sp)
-                            }
-                            TextButton(
-                                onClick = { viewModel.downloadApkInBrowser(direct = true) },
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text(text = "浏览器·直连下载", fontSize = 13.sp)
-                            }
+                            Text(text = "浏览器·加速下载", fontSize = 13.sp)
+                        }
+                        TextButton(
+                            onClick = { viewModel.downloadInBrowser(direct = true) },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(text = "浏览器·直连下载", fontSize = 13.sp)
                         }
                     }
                 }
             }
 
-            if (updateState.awaitingDataConfirm) {
+            if (showDownloadChoice) {
                 AppDialog(
-                    title = "用移动数据下载？",
-                    onDismissRequest = { viewModel.dismissDataConfirm() },
-                    subtitle = "当前不在 WiFi 下，下载安装包会消耗移动数据流量。确认后将继续下载。",
-                    confirmText = "继续下载",
-                    onConfirm = { viewModel.confirmDownloadOverData() },
+                    title = "下载安装包",
+                    onDismissRequest = { showDownloadChoice = false },
+                    subtitle = "选择下载方式；完成后在通知栏点开安装包即可。两个地址内容相同，加速方式不可用时换直连。",
                     dismissText = "取消"
-                )
-            }
-
-            if (updateState.needInstallPermission) {
-                AppDialog(
-                    title = "需要先允许安装",
-                    onDismissRequest = { viewModel.dismissInstallPermissionHint() },
-                    subtitle = "系统默认禁止从${BrandCopy.APP_NAME}安装应用。到设置里允许后回来再点一次即可；若仍被拦截（部分机型的纯净模式），可改用浏览器下载安装。",
-                    confirmText = "去开启",
-                    onConfirm = { viewModel.openInstallPermission() }
-                )
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        TextButton(
+                            onClick = {
+                                showDownloadChoice = false
+                                viewModel.downloadInBrowser(direct = false)
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(text = "浏览器·加速下载", fontSize = 13.sp)
+                        }
+                        TextButton(
+                            onClick = {
+                                showDownloadChoice = false
+                                viewModel.downloadInBrowser(direct = true)
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(text = "浏览器·直连下载", fontSize = 13.sp)
+                        }
+                    }
+                }
             }
         }
     }
