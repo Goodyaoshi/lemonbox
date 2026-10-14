@@ -11,6 +11,8 @@ import com.goodyaoshi.lemonbox.data.imagecloud.ImageCloudPreferences
 import com.goodyaoshi.lemonbox.data.imagecloud.ImageCloudSyncScheduler
 import com.goodyaoshi.lemonbox.data.repository.LedgerPlanningRepository
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
+import com.goodyaoshi.lemonbox.data.sync.CloudSyncManager
+import com.goodyaoshi.lemonbox.data.sync.CloudSyncScheduler
 import com.goodyaoshi.lemonbox.util.AnniversaryCheckWorker
 import com.goodyaoshi.lemonbox.util.AppMaintenance
 import com.goodyaoshi.lemonbox.util.ExpiryCheckWorker
@@ -61,6 +63,12 @@ class LemonApplication : Application(), Configuration.Provider, ImageLoaderFacto
     @Inject
     lateinit var imageCloudConfig: ImageCloudConfig
 
+    @Inject
+    lateinit var cloudSyncScheduler: CloudSyncScheduler
+
+    @Inject
+    lateinit var cloudSyncManager: CloudSyncManager
+
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onCreate() {
@@ -85,6 +93,11 @@ class LemonApplication : Application(), Configuration.Provider, ImageLoaderFacto
             enabled = imageCloudPreferences.enabled.value,
             backgroundSync = imageCloudPreferences.backgroundSync.value
         )
+        // 多设备同步：按「正式包 + 用户已开启」排期；未开启则撤掉。
+        cloudSyncScheduler.syncSchedule(
+            supported = imageCloudConfig.supported,
+            enabled = imageCloudPreferences.enabled.value
+        )
         applicationScope.launch {
             // 打开应用时顺手刷新一次桌面小组件，让数据立刻最新。
             widgetUpdater.refresh()
@@ -103,6 +116,11 @@ class LemonApplication : Application(), Configuration.Provider, ImageLoaderFacto
             if (elapsed >= AppMaintenance.MAINTENANCE_INTERVAL_MS) {
                 appMaintenance.run()
             }
+        }
+        applicationScope.launch {
+            // 打开应用时同步一次：让「对方上次的改动」在我开始用之前就到位。
+            // 未就绪（没配凭据 / debug 包）内部直接返回，不影响启动。
+            cloudSyncManager.syncNow()
         }
     }
 

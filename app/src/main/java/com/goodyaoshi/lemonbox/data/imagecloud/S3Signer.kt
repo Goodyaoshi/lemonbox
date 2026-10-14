@@ -156,6 +156,12 @@ object S3Signer {
             }
 
     /**
+     * 供调用方拼实际请求 URL 用：与签名内部的规范查询串**是同一份实现**，
+     * 保证「签的那串」与「发的这串」逐字一致（差一个字符就是 403）。
+     */
+    fun canonicalQueryString(query: Map<String, String>): String = canonicalQuery(query)
+
+    /**
      * S3 的 URI 编码：仅 `A-Za-z0-9-_.~` 原样保留，其余（含非 ASCII、空格、`+`、`=`）
      * 一律按 UTF-8 字节百分号编码。`/` 是否编码由 [encodeSlash] 决定——
      * 路径里保留斜杠、查询串里编码斜杠。

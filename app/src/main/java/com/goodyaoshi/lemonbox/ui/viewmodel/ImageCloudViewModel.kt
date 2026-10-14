@@ -10,6 +10,8 @@ import com.goodyaoshi.lemonbox.data.imagecloud.ImageCloudSyncState
 import com.goodyaoshi.lemonbox.data.imagecloud.ImageCredentialStore
 import com.goodyaoshi.lemonbox.data.imagecloud.ImageCredentials
 import com.goodyaoshi.lemonbox.data.imagecloud.S3Outcome
+import com.goodyaoshi.lemonbox.data.sync.CloudSyncManager
+import com.goodyaoshi.lemonbox.data.sync.CloudSyncState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -46,7 +48,8 @@ class ImageCloudViewModel @Inject constructor(
     private val preferences: ImageCloudPreferences,
     private val credentialStore: ImageCredentialStore,
     private val syncManager: ImageCloudSyncManager,
-    private val syncScheduler: ImageCloudSyncScheduler
+    private val syncScheduler: ImageCloudSyncScheduler,
+    private val cloudSyncManager: CloudSyncManager
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(
@@ -63,6 +66,14 @@ class ImageCloudViewModel @Inject constructor(
 
     /** 同步进度由同步管理器持有，跨页面进出不丢。 */
     val syncState: StateFlow<ImageCloudSyncState> = syncManager.state
+
+    /** 多设备同步的状态（上次同步时间 / 是否在跑 / 上次错误）。 */
+    val cloudSyncState: StateFlow<CloudSyncState> = cloudSyncManager.state
+
+    /** 立即执行一次多设备同步。 */
+    fun syncNow() {
+        viewModelScope.launch { cloudSyncManager.syncNow() }
+    }
 
     init {
         refreshPendingCount()

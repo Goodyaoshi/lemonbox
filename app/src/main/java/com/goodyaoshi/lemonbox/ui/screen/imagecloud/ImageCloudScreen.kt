@@ -69,6 +69,7 @@ fun ImageCloudScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val sync by viewModel.syncState.collectAsState()
+    val cloud by viewModel.cloudSyncState.collectAsState()
 
     // 同步跑完（running 由 true 落回 false）就重算未上传张数，让界面上的数字跟着更新。
     LaunchedEffect(sync.running) {
@@ -317,9 +318,43 @@ fun ImageCloudScreen(
                     }
                 }
 
+                Spacer(modifier = Modifier.height(22.dp))
+                EditorSectionLabel(label = "多设备同步")
+                Spacer(modifier = Modifier.height(8.dp))
+                AppSurfaceCard(shape = RoundedCornerShape(22.dp), shadowElevation = 12.dp) {
+                    Text(
+                        text = "把本机数据与同一存储上的其他设备合并：各设备各推自己的变更，再各自合并，"
+                            + "谁都不覆盖谁。打开 App 时与后台会各自动同步一次。",
+                        fontSize = 12.sp,
+                        color = TextHint
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = cloud.lastSyncedAt?.let { "上次同步：${formatSyncTime(it)}" } ?: "还没同步过",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = TextSecondary
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    if (cloud.running) {
+                        Text(
+                            text = "正在同步…",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = TextPrimary
+                        )
+                    } else {
+                        GradientButton(text = "立即同步", onClick = viewModel::syncNow)
+                    }
+                    cloud.lastError?.let { error ->
+                        Spacer(modifier = Modifier.height(8.dp))
+                        NoticeLine(text = error, isError = true)
+                    }
+                }
+
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
-                    text = "图片按内容指纹存放，同一张图在任何设备上都归到同一个位置，多设备同步不会存重复。",
+                    text = "图片按内容指纹存放，同一张图在任何设备上都归到同一个位置，不会存重复。",
                     fontSize = 12.sp,
                     color = TextHint
                 )
@@ -374,4 +409,14 @@ private fun NoticeLine(text: String, isError: Boolean) {
         color = if (isError) StatusExpired else TextSecondary,
         modifier = Modifier.padding(vertical = 2.dp)
     )
+}
+
+/** 上次同步时间：当天只显示时分，跨天补上日期，避免每次都读一串完整时间戳。 */
+private fun formatSyncTime(timestamp: Long): String {
+    val target = java.util.Calendar.getInstance().apply { timeInMillis = timestamp }
+    val now = java.util.Calendar.getInstance()
+    val sameDay = target.get(java.util.Calendar.YEAR) == now.get(java.util.Calendar.YEAR) &&
+        target.get(java.util.Calendar.DAY_OF_YEAR) == now.get(java.util.Calendar.DAY_OF_YEAR)
+    val pattern = if (sameDay) "HH:mm" else "MM-dd HH:mm"
+    return java.text.SimpleDateFormat(pattern, java.util.Locale.getDefault()).format(target.time)
 }

@@ -115,7 +115,13 @@ fun BackupMergeResult.toUserMessage(): String {
 /** 一次备份导出的产物：临时 ZIP 文件 + 生成时刻（增量同步以 exportedAt 作为对方的水位线）。 */
 data class BackupArchive(
     val file: File,
-    val exportedAt: Long
+    val exportedAt: Long,
+    /**
+     * 增量导出时是否什么都没变。云同步据此跳过上传——否则每次打开 App 都会
+     * 往存储上堆一个内容相同的对象，白白占用空间与操作次数。
+     * 全量导出恒为 false（发问方另有权衡）。
+     */
+    val isEmpty: Boolean = false
 )
 
 /**
@@ -973,6 +979,12 @@ class AppBackupManager @Inject constructor(
         }
 
         val workingFile = File(context.cacheDir, "lemonbox-backup-${System.currentTimeMillis()}.zip")
+        // 增量导出且过滤后一条不剩，说明自上次水位线以来本机没改过任何东西。
+        // 全量导出恒为 false：即便库是空的，那份包也是「完整状态」的代表，不是"无变更"。
+        val isEmpty = since != null &&
+            categories.isEmpty() && locations.isEmpty() && items.isEmpty() &&
+            ledgerAssets.isEmpty() && ledgerCategories.isEmpty() && ledgerRecords.isEmpty() &&
+            ledgerBudgets.isEmpty() && anniversaries.isEmpty() && reminders.isEmpty()
         val backup = AppBackupPayload(
             exportedAt = exportedAt,
             syncVersion = SYNC_VERSION,
@@ -1057,7 +1069,7 @@ class AppBackupManager @Inject constructor(
             zip.closeEntry()
         }
 
-        return BackupArchive(file = workingFile, exportedAt = exportedAt)
+        return BackupArchive(file = workingFile, exportedAt = exportedAt, isEmpty = isEmpty)
     }
 
     private fun unzip(zipFile: File, targetDir: File) {

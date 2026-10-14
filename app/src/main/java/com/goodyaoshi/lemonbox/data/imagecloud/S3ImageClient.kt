@@ -19,6 +19,80 @@ sealed interface S3Outcome {
     data class Error(val message: String, val httpCode: Int? = null) : S3Outcome
 }
 
+/** 列出对象时返回的一个条目。[lastModified] 是服务端记录的毫秒时间戳。 */
+data class S3ObjectEntry(
+    val key: String,
+    val lastModified: Long,
+    val size: Long
+)
+
+/** [S3ImageClient.listObjects] 的结果。 */
+sealed interface ListObjectsResult {
+    data class Success(val objects: List<S3ObjectEntry>) : ListObjectsResult
+    data class Failure(val message: String, val httpCode: Int? = null) : ListObjectsResult
+}
+
+/** 一页 ListObjectsV2 响应的解析结果。 */
+internal data class ListObjectsPage(
+    val entries: List<S3ObjectEntry>,
+    val isTruncated: Boolean,
+    val nextContinuationToken: String?
+)
+
+/**
+ * 解析 ListObjectsV2 的 XML 响应。
+ *
+ * 抽成顶层纯函数是为了能直接单测：这段逻辑的输入完全来自服务端，
+ * 各家 S3 兼容实现（Filebase / R2 / MinIO）的字段顺序与空白并不一致，
+ * 用真实响应样本锁住比在真机上试错可靠。
+ *
+ * 只取三样东西：对象键、LastModified、大小。键可能含中文（用户文件名），
+ * 因此按 UTF-8 解码后再取；XML 实体转义也要还原（`&amp;` 等）。
+ */
+internal fun parseListObjectsXml(xml: String): ListObjectsPage {
+    val contents = Regex("<Contents>(.*?)</Contents>", RegexOption.DOT_MATCHES_ALL)
+        .findAll(xml)
+        .mapNotNull { match ->
+            val block = match.groupValues[1]
+            val key = xmlText(block, "Key") ?: return@mapNotNull null
+            val lastModified = xmlText(block, "LastModified")
+                ?.let { parseAmzDate(it) } ?: 0L
+            val size = xmlText(block, "Size")?.toLongOrNull() ?: 0L
+            S3ObjectEntry(key = unescapeXml(key), lastModified = lastModified, size = size)
+        }
+        .toList()
+
+    val truncated = xmlText(xml, "IsTruncated")?.trim().equals("true", ignoreCase = true)
+    // 未截断时服务端可能仍回一个空 token，这里统一归一成 null，调用方只看 null 判断结束。
+    val token = xmlText(xml, "NextContinuationToken")?.trim()?.takeIf { it.isNotEmpty() }
+
+    return ListObjectsPage(
+        entries = contents,
+        isTruncated = truncated,
+        nextContinuationToken = token
+    )
+}
+
+/** 取 `<tag>...</tag>` 的文本内容；缺失返回 null。 */
+private fun xmlText(xml: String, tag: String): String? =
+    Regex("<$tag>(.*?)</$tag>", RegexOption.DOT_MATCHES_ALL)
+        .find(xml)
+        ?.groupValues
+        ?.get(1)
+
+/** 解析形如 `2026-10-14T12:00:00.000Z` 的时间戳（ISO-8601，S3 固定用 UTC）。 */
+private fun parseAmzDate(value: String): Long? =
+    runCatching { java.time.Instant.parse(value).toEpochMilli() }.getOrNull()
+
+/** 还原 XML 实体转义；顺序有讲究，`&amp;` 必须最后处理，否则会把转义过的实体二次还原。 */
+private fun unescapeXml(value: String): String =
+    value
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
+        .replace("&amp;", "&")
+
 /**
  * 一次对象存储操作所需的全部参数：连接配置 + 凭据。
  * 由 [ImageCloudConfig] 在运行时组装（配置来自 BuildConfig，凭据来自加密存储）。
@@ -76,7 +150,8 @@ class S3ImageClient @Inject constructor() {
         config: S3Config,
         objectKey: String,
         payloadSha256: String,
-        file: File
+        file: File,
+        contentType: String = CONTENT_TYPE
     ): S3Outcome {
         val base = config.normalizedEndpoint ?: return S3Outcome.Error("存储地址未配置")
         return request(
@@ -85,7 +160,8 @@ class S3ImageClient @Inject constructor() {
             canonicalPath = keyCanonicalPath(config.bucket, objectKey),
             urlText = objectUrl(base, config.bucket, objectKey),
             payloadSha256 = payloadSha256,
-            file = file
+            file = file,
+            contentType = contentType
         )
     }
 
@@ -125,6 +201,55 @@ class S3ImageClient @Inject constructor() {
     private fun keyCanonicalPath(bucket: String, objectKey: String): String =
         "/$bucket/${S3Signer.uriEncode(objectKey, encodeSlash = false)}"
 
+    /**
+     * 列出指定前缀下的对象（ListObjectsV2），自动翻页直到取完。
+     *
+     * 用于多设备同步：把云端已有的快照列出来，挑出本地还没合并过的。
+     * 每页最多 1000 个对象，用 [ListObjectsResult.Continuation] 里的 token 继续翻。
+     */
+    fun listObjects(config: S3Config, prefix: String): ListObjectsResult {
+        val base = config.normalizedEndpoint ?: return ListObjectsResult.Failure("存储地址未配置")
+        if (config.bucket.isBlank()) return ListObjectsResult.Failure("存储桶未配置")
+
+        val all = mutableListOf<S3ObjectEntry>()
+        var token: String? = null
+        // 上限兜底：正常家庭的快照数量远小于此，碰到上限说明状态异常，宁可少列不可死循环。
+        repeat(MAX_LIST_PAGES) {
+            val query = mutableMapOf("list-type" to "2")
+            if (prefix.isNotBlank()) query["prefix"] = prefix
+            token?.let { query["continuation-token"] = it }
+
+            val canonicalPath = "/${config.bucket}"
+            val queryString = S3Signer.canonicalQueryString(query)
+            var conn: HttpURLConnection? = null
+            val body = try {
+                conn = openSigned(
+                    config = config,
+                    method = "GET",
+                    canonicalPath = canonicalPath,
+                    urlText = "$base/$canonicalPath?$queryString",
+                    payloadSha256 = S3Signer.EMPTY_PAYLOAD_SHA256,
+                    query = query
+                )
+                when (val code = conn.responseCode) {
+                    in 200..299 -> conn.inputStream.bufferedReader().use { it.readText() }
+                    403 -> return ListObjectsResult.Failure("凭据无效或无权列出该存储桶")
+                    else -> return ListObjectsResult.Failure(errorText(conn, code), code)
+                }
+            } catch (e: Exception) {
+                return ListObjectsResult.Failure(e.message ?: "网络异常，请检查网络后重试")
+            } finally {
+                conn?.disconnect()
+            }
+
+            val page = parseListObjectsXml(body)
+            all += page.entries
+            token = page.nextContinuationToken ?: return ListObjectsResult.Success(all)
+            if (!page.isTruncated) return ListObjectsResult.Success(all)
+        }
+        return ListObjectsResult.Success(all)
+    }
+
     /** 实际请求 URL，与规范路径保持同一份编码，避免「签的路径」与「发的路径」不一致。 */
     private fun objectUrl(base: String, bucket: String, objectKey: String): String =
         "$base/$bucket/${S3Signer.uriEncode(objectKey, encodeSlash = false)}"
@@ -139,7 +264,8 @@ class S3ImageClient @Inject constructor() {
         method: String,
         canonicalPath: String,
         urlText: String,
-        payloadSha256: String
+        payloadSha256: String,
+        query: Map<String, String> = emptyMap()
     ): HttpURLConnection {
         val url = URL(urlText)
         // Host 头必须与签名里的一致：默认端口时 URL 不带端口，HttpURLConnection 也不会带。
@@ -149,7 +275,7 @@ class S3ImageClient @Inject constructor() {
             method = method,
             host = hostHeader,
             canonicalPath = canonicalPath,
-            query = emptyMap(),
+            query = query,
             payloadHash = payloadSha256,
             region = config.region,
             accessKey = config.accessKey,
@@ -283,14 +409,15 @@ class S3ImageClient @Inject constructor() {
         canonicalPath: String,
         urlText: String,
         payloadSha256: String,
-        file: File?
+        file: File?,
+        contentType: String = CONTENT_TYPE
     ): S3Outcome {
         var conn: HttpURLConnection? = null
         return try {
             conn = openSigned(config, method, canonicalPath, urlText, payloadSha256)
             if (file != null) {
                 conn.doOutput = true
-                conn.setRequestProperty("Content-Type", CONTENT_TYPE)
+                conn.setRequestProperty("Content-Type", contentType)
                 // 对象键由图片内容的哈希推导，同一键的内容永不改变，因此可以长期缓存。
                 // 这一行不只是优化：若响应缺少可缓存指令，图片加载器可能拒绝写磁盘缓存，
                 // 于是「缓存键按对象键固定」的设计就落空了——离线时依然看不到图。
@@ -330,6 +457,9 @@ class S3ImageClient @Inject constructor() {
 
         /** 下载中的临时文件后缀，成功改名后才成为正式文件。 */
         const val DOWNLOAD_SUFFIX = ".download"
+
+        /** 列表翻页上限，防服务端异常导致死循环。 */
+        const val MAX_LIST_PAGES = 100
 
         /**
          * 上传时给对象打上的缓存策略：内容寻址（键=内容哈希）意味着一经写入内容永不改变，
