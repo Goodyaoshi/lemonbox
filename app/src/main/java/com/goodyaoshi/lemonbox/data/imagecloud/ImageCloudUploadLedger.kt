@@ -36,6 +36,17 @@ class ImageCloudUploadLedger @Inject constructor(
         preferences.edit().putStringSet(KEY_UPLOADED, merged).apply()
     }
 
+    /**
+     * 从账本移除键（云端对象已删除时调用）。
+     * 不清理的话，下次同步会把「已不存在」误判成「已上传」而跳过重新上传。
+     */
+    fun removeAll(keys: Collection<String>) {
+        if (keys.isEmpty()) return
+        val remaining = HashSet(keys())
+        if (!remaining.removeAll(keys)) return
+        preferences.edit().putStringSet(KEY_UPLOADED, remaining).apply()
+    }
+
     /** 清空账本（换了存储地址或凭据后，旧键不再适用）。 */
     fun clear() {
         preferences.edit().remove(KEY_UPLOADED).apply()

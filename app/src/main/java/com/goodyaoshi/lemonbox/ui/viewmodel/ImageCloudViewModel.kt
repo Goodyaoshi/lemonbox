@@ -21,18 +21,13 @@ import javax.inject.Inject
 /**
  * 图片云端存储的设置页状态（F20）。
  *
- * [endpoint] 等四项连接参数是**只读展示**，恒等于包内配置；用户唯一能填的是访问凭据。
+ * 存储连接参数不在此列：它们随包内置、界面不展示也不可改，用户唯一能填的是访问凭据。
  */
 data class ImageCloudUiState(
     val supported: Boolean = false,
     val enabled: Boolean = false,
     val autoUpload: Boolean = true,
     val backgroundSync: Boolean = true,
-    /** 只读展示用的连接参数（取自包内配置，不可修改）。 */
-    val endpoint: String = "",
-    val region: String = "",
-    val bucket: String = "",
-    val prefix: String = "",
     /** 仅用于新填写；已保存的凭据回显为空，不把明文读回界面。 */
     val accessKey: String = "",
     val secretKey: String = "",
@@ -60,10 +55,6 @@ class ImageCloudViewModel @Inject constructor(
             enabled = preferences.enabled.value,
             autoUpload = preferences.autoUpload.value,
             backgroundSync = preferences.backgroundSync.value,
-            endpoint = config.endpoint(),
-            region = config.region(),
-            bucket = config.bucket(),
-            prefix = config.prefix(),
             hasCredentials = credentialStore.hasCredentials(),
             readinessBlocker = config.readiness().firstBlocker
         )

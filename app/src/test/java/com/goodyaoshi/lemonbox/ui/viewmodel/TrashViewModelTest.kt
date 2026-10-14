@@ -2,6 +2,7 @@ package com.goodyaoshi.lemonbox.ui.viewmodel
 
 import com.goodyaoshi.lemonbox.data.local.entity.Item
 import com.goodyaoshi.lemonbox.data.repository.ItemRepository
+import com.goodyaoshi.lemonbox.testing.FakeImageCloudPurger
 import com.goodyaoshi.lemonbox.testing.FakeItemDao
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -53,7 +54,7 @@ class TrashViewModelTest {
                 trashItem(id = 3L, deletedAt = null)
             )
         )
-        val viewModel = TrashViewModel(ItemRepository(dao))
+        val viewModel = TrashViewModel(ItemRepository(dao), FakeImageCloudPurger())
 
         val collectJob = launch { viewModel.deletedItems.collect { } }
 
@@ -63,7 +64,7 @@ class TrashViewModelTest {
 
     @Test
     fun toggleSelection_addsThenRemovesSameId() = runTest(mainDispatcher) {
-        val viewModel = TrashViewModel(ItemRepository(FakeItemDao()))
+        val viewModel = TrashViewModel(ItemRepository(FakeItemDao()), FakeImageCloudPurger())
 
         viewModel.toggleSelection(1L)
         viewModel.toggleSelection(2L)
@@ -76,7 +77,7 @@ class TrashViewModelTest {
 
     @Test
     fun clearSelection_emptiesSelection() = runTest(mainDispatcher) {
-        val viewModel = TrashViewModel(ItemRepository(FakeItemDao()))
+        val viewModel = TrashViewModel(ItemRepository(FakeItemDao()), FakeImageCloudPurger())
 
         viewModel.selectAll(setOf(1L, 2L, 3L))
         viewModel.clearSelection()
@@ -86,7 +87,7 @@ class TrashViewModelTest {
 
     @Test
     fun pruneSelection_dropsIdsThatNoLongerExist() = runTest(mainDispatcher) {
-        val viewModel = TrashViewModel(ItemRepository(FakeItemDao()))
+        val viewModel = TrashViewModel(ItemRepository(FakeItemDao()), FakeImageCloudPurger())
 
         viewModel.selectAll(setOf(1L, 2L, 3L))
         // 列表刷新后只剩 2、3，勾选集里的 1 应被剔除。
@@ -103,7 +104,7 @@ class TrashViewModelTest {
                 trashItem(id = 2L, deletedAt = 1_000L)
             )
         )
-        val viewModel = TrashViewModel(ItemRepository(dao))
+        val viewModel = TrashViewModel(ItemRepository(dao), FakeImageCloudPurger())
         viewModel.selectAll(setOf(1L, 2L))
 
         viewModel.restoreSelected {}
@@ -122,7 +123,7 @@ class TrashViewModelTest {
                 trashItem(id = 2L, deletedAt = 1_000L)
             )
         )
-        val viewModel = TrashViewModel(ItemRepository(dao))
+        val viewModel = TrashViewModel(ItemRepository(dao), FakeImageCloudPurger())
         viewModel.selectAll(setOf(1L, 2L))
 
         viewModel.permanentlyDelete(listOf(1L))

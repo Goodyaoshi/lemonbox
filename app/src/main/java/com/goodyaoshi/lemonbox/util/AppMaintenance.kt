@@ -7,6 +7,7 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import com.goodyaoshi.lemonbox.data.imagecloud.ImageCloudPurger
 import com.goodyaoshi.lemonbox.data.repository.AnniversaryRepository
 import com.goodyaoshi.lemonbox.data.repository.CategoryRepository
 import com.goodyaoshi.lemonbox.data.repository.ItemRepository
@@ -37,14 +38,19 @@ class AppMaintenance @Inject constructor(
     private val locationRepository: LocationRepository,
     private val categoryRepository: CategoryRepository,
     private val ledgerRepository: LedgerRepository,
+    private val cloudPurger: ImageCloudPurger,
     private val appPreferences: AppPreferences
 ) {
 
     suspend fun run() {
         val cutoff = System.currentTimeMillis() - TOMBSTONE_TTL_MS
+        // 物理清除的墓碑：同时删本地文件与云端对象（云端可能已无本地副本，是唯一来源）。
+        val purgedKeys = mutableListOf<String>()
         itemRepository.purgeDeletedItemsOlderThan(cutoff).forEach { item ->
             item.imagePathList().forEach(ImageUtil::deleteImage)
+            purgedKeys += item.imageObjectKeyList()
         }
+        cloudPurger.purgeCloudObjects(purgedKeys)
         // 纪念日与待办提醒的软删墓碑：30 天后物理清除，删除动作仍会先同步到对方。
         anniversaryRepository.purgeDeletedOlderThan(cutoff)
         reminderRepository.purgeDeletedOlderThan(cutoff)

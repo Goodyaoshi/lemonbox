@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.goodyaoshi.lemonbox.data.local.entity.Item
 import com.goodyaoshi.lemonbox.data.local.entity.ItemDetail
+import com.goodyaoshi.lemonbox.data.imagecloud.ImageCloudPurger
 import com.goodyaoshi.lemonbox.data.repository.ItemRepository
 import com.goodyaoshi.lemonbox.util.ImageUtil
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -19,7 +20,8 @@ import javax.inject.Inject
 
 @HiltViewModel
 class TrashViewModel @Inject constructor(
-    private val itemRepository: ItemRepository
+    private val itemRepository: ItemRepository,
+    private val cloudPurger: ImageCloudPurger
 ) : ViewModel() {
 
     private val retentionWindowMs = 30L * 24 * 60 * 60 * 1000
@@ -94,12 +96,17 @@ class TrashViewModel @Inject constructor(
         if (itemIds.isEmpty()) return
 
         viewModelScope.launch {
+            val purgedKeys = mutableListOf<String>()
             itemRepository.permanentlyDeleteFromTrash(itemIds).forEach { item ->
                 if (item.imagePath.isNotBlank()) {
                     ImageUtil.deleteImage(item.imagePath)
                 }
+                // 永久删除前记下这些物品用过的云端对象键，删除后据此清理孤儿对象。
+                purgedKeys += item.imageObjectKeyList()
             }
             _selectedIds.update { it - itemIds.toSet() }
+            // 云端清理失败不该回退本地删除（内部已静默处理，且会先排除仍被引用的键）。
+            cloudPurger.purgeCloudObjects(purgedKeys)
         }
     }
 }

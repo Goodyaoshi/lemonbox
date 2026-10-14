@@ -53,32 +53,11 @@ import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
 import com.goodyaoshi.lemonbox.ui.viewmodel.ImageCloudViewModel
 
 /**
- * 只读配置项：标签 + 值，刻意不用输入框样式，避免让人以为可以点进去改。
- */
-@Composable
-private fun ReadOnlyField(
-    label: String,
-    value: String,
-    emptyText: String = "（未设置）"
-) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Text(text = label, fontSize = 12.sp, color = TextHint)
-        Spacer(modifier = Modifier.height(3.dp))
-        Text(
-            text = value.ifBlank { emptyText },
-            fontSize = 14.sp,
-            color = TextPrimary
-        )
-    }
-}
-
-/**
  * 图片云端存储设置（F20 · 仅正式包）。
  *
- * 分工（对应「配置进包、凭据手填」）：
- * - 存储地址 / 区域 / 存储桶 / 前缀：随包内置（CI Secrets 注入），此处只读展示；
- * - AccessKey / SecretKey：只存在本机，由 [ImageCloudViewModel] 交给 Keystore 加密保存，
- *   绝不进 APK，界面也不回显已保存的明文。
+ * 存储连接参数随包内置（CI Secrets 注入）、界面上**不展示也不可改**：所有客户端必须指向
+ * 同一处存储才能互相看到图片，暴露给用户只会带来误改。用户唯一需要填的是自己的访问凭据——
+ * 它只存在本机，由 [ImageCloudViewModel] 交给 Keystore 加密保存，绝不进 APK。
  *
  * 存量图片迁移就是「一键同步全部图片」：对象键由图片内容哈希决定，
  * 已上传过的会被跳过，因此这个按钮**可以反复点**，不会产生重复对象。
@@ -233,32 +212,9 @@ fun ImageCloudScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(20.dp))
-                EditorSectionLabel(label = "存储连接")
-                Spacer(modifier = Modifier.height(8.dp))
-                AppSurfaceCard(shape = RoundedCornerShape(22.dp), shadowElevation = 12.dp) {
-                    Text(
-                        text = "由发布版本固定，不可修改——所有客户端必须指向同一处存储才能互相看到图片。",
-                        fontSize = 12.sp,
-                        color = TextHint
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    ReadOnlyField(label = "存储地址", value = state.endpoint)
-                    Spacer(modifier = Modifier.height(10.dp))
-                    ReadOnlyField(label = "区域", value = state.region)
-                    Spacer(modifier = Modifier.height(10.dp))
-                    ReadOnlyField(label = "存储桶", value = state.bucket)
-                    Spacer(modifier = Modifier.height(10.dp))
-                    ReadOnlyField(
-                        label = "对象前缀",
-                        value = state.prefix,
-                        emptyText = "（无，直接放在桶根下）"
-                    )
-                }
-
                 Spacer(modifier = Modifier.height(14.dp))
                 GradientButton(
-                    text = if (state.testing) "正在测试…" else "保存并测试连接",
+                    text = if (state.testing) "正在测试…" else "保存凭据并测试连接",
                     enabled = !state.testing,
                     onClick = viewModel::saveAndTest
                 )

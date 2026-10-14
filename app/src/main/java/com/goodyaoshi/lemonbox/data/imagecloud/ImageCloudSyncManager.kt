@@ -79,8 +79,9 @@ class ImageCloudSyncManager @Inject constructor(
     private val credentialStore: ImageCredentialStore,
     private val client: S3ImageClient,
     private val itemRepository: ItemRepository,
-    private val ledger: ImageCloudUploadLedger
-) {
+    private val ledger: ImageCloudUploadLedger,
+    private val restoreStore: ImageRestoreStore
+) : ImageCloudPurger {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var job: Job? = null
@@ -408,6 +409,58 @@ class ImageCloudSyncManager @Inject constructor(
     }
 
     /**
+     * 清理已无引用的云端对象（物品被永久删除后调用）。
+     *
+     * 为什么需要：本地副本在上传成功时就被删掉了，云端成了唯一副本；物品永久删除后，
+     * 它的对象就成了孤儿，不清理只会越积越多。
+     *
+     * 为什么先算引用：对象键由内容哈希推导，同一张图可能被多件物品、多个槽位共用，
+     * 直接删会误伤仍在使用的图片。只有确认全库再无任何位置引用该键时才删。
+     *
+     * 失败与未就绪都静默跳过：物品删除本身已经完成，云端清理失败不该反过来阻断用户操作，
+     * 留下的孤儿下次再清（对象键持久化在物品行里，不会失去线索）。
+     */
+    override suspend fun purgeCloudObjects(candidateKeys: Collection<String>) =
+        purgeCloudObjectsInternal(candidateKeys)
+
+    private suspend fun purgeCloudObjectsInternal(candidateKeys: Collection<String>) {
+        val keys = candidateKeys.filter { it.isNotBlank() }.distinct()
+        if (keys.isEmpty()) return
+        val s3 = config.resolve() ?: return
+        withContext(Dispatchers.IO) {
+            // 用**含软删物品**的全量快照统计引用：回收站里的物品随时可能被恢复，
+            // 若把它们排除在外，就会出现「删掉回收站里另一个物品还在用的图」——
+            // 那个物品一旦恢复就成了没有图的空壳。
+            // 读不出全库引用时宁可保留孤儿，也不冒误删在用的图的风险。
+            val stillReferenced = try {
+                itemRepository.getAllItemsSnapshot()
+                    .flatMap { it.imageObjectKeyList() }
+                    .filter { it.isNotBlank() }
+                    .toSet()
+            } catch (e: CancellationException) {
+                // 页面/任务被取消时不吞掉取消信号，否则删除循环会继续跑下去。
+                throw e
+            } catch (e: Exception) {
+                return@withContext
+            }
+
+            for (key in purgeableCloudKeys(keys, stillReferenced)) {
+                when (client.deleteObject(s3, key)) {
+                    // S3 对不存在的键也返回成功，NotFound 同样算已达成删除意图。
+                    is S3Outcome.Success, S3Outcome.NotFound -> {
+                        knownRemoteKeys.remove(key)
+                        ledger.removeAll(listOf(key))
+                        // 云端对象已删，本地回填副本随之作废，一并清掉免得白占空间。
+                        restoreStore.delete(key)
+                    }
+                    // 删除失败：保留账本记录，下次再试。
+                    else -> Unit
+                }
+            }
+        }
+    }
+
+    /**
      * 后台补传：就地执行（不占用 UI 的 [job]），返回本次结果供 WorkManager 决定是否重试。
      * 未就绪时返回 [SyncRunResult.NotReady] 而不抛异常——配置缺失不该让后台任务反复重试。
      */
@@ -442,3 +495,19 @@ sealed interface SyncRunResult {
         val allSucceeded: Boolean get() = failed == 0
     }
 }
+
+/**
+ * 从候选键里筛出**确认无人引用**、可以安全删除的键。
+ *
+ * 抽成不依赖 Android 的顶层纯函数以便单测：这是防误删的唯一一道判断，写错的表现是
+ * 「删掉别的物品还在用的图」（对象键由内容哈希推导，同一张图可能挂在多件物品上），
+ * 且不可逆。空串是「该槽位未上传」的占位，重复项来自同一张图被多个槽位引用，
+ * 两者都在这里滤掉，避免拿它们去发 DELETE 请求。
+ */
+internal fun purgeableCloudKeys(
+    candidates: Collection<String>,
+    stillReferenced: Set<String>
+): List<String> = candidates
+    .filter { it.isNotBlank() }
+    .distinct()
+    .filterNot { it in stillReferenced }

@@ -7,6 +7,11 @@ import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * 一张图该从哪里取的决策结果（纯数据，不含任何 IO）。
@@ -48,22 +53,39 @@ internal fun decideImageLocation(
 /**
  * 把「本地路径 + 云端对象键」解析成图片加载器能直接使用的 model（F20）。
  *
- * 两个关键取舍：
- *  1. **缓存键用对象键而非 URL**：预签名 URL 每次都变（含时间戳与签名），以它作键永远不命中；
+ * 三个关键取舍：
+ *  1. **取回过的图落盘复用**：上传成功后本地副本会被删掉，若不落盘，列表 / 详情 / 预览
+ *     每一处首次显示都要等一趟网络（还要先解密 Keystore 生成预签名 URL）。因此云端取回的图
+ *     会存进 [ImageRestoreStore]，之后任何入口直接读本地文件，不再联网。
+ *  2. **缓存键用对象键而非 URL**：预签名 URL 每次都变（含时间戳与签名），以它作键永远不命中；
  *     用内容哈希推导的对象键作内存/磁盘缓存键，同一张图取回多少次都命中同一份。
- *  2. **签名结果与凭据都做短时缓存**：[ImageCloudConfig.resolve] 会走 Keystore 解密，不能每帧调。
+ *  3. **签名结果与凭据都做短时缓存**：[ImageCloudConfig.resolve] 会走 Keystore 解密，不能每帧调。
  */
 @Singleton
 class ImageUrlResolver @Inject constructor(
     @ApplicationContext private val context: Context,
     private val config: ImageCloudConfig,
-    private val client: S3ImageClient
+    private val client: S3ImageClient,
+    private val restoreStore: ImageRestoreStore
 ) {
 
     private data class CachedUrl(val url: String, val usableUntilMillis: Long)
 
     /** 对象键 → 预签名 URL。数量级等于图片张数，无需淘汰策略。 */
     private val presignCache = ConcurrentHashMap<String, CachedUrl>()
+
+    /**
+     * 回填用的后台作用域：只做落盘，不参与界面生命周期。
+     *
+     * 并发限制为 2 是刻意的：回填本身是为了让**后续**显示更快，若放任它一次性抢下所有
+     * 带宽，反而会把用户正在等的这次显示拖慢——那就得不偿失了。列表一屏可能有几十张图，
+     * 逐个慢慢补即可。
+     */
+    private val restoreScope =
+        CoroutineScope(SupervisorJob() + Dispatchers.IO.limitedParallelism(RESTORE_CONCURRENCY))
+
+    /** 正在回填的对象键，避免同一张图被多次并发下载。 */
+    private val restoreInFlight = ConcurrentHashMap.newKeySet<String>()
 
     @Volatile
     private var cachedConfig: S3Config? = null
@@ -75,7 +97,7 @@ class ImageUrlResolver @Inject constructor(
      * 解析出可直接喂给 `AsyncImage(model = ...)` 的值；无从取图时返回 null，
      * 由调用方的占位/错误态接管。
      *
-     * 注意：会做一次文件存在性判断，调用方应配合 `remember(localPath, objectKey)`，
+     * 注意：会做文件存在性判断，调用方应配合 `remember(localPath, objectKey)`，
      * 避免每次重组都重新 stat。
      */
     fun model(localPath: String?, objectKey: String?): Any? {
@@ -86,8 +108,43 @@ class ImageUrlResolver @Inject constructor(
         )
         return when (location) {
             is ImageLocation.Local -> location.path
-            is ImageLocation.Cloud -> cloudModel(location.objectKey)
+            is ImageLocation.Cloud -> restoredOrCloudModel(location.objectKey)
             ImageLocation.None -> null
+        }
+    }
+
+    /**
+     * 云端取图：先看有没有之前落盘的副本，有就直接用本地文件（完全不联网）；
+     * 没有才走预签名 URL，并顺手在后台把图落盘，让后续显示不再等网络。
+     */
+    private fun restoredOrCloudModel(objectKey: String): Any? {
+        val restored = restoreStore.fileFor(objectKey)
+        if (restored.isFile) return restored.absolutePath
+        ensureRestored(objectKey)
+        return cloudModel(objectKey)
+    }
+
+    /**
+     * 后台把云端对象落盘，供后续显示直接读本地。
+     *
+     * 刻意不等结果：这是「下次更快」的优化，本次显示仍走 URL，不该让界面等它。
+     * 失败也不上报——网络恢复后下次显示会再试；同一对象键同时只下一次。
+     */
+    private fun ensureRestored(objectKey: String) {
+        if (!restoreInFlight.add(objectKey)) return
+        restoreScope.launch {
+            try {
+                val target = restoreStore.fileFor(objectKey)
+                if (target.isFile) return@launch
+                val s3 = currentConfig() ?: return@launch
+                client.getObject(s3, objectKey, target)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // 落盘失败只是少了一次优化，本次仍能通过 URL 正常显示。
+            } finally {
+                restoreInFlight.remove(objectKey)
+            }
         }
     }
 
@@ -135,5 +192,8 @@ class ImageUrlResolver @Inject constructor(
 
         /** 连接配置缓存 1 分钟：用户改配置后最多这么久生效，换取不做逐帧解密。 */
         const val CONFIG_TTL_MILLIS = 60 * 1000L
+
+        /** 回填的并发上限：少占带宽，优先保证用户当前这次显示。 */
+        const val RESTORE_CONCURRENCY = 2
     }
 }

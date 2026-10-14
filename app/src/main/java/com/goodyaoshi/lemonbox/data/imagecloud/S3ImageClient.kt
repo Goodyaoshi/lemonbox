@@ -89,6 +89,24 @@ class S3ImageClient @Inject constructor() {
         )
     }
 
+    /**
+     * 删除对象。S3 对不存在的键同样返回成功，因此「未命中」也算删除意图已达成。
+     *
+     * 用于永久删除物品后清理云端孤儿对象：本地副本在上传成功时已被删掉，云端就是唯一副本，
+     * 不清理的话对象只增不减。
+     */
+    fun deleteObject(config: S3Config, objectKey: String): S3Outcome {
+        val base = config.normalizedEndpoint ?: return S3Outcome.Error("存储地址未配置")
+        return request(
+            config = config,
+            method = "DELETE",
+            canonicalPath = keyCanonicalPath(config.bucket, objectKey),
+            urlText = objectUrl(base, config.bucket, objectKey),
+            payloadSha256 = S3Signer.EMPTY_PAYLOAD_SHA256,
+            file = null
+        )
+    }
+
     /** 连桶自检：HEAD 桶根，用来验证 endpoint / region / 凭据是否走得通。 */
     fun checkBucket(config: S3Config): S3Outcome {
         val base = config.normalizedEndpoint ?: return S3Outcome.Error("存储地址未配置")
