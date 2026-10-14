@@ -50,7 +50,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -62,7 +61,9 @@ import com.goodyaoshi.lemonbox.data.local.entity.LedgerRecord.Companion.TYPE_TRA
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.DeleteCopy
+import com.goodyaoshi.lemonbox.ui.components.LemonFab
 import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
+import com.goodyaoshi.lemonbox.ui.components.rememberBottomBarClearance
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.EmptyState
 import com.goodyaoshi.lemonbox.ui.components.AMOUNT_TNUM
@@ -83,9 +84,6 @@ import com.goodyaoshi.lemonbox.ui.components.ledgerIconFor
 import com.goodyaoshi.lemonbox.ui.components.ledgerSignedAmountText
 import com.goodyaoshi.lemonbox.ui.components.ledgerTypeColor
 import com.goodyaoshi.lemonbox.ui.theme.CardWhite
-import com.goodyaoshi.lemonbox.ui.theme.LemonEnd
-import com.goodyaoshi.lemonbox.ui.theme.LemonStart
-import com.goodyaoshi.lemonbox.ui.theme.OnLemon
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.OrangeTint
 import com.goodyaoshi.lemonbox.ui.theme.SageAccent
@@ -252,7 +250,12 @@ fun LedgerScreen(
 
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 132.dp),
+                contentPadding = PaddingValues(
+                    start = 16.dp,
+                    end = 16.dp,
+                    top = 12.dp,
+                    bottom = rememberBottomBarClearance(extra = 38.dp)
+                ),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 item(key = "summary") {
@@ -420,25 +423,13 @@ fun LedgerScreen(
             }
         }
 
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = 20.dp, bottom = 118.dp)
-                .size(58.dp)
-                .clip(CircleShape)
-                .background(
-                    brush = Brush.linearGradient(colors = listOf(LemonStart, LemonEnd))
-                )
-                .clickable { onNavigateToRecordEdit(null) },
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = Icons.Default.Add,
-                contentDescription = "记一笔",
-                tint = OnLemon,
-                modifier = Modifier.size(28.dp)
-            )
-        }
+        LemonFab(
+            icon = Icons.Default.Add,
+            contentDescription = "记一笔",
+            onClick = { onNavigateToRecordEdit(null) },
+            modifier = Modifier.align(Alignment.BottomEnd),
+            hasBottomBar = true
+        )
 
         // 删除流水前的二次确认（I1）：与资产 / 分类 / 纪念日等页面的删除体验保持一致。
         pendingDeleteRecord?.let { target ->

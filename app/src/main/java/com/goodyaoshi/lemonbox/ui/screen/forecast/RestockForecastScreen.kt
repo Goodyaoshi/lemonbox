@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -69,6 +70,7 @@ fun RestockForecastScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
+                .navigationBarsPadding()
         ) {
             Row(
                 modifier = Modifier
@@ -98,7 +100,7 @@ fun RestockForecastScreen(
             ) {
                 item(key = "tip") {
                     Text(
-                        text = "根据每件东西平时的消耗速度，算出大概还能用多久。快用完的排在前面。",
+                        text = "按平时的消耗速度估算还能用多久，快用完的排在前面。",
                         style = MaterialTheme.typography.bodySmall,
                         color = TextSecondary,
                         modifier = Modifier.padding(horizontal = 2.dp, vertical = 4.dp)

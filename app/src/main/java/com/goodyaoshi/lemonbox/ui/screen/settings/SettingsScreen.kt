@@ -202,7 +202,7 @@ fun SettingsScreen(
                 )
                 Spacer(modifier = Modifier.size(6.dp))
                 Text(
-                    text = "深色模式可以跟随系统自动切换，也可以手动固定为浅色或深色。",
+                    text = "深色模式可跟随系统，也可手动固定。",
                     fontSize = 12.sp,
                     color = TextSecondary
                 )
@@ -285,7 +285,7 @@ fun SettingsScreen(
                 )
                 Spacer(modifier = Modifier.size(6.dp))
                 Text(
-                    text = "可以多选。每天到这些时间点各检查一次，命中提醒阶梯的物品会给你汇总通知（系统可能略有延迟）。",
+                    text = "可多选。命中提醒阶梯的物品会在这些时间点汇总通知你。",
                     fontSize = 12.sp,
                     color = TextSecondary
                 )
@@ -342,7 +342,7 @@ fun SettingsScreen(
                 )
                 Spacer(modifier = Modifier.size(6.dp))
                 Text(
-                    text = "点周菜谱的「提醒准备」时，会按这里的时间预填好，确认一下就能生成提醒。",
+                    text = "点周菜谱的「提醒准备」时会按这里预填。",
                     fontSize = 12.sp,
                     color = TextSecondary
                 )
@@ -403,7 +403,7 @@ fun SettingsScreen(
                 )
                 Spacer(modifier = Modifier.size(6.dp))
                 Text(
-                    text = "设置了月度总预算后，本月支出达到或超过预算时，首页和记账页会亮出超支提示条。",
+                    text = "设了月度预算后，超支时首页和记账页会亮出提示条。",
                     fontSize = 12.sp,
                     color = TextSecondary
                 )
@@ -502,7 +502,7 @@ fun SettingsScreen(
                 }
                 if (aboutExpanded) {
                     Text(
-                        text = "有新版本时可在这里直接下载安装：WiFi 下直接下载；移动数据会先提示，确认后再用流量下载。应用内装不上时，可在新版本弹窗里改用浏览器下载。",
+                        text = "有新版本时可在这里直接下载安装；WiFi 下直接下，移动数据会先提示。装不上时可改用浏览器下载。",
                         fontSize = 12.sp,
                         color = TextSecondary,
                         modifier = Modifier.padding(top = 6.dp)
@@ -692,7 +692,7 @@ fun SettingsScreen(
                 AppDialog(
                     title = "需要先允许安装",
                     onDismissRequest = { viewModel.dismissInstallPermissionHint() },
-                    subtitle = "系统默认禁止从${BrandCopy.APP_NAME}直接安装应用。到设置里允许后回到这里，再点一次「下载并安装」即可。若开启后安装仍被拦截（部分机型的纯净模式会拦），可回到上一弹窗改用浏览器下载安装。",
+                    subtitle = "系统默认禁止从${BrandCopy.APP_NAME}安装应用。到设置里允许后回来再点一次即可；若仍被拦截（部分机型的纯净模式），可改用浏览器下载安装。",
                     confirmText = "去开启",
                     onConfirm = { viewModel.openInstallPermission() }
                 )

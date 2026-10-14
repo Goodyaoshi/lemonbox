@@ -86,13 +86,10 @@ data class Item(
     val imagePath: String = "",
     val imagePaths: String = "",
     /**
-     * 与 [imagePaths] **下标一一对应**的云端对象键，换行分隔（F20）。
+     * 与 [imagePaths] **下标一一对应**的云端对象键（F20）。
      *
-     * 为什么按行对齐、而不是存成一个集合：图片是「有序的多张」，第一张是主图，
-     * 用户可以拖动排序，因此"第几张图对应哪个对象"必须能表达。
-     * 空串表示该位置在云端还没有对象（未上传的成功、或功能未开启）。
-     *
-     * 为 null 表示该物品从未参与过云端同步（历史数据），一律按「全部未上传」处理。
+     * 按行对齐而非存集合：图片有序、可拖动排序，第一张是主图，"第几张图对应哪个对象"必须能表达。
+     * 空串＝该位置云端还没有对象（未上传成功或功能未开启）；为 null＝从未参与云同步（历史数据）。
      */
     val imageObjectKeys: String? = null,
     val createdAt: Long = System.currentTimeMillis(),
@@ -113,17 +110,13 @@ data class Item(
     fun imageObjectKeyList(): List<String> =
         decodeImageObjectKeys(imageObjectKeys, imagePathList().size)
 
-    /**
-     * 第 [index] 张图在云端的对象键；没有则 null。
-     * 调用方据此决定能否从云端取图（本地文件缺失时的兜底来源）。
-     */
+    /** 第 [index] 张图在云端的对象键；没有则 null（本地文件缺失时的兜底来源）。 */
     fun imageObjectKeyAt(index: Int): String? =
         imageObjectKeyList().getOrNull(index)?.takeIf { it.isNotBlank() }
 
     /**
-     * 同时替换图片列表与对象键列表，保证两者始终等长、下标不错位。
-     * 图片被增删或重排后必须走这里，不要单独改 [imagePaths]——
-     * 一旦错位，就会出现「A 图的键安到了 B 图上」，会把别人的图显示出来。
+     * 同时替换图片列表与对象键列表，保证两者等长、下标不错位。
+     * 增删或重排图片必须走这里——单独改 [imagePaths] 会让「A 图的键安到 B 图上」。
      */
     fun withImages(paths: List<String>, objectKeys: List<String>): Item = copy(
         imagePath = paths.firstOrNull().orEmpty(),

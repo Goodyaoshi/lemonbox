@@ -393,7 +393,7 @@ fun OcrScreen(
             }
         ) {
             Text(
-                text = "从相册选图需要读取图片的权限。也可以直接用「拍照」识别，那条路不需要授权。",
+                text = "从相册选图需要图片权限；也可以直接「拍照」，那条路不需要授权。",
                 color = TextSecondary,
                 fontSize = 14.sp
             )
@@ -444,7 +444,7 @@ private fun ModelStatusCard(
         when (modelState) {
             is OcrModelState.NotInstalled -> {
                 Text(
-                    text = "「${selectedTier.displayName}」未安装，首次使用需要下载，之后无网也能识别。",
+                    text = "「${selectedTier.displayName}」未安装，首次使用需下载，之后无网也能识别。",
                     fontSize = 13.sp,
                     color = TextSecondary
                 )
@@ -491,7 +491,7 @@ private fun ModelStatusCard(
 
             is OcrModelState.Installed -> {
                 Text(
-                    text = "「${selectedTier.displayName}」已就绪，识别全程离线，图片不会离开手机。",
+                    text = "「${selectedTier.displayName}」已就绪，识别全程离线，图片不离开手机。",
                     fontSize = 13.sp,
                     color = TextSecondary
                 )

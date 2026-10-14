@@ -14,12 +14,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -46,7 +45,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -62,11 +60,9 @@ import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.EditorSelectionChip
 import com.goodyaoshi.lemonbox.ui.components.EmptyState
+import com.goodyaoshi.lemonbox.ui.components.LemonFab
 import com.goodyaoshi.lemonbox.ui.components.PillTag
 import com.goodyaoshi.lemonbox.ui.components.SegmentedTabs
-import com.goodyaoshi.lemonbox.ui.theme.LemonEnd
-import com.goodyaoshi.lemonbox.ui.theme.LemonStart
-import com.goodyaoshi.lemonbox.ui.theme.OnLemon
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.StatusExpired
 import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarmDeep
@@ -104,6 +100,7 @@ fun RecipeLibraryScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
+                .navigationBarsPadding()
         ) {
             Row(
                 modifier = Modifier
@@ -159,29 +156,15 @@ fun RecipeLibraryScreen(
             }
         }
 
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .navigationBarsPadding()
-                .padding(end = 20.dp, bottom = 24.dp)
-                .size(58.dp)
-                .clip(CircleShape)
-                .background(
-                    brush = Brush.linearGradient(colors = listOf(LemonStart, LemonEnd))
-                )
-                .clickable {
-                    editorTarget = null
-                    showEditor = true
-                },
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = Icons.Default.Add,
-                contentDescription = "新增菜谱",
-                tint = OnLemon,
-                modifier = Modifier.size(28.dp)
-            )
-        }
+        LemonFab(
+            icon = Icons.Default.Add,
+            contentDescription = "新增菜谱",
+            onClick = {
+                editorTarget = null
+                showEditor = true
+            },
+            modifier = Modifier.align(Alignment.BottomEnd)
+        )
     }
 
     if (showEditor) {
@@ -400,7 +383,7 @@ internal fun RecipeEditorDialog(
 
     AppDialog(
         title = if (initial == null) "新增菜谱" else "编辑菜谱",
-        subtitle = "食材按分类匹配在库物品，并按类型分组显示；每味可切换「必选 / 可选」，可选食材缺了不影响配餐。",
+        subtitle = "食材按分类匹配在库物品；每味可切换「必选 / 可选」，可选食材缺了不影响配餐。",
         onDismissRequest = onDismiss,
         confirmText = "保存",
         confirmEnabled = name.isNotBlank() && ingredients.any { it.label.isNotBlank() },

@@ -53,7 +53,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -65,7 +64,9 @@ import com.goodyaoshi.lemonbox.data.local.entity.StatusDimension
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.DeleteCopy
+import com.goodyaoshi.lemonbox.ui.components.LemonFab
 import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
+import com.goodyaoshi.lemonbox.ui.components.rememberBottomBarClearance
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.EmptyState
 import com.goodyaoshi.lemonbox.ui.components.HeaderActionPill
@@ -86,9 +87,6 @@ import com.goodyaoshi.lemonbox.ui.components.statusDimensionTitle
 import com.goodyaoshi.lemonbox.ui.components.statusOptionsFor
 import com.goodyaoshi.lemonbox.ui.theme.CardWhite
 import com.goodyaoshi.lemonbox.ui.theme.DividerSoft
-import com.goodyaoshi.lemonbox.ui.theme.LemonEnd
-import com.goodyaoshi.lemonbox.ui.theme.LemonStart
-import com.goodyaoshi.lemonbox.ui.theme.OnLemon
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarmDeep
 import com.goodyaoshi.lemonbox.ui.theme.TagRed
@@ -475,7 +473,12 @@ fun HouseholdScreen(
                 )
             } else {
                 LazyColumn(
-                    contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 132.dp),
+                    contentPadding = PaddingValues(
+                        start = 20.dp,
+                        end = 20.dp,
+                        top = 16.dp,
+                        bottom = rememberBottomBarClearance(extra = 38.dp)
+                    ),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     item {
@@ -579,28 +582,16 @@ fun HouseholdScreen(
         // 录入家当入口：原底栏中央按钮移到这里，与记账页 FAB 同款。
         // 批量模式下隐藏：此刻的交互是「处理已有物品」，录入会打断批量动线。
         if (!isSelectionMode) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(end = 20.dp, bottom = 108.dp)
-                    .size(58.dp)
-                    .clip(CircleShape)
-                    .background(
-                        brush = Brush.linearGradient(colors = listOf(LemonStart, LemonEnd))
-                    )
-                    .clickable {
-                        openedItemId = null
-                        onNavigateToSave()
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Add,
-                    contentDescription = "录入家当",
-                    tint = OnLemon,
-                    modifier = Modifier.size(28.dp)
-                )
-            }
+            LemonFab(
+                icon = Icons.Default.Add,
+                contentDescription = "录入家当",
+                onClick = {
+                    openedItemId = null
+                    onNavigateToSave()
+                },
+                modifier = Modifier.align(Alignment.BottomEnd),
+                hasBottomBar = true
+            )
         }
 
         moreItem?.let { item ->

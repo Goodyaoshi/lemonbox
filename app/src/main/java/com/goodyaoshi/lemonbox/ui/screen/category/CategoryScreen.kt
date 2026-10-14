@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -174,6 +175,7 @@ fun CategoryScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
+                .navigationBarsPadding()
                 // 家当设置为二级页，进入后底部导航栏不显示，无需为其预留空间；
                 // 仅留 24.dp 让最后一个条目与屏幕底边保持呼吸感。
                 .padding(top = 12.dp, bottom = 24.dp)
@@ -198,7 +200,7 @@ fun CategoryScreen(
                 )
             }
             Text(
-                text = "分类、存放位置、状态选项，还有有效期快捷和到期提醒，都在这里维护；想看具体物品，你到家当里筛选。",
+                text = "分类、存放位置、状态选项、有效期快捷与到期提醒都在这里；具体物品到家当里筛。",
                 style = MaterialTheme.typography.bodySmall,
                 color = TextSecondary,
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)

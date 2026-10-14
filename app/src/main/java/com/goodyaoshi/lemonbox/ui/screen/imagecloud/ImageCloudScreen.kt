@@ -1,7 +1,6 @@
 package com.goodyaoshi.lemonbox.ui.screen.imagecloud
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -54,11 +53,30 @@ import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
 import com.goodyaoshi.lemonbox.ui.viewmodel.ImageCloudViewModel
 
 /**
+ * 只读配置项：标签 + 值，刻意不用输入框样式，避免让人以为可以点进去改。
+ */
+@Composable
+private fun ReadOnlyField(
+    label: String,
+    value: String,
+    emptyText: String = "（未设置）"
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(text = label, fontSize = 12.sp, color = TextHint)
+        Spacer(modifier = Modifier.height(3.dp))
+        Text(
+            text = value.ifBlank { emptyText },
+            fontSize = 14.sp,
+            color = TextPrimary
+        )
+    }
+}
+
+/**
  * 图片云端存储设置（F20 · 仅正式包）。
  *
  * 分工（对应「配置进包、凭据手填」）：
- * - 存储地址 / 区域 / 存储桶 / 前缀：正式包已内置（CI Secrets 注入），此处显示生效值，
- *   需要自建存储的人才改；
+ * - 存储地址 / 区域 / 存储桶 / 前缀：随包内置（CI Secrets 注入），此处只读展示；
  * - AccessKey / SecretKey：只存在本机，由 [ImageCloudViewModel] 交给 Keystore 加密保存，
  *   绝不进 APK，界面也不回显已保存的明文。
  *
@@ -112,8 +130,8 @@ fun ImageCloudScreen(
 
             Column(modifier = Modifier.padding(horizontal = 20.dp)) {
                 Text(
-                    text = "把家当图片备份到你的对象存储（S3 兼容）。图片仍保留在手机里，" +
-                        "云端只作备份与跨设备共享。",
+                    text = "把家当图片存到你的对象存储（S3 兼容）。新图上传成功后会清掉本地副本，" +
+                        "以节省手机空间；没传成功的会保留在本地等下次重传。",
                     fontSize = 13.sp,
                     color = TextSecondary
                 )
@@ -128,8 +146,7 @@ fun ImageCloudScreen(
                             color = TextPrimary
                         )
                         Text(
-                            text = "图片云端存储只在正式发布版中提供，开发调试版已刻意关闭，" +
-                                "避免测试图片传进真实存储桶。",
+                            text = "图片云端存储只在正式发布版中提供，开发调试版已关闭，避免测试图片传进真实存储桶。",
                             fontSize = 13.sp,
                             color = TextSecondary,
                             modifier = Modifier.padding(top = 6.dp)
@@ -221,38 +238,21 @@ fun ImageCloudScreen(
                 Spacer(modifier = Modifier.height(8.dp))
                 AppSurfaceCard(shape = RoundedCornerShape(22.dp), shadowElevation = 12.dp) {
                     Text(
-                        text = "通常不用改：正式版已内置存储地址。自建存储时才需要在这里覆盖。",
+                        text = "由发布版本固定，不可修改——所有客户端必须指向同一处存储才能互相看到图片。",
                         fontSize = 12.sp,
                         color = TextHint
                     )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    ReadOnlyField(label = "存储地址", value = state.endpoint)
                     Spacer(modifier = Modifier.height(10.dp))
-                    EditorInputBox(
-                        value = state.endpoint,
-                        onValueChange = viewModel::updateEndpoint,
-                        placeholder = "存储地址，如 https://<账号>.r2.cloudflarestorage.com"
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Box(modifier = Modifier.weight(1f)) {
-                            EditorInputBox(
-                                value = state.region,
-                                onValueChange = viewModel::updateRegion,
-                                placeholder = "区域，R2 填 auto"
-                            )
-                        }
-                        Box(modifier = Modifier.weight(1f)) {
-                            EditorInputBox(
-                                value = state.bucket,
-                                onValueChange = viewModel::updateBucket,
-                                placeholder = "存储桶名称"
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(8.dp))
-                    EditorInputBox(
+                    ReadOnlyField(label = "区域", value = state.region)
+                    Spacer(modifier = Modifier.height(10.dp))
+                    ReadOnlyField(label = "存储桶", value = state.bucket)
+                    Spacer(modifier = Modifier.height(10.dp))
+                    ReadOnlyField(
+                        label = "对象前缀",
                         value = state.prefix,
-                        onValueChange = viewModel::updatePrefix,
-                        placeholder = "对象前缀（可留空），如 lemonbox"
+                        emptyText = "（无，直接放在桶根下）"
                     )
                 }
 
@@ -283,8 +283,7 @@ fun ImageCloudScreen(
                 Spacer(modifier = Modifier.height(8.dp))
                 AppSurfaceCard(shape = RoundedCornerShape(22.dp), shadowElevation = 12.dp) {
                     Text(
-                        text = "把手机里现有的家当图片都传上去，用于首次迁移。" +
-                            "已传过的会自动跳过——同一张图只存一份，重复点也不会传重复。",
+                        text = "把手机里现有的家当图片都传上去（首次迁移用）。已传过的会自动跳过。",
                         fontSize = 12.sp,
                         color = TextHint
                     )
@@ -364,8 +363,7 @@ fun ImageCloudScreen(
 
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
-                    text = "图片文件名用内容的指纹生成，所以同一张图在任何设备上都会归到同一个位置；" +
-                        "多台设备各自同步也不会存重复。",
+                    text = "图片按内容指纹存放，同一张图在任何设备上都归到同一个位置，多设备同步不会存重复。",
                     fontSize = 12.sp,
                     color = TextHint
                 )

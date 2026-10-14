@@ -183,7 +183,8 @@ fun LanSyncScreen(
             }
 
             Text(
-                text = "两台设备连同一个 WiFi（没有 WiFi 时，也可以用一台手机开「个人热点」，另一台连上它），一方开启共享，另一方在设备列表里点一下就连上，双方核对同一个匹配码后就完成同步。只在局域网内传输，不经过任何服务器。",
+                text = "连同一个 WiFi（或用一方开热点），一方开启共享、另一方在列表里点一下即可。" +
+                    "全程只在局域网内传输，不经过服务器。",
                 style = MaterialTheme.typography.bodySmall,
                 color = TextSecondary,
                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 2.dp)
@@ -250,12 +251,12 @@ fun LanSyncScreen(
                     AutoSizePairingCode(code = uiState.pairingCode)
                     Spacer(modifier = Modifier.size(4.dp))
                     Text(
-                        text = "配对码相当于临时的共享暗号：对方连接后，两边屏幕会弹出同一个码，核对一致、双方都点确认才继续同步（出于安全考虑，配对码不会自动广播）。",
+                        text = "两边会弹出同一个配对码，核对一致再继续。",
                         fontSize = 12.sp,
                         color = TextHint
                     )
                     Text(
-                        text = "地址：${uiState.displayAddress ?: "获取中…"}（发现不到设备时可手动输入）",
+                        text = "地址：${uiState.displayAddress ?: "获取中…"}",
                         // 说明文字走主题字阶（F6）并提到 12sp（F7）。
                         style = MaterialTheme.typography.bodySmall,
                         color = TextHint,
@@ -305,8 +306,7 @@ fun LanSyncScreen(
                     ) {
                         Spacer(modifier = Modifier.size(10.dp))
                         Text(
-                            text = "常见原因：对方熄屏或切到了后台、路由器开了 AP 隔离、防火墙拦截。" +
-                                "让对方保持亮屏停在本页，或改用下面的「扫描整个局域网」/「手动输入地址」。",
+                            text = "常见原因：对方熄屏、路由器 AP 隔离、防火墙拦截。",
                             style = MaterialTheme.typography.bodySmall,
                             color = TextHint
                         )
@@ -373,7 +373,7 @@ fun LanSyncScreen(
                     }
                     Spacer(modifier = Modifier.size(6.dp))
                     Text(
-                        text = "让对方也打开这个页面并「开启共享」；一直不出现就点下面的「扫描整个局域网」。",
+                        text = "让对方也打开本页并「开启共享」。",
                         // 说明文字走主题字阶（F6）并提到 12sp（F7）。
                         style = MaterialTheme.typography.bodySmall,
                         color = TextHint
@@ -428,7 +428,7 @@ fun LanSyncScreen(
                 }
                 Spacer(modifier = Modifier.size(4.dp))
                 Text(
-                    text = "搜不到对方时点它：直接扫描同网段，不依赖组播，路由器开了 AP 隔离或走个人热点也能找到。",
+                    text = "不依赖组播，AP 隔离或热点下同样有效。",
                     style = MaterialTheme.typography.bodySmall,
                     color = TextHint
                 )
@@ -473,7 +473,7 @@ fun LanSyncScreen(
                     )
                     Spacer(modifier = Modifier.size(8.dp))
                     Text(
-                        text = "地址可在对方「本机」卡片里看到；连上后两边会弹出匹配码，核对一致再继续。",
+                        text = "地址在对方「本机」卡片里。",
                         // 说明文字走主题字阶（F6）并提到 12sp（F7）。
                         style = MaterialTheme.typography.bodySmall,
                         color = TextHint
@@ -569,7 +569,7 @@ fun LanSyncScreen(
             }
 
             Text(
-                text = "提示：同步要用到「存储/网络」权限；要是很久都找不到设备，先点「扫描整个局域网」——它不依赖组播，AP 隔离或热点下同样有效；再不行就用「手动输入」兜底。",
+                text = "一直找不到设备？先试「扫描整个局域网」，再不行用「手动输入」。",
                 // 说明文字走主题字阶（F6）并提到 12sp（F7）。
                 style = MaterialTheme.typography.bodySmall,
                 color = OrangeStart,
@@ -654,7 +654,7 @@ private fun MatchCodeDialog(
                 )
                 Spacer(modifier = Modifier.size(6.dp))
                 Text(
-                    text = "数字一致说明连的就是对面那台设备；不一致就不要继续，避免同步到陌生设备。",
+                    text = "数字一致说明连的就是对面那台设备；不一致就别继续。",
                     style = MaterialTheme.typography.bodySmall,
                     color = TextHint
                 )

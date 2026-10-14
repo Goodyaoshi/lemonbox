@@ -5,13 +5,13 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * 图片云端存储的**配置就绪度**：分开表达「缺哪一项」，界面据此给出精确引导，
+ * 图片云端存储的就绪度：分开表达「缺哪一项」，界面据此给出精确引导，
  * 而不是笼统说一句「未配置」。这四态也决定了上传路径是否应该动作。
  */
 data class ImageCloudReadiness(
     /** 当前包是否支持该功能：仅正式包为 true（见 build.gradle.kts）。 */
     val supported: Boolean,
-    /** endpoint / region / bucket 是否齐备（内置值或用户覆盖任一即可）。 */
+    /** endpoint / bucket 是否齐备（来自包内内置配置）。 */
     val hasConnectionConfig: Boolean,
     /** 是否已保存访问凭据（AccessKey / SecretKey）。 */
     val hasCredentials: Boolean,
@@ -34,12 +34,11 @@ data class ImageCloudReadiness(
 }
 
 /**
- * 把三处来源合成一份可直接使用的 [S3Config]（F20）：
- *  1. **内置配置**（BuildConfig.S3_*）——由 CI Secrets 注入 release 包，属非敏感项；
- *  2. **用户覆盖**（[ImageCloudPreferences]）——自建存储或 debug 包时填写，留空即沿用内置；
- *  3. **访问凭据**（[ImageCredentialStore]）——用户填写、Keystore 加密，绝不进包。
+ * 图片云端存储的配置来源。
  *
- * 这样「配置进包、凭据手填」的分工落到一处分派，其余代码只依赖本类的 [resolve]。
+ * 连接参数（endpoint / region / bucket / prefix）**只认包内内置值**，不提供修改入口：
+ * 所有客户端必须指向同一处存储，才能互相看到对方上传的图片；一旦允许各自修改，
+ * 跨设备同步就会互相看不见。用户需要填写的只有自己的访问凭据。
  */
 @Singleton
 class ImageCloudConfig @Inject constructor(
@@ -50,20 +49,20 @@ class ImageCloudConfig @Inject constructor(
     val supported: Boolean
         get() = BuildConfig.IMAGE_CLOUD_SUPPORTED
 
-    /** 生效的存储地址：用户覆盖优先，否则用内置值。 */
-    fun endpoint(): String = effective(preferences.endpointOverride.value, BuildConfig.S3_ENDPOINT)
+    /** 生效的存储地址；来自包内内置配置。 */
+    fun endpoint(): String = BuildConfig.S3_ENDPOINT.trim()
 
     /**
      * 生效的区域。Cloudflare R2 用固定的 `auto`；内置值为空时也回落到 `auto`，
      * 因为 R2 是当前主用目标，而 AWS / 其他厂商必然会在内置配置里显式给出区域。
      */
     fun region(): String =
-        effective(preferences.regionOverride.value, BuildConfig.S3_REGION).ifBlank { DEFAULT_REGION }
+        BuildConfig.S3_REGION.trim().ifBlank { DEFAULT_REGION }
 
-    fun bucket(): String = effective(preferences.bucketOverride.value, BuildConfig.S3_BUCKET)
+    fun bucket(): String = BuildConfig.S3_BUCKET.trim()
 
     /** 对象键前缀；允许为空（表示直接落在桶根的 `images/` 下）。 */
-    fun prefix(): String = effective(preferences.prefixOverride.value, BuildConfig.S3_PREFIX)
+    fun prefix(): String = BuildConfig.S3_PREFIX.trim()
 
     /** 连接配置是否齐备；区域有默认值，故只检查地址与桶。 */
     fun hasConnectionConfig(): Boolean =
@@ -91,9 +90,6 @@ class ImageCloudConfig @Inject constructor(
             secretKey = credentials.secretKey
         )
     }
-
-    private fun effective(override: String, builtIn: String): String =
-        override.trim().ifBlank { builtIn.trim() }
 
     private companion object {
         const val DEFAULT_REGION = "auto"

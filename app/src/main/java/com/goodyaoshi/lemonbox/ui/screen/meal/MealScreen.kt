@@ -46,11 +46,13 @@ import com.goodyaoshi.lemonbox.data.repository.CookedDaySnapshot
 import com.goodyaoshi.lemonbox.data.repository.WeekMenuRepository
 import com.goodyaoshi.lemonbox.data.repository.WeeklyMealDay
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
+import com.goodyaoshi.lemonbox.ui.components.BottomBarClearance
 import com.goodyaoshi.lemonbox.ui.components.DeleteCopy
 import com.goodyaoshi.lemonbox.ui.components.EmptyState
 import com.goodyaoshi.lemonbox.ui.components.HeaderActionPill
 import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
 import com.goodyaoshi.lemonbox.ui.components.SkeletonList
+import com.goodyaoshi.lemonbox.ui.components.rememberBottomBarClearance
 import com.goodyaoshi.lemonbox.ui.theme.TagOrange
 import com.goodyaoshi.lemonbox.ui.theme.TagOrangeText
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
@@ -280,7 +282,7 @@ fun MealScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(110.dp))
+                BottomBarClearance(modifier = Modifier, extra = 16.dp)
             }
         }
     }

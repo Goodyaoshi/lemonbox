@@ -499,7 +499,7 @@ internal fun MealEditorSheet(
                 color = TextPrimary
             )
             Text(
-                text = "主食 + 蛋白必配，蔬菜、汤饮可选；一道菜可顶多个角色（如饺子既是主食也是蛋白和蔬菜）。保存后缺的主料会自动进待买。",
+                text = "主食 + 蛋白必配，蔬菜、汤饮可选；一道菜可顶多个角色。保存后缺的主料自动进待买。",
                 fontSize = 12.sp,
                 color = TextSecondary,
                 modifier = Modifier.padding(top = 4.dp)

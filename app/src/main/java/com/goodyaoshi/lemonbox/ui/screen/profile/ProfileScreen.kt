@@ -53,6 +53,8 @@ import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.PillTag
+import com.goodyaoshi.lemonbox.ui.components.rememberBottomBarClearance
+import com.goodyaoshi.lemonbox.ui.components.rememberBottomBarPanelClearance
 import com.goodyaoshi.lemonbox.ui.theme.DividerSoft
 import com.goodyaoshi.lemonbox.ui.theme.LemonEnd
 import com.goodyaoshi.lemonbox.ui.theme.LemonStart
@@ -92,7 +94,7 @@ fun ProfileScreen(
                 .statusBarsPadding()
                 .navigationBarsPadding()
                 .verticalScroll(rememberScrollState())
-                .padding(bottom = 88.dp)
+                .padding(bottom = rememberBottomBarPanelClearance())
         ) {
             Box(
                 modifier = Modifier

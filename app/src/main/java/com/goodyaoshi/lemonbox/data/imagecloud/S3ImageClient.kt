@@ -184,6 +184,36 @@ class S3ImageClient @Inject constructor() {
     }
 
     /**
+     * 验证「预签名 URL + GET」这条读取链路是否真的走得通。
+     *
+     * 为什么必须单独验证：上传走的是「请求头签名 + PUT」，读取走的是「预签名 URL + GET」，
+     * 是两条不同的签名路径——上传成功推不出读取可用。删除本地副本前先确认这条链路通，
+     * 否则一旦签名不被服务端接受，就会出现「云端有、本地删了、图却取不回来」的不可逆损失。
+     *
+     * 用 GET 而不是 HEAD：预签名 URL 里的签名是针对 GET 方法算的，改发 HEAD 会因方法
+     * 不匹配被判 403，从而把「能读」误判成「不能读」。
+     */
+    fun verifyPresignedReadable(config: S3Config, objectKey: String): Boolean {
+        val url = presignedGetUrl(config, objectKey) ?: return false
+        var conn: HttpURLConnection? = null
+        return try {
+            conn = (URL(url).openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = CONNECT_TIMEOUT_MS
+                readTimeout = READ_TIMEOUT_MS
+            }
+            val ok = conn.responseCode in 200..299
+            // 读一个字节即断开：只验证权限与签名，不把整张图拉下来。
+            if (ok) runCatching { conn.inputStream.use { it.read() } }
+            ok
+        } catch (e: Exception) {
+            false
+        } finally {
+            conn?.disconnect()
+        }
+    }
+
+    /**
      * 下载对象到 [target]。
      *
      * 先写 `.download` 临时文件、校验通过后再改名：中途断网若是直接写目标文件，

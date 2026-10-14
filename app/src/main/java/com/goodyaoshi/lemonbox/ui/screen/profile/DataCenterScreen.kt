@@ -162,7 +162,7 @@ fun DataCenterScreen(
                 MenuRow(
                     icon = Icons.Default.CloudUpload,
                     title = "图片云端存储",
-                    subtitle = "把家当图片备份到你的对象存储，仅正式版可用",
+                    subtitle = "把家当图片存到你的对象存储，仅正式版可用",
                     onClick = onOpenImageCloud
                 )
             }

@@ -13,8 +13,13 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -50,8 +55,11 @@ import dev.chrisbanes.haze.hazeEffect
 import com.goodyaoshi.lemonbox.ui.theme.CardWhite
 import com.goodyaoshi.lemonbox.ui.theme.DividerSoft
 import com.goodyaoshi.lemonbox.ui.theme.GlassWhite
+import com.goodyaoshi.lemonbox.ui.theme.LemonEnd
+import com.goodyaoshi.lemonbox.ui.theme.LemonStart
 import com.goodyaoshi.lemonbox.ui.theme.LocalLemonPalette
 import com.goodyaoshi.lemonbox.ui.theme.MintSoft
+import com.goodyaoshi.lemonbox.ui.theme.OnLemon
 import com.goodyaoshi.lemonbox.ui.theme.OrangeGlow
 import com.goodyaoshi.lemonbox.ui.theme.OrangeLight
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
@@ -128,6 +136,83 @@ fun AppDecorativeBackground(modifier: Modifier = Modifier) {
         )
     }
 }
+
+/** 底部导航栏卡片自身的高度（含上下外距 8+8），不含系统导航条。 */
+private val BottomBarPanelHeight = 94.dp
+
+/** 悬浮按钮与底部导航栏之间的间距。 */
+private val FabAboveBottomBarGap = 16.dp
+
+/** 无底部导航的页面上，悬浮按钮距系统导航条的间距。 */
+private val FabAboveNavBarGap = 24.dp
+
+/**
+ * 悬浮加号按钮（录入物品 / 记一笔等）。
+ *
+ * 统一成一处实现的原因：这些按钮原先各自手写 `Box + clickable`，更麻烦的是
+ * 「避开底部导航栏」的距离被硬编码成互不相同的数值（108dp / 118dp），
+ * 而这个距离随设备的系统导航方式变化——手势导航下导航条几乎不占高度，
+ * 三键导航下要占约 48dp，于是同一个按钮在部分设备上就被导航栏压住。
+ * 现在按 [WindowInsets] 实时计算，并显式区分页面有没有底部导航栏。
+ */
+@Composable
+fun LemonFab(
+    icon: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    /** 该页面是否显示底部导航栏（家当 / 记账 / 首页等一级页面为 true）。 */
+    hasBottomBar: Boolean = false
+) {
+    val navBarPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val bottomGap = if (hasBottomBar) {
+        navBarPadding + BottomBarPanelHeight + FabAboveBottomBarGap
+    } else {
+        navBarPadding + FabAboveNavBarGap
+    }
+    Box(
+        modifier = modifier
+            .padding(end = 20.dp, bottom = bottomGap)
+            .size(58.dp)
+            .clip(CircleShape)
+            .background(brush = Brush.linearGradient(colors = listOf(LemonStart, LemonEnd)))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = OnLemon,
+            modifier = Modifier.size(28.dp)
+        )
+    }
+}
+
+/**
+ * 为可滚动内容留出底部导航栏的占位高度，避免列表最后一项被导航栏压住。
+ * 页面没有底部导航栏时应改用 `WindowInsets.navigationBars`。
+ */
+@Composable
+fun BottomBarClearance(modifier: Modifier = Modifier, extra: Dp = 0.dp) {
+    Spacer(modifier = modifier.height(rememberBottomBarClearance(extra)))
+}
+
+/**
+ * 底部导航栏 + 系统导航条的总占位高度，供 `contentPadding` 一类需要具体数值的地方使用
+ * （`contentPadding` 收的是 `Dp`，塞不进 [BottomBarClearance] 这样的占位组件）。
+ *
+ * [extra] 是底栏之上的额外留白，按调用处原有数值传入，保证视觉间距不被改动。
+ */
+@Composable
+fun rememberBottomBarClearance(extra: Dp = 0.dp): Dp {
+    val navBarPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    return navBarPadding + BottomBarPanelHeight + extra
+}
+
+/** 已自行处理系统导航条的页面需要的底栏占位高度（不含导航条）。 */
+@Composable
+fun rememberBottomBarPanelClearance(extra: Dp = 0.dp): Dp =
+    BottomBarPanelHeight + extra
 
 @Composable
 fun AppSurfaceCard(

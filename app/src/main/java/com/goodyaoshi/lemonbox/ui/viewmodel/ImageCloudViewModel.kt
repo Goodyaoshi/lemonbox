@@ -21,14 +21,14 @@ import javax.inject.Inject
 /**
  * 图片云端存储的设置页状态（F20）。
  *
- * 表单字段与「已保存的生效值」刻意分开：`endpoint` 等初值取**当前生效值**
- * （用户覆盖优先，否则为 APK 内置配置），用户改动后点「保存并测试连接」才落盘。
+ * [endpoint] 等四项连接参数是**只读展示**，恒等于包内配置；用户唯一能填的是访问凭据。
  */
 data class ImageCloudUiState(
     val supported: Boolean = false,
     val enabled: Boolean = false,
     val autoUpload: Boolean = true,
     val backgroundSync: Boolean = true,
+    /** 只读展示用的连接参数（取自包内配置，不可修改）。 */
     val endpoint: String = "",
     val region: String = "",
     val bucket: String = "",
@@ -117,34 +117,17 @@ class ImageCloudViewModel @Inject constructor(
         }
     }
 
-    fun updateEndpoint(value: String) = _uiState.update { it.copy(endpoint = value) }
-    fun updateRegion(value: String) = _uiState.update { it.copy(region = value) }
-    fun updateBucket(value: String) = _uiState.update { it.copy(bucket = value) }
-    fun updatePrefix(value: String) = _uiState.update { it.copy(prefix = value) }
     fun updateAccessKey(value: String) = _uiState.update { it.copy(accessKey = value) }
     fun updateSecretKey(value: String) = _uiState.update { it.copy(secretKey = value) }
 
     /**
-     * 保存表单并测试连通性。
+     * 保存凭据并测试连通性。
      *
-     * 「测试隐含保存」是刻意的：否则用户改了地址直接点测试，用的却是上一次保存的配置，
-     * 失败原因会很难理解。凭据留空表示「不改动已保存的那份」。
+     * 连接参数固定取自包内配置，这里只处理凭据。凭据留空表示「不改动已保存的那份」。
      */
     fun saveAndTest() {
         if (_uiState.value.testing) return
         val state = _uiState.value
-        // 记下改动前的生效目标：存储位置变了，旧账本里那些键就不再可信。
-        val previousTarget = listOf(config.endpoint(), config.bucket(), config.prefix())
-        preferences.setConnectionOverrides(
-            endpoint = state.endpoint,
-            region = state.region,
-            bucket = state.bucket,
-            prefix = state.prefix
-        )
-        val currentTarget = listOf(config.endpoint(), config.bucket(), config.prefix())
-        if (previousTarget != currentTarget) {
-            syncManager.forgetKnownKeys()
-        }
         val credentialsSubmitted = state.accessKey.isNotBlank() && state.secretKey.isNotBlank()
         if (credentialsSubmitted) {
             credentialStore.save(

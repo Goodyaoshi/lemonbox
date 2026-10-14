@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
@@ -628,7 +629,9 @@ private fun DetailInfoRow(
             text = label,
             fontSize = 14.sp,
             color = TextSecondary,
-            modifier = Modifier.width(72.dp)
+            // 用最小宽度而非固定宽度：常规字号下各行的标签仍对齐，
+            // 系统字体放大（简易模式）时标签可以撑开，不会把文字截断。
+            modifier = Modifier.widthIn(min = 72.dp)
         )
         Text(
             text = value,

@@ -25,18 +25,13 @@ data class ImageCredentials(
 /**
  * S3 访问凭据的本地加密存储（F20）。
  *
- * 安全前提（这是本模块的立身之本）：**凭据绝不进 APK**。BuildConfig 字段是明文常量，
- * 反编译即可读出，任何随包分发的密钥都等于公开。因此 endpoint / bucket 这类非敏感
- * 配置随包走，AccessKey / SecretKey 只存在用户设备上，由用户自己填。
+ * 安全前提：**凭据绝不进 APK**——BuildConfig 是明文常量，反编译即可读出。
+ * 因此 endpoint / bucket 等非敏感项随包走，AccessKey / SecretKey 只存在用户设备上、由用户自己填。
  *
- * 加密方式：Android Keystore 里的 AES-256-GCM 密钥（密钥材料不出安全硬件 / 不被应用
- * 进程直接读取），密文与随机 IV 存进独立的 SharedPreferences。没有引入
- * androidx.security:security-crypto —— 它已被官方标记弃用，而这里只需要一对
- * 加解密调用，手写反而依赖更少、行为更透明。
- *
- * 失效处理：Keystore 密钥可能在「清除应用数据」「系统恢复出厂」「锁屏凭据变更」后
- * 不可用。此时解密会失败，本类一律当作「没有凭据」返回 null（而不是抛异常），
- * 让界面引导用户重新填写。
+ * 加密方式：Android Keystore 的 AES-256-GCM（密钥材料不出安全硬件），密文与随机 IV 存进
+ * 独立 SharedPreferences。未引入已弃用的 androidx.security:security-crypto——只需一对
+ * 加解密调用，手写依赖更少。Keystore 密钥可能因「清除数据 / 恢复出厂 / 锁屏凭据变更」失效，
+ * 此时一律按「没有凭据」返回 null（不抛异常），由界面引导重新填写。
  */
 @Singleton
 class ImageCredentialStore @Inject constructor(

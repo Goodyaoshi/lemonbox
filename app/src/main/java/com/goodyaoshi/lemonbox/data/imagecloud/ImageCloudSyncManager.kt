@@ -2,6 +2,7 @@ package com.goodyaoshi.lemonbox.data.imagecloud
 
 import com.goodyaoshi.lemonbox.data.local.entity.ItemDetail
 import com.goodyaoshi.lemonbox.data.repository.ItemRepository
+import com.goodyaoshi.lemonbox.util.ImageUtil
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -53,9 +54,8 @@ private data class ImageToSync(
     /**
      * 引用这张图的物品位置（物品 id + 图片下标）。
      *
-     * 为什么需要它：上传按**内容**去重（同一张图只传一次），但回写要按**位置**——
-     * 同一份内容可能同时被多个物品、或多个图片槽位引用，每个位置都得记上对象键，
-     * 否则只有"第一个碰到"的那张能记住、其余仍是未上传。
+     * 上传按**内容**去重（同一张图只传一次），但回写要按**位置**——同一份内容可能被多个
+     * 物品/多个槽位引用，只记首个引用会让其余位置永远显示未上传。
      */
     val references: List<ImageReference>
 ) {
@@ -65,18 +65,12 @@ private data class ImageToSync(
 /**
  * 图片云端同步编排（F20）。
  *
- * 幂等设计（对应「需要考虑现存图片迁移，避免重复迁移」）：
- * 对象键由图片**内容的 SHA-256** 决定（见 [ImageObjectKeys]），于是
- *  1. 同一张图重复同步，键相同 → 先 HEAD 探在，命中即跳过，不会重传；
- *  2. 多台设备各自同步，同一张图算出同一个键 → 落到同一对象，不会各存一份；
- *  3. 两台设备并发上传同一张图，也只是同键幂等覆盖，不产生副本。
- * 判断依据是「内容」而不是「是否传过」的标记位，本地无需记录任何状态，
- * 因此本次功能**不需要数据库迁移**。
+ * 幂等来自「对象键 = 图片内容的 SHA-256」（见 [ImageObjectKeys]）：重复同步、多台设备
+ * 同时同步同一张图，算出的键都相同，于是先 HEAD 探在、命中即跳过，不会重传或产生副本。
+ * 判断依据是内容而非「是否传过」的标记位，故本地无需记录状态、也不需要数据库迁移。
  *
- * [knownRemoteKeys] 以持久化账本 [ImageCloudUploadLedger] 为底：重装或重启后仍然记得
- * 哪些图传过，于是「补传」只需处理真正缺的那些，不会把整库重新探一遍。
- * 增量省下的是**网络请求**——账本里已有的键连 HEAD 都不发；
- * 本地仍要读一遍文件算哈希（对象键由内容决定，这是无法回避的代价）。
+ * [knownRemoteKeys] 以持久化账本 [ImageCloudUploadLedger] 为底，重装重启后仍记得哪些传过；
+ * 增量省下的是网络请求（账本里的键连 HEAD 都不发），本地仍要算一遍哈希。
  */
 @Singleton
 class ImageCloudSyncManager @Inject constructor(
@@ -124,7 +118,7 @@ class ImageCloudSyncManager @Inject constructor(
         }
 
     /** 同步全部家当图片（存量迁移入口）。重复触发无副作用：已在云端的会被跳过。 */
-    fun syncAll() = launchSync { loadAllImages() }
+    fun syncAll() = launchSync(deleteLocalAfterUpload = false) { loadAllImages() }
 
     /**
      * 同步单个物品的图片（保存后自动上传的入口）。
@@ -132,10 +126,13 @@ class ImageCloudSyncManager @Inject constructor(
      * 这是「不该打扰用户」的路径：开关关闭、未就绪、或图片为空时都静默跳过，
      * 不弹任何提示——用户此刻关心的是「东西存好了」，不是云端有没有传上去。
      * 没传成功的会在下次手动全量同步时补上。
+     *
+     * 传 [deleteLocalAfterUpload] = true：这些是刚拍的图，确认云端已有后即可删除本地副本，
+     * 避免本地无限累积。存量迁移走 [syncAll]，不在此列。
      */
     fun syncItem(itemId: Long) {
         if (!preferences.autoUpload.value) return
-        launchSync {
+        launchSync(deleteLocalAfterUpload = true) {
             val detail = runCatching { itemRepository.getItemDetailById(itemId).first() }.getOrNull()
             if (detail == null) emptyList() else collectImages(config.prefix(), listOf(detail))
         }
@@ -148,7 +145,10 @@ class ImageCloudSyncManager @Inject constructor(
         _state.value = _state.value.copy(running = false, currentFile = null)
     }
 
-    private fun launchSync(loader: suspend () -> List<ImageToSync>) {
+    private fun launchSync(
+        deleteLocalAfterUpload: Boolean = false,
+        loader: suspend () -> List<ImageToSync>
+    ) {
         if (job?.isActive == true) return
         job = scope.launch {
             val readiness = config.readiness()
@@ -162,7 +162,7 @@ class ImageCloudSyncManager @Inject constructor(
                 return@launch
             }
             try {
-                performSync(s3, loader())
+                performSync(s3, loader(), deleteLocalAfterUpload)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -177,32 +177,48 @@ class ImageCloudSyncManager @Inject constructor(
      * 共同内核：逐张探在 + 按需上传，全程维护 [state]。
      * UI 触发的 [syncAll] / [syncItem] 与后台补传 [syncPendingNow] 都走这里，
      * 两边的进度口径与幂等行为因此完全一致，不会各写一套而漂移。
+     *
+     * [deleteLocalAfterUpload] 为 true 时，云端确认存在后即删除本地副本（见
+     * [deleteLocalIfUnshared]），只对「新录入的图」开启；存量迁移与后台补传都不删，
+     * 以免在读取路径尚未真机验证前动到用户的历史照片。
      */
-    private suspend fun performSync(s3: S3Config, images: List<ImageToSync>): SyncRunResult {
+    private suspend fun performSync(
+        s3: S3Config,
+        images: List<ImageToSync>,
+        deleteLocalAfterUpload: Boolean = false
+    ): SyncRunResult {
         _state.value = ImageCloudSyncState(running = true, total = images.size)
         var uploaded = 0
         var skipped = 0
         var failed = 0
         var lastError: String? = null
+        // 仅「上传后删本地」需要引用计数；存量同步不白读一遍全库。
+        val pathRefCounts = if (deleteLocalAfterUpload) loadPathRefCounts() else emptyMap()
 
         for (image in images) {
             _state.value = _state.value.copy(currentFile = image.file.name)
+            var confirmedOnCloud = false
             when (val result = uploadIfNeeded(s3, image.objectKey, image.hash, image.file)) {
                 UploadResult.Uploaded -> {
                     uploaded++
-                    writeBackObjectKeys(image)
+                    confirmedOnCloud = true
                 }
 
                 UploadResult.AlreadyExists -> {
                     skipped++
                     // 云端本来就有：同样要补记键，否则每次同步都会重探这张图。
-                    writeBackObjectKeys(image)
+                    confirmedOnCloud = true
                 }
 
                 is UploadResult.Failed -> {
                     failed++
                     lastError = result.message
                 }
+            }
+            // 只有云端确实拿到了这张图，才有资格动本地副本。
+            if (confirmedOnCloud) {
+                writeBackObjectKeys(image)
+                if (deleteLocalAfterUpload) deleteLocalIfSafe(s3, image, pathRefCounts)
             }
             _state.value = _state.value.copy(
                 uploaded = uploaded,
@@ -218,6 +234,43 @@ class ImageCloudSyncManager @Inject constructor(
             lastFinishedAt = System.currentTimeMillis()
         )
         return SyncRunResult.Done(uploaded, skipped, failed)
+    }
+
+    /** 统计每个本地图片路径被多少个图片槽位引用，供 [deleteLocalIfUnshared] 判断。 */
+    private suspend fun loadPathRefCounts(): Map<String, Int> = withContext(Dispatchers.IO) {
+        runCatching {
+            itemRepository.getAllItems().first()
+                .flatMap { it.item.imagePathList() }
+                .groupingBy { it }
+                .eachCount()
+        }.getOrDefault(emptyMap())
+    }
+
+    /**
+     * 云端确认已有这张图后，删除本地副本。
+     *
+     * 三道闸门，任一不过就保留本地副本（宁可多占一点空间，也不能丢图）：
+     *  1. 该路径若被多个图片槽位引用（同一张图可能被选给多件物品），删掉会让别的图一起消失；
+     *  2. 路径不在引用统计里（数据异常），保守不删；
+     *  3. **云端真的读得回来**——见 [S3ImageClient.verifyPresignedReadable]。
+     *     上传与读取是两条不同的签名路径，不先验证就删等于拿用户的照片赌一个未验证的假设。
+     *
+     * 删除后物品的 `imagePaths` 仍保留这个路径（指向已不存在的文件）、对象键原样保留，
+     * 因此下标不会错位；读取时发现本地文件不在，自动改用云端取图。
+     */
+    private suspend fun deleteLocalIfSafe(
+        s3: S3Config,
+        image: ImageToSync,
+        pathRefCounts: Map<String, Int>
+    ) {
+        val path = image.file.absolutePath
+        val refCount = pathRefCounts[path] ?: return
+        if (refCount > 1) return
+        val readable = withContext(Dispatchers.IO) {
+            client.verifyPresignedReadable(s3, image.objectKey)
+        }
+        if (!readable) return
+        ImageUtil.deleteImage(path)
     }
 
     private fun failRun(message: String) {

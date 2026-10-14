@@ -131,7 +131,7 @@ fun NotificationReliabilityScreen(
                 )
                 Spacer(modifier = Modifier.size(6.dp))
                 Text(
-                    text = "小米等手机把应用划出最近任务时会强制停止并取消全部提醒。完成下面几项设置后，提醒就能稳定准点触发。",
+                    text = "小米等手机把应用划出最近任务时会停止并取消全部提醒。完成下面几项设置即可稳定触发。",
                     fontSize = 12.sp,
                     color = TextSecondary
                 )
@@ -178,7 +178,7 @@ fun NotificationReliabilityScreen(
                             color = TextPrimary
                         )
                         Text(
-                            text = "开启后通知栏常驻一条无声通知、进程保持前台状态（会占用少量内存）；关掉能更省内存，但划卡后提醒可能失效",
+                            text = "开启后通知栏常驻一条无声通知、进程保持前台（占用少量内存）；关掉更省内存，但划卡后提醒可能失效",
                             fontSize = 12.sp,
                             color = TextSecondary
                         )
@@ -204,7 +204,7 @@ fun NotificationReliabilityScreen(
                             color = TextPrimary
                         )
                         Text(
-                            text = "点一下立即释放后台内存（含那条常驻通知），适合临时不用提醒、想让手机更省电的时候；下次打开应用会自动恢复",
+                            text = "立即释放后台内存（含常驻通知），适合临时不用提醒、想让手机省电时；下次打开应用自动恢复",
                             fontSize = 12.sp,
                             color = TextSecondary
                         )

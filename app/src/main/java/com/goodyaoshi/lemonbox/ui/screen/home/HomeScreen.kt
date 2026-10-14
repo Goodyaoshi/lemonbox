@@ -62,6 +62,7 @@ import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.EditorSelectionChip
 import com.goodyaoshi.lemonbox.ui.components.LedgerBudgetBar
+import com.goodyaoshi.lemonbox.ui.components.rememberBottomBarClearance
 import com.goodyaoshi.lemonbox.ui.components.PillTag
 import com.goodyaoshi.lemonbox.ui.components.SearchBar
 import com.goodyaoshi.lemonbox.ui.components.SectionHeader
@@ -179,7 +180,9 @@ fun HomeScreen(
 
             LazyColumn(
                 modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(bottom = 110.dp)
+                contentPadding = PaddingValues(
+                    bottom = rememberBottomBarClearance(extra = 16.dp)
+                )
             ) {
                 item {
                     TodaySection(

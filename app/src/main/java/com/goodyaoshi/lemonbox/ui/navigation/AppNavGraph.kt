@@ -72,6 +72,7 @@ import com.goodyaoshi.lemonbox.ui.components.AppSnackbarHost
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.GlassPanel
 import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
+import com.goodyaoshi.lemonbox.ui.components.rememberBottomBarPanelClearance
 import com.goodyaoshi.lemonbox.ui.screen.anniversary.AnniversaryEditScreen
 import com.goodyaoshi.lemonbox.ui.screen.anniversary.AnniversaryScreen
 import com.goodyaoshi.lemonbox.ui.screen.camera.CameraScreen
@@ -967,7 +968,7 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
         }
 
         // 全局提示宿主（I10）：所有页面的成功 / 中性反馈共用这一条通道，贴底居中；
-        // 有底部导航时上抬（> 导航栏高度），避免提示被导航栏遮住。
+        // 有底部导航时上抬到导航栏之上，避免提示被遮住。
         LocalAppSnackbar.current?.let { snackbar ->
             AppSnackbarHost(
                 state = snackbar,
@@ -976,7 +977,11 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
                     .navigationBarsPadding()
                     .padding(
                         horizontal = 16.dp,
-                        vertical = if (showBottomBar) 92.dp else 16.dp
+                        vertical = if (showBottomBar) {
+                            rememberBottomBarPanelClearance(extra = 8.dp)
+                        } else {
+                            16.dp
+                        }
                     )
             )
         }

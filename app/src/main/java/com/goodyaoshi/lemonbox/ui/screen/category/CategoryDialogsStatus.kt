@@ -142,7 +142,7 @@ internal fun ExpiryReminderPanel(
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "你在家当录入页「有效期」看到的快捷档位，按你常买物品的保质期自定义（支持 x天/x周/x月/x年）。",
+                    text = "自定义家当录入页「有效期」里的快捷档位（支持 x天/x周/x月/x年）。",
                     fontSize = 12.sp,
                     color = TextSecondary
                 )
@@ -192,7 +192,7 @@ internal fun ExpiryReminderPanel(
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "可以多选。物品有效期进入你选的档位时提醒一次，没单独设置过的物品都跟着这份默认阶梯。",
+                    text = "可多选。未单独设置过的物品都跟着这份默认阶梯，到期进入所选档位时提醒。",
                     fontSize = 12.sp,
                     color = TextSecondary
                 )

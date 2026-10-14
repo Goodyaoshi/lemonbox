@@ -7,13 +7,11 @@ import javax.crypto.spec.SecretKeySpec
 /**
  * AWS Signature Version 4 签名（S3 兼容对象存储通用，见 F20 图片云端存储）。
  *
- * 为什么自己实现而不引 AWS SDK：本项目以「直接分发 APK」为主，对包体很敏感
- * （见 build.gradle.kts 的 ABI 收敛与 .so 压缩说明），而 AWS SDK for Android
- * 会带入数 MB 依赖。这里只需要 PUT / HEAD 两种请求的签名，按官方算法实现
- * 并用官方测试向量做单测，比引入整个 SDK 更可控。
+ * 自实现而不引 AWS SDK：SDK for Android 会带入数 MB 依赖，而本项目以直接分发 APK 为主、
+ * 对包体敏感（见 build.gradle.kts 的 ABI 收敛与 .so 压缩），且这里只需 PUT / HEAD 两种签名。
+ * 按官方算法实现并用官方测试向量做单测，比引入整个 SDK 更可控。
  *
- * 本类不持有任何凭据，每次调用由调用方传入，便于单测与「凭据仅存内存片刻」的用法。
- * 全部为纯 JVM 计算，不依赖 Android 框架，因此可直接在本地单测里验证。
+ * 不持有凭据（每次由调用方传入），全部为纯 JVM 计算，可直接单测。
  */
 object S3Signer {
 

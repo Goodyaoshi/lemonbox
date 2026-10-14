@@ -26,12 +26,8 @@ internal sealed interface ImageLocation {
 /**
  * 决定图片来源：**本地优先，云端兜底**。
  *
- * 抽成不依赖 Android 的纯函数是为了可单测：这条判断一旦写错，
- * 表现是「新设备上图片一直空着」，从界面看不出原因，只能靠日志，
- * 所以把决策本身锁住比事后排查划算得多。
- *
- * [localAvailable] 由调用方传入（真实实现里是文件是否存在），
- * 这样本函数不需要碰文件系统，测试也不依赖真实文件。
+ * 抽成不依赖 Android 的纯函数以便单测：这条判断写错的表现是「新设备上图片一直空着」，
+ * 从界面看不出原因。[localAvailable] 由调用方传入，本函数因此不碰文件系统。
  */
 internal fun decideImageLocation(
     localPath: String?,
@@ -53,11 +49,9 @@ internal fun decideImageLocation(
  * 把「本地路径 + 云端对象键」解析成图片加载器能直接使用的 model（F20）。
  *
  * 两个关键取舍：
- *  1. **缓存键用对象键而非 URL**。预签名 URL 每次都不同（时间戳与签名都在变），
- *     若以它作键，缓存永远不命中、每帧都可能重新下载。用内容哈希推导的对象键作
- *     内存与磁盘缓存键，同一张图无论取回多少次都命中同一份缓存。
- *  2. **签名结果与凭据都做短时缓存**。[ImageCloudConfig.resolve] 会走 Keystore 解密，
- *     绝不能每次渲染都调；预签名本身也有有效期，提前续签即可，不必每帧重算。
+ *  1. **缓存键用对象键而非 URL**：预签名 URL 每次都变（含时间戳与签名），以它作键永远不命中；
+ *     用内容哈希推导的对象键作内存/磁盘缓存键，同一张图取回多少次都命中同一份。
+ *  2. **签名结果与凭据都做短时缓存**：[ImageCloudConfig.resolve] 会走 Keystore 解密，不能每帧调。
  */
 @Singleton
 class ImageUrlResolver @Inject constructor(
