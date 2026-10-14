@@ -48,6 +48,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -110,6 +111,13 @@ fun OcrScreen(
     var showDownloadDialog by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
     var pendingTier by remember { mutableStateOf(OcrModelTier.DEFAULT) }
+
+    // 模型面板默认收起（IA-9）：模型装好之后，它是「已完成的一次性配置」，
+    // 常驻展开会把「选一张图片识别」这件正事挤到屏幕外。只有尚未就绪时
+    // （那才是真正的阻塞，用户必须处理）才自动展开。
+    // 用 remember(modelReady) 绑定：下载完成的那一刻自动收起，不必用户手动关。
+    val modelReady = modelState is OcrModelState.Installed
+    var showModelPanel by remember(modelReady) { mutableStateOf(!modelReady) }
 
     // 请求某个档位：已安装直接切换；未安装弹下载确认（确认后切档并开始下载）。
     val requestTier: (OcrModelTier) -> Unit = { tier ->
@@ -190,9 +198,11 @@ fun OcrScreen(
                         modifier = Modifier.padding(bottom = 10.dp)
                     )
                 }
-                ModelStatusCard(
+                ModelStatusSection(
                     modelState = modelState,
                     selectedTier = selectedTier,
+                    expanded = showModelPanel,
+                    onToggleExpand = { showModelPanel = !showModelPanel },
                     isTierInstalled = viewModel::isTierInstalled,
                     onDownloadClick = { requestTier(selectedTier) },
                     onCancelDownload = viewModel::cancelDownload,
@@ -402,14 +412,22 @@ fun OcrScreen(
 }
 
 /**
- * 模型状态卡：顶部常驻两档模型（轻量版 / 精准版）的选择行，
- * 选中已安装的档位直接切换、未安装的档位弹出下载确认；下方按
- * 未安装 / 下载中 / 已就绪 / 失败四种状态给出对应出口。
+ * 模型状态区（IA-9）。
+ *
+ * 折叠态只占一行：模型名 + 状态（或下载进度），点击展开。
+ * 展开态才是完整的两档选择行 + 按状态给出的出口。
+ *
+ * 为什么默认收起：模型是「配置一次、长期复用」的东西。装好之后每次进来
+ * 都被整块面板占住页首，会把「选一张图片识别」这件真正的正事挤到屏幕外。
+ * 而**未就绪时必须展开**——那时它是阻塞项，用户不处理就没法用。
+ * 下载中同样保持展开，让进度条始终可见（用户点了下载就想看着它）。
  */
 @Composable
-private fun ModelStatusCard(
+private fun ModelStatusSection(
     modelState: OcrModelState,
     selectedTier: OcrModelTier,
+    expanded: Boolean,
+    onToggleExpand: () -> Unit,
     isTierInstalled: (OcrModelTier) -> Boolean,
     onDownloadClick: () -> Unit,
     onCancelDownload: () -> Unit,
@@ -418,15 +436,54 @@ private fun ModelStatusCard(
 ) {
     AppSurfaceCard(
         shape = RoundedCornerShape(24.dp),
-        shadowElevation = 14.dp
+        shadowElevation = if (expanded) 14.dp else 8.dp
     ) {
-        Text(
-            text = "识别模型",
-            fontSize = 16.sp,
-            fontWeight = FontWeight.Bold,
-            color = TextPrimary
-        )
-        Spacer(modifier = Modifier.height(12.dp))
+        // ---- 摘要行：始终可见，点击切换展开 ----
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .clickable(onClick = onToggleExpand)
+                .padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "识别模型 · ${selectedTier.displayName}",
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = TextPrimary
+                )
+                Text(
+                    text = modelStateSummary(modelState),
+                    fontSize = 12.sp,
+                    color = when (modelState) {
+                        is OcrModelState.Failed -> StatusExpired
+                        is OcrModelState.Installed -> TextHint
+                        else -> TextSecondary
+                    },
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+            }
+            Icon(
+                imageVector = Icons.Default.ChevronRight,
+                contentDescription = if (expanded) "收起模型设置" else "展开模型设置",
+                tint = TextHint,
+                modifier = Modifier
+                    .size(20.dp)
+                    .rotate(if (expanded) 90f else 0f)
+            )
+        }
+
+        // 折叠时若正在下载，仍要露出进度——否则用户看不到下载是否在走。
+        if (!expanded && modelState is OcrModelState.Downloading) {
+            Spacer(modifier = Modifier.height(10.dp))
+            DownloadProgress(modelState)
+        }
+
+        if (!expanded) return@AppSurfaceCard
+
+        Spacer(modifier = Modifier.height(14.dp))
         OcrModelTier.entries.forEachIndexed { index, tier ->
             TierOptionRow(
                 tier = tier,
@@ -459,28 +516,7 @@ private fun ModelStatusCard(
                     color = TextSecondary
                 )
                 Spacer(modifier = Modifier.height(10.dp))
-                LinearProgressIndicator(
-                    progress = { modelState.fraction },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(8.dp)
-                        .clip(RoundedCornerShape(4.dp)),
-                    color = OrangeStart,
-                    trackColor = SurfaceWarmDeep
-                )
-                Text(
-                    text = "${formatBytes(modelState.downloadedBytes)} / ${formatBytes(modelState.totalBytes)}" +
-                        "  (${(modelState.fraction * 100).toInt()}%)",
-                    fontSize = 12.sp,
-                    color = TextHint,
-                    modifier = Modifier.padding(top = 8.dp)
-                )
-                Text(
-                    text = "离开本页下载也会继续，随时可以取消。",
-                    fontSize = 12.sp,
-                    color = TextHint,
-                    modifier = Modifier.padding(top = 2.dp)
-                )
+                DownloadProgress(modelState)
                 TextButton(
                     onClick = onCancelDownload,
                     modifier = Modifier.padding(top = 6.dp)
@@ -514,6 +550,35 @@ private fun ModelStatusCard(
             }
         }
     }
+}
+
+/** 摘要行的一句话状态，让折叠态也能看出「现在能不能识别」。 */
+private fun modelStateSummary(state: OcrModelState): String = when (state) {
+    is OcrModelState.Installed -> "已就绪，可离线识别"
+    is OcrModelState.NotInstalled -> "未安装，点开下载"
+    is OcrModelState.Downloading -> "正在下载 ${(state.fraction * 100).toInt()}%"
+    is OcrModelState.Failed -> "下载失败，点开重试"
+}
+
+/** 下载进度条与字节数，展开 / 折叠两处共用。 */
+@Composable
+private fun DownloadProgress(state: OcrModelState.Downloading) {
+    LinearProgressIndicator(
+        progress = { state.fraction },
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(8.dp)
+            .clip(RoundedCornerShape(4.dp)),
+        color = OrangeStart,
+        trackColor = SurfaceWarmDeep
+    )
+    Text(
+        text = "${formatBytes(state.downloadedBytes)} / ${formatBytes(state.totalBytes)}" +
+            "  (${(state.fraction * 100).toInt()}%)",
+        fontSize = 12.sp,
+        color = TextHint,
+        modifier = Modifier.padding(top = 8.dp)
+    )
 }
 
 /** 单个档位的选择行：单选圆点 + 名称与说明 + 体积与安装状态。 */
