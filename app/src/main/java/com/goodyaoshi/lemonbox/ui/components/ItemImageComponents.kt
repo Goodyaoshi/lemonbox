@@ -131,7 +131,9 @@ fun ItemImageGallery(
             modifier = Modifier.padding(top = 10.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            itemsIndexed(displayPaths, key = { _, path -> path }) { index, path ->
+            // key 带上位置：同一张图可能挂在多个槽位（导入了含重复图的备份），
+            // 只用 path 作 key 会因重复而抛异常。项目内其它列表也是这个写法。
+            itemsIndexed(displayPaths, key = { index, path -> "$index-$path" }) { index, path ->
                 val sourceIndex = imagePaths.indexOf(path).takeIf { it >= 0 } ?: index
                 val isDragging = draggingPath == path
                 val dragVisualOffset = if (isDragging) {

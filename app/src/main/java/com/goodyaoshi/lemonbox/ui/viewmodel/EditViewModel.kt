@@ -128,7 +128,7 @@ class EditViewModel @Inject constructor(
 
     fun appendPhotos(context: Context, uris: List<Uri>) {
         if (uris.isEmpty()) return
-        val savedPaths = uris.mapNotNull { ImageUtil.saveImageToInternal(context, it) }
+        val savedPaths = uris.mapNotNull { ImageUtil.saveImageToWorkingDir(context, it) }
         if (savedPaths.isEmpty()) return
         val current = _state.value
         // 追加的图片都是刚拍的，云端还没有对应对象，键位补空串以保持等长对齐。
@@ -140,7 +140,7 @@ class EditViewModel @Inject constructor(
     }
 
     fun replacePrimaryPhoto(context: Context, uris: List<Uri>) {
-        val savedPaths = uris.mapNotNull { ImageUtil.saveImageToInternal(context, it) }
+        val savedPaths = uris.mapNotNull { ImageUtil.saveImageToWorkingDir(context, it) }
         if (savedPaths.isEmpty()) return
         val current = _state.value
         val currentPaths = current.imagePaths.toMutableList()

@@ -94,7 +94,7 @@ class SaveViewModel @Inject constructor(
         val current = _state.value
         if (imageUri == null || current.imagePaths.isNotEmpty()) return
 
-        val savedPath = ImageUtil.saveImageToInternal(context, imageUri)
+        val savedPath = ImageUtil.saveImageToWorkingDir(context, imageUri)
         _state.value = current.copy(imagePaths = savedPath?.let(::listOf).orEmpty())
     }
 
@@ -102,13 +102,13 @@ class SaveViewModel @Inject constructor(
         val current = _state.value
         if (imageUris.isEmpty() || current.imagePaths.isNotEmpty()) return
 
-        val savedPaths = imageUris.mapNotNull { ImageUtil.saveImageToInternal(context, it) }.distinct()
+        val savedPaths = imageUris.mapNotNull { ImageUtil.saveImageToWorkingDir(context, it) }.distinct()
         _state.value = current.copy(imagePaths = savedPaths)
     }
 
     fun appendPhotos(context: Context, uris: List<Uri>) {
         if (uris.isEmpty()) return
-        val savedPaths = uris.mapNotNull { ImageUtil.saveImageToInternal(context, it) }
+        val savedPaths = uris.mapNotNull { ImageUtil.saveImageToWorkingDir(context, it) }
         if (savedPaths.isEmpty()) return
         _state.value = _state.value.copy(
             imagePaths = (_state.value.imagePaths + savedPaths).distinct()
@@ -116,7 +116,7 @@ class SaveViewModel @Inject constructor(
     }
 
     fun replacePrimaryPhoto(context: Context, uris: List<Uri>) {
-        val savedPaths = uris.mapNotNull { ImageUtil.saveImageToInternal(context, it) }
+        val savedPaths = uris.mapNotNull { ImageUtil.saveImageToWorkingDir(context, it) }
         if (savedPaths.isEmpty()) return
         val currentPaths = _state.value.imagePaths.toMutableList()
         currentPaths.firstOrNull()?.let(ImageUtil::deleteImage)

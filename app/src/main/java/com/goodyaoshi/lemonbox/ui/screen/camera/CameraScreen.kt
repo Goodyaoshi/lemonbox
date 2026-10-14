@@ -587,10 +587,12 @@ private fun takePhoto(
         onError("相机还没准备好，稍等一下再拍")
         return
     }
-    val imagesDir = File(context.filesDir, "images")
-    if (!imagesDir.exists()) imagesDir.mkdirs()
+    // 拍到的原图先落在 filesDir：它马上会被上层压缩后另存、随即删掉，
+    // 但在这之前它是这张图唯一的副本，不能放 cacheDir（会被系统空间紧张时回收）。
+    val stagingDir = File(context.filesDir, "images")
+    if (!stagingDir.exists()) stagingDir.mkdirs()
 
-    val file = File(imagesDir, "capture_${System.currentTimeMillis()}.jpg")
+    val file = File(stagingDir, "capture_${System.currentTimeMillis()}.jpg")
     val outputOptions = ImageCapture.OutputFileOptions.Builder(file).build()
 
     capture.takePicture(

@@ -84,7 +84,7 @@ class OcrViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isRecognizing = true, error = null)
             try {
-                val path = withContext(Dispatchers.IO) { ImageUtil.saveImageToInternal(context, uri) }
+                val path = withContext(Dispatchers.IO) { ImageUtil.saveImageToWorkingDir(context, uri) }
                 if (path == null) {
                     fail("这张图片读不出来，换一张再试试")
                     return@launch

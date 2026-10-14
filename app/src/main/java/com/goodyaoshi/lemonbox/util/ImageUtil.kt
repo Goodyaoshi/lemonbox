@@ -4,7 +4,6 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
-import androidx.core.net.toUri
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
@@ -13,27 +12,34 @@ import java.util.UUID
 
 object ImageUtil {
 
-    fun saveImageToInternal(context: Context, uri: Uri): String? {
-        return saveImageToInternal(
+    /**
+     * 把选中的图片压成 JPEG 落到本地图片目录，返回其路径。
+     *
+     * 这份是本机**上传前**的副本：上传成功、云端确认可读后会被删除（见
+     * [com.goodyaoshi.lemonbox.data.imagecloud.ImageCloudSyncManager]），
+     * 因此不会长期占用空间。用 `filesDir` 而非 `cacheDir` 的理由见 [workingImagesDir]。
+     */
+    fun saveImageToWorkingDir(context: Context, uri: Uri): String? {
+        return saveImage(
             context = context,
             inputStreamProvider = { context.contentResolver.openInputStream(uri) }
         )
     }
 
-    fun saveImageToInternal(context: Context, file: File): String? {
-        return saveImageToInternal(
+    fun saveImageToWorkingDir(context: Context, file: File): String? {
+        return saveImage(
             context = context,
             inputStreamProvider = { file.inputStream() }
         )
     }
 
-    private fun saveImageToInternal(
+    private fun saveImage(
         context: Context,
         inputStreamProvider: () -> InputStream?
     ): String? {
         return try {
             val inputStream = inputStreamProvider() ?: return null
-            val file = File(imagesDir(context), "item_${UUID.randomUUID()}.jpg")
+            val file = File(workingImagesDir(context), "item_${UUID.randomUUID()}.jpg")
 
             BitmapFactory.decodeStream(inputStream)?.let { bitmap ->
                 FileOutputStream(file).use { out ->
@@ -51,19 +57,16 @@ object ImageUtil {
         }
     }
 
-    fun ensureImagePaths(context: Context, paths: List<String>): List<String> {
-        return paths.mapNotNull { path ->
-            when {
-                path.startsWith("content://") -> saveImageToInternal(context, path.toUri())
-                path.startsWith("file://") -> saveImageToInternal(context, path.toUri())
-                File(path).exists() -> path
-                else -> null
-            }
-        }.distinct()
-    }
-
-    /** 图片落盘目录（内部存储），不存在时创建。 */
-    internal fun imagesDir(context: Context): File =
+    /**
+     * 本地图片的中转目录（`filesDir` 下），不存在时创建。
+     *
+     * 为什么用 `filesDir` 而不是 `cacheDir`：图片上传成功之前，本地这份是它**唯一的副本**，
+     * 而 `cacheDir` 会被系统在空间紧张时回收——那样这张图就永远传不上去了。
+     * 上传成功后 [com.goodyaoshi.lemonbox.data.imagecloud.ImageCloudSyncManager] 会删掉它，
+     * 所以这里不会长期留存。（`filesDir` 已在 backup_rules / data_extraction_rules 中
+     * 整体排除，不会随系统备份外流。）
+     */
+    internal fun workingImagesDir(context: Context): File =
         File(context.filesDir, "images").apply { if (!exists()) mkdirs() }
 
     /**
@@ -88,14 +91,14 @@ object ImageUtil {
     /**
      * 按内容落盘：文件名取内容的 SHA-256，**同一内容永远落到同一个文件**。
      *
-     * 与 [saveImageToInternal] 的 UUID 命名不同，这里存在即复用：
+     * 与 [saveImageToWorkingDir] 的 UUID 命名不同，这里存在即复用：
      * 导入备份时若本地已有同一张图，就不会再复制一份（导入自己的备份曾使本地图片翻倍）。
      *
      * [hash] 由调用方传入，避免同一文件被重复读盘计算。
      */
     fun saveImageByContent(context: Context, sourceFile: File, hash: String): String? {
         return try {
-            val target = File(imagesDir(context), "item_$hash.jpg")
+            val target = File(workingImagesDir(context), "item_$hash.jpg")
             // 已有同内容：直接复用，不复制、不覆盖。
             if (target.isFile) return target.absolutePath
             sourceFile.copyTo(target, overwrite = true)

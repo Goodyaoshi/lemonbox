@@ -2,6 +2,7 @@ package com.goodyaoshi.lemonbox.data.backup
 
 import com.goodyaoshi.lemonbox.data.local.entity.Anniversary
 import com.goodyaoshi.lemonbox.data.local.entity.Category
+import com.goodyaoshi.lemonbox.data.local.entity.Item
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerAsset
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerBudget
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerCategory
@@ -210,7 +211,7 @@ internal suspend fun AppBackupManager.mergeItems(
 ): ItemMergeOutcome {
     // 导入去重（F20）：整个导入过程只建一次本地内容索引。备份里的图若本地已有同一张，
     // 直接复用、不再复制——否则导入自己刚导出的备份会让本地图片直接翻倍。
-    val contentIndex = LocalImageContentIndex(ImageUtil.imagesDir(context))
+    val contentIndex = LocalImageContentIndex(ImageUtil.workingImagesDir(context))
     val localItems = itemRepository.getAllItemsSnapshot()
     val localByKey = localItems.associateBy { keyOf(it.syncId, it.id, useSyncIds) }
     // 预填充本地记录，保证 idByKey 对增量包中未出现的记录也能解析。
@@ -623,9 +624,11 @@ internal suspend fun AppBackupManager.mergeReminders(
 /**
  * 还原备份里的图片，并把与之一一对应的云端对象键一起带出（F20）。
  *
- * 图片与键必须**成对**处理：导入时若有图片条目缺失（备份不完整 / 文件读不出来），
- * 键也要同步少一项，否则后面所有键都会前移、安到别的图上——
- * 那会导致「看着是这个物品、显示的却是另一张图」。
+ * 图片与键必须**按下标一一对应**地处理，分三种情况：
+ *  1. 备份条目是本地文件且能读出来 → 复制进本地（同内容复用），键取自 key 列；
+ *  2. 条目是**云端占位**（`cloud:` 前缀，表示导出时本地已无文件）→ 本地路径留空、
+ *     只保住对象键，读取时由「本地不可用则回退云端」接管；
+ *  3. 条目是本地文件但读不出来 → 连通键一起放弃（保留会导致键前移错位）。
  *
  * 去重：[contentIndex] 认出「本地已经有同一张图」时复用其路径，不再复制新文件。
  */
@@ -637,10 +640,23 @@ internal fun AppBackupManager.resolveImagesAndKeys(
     val images = mutableListOf<String>()
     val objectKeys = mutableListOf<String>()
     snapshot.imagePaths.forEachIndexed { index, relativePath ->
+        val declaredKey = snapshot.imageObjectKeys?.getOrNull(index).orEmpty()
+
+        // 情况 2：云端占位（`cloud:` 前缀）——本地本就没有文件，只需保住位置与键。
+        // 判据用「是不是占位路径」而不是「能否取出键」：尚未上传的槽位是空的占位
+        // （`cloud:`），若按后者判断会被当成读不出来而跳过，导致后面的键整体前移错位。
+        if (Item.isCloudSlot(relativePath)) {
+            images += relativePath
+            objectKeys += declaredKey.ifBlank { Item.cloudSlotObjectKey(relativePath).orEmpty() }
+            return@forEachIndexed
+        }
+
+        // 情况 3：本地文件条目读不出来，键也一并放弃（宁可少一项，不可错位）。
         val sourceFile = File(workingDir, relativePath)
         if (!sourceFile.exists()) return@forEachIndexed
-        // 内容哈希既是「找本地有没有同一张图」的依据，也是落盘文件名的来源。
         val hash = ImageUtil.contentHash(sourceFile) ?: return@forEachIndexed
+
+        // 情况 1：正常还原本地文件。
         val target = contentIndex.findByHash(hash, sourceFile.length()) ?: run {
             val saved = ImageUtil.saveImageByContent(context, sourceFile, hash)
                 ?: return@forEachIndexed
@@ -649,7 +665,7 @@ internal fun AppBackupManager.resolveImagesAndKeys(
             saved
         }
         images += target
-        objectKeys += snapshot.imageObjectKeys?.getOrNull(index).orEmpty()
+        objectKeys += declaredKey
     }
     return images to objectKeys
 }

@@ -106,9 +106,21 @@ data class Item(
         return decodeImagePaths(imagePaths, imagePath)
     }
 
-    /** 与 [imagePathList] 等长的对象键列表；无键的位置是空串。 */
-    fun imageObjectKeyList(): List<String> =
-        decodeImageObjectKeys(imageObjectKeys, imagePathList().size)
+    /**
+     * 与 [imagePathList] 等长的对象键列表；无键的位置是空串。
+     *
+     * 键列为空时会回退到从「云端占位路径」里取键——见 [CLOUD_SLOT_PREFIX]。
+     * 这样即使某条链路只写了占位路径、没写键列，也不会丢掉云端引用。
+     */
+    fun imageObjectKeyList(): List<String> {
+        val paths = imagePathList()
+        val keys = decodeImageObjectKeys(imageObjectKeys, paths.size)
+        return List(paths.size) { index ->
+            keys.getOrNull(index).orEmpty().ifBlank {
+                cloudSlotObjectKey(paths.getOrNull(index).orEmpty()).orEmpty()
+            }
+        }
+    }
 
     /** 第 [index] 张图在云端的对象键；没有则 null（本地文件缺失时的兜底来源）。 */
     fun imageObjectKeyAt(index: Int): String? =
@@ -279,11 +291,53 @@ data class Item(
         fun reminderWindowDays(reminderDays: String?, globalLadder: List<Int>): Int =
             decodeReminderDays(reminderDays).ifEmpty { globalLadder }.maxOrNull() ?: 0
 
+        /**
+         * 「图只在云端、本地已无文件」的槽位占位前缀（F20）。
+         *
+         * 为什么需要占位：[encodeImagePaths] 会过滤空项，而图片路径与对象键必须按下标一一对应，
+         * 于是「本地文件已删、云端还有」这个槽位一旦留空，它后面的键就会整体前移、安到别的图上。
+         * 用一个非空且唯一的哨兵路径占住位置，键与下标都不会错。
+         *
+         * 读取侧无需特判：[File] 对 `cloud:...` 这种路径 `isFile` 恒为 false，
+         * 现有的「本地不可用则回退云端」逻辑会自动接管。
+         */
+        const val CLOUD_SLOT_PREFIX = "cloud:"
+
+        /** 该槽位是否只是云端占位（本地并无文件）。 */
+        fun isCloudSlot(path: String): Boolean = path.startsWith(CLOUD_SLOT_PREFIX)
+
+        /** 从云端占位路径取回对象键；不是占位、或占位里没有对象键时返回 null。 */
+        fun cloudSlotObjectKey(path: String): String? =
+            path.takeIf { it.startsWith(CLOUD_SLOT_PREFIX) }
+                ?.removePrefix(CLOUD_SLOT_PREFIX)
+                // `#<index>` 是「尚未上传」的位置标记，不是对象键。
+                ?.takeIf { it.isNotBlank() && !it.startsWith(EMPTY_SLOT_MARKER) }
+
+        /** 为某个对象键生成云端占位路径。 */
+        fun cloudSlotPath(objectKey: String): String = CLOUD_SLOT_PREFIX + objectKey
+
+        /**
+         * 为「尚未上传」的槽位生成占位路径。
+         *
+         * 需要带上 [index]：占位值都为 `cloud:` 时会完全相同，一旦两条及以上并存，
+         * 图片列表用它当 UI key 会因重复而抛异常；带上位置即可保证唯一。
+         * 这段后缀不是对象键，[cloudSlotObjectKey] 会把它滤掉（返回 null）。
+         */
+        fun emptyCloudSlotPath(index: Int): String = CLOUD_SLOT_PREFIX + EMPTY_SLOT_MARKER + index
+
+        /** 不参与对象键推导的占位后缀标记。 */
+        private const val EMPTY_SLOT_MARKER = "#"
+
+        /**
+         * 编码图片列表。
+         *
+         * **不去重、不丢位置**：它与对象键按下标一一对应，任何一项被滤掉都会让后面的键
+         * 前移、安到别的图上。调用方若要避免同一张图出现两次，应在传入前自行 `distinct()`。
+         */
         fun encodeImagePaths(paths: List<String>): String {
             return paths
                 .map { it.trim() }
                 .filter { it.isNotBlank() }
-                .distinct()
                 .joinToString(separator = "\n")
         }
 

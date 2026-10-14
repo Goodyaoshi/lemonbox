@@ -2,6 +2,7 @@ package com.goodyaoshi.lemonbox.data.backup
 
 import android.content.Context
 import android.net.Uri
+import com.goodyaoshi.lemonbox.data.imagecloud.ImageCloudSyncManager
 import com.goodyaoshi.lemonbox.data.local.database.AppDatabase
 import com.goodyaoshi.lemonbox.data.local.database.SeedDataProvider
 import com.goodyaoshi.lemonbox.data.local.entity.Anniversary
@@ -219,7 +220,12 @@ class AppBackupManager @Inject constructor(
     internal val reminderRepository: ReminderRepository,
     private val todoReminderScheduler: TodoReminderScheduler,
     private val appPreferences: AppPreferences,
-    internal val appDatabase: AppDatabase
+    internal val appDatabase: AppDatabase,
+    /**
+     * 图片云端同步：导入完成后用它补传「只有本地路径、没有对象键」的图（见 [importBackup]）。
+     * 依赖方向安全——同步器不依赖本类，无循环。
+     */
+    private val imageCloudSync: ImageCloudSyncManager
 ) {
 
     private val json = Json {
@@ -369,6 +375,13 @@ class AppBackupManager @Inject constructor(
             ledgerRepository.deduplicateCategories()
             ledgerRepository.deduplicateAssets()
             anniversaryRepository.deduplicateAnniversaries()
+
+            // 导入的图可能只有本地路径、没有对象键（旧备份、或对方也是从本地迁来的），
+            // 交给云端同步补传一次：它按内容哈希定键、已存在的跳过，顺带回写对象键并
+            // 在云端确认后清理本地副本。放到返回前触发，三个调用方（手动导入、局域网
+            // 同步的两端）都自动覆盖，不必各自记得补一次。
+            // 未配置云端时它内部静默跳过，不影响导入本身。
+            imageCloudSync.syncAll()
 
             return BackupMergeResult(
                 itemAdded = itemOutcome.added,
@@ -960,7 +973,6 @@ class AppBackupManager @Inject constructor(
         }
 
         val workingFile = File(context.cacheDir, "lemonbox-backup-${System.currentTimeMillis()}.zip")
-        val imageEntries = mutableListOf<ImageEntry>()
         val backup = AppBackupPayload(
             exportedAt = exportedAt,
             syncVersion = SYNC_VERSION,
@@ -978,24 +990,19 @@ class AppBackupManager @Inject constructor(
                 )
             },
             items = items.map { item ->
-                // 图片与对象键必须同步过滤：只有文件真实存在的图才进备份，
-                // 对应的键也要跟着少，否则导入时键会整体前移、安到别人的图上。
+                // 图片不再打包进备份包：图片本身存在对象存储上，两台设备指向同一个桶，
+                // 局域网同步只需传「元数据 + 对象键」，图片由对方按需从云端取回。
+                // 每个槽位仍用哨兵路径占位（其值就是对象键），保持下标与键一一对应；
+                // 尚未上传的槽位用空占位（`cloud:`），对方知道该位置存在但暂时无图，
+                // 导入后两端都会各自补传，最终收敛到同一张图。
                 val objectKeys = item.imageObjectKeyList()
-                val keptImages = mutableListOf<String>()
-                val keptObjectKeys = mutableListOf<String>()
-                item.imagePathList().forEachIndexed { index, path ->
-                    val file = File(path)
-                    if (file.exists()) {
-                        val relativePath = "images/${item.id}_${index}_${file.name}"
-                        imageEntries += ImageEntry(relativePath, file)
-                        keptImages += relativePath
-                        keptObjectKeys += objectKeys.getOrNull(index).orEmpty()
-                    }
-                }
                 ItemSnapshot.fromEntity(
                     item = item,
-                    imagePaths = keptImages,
-                    imageObjectKeys = keptObjectKeys,
+                    // 未上传的槽位用带索引的空占位，保证两条及以上并存时值不重复。
+                    imagePaths = objectKeys.mapIndexed { index, key ->
+                        if (key.isBlank()) Item.emptyCloudSlotPath(index) else Item.cloudSlotPath(key)
+                    },
+                    imageObjectKeys = objectKeys,
                     categorySyncId = item.categoryId?.let { categorySyncIdById[it] },
                     locationSyncId = item.locationId?.let { locationSyncIdById[it] }
                 )
@@ -1048,21 +1055,10 @@ class AppBackupManager @Inject constructor(
             zip.putNextEntry(ZipEntry(BACKUP_CHECKSUM_NAME))
             zip.write(sha256Hex(manifestBytes).toByteArray())
             zip.closeEntry()
-
-            imageEntries.forEach { entry ->
-                zip.putNextEntry(ZipEntry(entry.relativePath))
-                entry.file.inputStream().use { input -> input.copyTo(zip) }
-                zip.closeEntry()
-            }
         }
 
         return BackupArchive(file = workingFile, exportedAt = exportedAt)
     }
-
-    private data class ImageEntry(
-        val relativePath: String,
-        val file: File
-    )
 
     private fun unzip(zipFile: File, targetDir: File) {
         ZipInputStream(zipFile.inputStream()).use { zip ->
