@@ -8,6 +8,7 @@ import com.goodyaoshi.lemonbox.data.local.entity.LedgerBudget
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerCategory
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerRecord
 import com.goodyaoshi.lemonbox.data.local.entity.Location
+import com.goodyaoshi.lemonbox.data.local.entity.Reminder
 import com.goodyaoshi.lemonbox.util.ImageUtil
 import com.goodyaoshi.lemonbox.util.ReminderClock
 import java.io.File
@@ -599,25 +600,39 @@ internal suspend fun AppBackupManager.mergeReminders(
     snapshots.forEach { snapshot ->
         val key = keyOf(snapshot.syncId, snapshot.id, useSyncIds)
         val local = localByKey[key]
+        // 永久删除墓碑（F21）：对方已彻底删除，本方同样标成永久删除以便继续向第三方传播，
+        // 不重新插入、也不当成软删。
+        if (snapshot.purgedAt != null) {
+            local?.let { reminderRepository.markPurged(listOf(it.id), snapshot.purgedAt) }
+            return@forEach
+        }
         if (local == null) {
-            val base = snapshot.toReminder(targetId = 0)
-            val fireAt = base.nextFireAt.takeIf { it > 0 }
-                ?: ReminderClock.firstFireAt(base)
-                ?: 0L
-            reminderRepository.insertSynced(base.copy(nextFireAt = fireAt))
+            reminderRepository.insertSynced(snapshot.toReminder(targetId = 0).recomputeFireAt())
             added++
         } else {
             if (!isRemoteNewer(snapshot.updatedAt, local.updatedAt)) return@forEach
             reminderRepository.updateSynced(
                 snapshot.toReminder(targetId = local.id).copy(
-                    syncId = local.syncId ?: snapshot.syncId.orNewSyncId(),
-                    nextFireAt = snapshot.nextFireAt.takeIf { it > 0 } ?: local.nextFireAt
-                )
+                    syncId = local.syncId ?: snapshot.syncId.orNewSyncId()
+                    // nextFireAt 由 recomputeFireAt 本地重算，不采用对方快照里的值。
+                ).recomputeFireAt(fallback = local.nextFireAt)
             )
             updated++
         }
     }
     return MergeOutcome(added, updated, emptyMap())
+}
+
+/**
+ * 按本地规则重算下次触发时间。
+ *
+ * [Reminder.nextFireAt] 是设备本地的调度状态，各设备各自推进；随快照传会让调度时钟互相
+ * 覆盖（周期错乱、重复通知），故合并时一律本地重算，仅以 [fallback] 兜底。墓碑不重算。
+ */
+internal fun Reminder.recomputeFireAt(fallback: Long = 0L): Reminder {
+    if (deletedAt != null) return this
+    val fireAt = ReminderClock.firstFireAt(this)?.takeIf { it > 0 } ?: fallback
+    return copy(nextFireAt = fireAt)
 }
 
 /**

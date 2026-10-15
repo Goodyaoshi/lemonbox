@@ -80,7 +80,9 @@ data class Reminder(
     val syncId: String? = null,
     val updatedAt: Long? = null,
     /** 软删除墓碑；非空表示该提醒已在来源设备删除。 */
-    val deletedAt: Long? = null
+    val deletedAt: Long? = null,
+    /** 「永久删除」墓碑（F21，与 [Item.purgedAt] 同款）：非空表示已在来源设备被彻底删除。 */
+    val purgedAt: Long? = null
 ) {
     val repeat: ReminderRepeatType
         get() = runCatching { ReminderRepeatType.valueOf(repeatType) }

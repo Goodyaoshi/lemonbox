@@ -271,7 +271,12 @@ class FakeItemDao(
     }
 
     override suspend fun purgeDeletedBefore(cutoffTime: Long) {
-        items.removeAll { it.deletedAt != null && it.deletedAt < cutoffTime }
+        items.removeAll { it.deletedAt != null && it.purgedAt == null && it.deletedAt < cutoffTime }
+    }
+
+    /** 与 DAO 语义一致：只清到期的永久删除墓碑，保留期由维护任务用更长的截止时间控制。 */
+    override suspend fun purgePurgedBefore(cutoff: Long) {
+        items.removeAll { it.purgedAt != null && it.purgedAt < cutoff }
     }
 
     override suspend fun deleteDeletedItemsByIds(ids: List<Long>) {

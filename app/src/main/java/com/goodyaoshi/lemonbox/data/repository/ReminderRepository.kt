@@ -4,6 +4,7 @@ import com.goodyaoshi.lemonbox.data.local.dao.ReminderDao
 import com.goodyaoshi.lemonbox.data.local.entity.Reminder
 import com.goodyaoshi.lemonbox.data.local.entity.ReminderRepeatType
 import com.goodyaoshi.lemonbox.data.local.entity.ReminderSource
+import com.goodyaoshi.lemonbox.util.MonotonicClock
 import com.goodyaoshi.lemonbox.util.ReminderClock
 import com.goodyaoshi.lemonbox.util.TodoReminderScheduler
 import kotlinx.coroutines.flow.Flow
@@ -162,11 +163,11 @@ class ReminderRepository @Inject constructor(
         scheduler.reschedule()
     }
 
-    /** 软删除：墓碑随备份/同步传递；菜谱准备提醒等来源型提醒同样走这里。 */
+    /** 未删过则软删（可撤销）；已在回收站里再删即彻底删除，改写成永久删除墓碑。 */
     suspend fun delete(reminder: Reminder) {
-        val now = System.currentTimeMillis()
+        val now = MonotonicClock.now()
         if (reminder.deletedAt != null) {
-            reminderDao.delete(reminder)
+            reminderDao.markPurged(ids = listOf(reminder.id), timestamp = now)
         } else {
             reminderDao.softDelete(id = reminder.id, deletedAt = now, updatedAt = now)
         }
@@ -193,7 +194,48 @@ class ReminderRepository @Inject constructor(
         reminderDao.update(reminder)
     }
 
+    /** 收到对方的永久删除墓碑：本地那份同样标成永久删除，以便继续向第三方传播。 */
+    suspend fun markPurged(ids: List<Long>, purgedAt: Long) {
+        if (ids.isEmpty()) return
+        reminderDao.markPurged(ids, purgedAt)
+        scheduler.reschedule()
+    }
+
+    /** 收敛来源型提醒（菜谱准备 / 胶囊解锁）在多设备上各自生成的重复项，返回清理条数。 */
+    suspend fun deduplicateReminders(): Int {
+        val duplicates = selectReminderDuplicates(reminderDao.getAllSnapshot())
+        if (duplicates.isEmpty()) return 0
+        val now = MonotonicClock.now()
+        duplicates.forEach { id ->
+            reminderDao.softDelete(id = id, deletedAt = now, updatedAt = now)
+        }
+        scheduler.reschedule()
+        return duplicates.size
+    }
+
     suspend fun purgeDeletedOlderThan(cutoff: Long) {
         reminderDao.purgeDeletedOlderThan(cutoff)
     }
+
+    /** 清到期的永久删除墓碑，保留期更长（理由见 `ItemRepository.purgePurgedItemsOlderThan`）。 */
+    suspend fun purgePurgedOlderThan(cutoff: Long) {
+        reminderDao.purgePurgedOlderThan(cutoff)
+    }
 }
+
+/**
+ * 选出应被收敛掉的来源型提醒重复项 id。
+ *
+ * 抽成顶层纯函数是因为它决定**哪一条存活**：规则与设备无关（同 sourceKey 取 syncId
+ * 字典序最小者），否则两台设备各留不同副本、互相删掉对方的，最终一条都不剩。
+ * 手动提醒（sourceKey 为空）与已删墓碑不参与。
+ */
+internal fun selectReminderDuplicates(all: List<Reminder>): List<Long> =
+    all.filter { it.deletedAt == null && !it.sourceKey.isNullOrBlank() }
+        .groupBy { it.sourceKey }
+        .values
+        .filter { it.size > 1 }
+        .flatMap { group ->
+            val keeper = group.minByOrNull { it.syncId ?: "id:${it.id}" }
+            group.filter { it.id != keeper?.id }.map { it.id }
+        }

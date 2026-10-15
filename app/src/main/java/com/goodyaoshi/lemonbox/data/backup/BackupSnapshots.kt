@@ -172,7 +172,9 @@ data class ReminderSnapshot(
     val createdAt: Long,
     val syncId: String? = null,
     val updatedAt: Long? = null,
-    val deletedAt: Long? = null
+    val deletedAt: Long? = null,
+    /** 「永久删除」墓碑（F21）：非空表示这条是永久删除留下的墓碑，对方合并时直接本地清除。 */
+    val purgedAt: Long? = null
 ) {
     /** 还原成实体；nextFireAt 保留原值（0 时由导入端重算）。 */
     fun toReminder(targetId: Long): Reminder = Reminder(
@@ -192,7 +194,8 @@ data class ReminderSnapshot(
         createdAt = createdAt,
         syncId = syncId,
         updatedAt = updatedAt ?: createdAt,
-        deletedAt = deletedAt
+        deletedAt = deletedAt,
+        purgedAt = purgedAt
     )
 
     companion object {
@@ -213,7 +216,8 @@ data class ReminderSnapshot(
             createdAt = reminder.createdAt,
             syncId = reminder.syncId,
             updatedAt = reminder.updatedAt,
-            deletedAt = reminder.deletedAt
+            deletedAt = reminder.deletedAt,
+            purgedAt = reminder.purgedAt
         )
     }
 }

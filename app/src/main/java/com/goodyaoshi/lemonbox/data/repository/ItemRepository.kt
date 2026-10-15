@@ -330,5 +330,8 @@ class ItemRepository @Inject constructor(
         return expiredItems
     }
 
+    /** 清到期的永久删除墓碑，保留期更长：墓碑要活到其他设备都拉到过它为止。 */
+    suspend fun purgePurgedItemsOlderThan(cutoff: Long) = itemDao.purgePurgedBefore(cutoff)
+
     suspend fun getAllItemsSnapshot(): List<Item> = itemDao.getAllItemsSnapshot()
 }

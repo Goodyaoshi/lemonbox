@@ -50,12 +50,19 @@ class AppMaintenance @Inject constructor(
         anniversaryRepository.purgeDeletedOlderThan(cutoff)
         reminderRepository.purgeDeletedOlderThan(cutoff)
 
+        // 「永久删除」墓碑保留更久（半年）：要活到其他设备都拉到过这次删除为止。
+        val purgedCutoff = System.currentTimeMillis() - PURGED_TOMBSTONE_TTL_MS
+        itemRepository.purgePurgedItemsOlderThan(purgedCutoff)
+        reminderRepository.purgePurgedOlderThan(purgedCutoff)
+
         // 位置、家当分类、记账分类、账户与纪念日的同名去重。
         locationRepository.deduplicateLocations()
         categoryRepository.deduplicateCategories()
         ledgerRepository.deduplicateCategories()
         ledgerRepository.deduplicateAssets()
         anniversaryRepository.deduplicateAnniversaries()
+        // 来源型提醒（菜谱准备 / 胶囊解锁）在每台设备各自生成，合并后会出现多份，统一收敛。
+        reminderRepository.deduplicateReminders()
 
         appPreferences.setLastMaintenanceAt(System.currentTimeMillis())
     }
@@ -63,6 +70,12 @@ class AppMaintenance @Inject constructor(
     companion object {
         /** 墓碑保留时长：软删满 30 天后才物理清除。 */
         const val TOMBSTONE_TTL_MS = 30L * 24 * 60 * 60 * 1000
+
+        /**
+         * 「永久删除」墓碑保留时长（半年）。比软删墓碑长得多：离线超 30 天的设备
+         * 若已错过墓碑，会把本地那条当新数据推回，表现为删除的数据复活。
+         */
+        const val PURGED_TOMBSTONE_TTL_MS = 180L * 24 * 60 * 60 * 1000
 
         /** 冷启动补算的间隔：距上次维护超过一天才在打开时补算一次。 */
         const val MAINTENANCE_INTERVAL_MS = 24L * 60 * 60 * 1000

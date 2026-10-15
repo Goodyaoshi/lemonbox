@@ -298,6 +298,10 @@ interface ItemDao {
     @Query("SELECT COUNT(*) FROM items WHERE deletedAt IS NOT NULL AND deletedAt >= :cutoffTime")
     fun getRecycleCount(cutoffTime: Long): Flow<Int>
 
+    /**
+     * 删除时间早于 [cutoffTime] 的物品（含软删与永久删两种墓碑）。
+     * 故意不按 purgedAt 过滤：清图片要靠它拿到物品行（见 `ItemRepository.purgeDeletedItemsOlderThan`）。
+     */
     @Query("SELECT * FROM items WHERE deletedAt IS NOT NULL AND deletedAt < :cutoffTime")
     suspend fun getDeletedItemsBefore(cutoffTime: Long): List<Item>
 
@@ -315,8 +319,12 @@ interface ItemDao {
     )
     suspend fun markPurged(ids: List<Long>, timestamp: Long)
 
-    @Query("DELETE FROM items WHERE deletedAt IS NOT NULL AND deletedAt < :cutoffTime")
+    @Query("DELETE FROM items WHERE deletedAt IS NOT NULL AND purgedAt IS NULL AND deletedAt < :cutoffTime")
     suspend fun purgeDeletedBefore(cutoffTime: Long)
+
+    /** 清到期的永久删除墓碑，保留期更长：墓碑要活到其他设备都拉到过它为止。 */
+    @Query("DELETE FROM items WHERE purgedAt IS NOT NULL AND purgedAt < :cutoff")
+    suspend fun purgePurgedBefore(cutoff: Long)
 
     @Query("DELETE FROM items WHERE id IN (:ids) AND deletedAt IS NOT NULL")
     suspend fun deleteDeletedItemsByIds(ids: List<Long>)

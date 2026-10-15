@@ -910,6 +910,16 @@ internal object Migrations {
         }
     }
 
+    /**
+     * v36（F21）：给 `reminders` 加「永久删除」墓碑列，与物品同款（物品在 v34 已有）。
+     * 旧行 purgedAt 为 NULL，语义正是「不是永久删除」，无需回填。
+     */
+    private val MIGRATION_35_36 = object : Migration(35, 36) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE `reminders` ADD COLUMN `purgedAt` INTEGER")
+        }
+    }
+
 /**
  * 把 v34 的「本地路径行 + 对象键行」合并成 v35 的单列哈希（F22）。
  *
@@ -995,6 +1005,7 @@ private const val SHA256_HEX_LENGTH = 64
         MIGRATION_31_32,
         MIGRATION_32_33,
         MIGRATION_33_34,
-        MIGRATION_34_35
+        MIGRATION_34_35,
+        MIGRATION_35_36
     )
 }

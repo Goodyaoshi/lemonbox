@@ -58,6 +58,20 @@ interface ReminderDao {
     @Query("UPDATE reminders SET deletedAt = :deletedAt, updatedAt = :updatedAt WHERE id = :id")
     suspend fun softDelete(id: Long, deletedAt: Long, updatedAt: Long)
 
-    @Query("DELETE FROM reminders WHERE deletedAt IS NOT NULL AND deletedAt < :cutoff")
+    /** 永久删除改写成墓碑（F21，同 [Item.purgedAt]）：不物理删行，否则其他设备无从得知删除。 */
+    @Query(
+        "UPDATE reminders SET deletedAt = :timestamp, purgedAt = :timestamp, updatedAt = :timestamp " +
+            "WHERE id IN (:ids)"
+    )
+    suspend fun markPurged(ids: List<Long>, timestamp: Long)
+
+    /** 只清软删墓碑；永久删除墓碑保留更久，见 [purgePurgedOlderThan]。 */
+    @Query(
+        "DELETE FROM reminders WHERE deletedAt IS NOT NULL AND purgedAt IS NULL AND deletedAt < :cutoff"
+    )
     suspend fun purgeDeletedOlderThan(cutoff: Long)
+
+    /** 清到期的永久删除墓碑，保留期更长：墓碑要活到其他设备都拉到过它为止。 */
+    @Query("DELETE FROM reminders WHERE purgedAt IS NOT NULL AND purgedAt < :cutoff")
+    suspend fun purgePurgedOlderThan(cutoff: Long)
 }
