@@ -204,7 +204,7 @@ fun DetailScreen(
 
     val detail = pagerItems.getOrNull(pagerState.currentPage) ?: pagerItems.first()
     val item = detail.item
-    val imagePaths = item.imagePathList()
+    val imageHashes = item.imageHashList()
 
     Box(modifier = Modifier.fillMaxSize()) {
         AppDecorativeBackground()
@@ -225,18 +225,17 @@ fun DetailScreen(
                     modifier = Modifier.fillMaxSize()
                 ) { page ->
                     val pageItem = pagerItems[page].item
-                    val primaryImagePath = pageItem.primaryImagePath()
-                    val primaryImageObjectKey = pageItem.primaryImageObjectKey()
-                    val primaryImageModel = rememberImageModel(primaryImagePath, primaryImageObjectKey)
-                    // 有图不等于本地有文件：换设备后可能只有对象键、文件还没落地。
-                    if (primaryImagePath.isNotEmpty() || primaryImageObjectKey != null) {
+                    val primaryImageHash = pageItem.primaryImageHash()
+                    val primaryImageModel = rememberImageModel(primaryImageHash)
+                    // 有图只看哈希：换设备后本地文件还没落地，也照样能从云端取。
+                    if (primaryImageHash != null) {
                         AsyncImage(
                             model = primaryImageModel,
                             contentDescription = pageItem.name,
                             modifier = Modifier
                                 .fillMaxSize()
                                 .clickable {
-                                    previewImageIndex = pageItem.imagePathList().indexOf(primaryImagePath)
+                                    previewImageIndex = pageItem.imageHashList().indexOf(primaryImageHash)
                                         .takeIf { it >= 0 } ?: 0
                                 },
                             contentScale = ContentScale.Crop
@@ -538,12 +537,9 @@ fun DetailScreen(
     }
 
     previewImageIndex?.let { index ->
-        if (imagePaths.isNotEmpty()) {
+        if (imageHashes.isNotEmpty()) {
             ImagePreviewOverlay(
-                imagePaths = imagePaths,
-                // 预览要与列表看到的是同一组图：把每张的对象键一起带上，
-                // 本地原图缺失时预览也能从云端取回。
-                imageObjectKeys = item.imageObjectKeyList(),
+                imageHashes = imageHashes,
                 initialIndex = index,
                 onDismissRequest = { previewImageIndex = null }
             )

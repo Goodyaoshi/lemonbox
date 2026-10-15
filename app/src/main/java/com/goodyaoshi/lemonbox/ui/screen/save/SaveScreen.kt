@@ -76,6 +76,7 @@ import com.goodyaoshi.lemonbox.ui.components.ScanInputChoiceDialog
 import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
 import com.goodyaoshi.lemonbox.ui.components.PrimaryActionBar
 import com.goodyaoshi.lemonbox.ui.components.QuantityStepper
+import com.goodyaoshi.lemonbox.ui.components.rememberImageModel
 import com.goodyaoshi.lemonbox.ui.components.ReminderLadderPicker
 import com.goodyaoshi.lemonbox.ui.components.UnitPickerRow
 import com.goodyaoshi.lemonbox.ui.components.TreeNode
@@ -231,7 +232,7 @@ fun SaveScreen(
     }
 
     // I6：与「空白默认表单」逐字段比对（忽略保存态的瞬时标记）判断有没有未保存内容。
-    // 拍照/选图会写进 imagePaths，所以拍完照直接返回同样会触发确认，避免白拍一张。
+    // 拍照/选图会写进 imageHashes，所以拍完照直接返回同样会触发确认，避免白拍一张。
     val hasUnsavedInput = state.copy(isSaving = false, isSaved = false, errorMessage = null) != SaveItemState()
     val requestBack: () -> Unit = {
         if (hasUnsavedInput) showDiscardDialog = true else onBack()
@@ -240,9 +241,10 @@ fun SaveScreen(
     BackHandler { requestBack() }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        if (state.imagePaths.isNotEmpty()) {
+        if (state.imageHashes.isNotEmpty()) {
             AsyncImage(
-                model = state.imagePaths.first(),
+                // 背景模糊图按哈希解析：本地文件不在时也能从云端取（列表与详情同款逻辑）。
+                model = rememberImageModel(state.imageHashes.first()),
                 contentDescription = null,
                 modifier = Modifier
                     .fillMaxSize()
@@ -339,11 +341,11 @@ fun SaveScreen(
                         Spacer(modifier = Modifier.height(14.dp))
 
                         ItemImageGallery(
-                            imagePaths = state.imagePaths,
+                            imageHashes = state.imageHashes,
                             onCapturePrimary = { onOpenCamera(SavePhotoMode.REPLACE_PRIMARY) },
                             onCaptureDetail = { onOpenCamera(SavePhotoMode.APPEND) },
                             onScanBarcode = { showScanChoice = true },
-                            onRemoveImage = viewModel::removePhoto,
+                            onRemoveImage = { index -> viewModel.removePhoto(context, index) },
                             onMoveImage = viewModel::movePhoto
                         )
 

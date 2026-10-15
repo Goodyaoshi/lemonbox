@@ -1,8 +1,11 @@
 package com.goodyaoshi.lemonbox.data.imagecloud
 
+import android.content.Context
+import com.goodyaoshi.lemonbox.data.local.entity.Item
 import com.goodyaoshi.lemonbox.data.local.entity.ItemDetail
 import com.goodyaoshi.lemonbox.data.repository.ItemRepository
 import com.goodyaoshi.lemonbox.util.ImageUtil
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -46,34 +49,29 @@ private sealed interface UploadResult {
     data class Failed(val message: String) : UploadResult
 }
 
-/** 待同步的一张图：本地文件、内容哈希、对象键，以及引用它的物品位置。 */
+/** 待同步的一张图：本地文件、内容哈希（对象键由哈希推导，不再单独存）。 */
 private data class ImageToSync(
     val file: File,
     val hash: String,
-    val objectKey: String,
-    /**
-     * 引用这张图的物品位置（物品 id + 图片下标）。
-     *
-     * 上传按**内容**去重（同一张图只传一次），但回写要按**位置**——同一份内容可能被多个
-     * 物品/多个槽位引用，只记首个引用会让其余位置永远显示未上传。
-     */
-    val references: List<ImageReference>
-) {
-    data class ImageReference(val itemId: Long, val index: Int)
-}
+    val objectKey: String
+)
 
 /**
- * 图片云端同步编排（F20）。
+ * 图片云端同步编排（F22）。
  *
  * 幂等来自「对象键 = 图片内容的 SHA-256」（见 [ImageObjectKeys]）：重复同步、多台设备
  * 同时同步同一张图，算出的键都相同，于是先 HEAD 探在、命中即跳过，不会重传或产生副本。
- * 判断依据是内容而非「是否传过」的标记位，故本地无需记录状态、也不需要数据库迁移。
+ *
+ * **不需要回写**：物品的图片槽位只存内容哈希（见 [Item.imageHashes]），对象键由哈希
+ * 与服务端前缀推导。早先「上传成功后把对象键写回数据库」这一步因此整个消失——
+ * 库里那个哈希本来就够用，这正是「三列合并为一列」的直接收益。
  *
  * [knownRemoteKeys] 以持久化账本 [ImageCloudUploadLedger] 为底，重装重启后仍记得哪些传过；
- * 增量省下的是网络请求（账本里的键连 HEAD 都不发），本地仍要算一遍哈希。
+ * 增量省下的是网络请求（账本里的键连 HEAD 都不发），本地仍要按文件名读出哈希。
  */
 @Singleton
 class ImageCloudSyncManager @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val config: ImageCloudConfig,
     private val preferences: ImageCloudPreferences,
     private val credentialStore: ImageCredentialStore,
@@ -190,8 +188,8 @@ class ImageCloudSyncManager @Inject constructor(
         var skipped = 0
         var failed = 0
         var lastError: String? = null
-        // 删除前要判断「该路径是否被别的槽位共用」，故先统计一次引用。
-        val pathRefCounts = loadPathRefCounts()
+        // 删除前要判断「该内容是否被别的槽位共用」，故先统计一次引用。
+        val hashRefCounts = loadHashRefCounts()
 
         for (image in images) {
             _state.value = _state.value.copy(currentFile = image.file.name)
@@ -214,9 +212,9 @@ class ImageCloudSyncManager @Inject constructor(
                 }
             }
             // 只有云端确实拿到了这张图，才有资格动本地副本。
+            // 不再需要回写对象键：键由哈希推导，库里那个哈希本来就够用。
             if (confirmedOnCloud) {
-                writeBackObjectKeys(image)
-                deleteLocalIfSafe(s3, image, pathRefCounts)
+                deleteLocalIfSafe(s3, image, hashRefCounts)
             }
             _state.value = _state.value.copy(
                 uploaded = uploaded,
@@ -234,12 +232,12 @@ class ImageCloudSyncManager @Inject constructor(
         return SyncRunResult.Done(uploaded, skipped, failed)
     }
 
-    /** 统计每个本地图片路径被多少个图片槽位引用，供 [deleteLocalIfSafe] 判断。 */
-    private suspend fun loadPathRefCounts(): Map<String, Int> = withContext(Dispatchers.IO) {
+    /** 统计每个内容哈希被多少个图片槽位引用，供 [deleteLocalIfSafe] 判断。 */
+    private suspend fun loadHashRefCounts(): Map<String, Int> = withContext(Dispatchers.IO) {
         runCatching {
             // 用含软删物品的快照：回收站里的物品可能被恢复，它的图片不能被删掉。
             itemRepository.getAllItemsSnapshot()
-                .flatMap { it.imagePathList() }
+                .flatMap { it.imageHashList() }
                 .groupingBy { it }
                 .eachCount()
         }.getOrDefault(emptyMap())
@@ -254,22 +252,21 @@ class ImageCloudSyncManager @Inject constructor(
      *  3. **云端真的读得回来**——见 [S3ImageClient.verifyPresignedReadable]。
      *     上传与读取是两条不同的签名路径，不先验证就删等于拿用户的照片赌一个未验证的假设。
      *
-     * 删除后物品的 `imagePaths` 仍保留这个路径（指向已不存在的文件）、对象键原样保留，
-     * 因此下标不会错位；读取时发现本地文件不在，自动改用云端取图。
+     * 删除后物品的图片槽位（哈希）原样保留，因此主图与顺序都不会变；
+     * 读取时发现本地文件不在，自动改用云端取图。
      */
     private suspend fun deleteLocalIfSafe(
         s3: S3Config,
         image: ImageToSync,
-        pathRefCounts: Map<String, Int>
+        hashRefCounts: Map<String, Int>
     ) {
-        val path = image.file.absolutePath
-        val refCount = pathRefCounts[path] ?: return
+        val refCount = hashRefCounts[image.hash] ?: return
         if (refCount > 1) return
         val readable = withContext(Dispatchers.IO) {
             client.verifyPresignedReadable(s3, image.objectKey)
         }
         if (!readable) return
-        ImageUtil.deleteImage(path)
+        ImageUtil.deleteImage(image.file.absolutePath)
     }
 
     private fun failRun(message: String) {
@@ -282,31 +279,31 @@ class ImageCloudSyncManager @Inject constructor(
     }
 
     /**
-     * 把「这张图在云端的存在」落到引用它的每个物品位置上。
+     * 把某个物品的**历史遗留槽位**归一成内容哈希，并同步重命名本地文件（F22）。
      *
-     * 先读回物品、把键写进对应下标、再用 [Item.withImages] 保证与图片列表等长，
-     * 最后由仓库只更新键列（不刷新 updatedAt）。
-     * 单个物品写失败不影响其他物品，也不影响整体同步结果——图片本身已经安全上传了。
+     * 为什么需要：本方案落地前的槽位存的是「本地文件名」，而迁移无法读文件内容
+     * （迁移只有数据库、拿不到 Context），因此那时算不出哈希、只能原样保留。
+     * 这里补上这一步——算出哈希、把文件重命名为 `item_<hash>.jpg`、再改写槽位。
+     *
+     * 归一之后所有槽位都是哈希，本地查找与对象键推导才能走同一条路。
+     * 文件已不在（丢过 / 只在云端）时原样保留槽位，不猜、不丢。
      */
-    private suspend fun writeBackObjectKeys(image: ImageToSync) {
-        image.references.groupBy { it.itemId }.forEach { (itemId, positions) ->
-            runCatching {
-                val item = itemRepository.getItemById(itemId) ?: return@forEach
-                val paths = item.imagePathList()
-                val keys = item.imageObjectKeyList().toMutableList()
-                var changed = false
-                positions.forEach { reference ->
-                    if (reference.index in keys.indices && keys[reference.index] != image.objectKey) {
-                        keys[reference.index] = image.objectKey
-                        changed = true
-                    }
-                }
-                // 逐张图上传时会多次命中同一物品；没有实际变化就不写库，省掉无谓的写。
-                if (changed) {
-                    itemRepository.updateImageObjectKeys(item.withImages(paths, keys))
-                }
-            }
+    private suspend fun normalizeLegacySlots(item: Item): List<String> {
+        val slots = item.imageHashList()
+        if (slots.isEmpty() || slots.all { ImageUtil.isContentHash(it) }) return slots
+
+        val normalized = slots.map { slot ->
+            if (ImageUtil.isContentHash(slot)) return@map slot
+            val legacyFile = ImageUtil.findLocalFile(context, slot) ?: return@map slot
+            val hash = runCatching { sha256Hex(legacyFile) }.getOrNull() ?: return@map slot
+            ImageUtil.saveImageByContent(context, legacyFile, hash)
+            legacyFile.delete()
+            hash
         }
+        if (normalized != slots) {
+            itemRepository.updateImageHashes(item.withImageHashes(normalized))
+        }
+        return normalized
     }
 
     /** 探在 + 按需上传。已在云端时直接返回 [UploadResult.AlreadyExists]，不重传。 */
@@ -349,31 +346,30 @@ class ImageCloudSyncManager @Inject constructor(
      * 同时把「哪些物品的哪一张图用了这份内容」全部记进 [ImageToSync.references]，
      * 供上传成功后逐个位置回写对象键——只记首个引用会让其余位置永远显示未上传。
      *
-     * 哈希在这里算好并随 [ImageToSync] 带走，后续不再重复计算。
+     * 哈希优先从文件名解析（F22）：落盘已改为 `item_<sha256>.jpg`，文件名就是哈希，
+     * 不必再为每张图读盘算一遍。历史文件（旧 UUID 命名）解析不出时才回退读盘，
+     * 因此无需一次性迁移旧数据。
      */
     private suspend fun collectImages(
         prefix: String,
         details: List<ItemDetail>
     ): List<ImageToSync> = withContext(Dispatchers.IO) {
-        val fileByHash = HashMap<String, File>()
-        val referencesByHash = LinkedHashMap<String, MutableList<ImageToSync.ImageReference>>()
+        // 先归一历史遗留槽位，之后所有槽位都是内容哈希：
+        // 本地文件按哈希找、对象键按哈希推导，两条路一致。
+        val slotsByItem = details.associate { it.item.id to normalizeLegacySlots(it.item) }
+        // 按内容归并：同一张图只产出一条待上传项（这正是「不重复上传」的根据）。
+        val fileByHash = LinkedHashMap<String, File>()
         for (detail in details) {
-            val itemId = detail.item.id
-            detail.item.imagePathList().forEachIndexed { index, path ->
-                val file = File(path)
-                if (!file.isFile) return@forEachIndexed
-                val hash = runCatching { sha256Hex(file) }.getOrNull() ?: return@forEachIndexed
-                fileByHash[hash] = file
-                referencesByHash.getOrPut(hash) { mutableListOf() } +=
-                    ImageToSync.ImageReference(itemId, index)
+            slotsByItem[detail.item.id].orEmpty().forEach { hash ->
+                val file = ImageUtil.findLocalFile(context, hash) ?: return@forEach
+                fileByHash.putIfAbsent(hash, file)
             }
         }
-        referencesByHash.map { (hash, references) ->
+        fileByHash.map { (hash, file) ->
             ImageToSync(
-                file = fileByHash.getValue(hash),
+                file = file,
                 hash = hash,
-                objectKey = ImageObjectKeys.forContentHash(prefix, hash),
-                references = references
+                objectKey = ImageObjectKeys.forContentHash(prefix, hash)
             )
         }
     }
@@ -421,6 +417,26 @@ class ImageCloudSyncManager @Inject constructor(
     override suspend fun purgeCloudObjects(candidateKeys: Collection<String>) =
         purgeCloudObjectsInternal(candidateKeys)
 
+    /**
+     * 永久删除物品后收拾图片：先删本地残留副本，再清云端孤儿对象。
+     *
+     * 本地那份可能还在：上传成功才会被删，失败或从未同步过的物品到这一步仍留着本地文件。
+     */
+    override suspend fun purgeImagesOf(items: List<Item>) {
+        if (items.isEmpty()) return
+        val keys = withContext(Dispatchers.IO) {
+            items.flatMap { item ->
+                item.imageHashList().map { hash ->
+                    ImageUtil.findLocalFile(context, hash)?.let { file ->
+                        ImageUtil.deleteImage(file.absolutePath)
+                    }
+                    ImageObjectKeys.forContentHash(config.prefix(), hash)
+                }
+            }
+        }
+        purgeCloudObjectsInternal(keys)
+    }
+
     private suspend fun purgeCloudObjectsInternal(candidateKeys: Collection<String>) {
         val keys = candidateKeys.filter { it.isNotBlank() }.distinct()
         if (keys.isEmpty()) return
@@ -432,7 +448,10 @@ class ImageCloudSyncManager @Inject constructor(
             // 读不出全库引用时宁可保留孤儿，也不冒误删在用的图的风险。
             val stillReferenced = try {
                 itemRepository.getAllItemsSnapshot()
-                    .flatMap { it.imageObjectKeyList() }
+                    // 槽位存的是内容哈希，而候选键是对象键：先按当前前缀换算成对象键再比对。
+                    .flatMap { item ->
+                        item.imageHashList().map { ImageObjectKeys.forContentHash(config.prefix(), it) }
+                    }
                     .filter { it.isNotBlank() }
                     .toSet()
             } catch (e: CancellationException) {

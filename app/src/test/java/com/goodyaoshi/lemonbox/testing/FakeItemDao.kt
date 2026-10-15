@@ -66,7 +66,9 @@ class FakeItemDao(
         .map { it.name }
 
     override fun getRecycleItems(cutoffTime: Long): Flow<List<ItemDetail>> = flowOf(
-        items.filter { it.deletedAt != null && it.deletedAt >= cutoffTime }.map { ItemDetail(item = it) }
+        items.filter {
+            it.deletedAt != null && it.purgedAt == null && it.deletedAt >= cutoffTime
+        }.map { ItemDetail(item = it) }
     )
 
     override fun getItemDetailById(id: Long): Flow<ItemDetail?> = flowOf(
@@ -128,10 +130,10 @@ class FakeItemDao(
         replace(item)
     }
 
-    /** 与 DAO 语义一致：只改键列，不动 updatedAt（见 ItemDao 上的说明）。 */
-    override suspend fun updateImageObjectKeys(id: Long, encodedKeys: String) {
+    /** 与 DAO 语义一致：只改图片槽位列，不动 updatedAt（见 ItemDao 上的说明）。 */
+    override suspend fun updateImageHashes(id: Long, encodedHashes: String?) {
         items.replaceAll { item ->
-            if (item.id == id) item.copy(imageObjectKeys = encodedKeys) else item
+            if (item.id == id) item.copy(imageHashes = encodedHashes) else item
         }
     }
 
@@ -254,6 +256,18 @@ class FakeItemDao(
     override suspend fun getDeletedItemsByIds(ids: List<Long>): List<Item> {
         val idSet = ids.toSet()
         return items.filter { it.id in idSet && it.deletedAt != null }
+    }
+
+    /** 与 DAO 语义一致：永久删除写墓碑（deletedAt + purgedAt），不物理删行。 */
+    override suspend fun markPurged(ids: List<Long>, timestamp: Long) {
+        val idSet = ids.toSet()
+        items.replaceAll { item ->
+            if (item.id in idSet) {
+                item.copy(deletedAt = timestamp, purgedAt = timestamp, updatedAt = timestamp)
+            } else {
+                item
+            }
+        }
     }
 
     override suspend fun purgeDeletedBefore(cutoffTime: Long) {

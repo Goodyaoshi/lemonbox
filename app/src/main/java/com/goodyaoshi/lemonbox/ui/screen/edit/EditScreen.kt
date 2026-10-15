@@ -280,13 +280,11 @@ fun EditScreen(
                         .padding(bottom = 24.dp)
                 ) {
                     ItemImageGallery(
-                        imagePaths = state.imagePaths,
-                        // 带上对象键：编辑已有物品时本地文件可能已不在，改从云端取图显示。
-                        imageObjectKeys = state.imageObjectKeys,
+                        imageHashes = state.imageHashes,
                         onCapturePrimary = { onOpenCamera(SavePhotoMode.REPLACE_PRIMARY) },
                         onCaptureDetail = { onOpenCamera(SavePhotoMode.APPEND) },
                         onScanBarcode = { showScanChoice = true },
-                        onRemoveImage = viewModel::removePhoto,
+                        onRemoveImage = { index -> viewModel.removePhoto(context, index) },
                         onMoveImage = viewModel::movePhoto
                     )
 

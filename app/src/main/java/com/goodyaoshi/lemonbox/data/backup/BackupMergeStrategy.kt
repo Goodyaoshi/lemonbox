@@ -204,14 +204,10 @@ internal suspend fun AppBackupManager.mergeLocations(
 
 internal suspend fun AppBackupManager.mergeItems(
     snapshots: List<ItemSnapshot>,
-    workingDir: File,
     useSyncIds: Boolean,
     categoryIdByKey: Map<String, Long>,
     locationIdByKey: Map<String, Long>
 ): ItemMergeOutcome {
-    // 导入去重（F20）：整个导入过程只建一次本地内容索引。备份里的图若本地已有同一张，
-    // 直接复用、不再复制——否则导入自己刚导出的备份会让本地图片直接翻倍。
-    val contentIndex = LocalImageContentIndex(ImageUtil.workingImagesDir(context))
     val localItems = itemRepository.getAllItemsSnapshot()
     val localByKey = localItems.associateBy { keyOf(it.syncId, it.id, useSyncIds) }
     // 预填充本地记录，保证 idByKey 对增量包中未出现的记录也能解析。
@@ -223,13 +219,19 @@ internal suspend fun AppBackupManager.mergeItems(
     snapshots.forEach { snapshot ->
         val key = keyOf(snapshot.syncId, snapshot.id, useSyncIds)
         val local = localByKey[key]
+        // 永久删除墓碑（F21）：对方已彻底删除这条。本方直接把本地那份物理清掉，
+        // 既不重新插入、也不当成「回收站里的软删」——否则删除就永远传播不过来。
+        if (snapshot.purgedAt != null) {
+            if (local != null) {
+                itemRepository.purgeDeletedByIds(listOf(local.id))
+            }
+            local?.let { idByKey[key] = it.id }
+            return@forEach
+        }
         if (local == null) {
-            val (images, objectKeys) = resolveImagesAndKeys(snapshot, workingDir, contentIndex)
             val newId = itemRepository.insertSynced(
                 snapshot.toItem(
                     targetId = 0,
-                    resolvedImages = images,
-                    resolvedObjectKeys = objectKeys,
                     categoryId = resolveReferenceId(
                         syncId = snapshot.categorySyncId,
                         fallbackId = snapshot.categoryId,
@@ -254,12 +256,9 @@ internal suspend fun AppBackupManager.mergeItems(
                 kept++
                 return@forEach
             }
-            val (images, objectKeys) = resolveImagesAndKeys(snapshot, workingDir, contentIndex)
             itemRepository.updateSynced(
                 snapshot.toItem(
                     targetId = local.id,
-                    resolvedImages = images,
-                    resolvedObjectKeys = objectKeys,
                     categoryId = resolveReferenceId(
                         syncId = snapshot.categorySyncId,
                         fallbackId = snapshot.categoryId,
@@ -622,56 +621,123 @@ internal suspend fun AppBackupManager.mergeReminders(
 }
 
 /**
- * 还原备份里的图片，并把与之一一对应的云端对象键一起带出（F20）。
+ * 时间胶囊合并（v9 起）：与提醒同款——syncId 对齐、LWW、墓碑随快照传播。
  *
- * 图片与键必须**按下标一一对应**地处理，分三种情况：
- *  1. 备份条目是本地文件且能读出来 → 复制进本地（同内容复用），键取自 key 列；
- *  2. 条目是**云端占位**（`cloud:` 前缀，表示导出时本地已无文件）→ 本地路径留空、
- *     只保住对象键，读取时由「本地不可用则回退云端」接管；
- *  3. 条目是本地文件但读不出来 → 连通键一起放弃（保留会导致键前移错位）。
- *
- * 去重：[contentIndex] 认出「本地已经有同一张图」时复用其路径，不再复制新文件。
+ * 解锁提醒不在这里重建：它由 TimeCapsuleRepository 在打开胶囊时联动，
+ * 合并只负责把胶囊本体对齐，避免同步两端各建一条重复提醒。
  */
-internal fun AppBackupManager.resolveImagesAndKeys(
-    snapshot: ItemSnapshot,
-    workingDir: File,
-    contentIndex: LocalImageContentIndex
-): Pair<List<String>, List<String>> {
-    val images = mutableListOf<String>()
-    val objectKeys = mutableListOf<String>()
-    snapshot.imagePaths.forEachIndexed { index, relativePath ->
-        val declaredKey = snapshot.imageObjectKeys?.getOrNull(index).orEmpty()
+internal suspend fun AppBackupManager.mergeTimeCapsules(
+    snapshots: List<TimeCapsuleSnapshot>,
+    useSyncIds: Boolean
+): MergeOutcome {
+    val local = timeCapsuleRepository.getAllSnapshot()
+    val localByKey = local.associateBy { keyOf(it.syncId, it.id, useSyncIds) }
+    var added = 0
+    var updated = 0
 
-        // 情况 2：云端占位（`cloud:` 前缀）——本地本就没有文件，只需保住位置与键。
-        // 判据用「是不是占位路径」而不是「能否取出键」：尚未上传的槽位是空的占位
-        // （`cloud:`），若按后者判断会被当成读不出来而跳过，导致后面的键整体前移错位。
-        if (Item.isCloudSlot(relativePath)) {
-            images += relativePath
-            objectKeys += declaredKey.ifBlank { Item.cloudSlotObjectKey(relativePath).orEmpty() }
-            return@forEachIndexed
+    snapshots.forEach { snapshot ->
+        val key = keyOf(snapshot.syncId, snapshot.id, useSyncIds)
+        val existing = localByKey[key]
+        if (existing == null) {
+            timeCapsuleRepository.insertSynced(
+                snapshot.toCapsule(targetId = 0).copy(syncId = snapshot.syncId.orNewSyncId())
+            )
+            added++
+        } else {
+            if (!isRemoteNewer(snapshot.updatedAt, existing.updatedAt)) return@forEach
+            timeCapsuleRepository.updateSynced(
+                snapshot.toCapsule(targetId = existing.id).copy(
+                    syncId = existing.syncId ?: snapshot.syncId.orNewSyncId()
+                )
+            )
+            updated++
         }
-
-        // 情况 3：本地文件条目读不出来，键也一并放弃（宁可少一项，不可错位）。
-        val sourceFile = File(workingDir, relativePath)
-        if (!sourceFile.exists()) return@forEachIndexed
-        val hash = ImageUtil.contentHash(sourceFile) ?: return@forEachIndexed
-
-        // 情况 1：正常还原本地文件。
-        val target = contentIndex.findByHash(hash, sourceFile.length()) ?: run {
-            val saved = ImageUtil.saveImageByContent(context, sourceFile, hash)
-                ?: return@forEachIndexed
-            // 登记给本次导入的后续图片复用，避免同一份内容在同一个备份里被处理多次。
-            contentIndex.register(hash, saved)
-            saved
-        }
-        images += target
-        objectKeys += declaredKey
     }
-    return images to objectKeys
+    return MergeOutcome(added, updated, emptyMap())
+}
+
+/** 旅行行程合并（v9 起）：产出 idByKey 供条目解析归属。 */
+internal suspend fun AppBackupManager.mergePackingTrips(
+    snapshots: List<PackingTripSnapshot>,
+    useSyncIds: Boolean
+): MergeOutcome {
+    val local = packingRepository.getAllTripsSnapshot()
+    val localByKey = local.associateBy { keyOf(it.syncId, it.id, useSyncIds) }
+    val idByKey = HashMap(localByKey.mapValues { it.value.id })
+    var added = 0
+    var updated = 0
+
+    snapshots.forEach { snapshot ->
+        val key = keyOf(snapshot.syncId, snapshot.id, useSyncIds)
+        val existing = localByKey[key]
+        if (existing == null) {
+            val newId = packingRepository.insertSyncedTrip(
+                snapshot.toTrip(targetId = 0).copy(syncId = snapshot.syncId.orNewSyncId())
+            )
+            idByKey[key] = newId
+            added++
+        } else {
+            idByKey[key] = existing.id
+            if (!isRemoteNewer(snapshot.updatedAt, existing.updatedAt)) return@forEach
+            packingRepository.updateSyncedTrip(
+                snapshot.toTrip(targetId = existing.id).copy(
+                    syncId = existing.syncId ?: snapshot.syncId.orNewSyncId()
+                )
+            )
+            updated++
+        }
+    }
+    return MergeOutcome(added, updated, idByKey)
+}
+
+/**
+ * 打包条目合并（v9 起）。
+ *
+ * tripId 是本地主键、跨设备对不上，必须按 tripSyncId 重新解析；解析不到就先跳过
+ * 这一条——它所属行程可能在本轮更早或更晚才落库，硬塞会挂到错误行程下。
+ */
+internal suspend fun AppBackupManager.mergePackingItems(
+    snapshots: List<PackingItemSnapshot>,
+    useSyncIds: Boolean,
+    tripIdByKey: Map<String, Long>
+): MergeOutcome {
+    val local = packingRepository.getAllItemsSnapshot()
+    val localByKey = local.associateBy { keyOf(it.syncId, it.id, useSyncIds) }
+    var added = 0
+    var updated = 0
+
+    snapshots.forEach { snapshot ->
+        val key = keyOf(snapshot.syncId, snapshot.id, useSyncIds)
+        val existing = localByKey[key]
+        // 条目归属：已有条目沿用其本地 tripId；新条目按行程 syncId 解析。
+        // 解析不到就跳过本条——它所属行程可能尚未落库，硬塞会挂到错误行程下。
+        val resolvedTripId = existing?.tripId
+            ?: snapshot.tripSyncId.orBlank()?.let { tripIdByKey[keyOf(it, 0L, useSyncIds = true)] }
+            ?: return@forEach
+
+        if (existing == null) {
+            packingRepository.insertSyncedItem(
+                snapshot.toPackingItem(targetId = 0, resolvedTripId = resolvedTripId)
+                    .copy(syncId = snapshot.syncId.orNewSyncId())
+            )
+            added++
+        } else {
+            if (!isRemoteNewer(snapshot.updatedAt, existing.updatedAt)) return@forEach
+            packingRepository.updateSyncedItem(
+                snapshot.toPackingItem(targetId = existing.id, resolvedTripId = resolvedTripId)
+                    .copy(syncId = existing.syncId ?: snapshot.syncId.orNewSyncId())
+            )
+            updated++
+        }
+    }
+    return MergeOutcome(added, updated, emptyMap())
 }
 
 /**
  * 导入时的本地图片内容索引（F20）。
+ *
+ * 目前仅用于「导入旧版备份」这一条兼容路径（旧备份会打包图片文件，需按内容去重还原）；
+ * 新版备份只传哈希、不打包图片，因此不经过这里。
  *
  * 解决什么问题：备份导入把图片逐张复制进本地，若本地已有内容相同的图，再复制一份
  * 纯属浪费——导入自己刚导出的备份会让本地图片直接翻倍。

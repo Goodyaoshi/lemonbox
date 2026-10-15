@@ -14,6 +14,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -116,7 +117,7 @@ class TrashViewModelTest {
     }
 
     @Test
-    fun permanentlyDelete_removesItemsAndDropsThemFromSelection() = runTest(mainDispatcher) {
+    fun permanentlyDelete_marksTombstoneAndDropsThemFromSelection() = runTest(mainDispatcher) {
         val dao = FakeItemDao(
             mutableListOf(
                 trashItem(id = 1L, deletedAt = 1_000L),
@@ -129,7 +130,12 @@ class TrashViewModelTest {
         viewModel.permanentlyDelete(listOf(1L))
         advanceUntilIdle()
 
-        assertEquals(listOf(2L), dao.snapshot().map { it.id })
+        // 不再物理删行：被永久删除的那条留在库里、带 purgedAt 墓碑（删除才能同步出去）。
+        val byId = dao.snapshot().associateBy { it.id }
+        assertEquals(setOf(1L, 2L), byId.keys)
+        assertNotNull(byId.getValue(1L).purgedAt)
+        assertNull(byId.getValue(2L).purgedAt)
+        // 选中集合里去掉被删除的那条。
         assertEquals(setOf(2L), viewModel.selectedIds.value)
     }
 
@@ -138,6 +144,6 @@ class TrashViewModelTest {
         id = id,
         name = "Item $id",
         deletedAt = deletedAt,
-        imagePath = ""
+        imageHashes = null
     )
 }

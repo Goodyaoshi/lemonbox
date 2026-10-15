@@ -96,17 +96,10 @@ class TrashViewModel @Inject constructor(
         if (itemIds.isEmpty()) return
 
         viewModelScope.launch {
-            val purgedKeys = mutableListOf<String>()
-            itemRepository.permanentlyDeleteFromTrash(itemIds).forEach { item ->
-                if (item.imagePath.isNotBlank()) {
-                    ImageUtil.deleteImage(item.imagePath)
-                }
-                // 永久删除前记下这些物品用过的云端对象键，删除后据此清理孤儿对象。
-                purgedKeys += item.imageObjectKeyList()
-            }
+            val purged = itemRepository.permanentlyDeleteFromTrash(itemIds)
             _selectedIds.update { it - itemIds.toSet() }
-            // 云端清理失败不该回退本地删除（内部已静默处理，且会先排除仍被引用的键）。
-            cloudPurger.purgeCloudObjects(purgedKeys)
+            // 本地残留副本与云端孤儿对象一并收拾（内部已静默处理，且会先排除仍被引用的键）。
+            cloudPurger.purgeImagesOf(purged)
         }
     }
 }

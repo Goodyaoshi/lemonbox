@@ -13,7 +13,9 @@ import com.goodyaoshi.lemonbox.data.repository.CategoryRepository
 import com.goodyaoshi.lemonbox.data.repository.ItemRepository
 import com.goodyaoshi.lemonbox.data.repository.LedgerRepository
 import com.goodyaoshi.lemonbox.data.repository.LocationRepository
+import com.goodyaoshi.lemonbox.data.repository.PackingRepository
 import com.goodyaoshi.lemonbox.data.repository.ReminderRepository
+import com.goodyaoshi.lemonbox.data.repository.TimeCapsuleRepository
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import com.goodyaoshi.lemonbox.util.DateUtil
 import com.goodyaoshi.lemonbox.util.LedgerMath
@@ -153,7 +155,10 @@ enum class SyncEntityKind(val label: String) {
     LEDGER_ASSET("账户"),
     LEDGER_BUDGET("预算"),
     ANNIVERSARY("纪念日"),
-    REMINDER("待办提醒")
+    REMINDER("待办提醒"),
+    TIME_CAPSULE("时间胶囊"),
+    PACKING_TRIP("打包行程"),
+    PACKING_ITEM("打包条目")
 }
 
 /** 一个字段的本地值 vs 对方值对照（S3）：修改条目展开详情时逐行展示。 */
@@ -224,6 +229,8 @@ class AppBackupManager @Inject constructor(
     internal val ledgerRepository: LedgerRepository,
     internal val anniversaryRepository: AnniversaryRepository,
     internal val reminderRepository: ReminderRepository,
+    internal val timeCapsuleRepository: TimeCapsuleRepository,
+    internal val packingRepository: PackingRepository,
     private val todoReminderScheduler: TodoReminderScheduler,
     private val appPreferences: AppPreferences,
     internal val appDatabase: AppDatabase,
@@ -315,7 +322,6 @@ class AppBackupManager @Inject constructor(
             val locationOutcome = mergeLocations(backup.locations, useSyncIds)
             val itemOutcome = mergeItems(
                 snapshots = backup.items,
-                workingDir = workingDir,
                 useSyncIds = useSyncIds,
                 categoryIdByKey = categoryOutcome.idByKey,
                 locationIdByKey = locationOutcome.idByKey
@@ -342,6 +348,15 @@ class AppBackupManager @Inject constructor(
             // v5 起：纪念日与待办提醒进备份（含软删墓碑），LWW 合并。
             val anniversaryOutcome = mergeAnniversaries(backup.anniversaries, useSyncIds)
             val reminderOutcome = mergeReminders(backup.reminders, useSyncIds)
+            // v9 起：时间胶囊与打包清单进备份。行程先合、拿到本地 id 映射后再合条目，
+            // 因为条目的 tripId 是本地主键、跨设备对不上，必须靠行程 syncId 重新解析。
+            val capsuleOutcome = mergeTimeCapsules(backup.timeCapsules, useSyncIds)
+            val tripOutcome = mergePackingTrips(backup.packingTrips, useSyncIds)
+            val packingItemOutcome = mergePackingItems(
+                snapshots = backup.packingItems,
+                useSyncIds = useSyncIds,
+                tripIdByKey = tripOutcome.idByKey
+            )
             // v5 起：菜谱/周菜单/自定义状态/提醒设置等偏好内容。
             val prefs = backup.preferences
             val recipeAdded = prefs?.let { appPreferences.applySyncedRecipes(it.recipes) } ?: 0
@@ -465,7 +480,16 @@ class AppBackupManager @Inject constructor(
                 ledgerRecords = backup.ledgerRecords.filter { qualified(SyncEntityKind.LEDGER_RECORD, it.syncId, it.id) in keepKeys },
                 ledgerBudgets = backup.ledgerBudgets.filter { qualified(SyncEntityKind.LEDGER_BUDGET, it.syncId, it.id) in keepKeys },
                 anniversaries = backup.anniversaries.filter { qualified(SyncEntityKind.ANNIVERSARY, it.syncId, it.id) in keepKeys },
-                reminders = backup.reminders.filter { qualified(SyncEntityKind.REMINDER, it.syncId, it.id) in keepKeys }
+                reminders = backup.reminders.filter { qualified(SyncEntityKind.REMINDER, it.syncId, it.id) in keepKeys },
+                timeCapsules = backup.timeCapsules.filter {
+                    qualified(SyncEntityKind.TIME_CAPSULE, it.syncId, it.id) in keepKeys
+                },
+                packingTrips = backup.packingTrips.filter {
+                    qualified(SyncEntityKind.PACKING_TRIP, it.syncId, it.id) in keepKeys
+                },
+                packingItems = backup.packingItems.filter {
+                    qualified(SyncEntityKind.PACKING_ITEM, it.syncId, it.id) in keepKeys
+                }
             )
         }
         if (scope == SyncScope.ALL) return backup
@@ -569,10 +593,9 @@ class AppBackupManager @Inject constructor(
             localSnapshots = snapshotJsonMap(localItems, useSyncIds, { it.syncId }, { it.id }) {
                 ItemSnapshot.fromEntity(
                     item = it,
-                    // 变更清单只比字段、不看图片（imagePaths 在 DIFF_EXCLUDED_FIELDS 里），
-                    // 因此图片与对象键都传空，避免把本地文件反复读进来。
-                    imagePaths = emptyList(),
-                    imageObjectKeys = emptyList(),
+                    // 变更清单只比字段、不看图片（imageHashes 在 DIFF_EXCLUDED_FIELDS 里），
+                    // 因此图片槽位传空，避免把无关信息反复读进来。
+                    imageHashes = emptyList(),
                     categorySyncId = it.categoryId?.let { id -> categorySyncIdById[id] },
                     locationSyncId = it.locationId?.let { id -> locationSyncIdById[id] }
                 )
@@ -796,6 +819,71 @@ class AppBackupManager @Inject constructor(
             title = { it.title }
         )
 
+        changes += changeList(
+            entity = SyncEntityKind.TIME_CAPSULE,
+            snapshots = backup.timeCapsules,
+            local = previewRows(
+                timeCapsuleRepository.getAllSnapshot(), useSyncIds,
+                { it.syncId }, { it.id }, { it.updatedAt ?: it.createdAt }, { it.deletedAt }
+            ).associateBy { it.key },
+            localSnapshots = snapshotJsonMap(
+                timeCapsuleRepository.getAllSnapshot(), useSyncIds, { it.syncId }, { it.id }
+            ) { TimeCapsuleSnapshot.fromEntity(it) },
+            referenceNames = referenceNames,
+            syncedAfter = syncedAfter,
+            useSyncIds = useSyncIds,
+            syncId = { it.syncId },
+            id = { it.id },
+            updatedAt = { it.updatedAt ?: it.createdAt },
+            deletedAt = { it.deletedAt },
+            title = { it.title }
+        )
+
+        changes += changeList(
+            entity = SyncEntityKind.PACKING_TRIP,
+            snapshots = backup.packingTrips,
+            local = previewRows(
+                packingRepository.getAllTripsSnapshot(), useSyncIds,
+                { it.syncId }, { it.id }, { it.updatedAt ?: it.createdAt }, { it.deletedAt }
+            ).associateBy { it.key },
+            localSnapshots = snapshotJsonMap(
+                packingRepository.getAllTripsSnapshot(), useSyncIds, { it.syncId }, { it.id }
+            ) { PackingTripSnapshot.fromEntity(it) },
+            referenceNames = referenceNames,
+            syncedAfter = syncedAfter,
+            useSyncIds = useSyncIds,
+            syncId = { it.syncId },
+            id = { it.id },
+            updatedAt = { it.updatedAt ?: it.createdAt },
+            deletedAt = { it.deletedAt },
+            title = { it.name },
+            subtitle = { it.destination }
+        )
+
+        changes += changeList(
+            entity = SyncEntityKind.PACKING_ITEM,
+            snapshots = backup.packingItems,
+            local = previewRows(
+                packingRepository.getAllItemsSnapshot(), useSyncIds,
+                { it.syncId }, { it.id }, { it.updatedAt ?: it.createdAt }, { it.deletedAt }
+            ).associateBy { it.key },
+            localSnapshots = snapshotJsonMap(
+                packingRepository.getAllItemsSnapshot(), useSyncIds, { it.syncId }, { it.id }
+            ) { item ->
+                // 预览标题只需条目自身信息，归属行程名不参与判定，故 tripSyncId 可空。
+                PackingItemSnapshot.fromEntity(item = item, tripSyncId = null)
+            },
+            referenceNames = referenceNames,
+            syncedAfter = syncedAfter,
+            useSyncIds = useSyncIds,
+            syncId = { it.syncId },
+            id = { it.id },
+            updatedAt = { it.updatedAt ?: it.createdAt },
+            deletedAt = { it.deletedAt },
+            title = { it.name },
+            subtitle = { it.category }
+        )
+
         return BackupChanges(changes = changes)
     }
 
@@ -925,12 +1013,16 @@ class AppBackupManager @Inject constructor(
         val allLedgerBudgets = ledgerRepository.getAllBudgetsSnapshot()
         val allAnniversaries = anniversaryRepository.getAllSnapshot()
         val allReminders = reminderRepository.getAllSnapshot()
+        val allTimeCapsules = timeCapsuleRepository.getAllSnapshot()
+        val allPackingTrips = packingRepository.getAllTripsSnapshot()
+        val allPackingItems = packingRepository.getAllItemsSnapshot()
 
         val categorySyncIdById = allCategories.associate { it.id to it.syncId }
         val locationSyncIdById = allLocations.associate { it.id to it.syncId }
         val itemSyncIdById = allItems.associate { it.id to it.syncId }
         val ledgerCategorySyncIdById = allLedgerCategories.associate { it.id to it.syncId }
         val ledgerAssetSyncIdById = allLedgerAssets.associate { it.id to it.syncId }
+        val packingTripSyncIdById = allPackingTrips.associate { it.id to it.syncId }
 
         val categories = if (since == null) {
             allCategories
@@ -977,6 +1069,21 @@ class AppBackupManager @Inject constructor(
         } else {
             allReminders.filter { (it.updatedAt ?: it.createdAt) > since }
         }
+        val timeCapsules = if (since == null) {
+            allTimeCapsules
+        } else {
+            allTimeCapsules.filter { (it.updatedAt ?: it.createdAt) > since }
+        }
+        val packingTrips = if (since == null) {
+            allPackingTrips
+        } else {
+            allPackingTrips.filter { (it.updatedAt ?: it.createdAt) > since }
+        }
+        val packingItems = if (since == null) {
+            allPackingItems
+        } else {
+            allPackingItems.filter { (it.updatedAt ?: it.createdAt) > since }
+        }
 
         val workingFile = File(context.cacheDir, "lemonbox-backup-${System.currentTimeMillis()}.zip")
         // 增量导出且过滤后一条不剩，说明自上次水位线以来本机没改过任何东西。
@@ -984,7 +1091,8 @@ class AppBackupManager @Inject constructor(
         val isEmpty = since != null &&
             categories.isEmpty() && locations.isEmpty() && items.isEmpty() &&
             ledgerAssets.isEmpty() && ledgerCategories.isEmpty() && ledgerRecords.isEmpty() &&
-            ledgerBudgets.isEmpty() && anniversaries.isEmpty() && reminders.isEmpty()
+            ledgerBudgets.isEmpty() && anniversaries.isEmpty() && reminders.isEmpty() &&
+            timeCapsules.isEmpty() && packingTrips.isEmpty() && packingItems.isEmpty()
         val backup = AppBackupPayload(
             exportedAt = exportedAt,
             syncVersion = SYNC_VERSION,
@@ -1002,19 +1110,12 @@ class AppBackupManager @Inject constructor(
                 )
             },
             items = items.map { item ->
-                // 图片不再打包进备份包：图片本身存在对象存储上，两台设备指向同一个桶，
-                // 局域网同步只需传「元数据 + 对象键」，图片由对方按需从云端取回。
-                // 每个槽位仍用哨兵路径占位（其值就是对象键），保持下标与键一一对应；
-                // 尚未上传的槽位用空占位（`cloud:`），对方知道该位置存在但暂时无图，
-                // 导入后两端都会各自补传，最终收敛到同一张图。
-                val objectKeys = item.imageObjectKeyList()
+                // 图片不再打包进备份包：图片本体存在对象存储上，两台设备指向同一个桶，
+                // 局域网同步只需传「元数据 + 内容哈希」，图片由对方按哈希推导对象键后取回。
+                // 尚未上传的槽位也照传哈希——对方据此知道该位置有图，两端各自补传后收敛。
                 ItemSnapshot.fromEntity(
                     item = item,
-                    // 未上传的槽位用带索引的空占位，保证两条及以上并存时值不重复。
-                    imagePaths = objectKeys.mapIndexed { index, key ->
-                        if (key.isBlank()) Item.emptyCloudSlotPath(index) else Item.cloudSlotPath(key)
-                    },
-                    imageObjectKeys = objectKeys,
+                    imageHashes = item.imageHashList(),
                     categorySyncId = item.categoryId?.let { categorySyncIdById[it] },
                     locationSyncId = item.locationId?.let { locationSyncIdById[it] }
                 )
@@ -1038,6 +1139,14 @@ class AppBackupManager @Inject constructor(
             },
             anniversaries = anniversaries.map { AnniversarySnapshot.fromEntity(it) },
             reminders = reminders.map { ReminderSnapshot.fromEntity(it) },
+            timeCapsules = timeCapsules.map { TimeCapsuleSnapshot.fromEntity(it) },
+            packingTrips = packingTrips.map { PackingTripSnapshot.fromEntity(it) },
+            packingItems = packingItems.map {
+                PackingItemSnapshot.fromEntity(
+                    item = it,
+                    tripSyncId = it.tripId.let { tripId -> packingTripSyncIdById[tripId] }
+                )
+            },
             preferences = PreferencesSnapshot(
                 recipes = appPreferences.recipesSnapshot(),
                 weeklyMenu = appPreferences.weeklyMenuSnapshot(),
@@ -1117,8 +1226,9 @@ class AppBackupManager @Inject constructor(
 
         /** 支持合并的备份格式版本；缺失该字段的旧备份按 v1（仅数字 id 对齐）处理。
          * v7：纪念日类型 type（倒数日/正数日/生日），不再导出 v5 的 repeatYearly 旧字段。
-         * v8：待买项新增可选归属 forWhom（self/partner/shared）。 */
-        const val SYNC_VERSION = 8
+         * v8：待买项新增可选归属 forWhom（self/partner/shared）。
+         * v9：时间胶囊与旅行打包清单（行程 + 条目）纳入备份；旧版本读新备份时按空列表忽略。 */
+        const val SYNC_VERSION = 9
 
         /** 从该版本起备份用 syncId 对齐；更早的备份退回数字 id。 */
         private const val SYNC_ID_VERSION = 2
@@ -1127,8 +1237,8 @@ class AppBackupManager @Inject constructor(
     }
 }
 
-/** diff 里不展示的字段：设备本地行 id、对齐键、只在本地有意义的图片路径、旧版单值状态。 */
-private val DIFF_EXCLUDED_FIELDS = setOf("id", "syncId", "imagePaths", "status")
+/** diff 里不展示的字段：设备本地行 id、对齐键、图片槽位（哈希），旧版单值状态。 */
+private val DIFF_EXCLUDED_FIELDS = setOf("id", "syncId", "imageHashes", "status")
 
 /** 字段名 → 中文标签（S3 diff 展示用）。 */
 private val FIELD_LABELS = mapOf(

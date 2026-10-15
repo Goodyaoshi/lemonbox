@@ -4,6 +4,7 @@ import com.goodyaoshi.lemonbox.data.local.entity.Item
 import com.goodyaoshi.lemonbox.testing.FakeItemDao
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Test
 
@@ -30,7 +31,7 @@ class ItemRepositoryTest {
     }
 
     @Test
-    fun permanentlyDeleteFromTrash_removesOnlyDeletedItems() = runTest {
+    fun permanentlyDeleteFromTrash_marksTombstoneInsteadOfDeleting() = runTest {
         val deletedAt = 2_000L
         val dao = FakeItemDao(
             mutableListOf(
@@ -43,8 +44,17 @@ class ItemRepositoryTest {
 
         val deletedItems = repository.permanentlyDeleteFromTrash(listOf(1L, 2L, 3L))
 
+        // 只处理已在回收站里的条目（2L 还在正常列表，不该被动）。
         assertEquals(listOf(1L, 3L), deletedItems.map { it.id })
-        assertEquals(listOf(2L), dao.snapshot().map { it.id })
+        // 不再物理删行：三条都还在，否则删除无法随快照同步到其他设备。
+        val byId = dao.snapshot().associateBy { it.id }
+        assertEquals(setOf(1L, 2L, 3L), byId.keys)
+        // 被永久删除的两条带上 purgedAt 墓碑，回收站与业务查询都不会再显示它们。
+        assertNotNull(byId.getValue(1L).purgedAt)
+        assertNotNull(byId.getValue(3L).purgedAt)
+        // 未选中删除的那条不受影响。
+        assertNull(byId.getValue(2L).purgedAt)
+        assertNull(byId.getValue(2L).deletedAt)
     }
 
     @Test
@@ -190,6 +200,6 @@ class ItemRepositoryTest {
         id = id,
         name = "Item $id",
         deletedAt = deletedAt,
-        imagePath = if (deletedAt != null) "image-$id.jpg" else ""
+        imageHashes = if (deletedAt != null) "hash-$id" else null
     )
 }

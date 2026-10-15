@@ -785,7 +785,182 @@ internal object Migrations {
         }
     }
 
-    /** 按版本顺序排列的全部迁移，供 [AppDatabase] 一次性装配。 */
+    /**
+     * v34（F21）：items 增加 `purgedAt` 列——永久删除改为写墓碑，删除才能同步到其他设备。
+     *
+     * 可空、无 DEFAULT：语义上「不是永久删除墓碑」就是「没有值」，也与实体的
+     * `val purgedAt: Long? = null` 天然一致（不依赖 DEFAULT 字面量写法）。
+     */
+    private val MIGRATION_33_34 = object : Migration(33, 34) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE `items` ADD COLUMN `purgedAt` INTEGER")
+        }
+    }
+
+    /**
+     * v35（F22）：图片槽位由「本地路径 + 对象键」三列合并为一列 `imageHashes`。
+     *
+     * 为什么能合并：本地文件名（`item_<hash>.jpg`）与云端对象键（`[prefix/]images/<hash>.jpg`）
+     * 都由同一个内容哈希推导，三列本就承载同一份信息。合并后不再需要「路径与键按下标对齐」
+     * 这套约定，哨兵占位机制也一并消失。
+     *
+     * 为什么走「建新表 → 换名」而不是 `DROP COLUMN`：`DROP COLUMN` 需要 SQLite 3.35+，
+     * 而本项目 minSdk 26，设备自带 SQLite 版本远低于此。
+     *
+     * 转换规则（纯字符串，不读文件，保证迁移同步完成）：
+     *  1. 对象键末段若是 `<hash>.jpg` → 取该哈希（已上传的槽位最可靠）；
+     *  2. 否则取本地文件名的 `item_<...>.jpg` 中间段，是 64 位十六进制就用它；
+     *  3. 都不是（旧 UUID 命名的文件）→ 保留文件名本身作为槽位标识，**绝不丢槽位**，
+     *     由后续同步算出真实哈希后回写（见 ImageCloudSyncManager 的回写路径）。
+     */
+    private val MIGRATION_34_35 = object : Migration(34, 35) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            // 先读旧值：DROP TABLE 之后再也拿不到，必须在这一步把槽位算完。
+            val slotsById = mutableMapOf<Long, String?>()
+            db.query("SELECT `id`, `imagePaths`, `imageObjectKeys` FROM `items`").use { cursor ->
+                while (cursor.moveToNext()) {
+                    val id = cursor.getLong(0)
+                    val paths = (if (cursor.isNull(1)) "" else cursor.getString(1)).orEmpty()
+                    val keys = (if (cursor.isNull(2)) "" else cursor.getString(2)).orEmpty()
+                    slotsById[id] = mergeImageSlots(paths, keys)
+                }
+            }
+
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `items_new` (
+                    `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                    `name` TEXT NOT NULL,
+                    `barcode` TEXT,
+                    `categoryId` INTEGER,
+                    `locationId` INTEGER,
+                    `quantity` INTEGER NOT NULL,
+                    `consumedQuantity` INTEGER NOT NULL DEFAULT 0,
+                    `unit` TEXT NOT NULL,
+                    `price` REAL,
+                    `expireTime` INTEGER,
+                    `usageStatus` INTEGER NOT NULL,
+                    `disposition` INTEGER NOT NULL,
+                    `needRestock` INTEGER NOT NULL,
+                    `forWhom` TEXT,
+                    `reminderDays` TEXT,
+                    `purchaseDate` INTEGER,
+                    `productionDate` INTEGER,
+                    `startUseTime` INTEGER,
+                    `usageEndedAt` INTEGER,
+                    `trackMode` INTEGER NOT NULL DEFAULT 0,
+                    `rating` INTEGER,
+                    `ratedAt` INTEGER,
+                    `deletedAt` INTEGER,
+                    `purgedAt` INTEGER,
+                    `note` TEXT NOT NULL,
+                    `imageHashes` TEXT,
+                    `createdAt` INTEGER NOT NULL,
+                    `syncId` TEXT,
+                    `updatedAt` INTEGER,
+                    FOREIGN KEY(`categoryId`) REFERENCES `categories`(`id`)
+                        ON UPDATE NO ACTION ON DELETE SET NULL,
+                    FOREIGN KEY(`locationId`) REFERENCES `locations`(`id`)
+                        ON UPDATE NO ACTION ON DELETE SET NULL
+                )
+                """.trimIndent()
+            )
+            db.execSQL(
+                """
+                INSERT INTO `items_new` (
+                    `id`, `name`, `barcode`, `categoryId`, `locationId`, `quantity`,
+                    `consumedQuantity`, `unit`, `price`, `expireTime`, `usageStatus`,
+                    `disposition`, `needRestock`, `forWhom`, `reminderDays`, `purchaseDate`,
+                    `productionDate`, `startUseTime`, `usageEndedAt`, `trackMode`, `rating`,
+                    `ratedAt`, `deletedAt`, `purgedAt`, `note`, `createdAt`, `syncId`, `updatedAt`
+                )
+                SELECT
+                    `id`, `name`, `barcode`, `categoryId`, `locationId`, `quantity`,
+                    `consumedQuantity`, `unit`, `price`, `expireTime`, `usageStatus`,
+                    `disposition`, `needRestock`, `forWhom`, `reminderDays`, `purchaseDate`,
+                    `productionDate`, `startUseTime`, `usageEndedAt`, `trackMode`, `rating`,
+                    `ratedAt`, `deletedAt`, `purgedAt`, `note`, `createdAt`, `syncId`, `updatedAt`
+                FROM `items`
+                """.trimIndent()
+            )
+            // 逐行写回算好的槽位（列少、行数就是物品数，代价可忽略）。
+            slotsById.forEach { (id, slots) ->
+                db.execSQL(
+                    "UPDATE `items_new` SET `imageHashes` = ? WHERE `id` = ?",
+                    arrayOf(slots, id)
+                )
+            }
+            db.execSQL("DROP TABLE `items`")
+            db.execSQL("ALTER TABLE `items_new` RENAME TO `items`")
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_items_categoryId` ON `items` (`categoryId`)"
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_items_locationId` ON `items` (`locationId`)"
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_items_usageStatus` ON `items` (`usageStatus`)"
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_items_disposition` ON `items` (`disposition`)"
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_items_barcode` ON `items` (`barcode`)"
+            )
+        }
+    }
+
+/**
+ * 把 v34 的「本地路径行 + 对象键行」合并成 v35 的单列哈希（F22）。
+ *
+ * 逐行按下标配对——下标是两者唯一的关联方式，任何一侧缺失都要保留另一侧的信息，
+ * **绝不能因为某一行取不出哈希就把这个槽位丢掉**，否则迁移后主图会漂移。
+ *
+ * 三级取法（越靠前越可靠）：
+ *  1. 对象键末段形如 `<64位哈希>.jpg`；
+ *  2. 本地路径的文件名形如 `item_<64位哈希>.jpg`；
+ *  3. 都不匹配（旧 UUID 命名）→ 退回文件名本身当槽位标识，等同步算出真实哈希再回写。
+ */
+private fun mergeImageSlots(pathsEncoded: String, keysEncoded: String): String? {
+    val paths = pathsEncoded.lineSequence().map { it.trim() }.toList()
+    val keys = keysEncoded.lineSequence().map { it.trim() }.toList()
+    val count = maxOf(paths.size, keys.size)
+    val hashes = (0 until count).mapNotNull { index ->
+        val key = keys.getOrNull(index).orEmpty()
+        val path = paths.getOrNull(index).orEmpty()
+        hashFromObjectKey(key)
+            ?: hashFromItemFileName(path)
+            ?: path.substringAfterLast('/').takeIf { it.isNotBlank() }
+    }
+    return hashes.joinToString("\n").ifBlank { null }
+}
+
+/** 取对象键末段的 64 位十六进制哈希；不为该格式时返回 null。 */
+private fun hashFromObjectKey(objectKey: String): String? {
+    if (objectKey.isBlank()) return null
+    val name = objectKey.substringAfterLast('/')
+    val stem = name.substringBeforeLast('.')
+    return stem.takeIf { it.length == SHA256_HEX_LENGTH && it.isSha256Hex() }
+}
+
+/** 取本地文件名 `item_<hash>.jpg` 里的哈希；不是该格式时返回 null。 */
+private fun hashFromItemFileName(path: String): String? {
+    val name = path.substringAfterLast('/')
+    if (!name.startsWith(ITEM_FILE_PREFIX) || !name.endsWith(ITEM_FILE_SUFFIX)) return null
+    val hash = name.substring(ITEM_FILE_PREFIX.length, name.length - ITEM_FILE_SUFFIX.length)
+    return hash.takeIf { it.length == SHA256_HEX_LENGTH && it.isSha256Hex() }
+}
+
+private fun String.isSha256Hex(): Boolean = all { it.isDigit() || it in 'a'..'f' }
+
+/** 与 [com.goodyaoshi.lemonbox.util.ImageUtil] 的落盘命名保持一致。 */
+private const val ITEM_FILE_PREFIX = "item_"
+
+private const val ITEM_FILE_SUFFIX = ".jpg"
+
+private const val SHA256_HEX_LENGTH = 64
+
+/** 按版本顺序排列的全部迁移，供 [AppDatabase] 一次性装配。 */
     val ALL: Array<Migration> = arrayOf(
         MIGRATION_1_2,
         MIGRATION_2_3,
@@ -818,6 +993,8 @@ internal object Migrations {
         MIGRATION_29_30,
         MIGRATION_30_31,
         MIGRATION_31_32,
-        MIGRATION_32_33
+        MIGRATION_32_33,
+        MIGRATION_33_34,
+        MIGRATION_34_35
     )
 }

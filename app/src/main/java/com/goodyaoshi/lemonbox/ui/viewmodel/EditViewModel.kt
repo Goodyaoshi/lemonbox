@@ -33,13 +33,13 @@ data class EditItemState(
     val price: String = "",
     val expireTime: Long? = null,
     val note: String = "",
-    val imagePaths: List<String> = emptyList(),
     /**
-     * 与 [imagePaths] 一一对应的云端对象键（F20）。
-     * 编辑时必须原样维护：`Item` 是整体覆盖写入的，漏带就等于把已上传的键清空，
-     * 之后每次同步都会重探、且本地文件丢失时再也取不回原图。
+     * 图片槽位的内容哈希，顺序即展示顺序（首项为主图）。
+     *
+     * 编辑时必须原样维护：`Item` 是整体覆盖写入的，漏带就等于把图片全清空，
+     * 之后列表与详情都不再有图。
      */
-    val imageObjectKeys: List<String> = emptyList(),
+    val imageHashes: List<String> = emptyList(),
     /** 该物品单独的到期提醒阶梯（天）；为空表示跟随全局默认阶梯。 */
     val reminderDays: List<Int> = emptyList(),
     /** 购买日期；未记录为 null。 */
@@ -108,8 +108,7 @@ class EditViewModel @Inject constructor(
                 price = item.price?.toString() ?: "",
                 expireTime = item.expireTime,
                 note = item.note,
-                imagePaths = item.imagePathList(),
-                imageObjectKeys = item.imageObjectKeyList(),
+                imageHashes = item.imageHashList(),
                 reminderDays = Item.decodeReminderDays(item.reminderDays),
                 purchaseDate = item.purchaseDate,
                 productionDate = item.productionDate,
@@ -128,68 +127,52 @@ class EditViewModel @Inject constructor(
 
     fun appendPhotos(context: Context, uris: List<Uri>) {
         if (uris.isEmpty()) return
-        val savedPaths = uris.mapNotNull { ImageUtil.saveImageToWorkingDir(context, it) }
-        if (savedPaths.isEmpty()) return
+        val hashes = uris.mapNotNull { ImageUtil.saveImageHash(context, it) }
+        if (hashes.isEmpty()) return
         val current = _state.value
-        // 追加的图片都是刚拍的，云端还没有对应对象，键位补空串以保持等长对齐。
-        _state.value = current.copy(
-            imagePaths = (current.imagePaths + savedPaths).distinct(),
-            imageObjectKeys = current.imageObjectKeys +
-                List(savedPaths.size) { "" }
-        )
+        _state.value = current.copy(imageHashes = (current.imageHashes + hashes).distinct())
     }
 
     fun replacePrimaryPhoto(context: Context, uris: List<Uri>) {
-        val savedPaths = uris.mapNotNull { ImageUtil.saveImageToWorkingDir(context, it) }
-        if (savedPaths.isEmpty()) return
+        val hashes = uris.mapNotNull { ImageUtil.saveImageHash(context, it) }
+        if (hashes.isEmpty()) return
         val current = _state.value
-        val currentPaths = current.imagePaths.toMutableList()
-        val currentKeys = current.imageObjectKeys.toMutableList()
-        currentPaths.firstOrNull()?.let(ImageUtil::deleteImage)
-        if (currentPaths.isEmpty()) {
-            currentPaths += savedPaths
-            // 原来没有图，新图同样没有云端对象。
-            currentKeys.clear()
-            currentKeys += List(savedPaths.size) { "" }
+        val currentHashes = current.imageHashes.toMutableList()
+        // 先落盘新图再删旧图：同内容会复用同一文件，顺序反了会把新图一起删掉。
+        currentHashes.firstOrNull()?.let { old ->
+            if (old !in hashes) {
+                ImageUtil.findLocalFile(context, old)?.let { ImageUtil.deleteImage(it.absolutePath) }
+            }
+        }
+        if (currentHashes.isEmpty()) {
+            currentHashes += hashes
         } else {
             // 一次连拍多张：第一张替换原主图，其余顺延为细节图。
-            // 被替换掉的主图其键随之作废（新图还未上传），其余键保持原位。
-            currentPaths[0] = savedPaths.first()
-            if (currentKeys.isEmpty()) currentKeys.add("") else currentKeys[0] = ""
-            currentPaths += savedPaths.drop(1)
-            currentKeys += List(savedPaths.size - 1) { "" }
+            currentHashes[0] = hashes.first()
+            currentHashes += hashes.drop(1)
         }
-        _state.value = current.copy(
-            imagePaths = currentPaths.distinct(),
-            imageObjectKeys = currentKeys
-        )
+        _state.value = current.copy(imageHashes = currentHashes.distinct())
     }
 
-    fun removePhoto(index: Int) {
+    fun removePhoto(context: Context, index: Int) {
         val current = _state.value
-        val currentPaths = current.imagePaths.toMutableList()
-        val removed = currentPaths.getOrNull(index) ?: return
-        currentPaths.removeAt(index)
-        ImageUtil.deleteImage(removed)
-        // 键要跟着删掉同一位置，否则后面所有键会前移、安到别的图上。
-        val currentKeys = current.imageObjectKeys.toMutableList()
-        if (index in currentKeys.indices) currentKeys.removeAt(index)
-        _state.value = current.copy(imagePaths = currentPaths, imageObjectKeys = currentKeys)
+        val currentHashes = current.imageHashes.toMutableList()
+        val removed = currentHashes.getOrNull(index) ?: return
+        currentHashes.removeAt(index)
+        if (removed !in currentHashes) {
+            ImageUtil.findLocalFile(context, removed)?.let { ImageUtil.deleteImage(it.absolutePath) }
+        }
+        _state.value = current.copy(imageHashes = currentHashes)
     }
 
     fun movePhoto(fromIndex: Int, toIndex: Int) {
         val current = _state.value
-        val currentPaths = current.imagePaths.toMutableList()
-        if (fromIndex !in currentPaths.indices || toIndex !in currentPaths.indices || fromIndex == toIndex) return
-        val moved = currentPaths.removeAt(fromIndex)
-        currentPaths.add(toIndex, moved)
-        // 键与图同步换位，保证「第几张图对应哪个对象」不错位。
-        val currentKeys = current.imageObjectKeys.toMutableList()
-        if (fromIndex in currentKeys.indices) {
-            val movedKey = currentKeys.removeAt(fromIndex)
-            currentKeys.add(toIndex.coerceIn(0, currentKeys.size), movedKey)
-        }
-        _state.value = current.copy(imagePaths = currentPaths, imageObjectKeys = currentKeys)
+        val currentHashes = current.imageHashes.toMutableList()
+        if (fromIndex !in currentHashes.indices || toIndex !in currentHashes.indices) return
+        if (fromIndex == toIndex) return
+        val moved = currentHashes.removeAt(fromIndex)
+        currentHashes.add(toIndex, moved)
+        _state.value = current.copy(imageHashes = currentHashes)
     }
 
     fun updateName(name: String) {
@@ -259,17 +242,8 @@ class EditViewModel @Inject constructor(
         _state.value = current.copy(isSaving = true)
         viewModelScope.launch {
             val original = itemRepository.getItemById(current.itemId)
-            // 去重时把键一起配对带走：若只对路径 distinct，键的下标会与图错位，
-            // 结果就是「这张图的键指向了另一张图」。
-            val pathToKey = LinkedHashMap<String, String>()
-            current.imagePaths.forEachIndexed { index, raw ->
-                val path = raw.trim()
-                if (path.isNotEmpty() && !pathToKey.containsKey(path)) {
-                    pathToKey[path] = current.imageObjectKeys.getOrNull(index).orEmpty()
-                }
-            }
-            val normalizedImages = pathToKey.keys.toList()
-            val normalizedKeys = pathToKey.values.toList()
+            // 去重时同一张图（同一哈希）只留一次，顺序保持不变。
+            val normalizedHashes = current.imageHashes.distinct()
             val item = Item(
                 id = current.itemId,
                 name = trimmedName,
@@ -299,10 +273,7 @@ class EditViewModel @Inject constructor(
                 ratedAt = current.ratedAt,
                 deletedAt = original?.deletedAt,
                 note = current.note.trim(),
-                imagePath = normalizedImages.firstOrNull().orEmpty(),
-                imagePaths = Item.encodeImagePaths(normalizedImages),
-                // 原样带上对象键，否则整体覆盖写入会把已上传的记录清空。
-                imageObjectKeys = Item.encodeImageObjectKeys(normalizedKeys),
+                imageHashes = Item.encodeImageHashes(normalizedHashes),
                 createdAt = original?.createdAt ?: System.currentTimeMillis(),
                 syncId = current.syncId ?: original?.syncId
             )

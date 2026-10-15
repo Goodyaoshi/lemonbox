@@ -175,12 +175,12 @@ interface ItemDao {
     suspend fun update(item: Item)
 
     /**
-     * 只更新云端对象键（F20）。刻意不改 updatedAt：
+     * 只更新图片槽位哈希列（F22）。刻意不改 updatedAt：
      * 这是「图片刚传上去」的副产品，不是用户对物品内容的编辑；
      * 若刷新时间戳，本机会被当成「更新」，跨设备合并时按较新者胜会覆盖对方真实的修改。
      */
-    @Query("UPDATE items SET imageObjectKeys = :encodedKeys WHERE id = :id")
-    suspend fun updateImageObjectKeys(id: Long, encodedKeys: String)
+    @Query("UPDATE items SET imageHashes = :encodedHashes WHERE id = :id")
+    suspend fun updateImageHashes(id: Long, encodedHashes: String?)
 
     @Delete
     suspend fun delete(item: Item)
@@ -289,7 +289,8 @@ interface ItemDao {
 
     /** 回收站列表：按删除时间倒序。 */
     @Query(
-        "$ITEM_WITH_META WHERE items.deletedAt IS NOT NULL AND items.deletedAt >= :cutoffTime " +
+        "$ITEM_WITH_META WHERE items.deletedAt IS NOT NULL AND items.purgedAt IS NULL " +
+            "AND items.deletedAt >= :cutoffTime " +
             "ORDER BY items.deletedAt DESC"
     )
     fun getRecycleItems(cutoffTime: Long): Flow<List<ItemDetail>>
@@ -302,6 +303,17 @@ interface ItemDao {
 
     @Query("SELECT * FROM items WHERE id IN (:ids) AND deletedAt IS NOT NULL")
     suspend fun getDeletedItemsByIds(ids: List<Long>): List<Item>
+
+    /**
+     * 永久删除改写成墓碑（F21）：置 deletedAt 让其从业务查询中消失，同时置 purgedAt
+     * 标记为「永久删除」——不出现在回收站，其他设备合并时直接物理清除。
+     * 物理删行会让删除无法同步出去，故这里不再用 DELETE。
+     */
+    @Query(
+        "UPDATE items SET deletedAt = :timestamp, purgedAt = :timestamp, updatedAt = :timestamp " +
+            "WHERE id IN (:ids)"
+    )
+    suspend fun markPurged(ids: List<Long>, timestamp: Long)
 
     @Query("DELETE FROM items WHERE deletedAt IS NOT NULL AND deletedAt < :cutoffTime")
     suspend fun purgeDeletedBefore(cutoffTime: Long)

@@ -15,15 +15,15 @@ import com.goodyaoshi.lemonbox.data.imagecloud.ImageUrlResolver
 val LocalImageUrlResolver = staticCompositionLocalOf<ImageUrlResolver?> { null }
 
 /**
- * 把「本地路径 + 云端对象键」解析成图片加载器可直接使用的 model。
+ * 把图片内容哈希解析成图片加载器可直接使用的 model（F22）。
  *
- * 用 `remember` 缓存：[objectKey] 变化（例如刚上传成功）时重算，不在每次重组时重跑。
- * 未提供解析器时直接返回本地路径，行为与本功能引入之前一致。
+ * 用 `remember` 缓存：[hash] 变化（换图 / 上传完成）时重算，不在每次重组时重跑。
+ * 未提供解析器时（预览等无 Hilt 容器的场景）返回 null，由占位态接管。
  */
 @Composable
-fun rememberImageModel(localPath: String?, objectKey: String?): Any? {
-    val resolver = LocalImageUrlResolver.current ?: return localPath
-    return remember(resolver, localPath, objectKey) {
-        resolver.model(localPath, objectKey)
+fun rememberImageModel(hash: String?): Any? {
+    val resolver = LocalImageUrlResolver.current ?: return null
+    return remember(resolver, hash) {
+        resolver.modelForHash(hash)
     }
 }

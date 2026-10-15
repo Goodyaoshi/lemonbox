@@ -10,8 +10,11 @@ import com.goodyaoshi.lemonbox.data.local.entity.LedgerCategory
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerRecord
 import com.goodyaoshi.lemonbox.data.local.entity.LegacyStatusMapping
 import com.goodyaoshi.lemonbox.data.local.entity.Location
+import com.goodyaoshi.lemonbox.data.local.entity.PackingItem
+import com.goodyaoshi.lemonbox.data.local.entity.PackingTrip
 import com.goodyaoshi.lemonbox.data.local.entity.Reminder
 import com.goodyaoshi.lemonbox.data.local.entity.StatusDimension
+import com.goodyaoshi.lemonbox.data.local.entity.TimeCapsule
 import com.goodyaoshi.lemonbox.data.meal.MealSpec
 import com.goodyaoshi.lemonbox.data.meal.Recipe
 import kotlinx.serialization.Serializable
@@ -44,6 +47,11 @@ data class AppBackupPayload(
     // 纪念日与待办提醒，v5 起导出。
     val anniversaries: List<AnniversarySnapshot> = emptyList(),
     val reminders: List<ReminderSnapshot> = emptyList(),
+    // 时间胶囊与旅行打包清单，v9 起导出。此前这两类从未进备份，
+    // 因此多设备之间始终各存各的（用户反馈的「每个设备都不同步」）。
+    val timeCapsules: List<TimeCapsuleSnapshot> = emptyList(),
+    val packingTrips: List<PackingTripSnapshot> = emptyList(),
+    val packingItems: List<PackingItemSnapshot> = emptyList(),
     // 菜谱/周菜单/自定义状态/提醒设置等偏好内容，v5 起导出。
     val preferences: PreferencesSnapshot? = null
 )
@@ -207,6 +215,148 @@ data class ReminderSnapshot(
             updatedAt = reminder.updatedAt,
             deletedAt = reminder.deletedAt
         )
+    }
+}
+
+/**
+ * 时间胶囊快照（v9 起导出）。
+ *
+ * 此前这类数据从未进备份，多设备之间因此始终各存各的。syncId/updatedAt/deletedAt
+ * 三件套让它能直接走通用合并规则（较新者胜 + 墓碑传播）。
+ */
+@Serializable
+data class TimeCapsuleSnapshot(
+    val id: Long,
+    val title: String,
+    val content: String = "",
+    val unlockAt: Long,
+    val openedAt: Long? = null,
+    val forWhom: String? = null,
+    val createdAt: Long,
+    val syncId: String? = null,
+    val updatedAt: Long? = null,
+    val deletedAt: Long? = null
+) {
+    fun toCapsule(targetId: Long): TimeCapsule = TimeCapsule(
+        id = targetId,
+        title = title,
+        content = content,
+        unlockAt = unlockAt,
+        openedAt = openedAt,
+        forWhom = forWhom,
+        createdAt = createdAt,
+        syncId = syncId,
+        updatedAt = updatedAt ?: createdAt,
+        deletedAt = deletedAt
+    )
+
+    companion object {
+        fun fromEntity(capsule: TimeCapsule): TimeCapsuleSnapshot = TimeCapsuleSnapshot(
+            id = capsule.id,
+            title = capsule.title,
+            content = capsule.content,
+            unlockAt = capsule.unlockAt,
+            openedAt = capsule.openedAt,
+            forWhom = capsule.forWhom,
+            createdAt = capsule.createdAt,
+            syncId = capsule.syncId,
+            updatedAt = capsule.updatedAt,
+            deletedAt = capsule.deletedAt
+        )
+    }
+}
+
+/** 旅行打包行程快照（v9 起导出）。 */
+@Serializable
+data class PackingTripSnapshot(
+    val id: Long,
+    val name: String,
+    val destination: String = "",
+    val startDate: String? = null,
+    val endDate: String? = null,
+    val createdAt: Long,
+    val syncId: String? = null,
+    val updatedAt: Long? = null,
+    val deletedAt: Long? = null
+) {
+    fun toTrip(targetId: Long): PackingTrip = PackingTrip(
+        id = targetId,
+        name = name,
+        destination = destination,
+        startDate = startDate,
+        endDate = endDate,
+        createdAt = createdAt,
+        syncId = syncId,
+        updatedAt = updatedAt ?: createdAt,
+        deletedAt = deletedAt
+    )
+
+    companion object {
+        fun fromEntity(trip: PackingTrip): PackingTripSnapshot = PackingTripSnapshot(
+            id = trip.id,
+            name = trip.name,
+            destination = trip.destination,
+            startDate = trip.startDate,
+            endDate = trip.endDate,
+            createdAt = trip.createdAt,
+            syncId = trip.syncId,
+            updatedAt = trip.updatedAt,
+            deletedAt = trip.deletedAt
+        )
+    }
+}
+
+/**
+ * 打包条目快照（v9 起导出）。
+ *
+ * [tripSyncId] 与 [tripId] 的关系同 ItemSnapshot 的 categorySyncId/categoryId：
+ * 跨设备合并时本地 tripId 对不上，必须靠稳定的 syncId 重新解析归属行程。
+ */
+@Serializable
+data class PackingItemSnapshot(
+    val id: Long,
+    val tripId: Long,
+    val name: String,
+    val quantity: Int = 1,
+    val category: String = "",
+    val checked: Boolean = false,
+    val sort: Int = 0,
+    val createdAt: Long,
+    val syncId: String? = null,
+    val updatedAt: Long? = null,
+    val deletedAt: Long? = null,
+    val tripSyncId: String? = null
+) {
+    fun toPackingItem(targetId: Long, resolvedTripId: Long): PackingItem = PackingItem(
+        id = targetId,
+        tripId = resolvedTripId,
+        name = name,
+        quantity = quantity,
+        category = category,
+        checked = checked,
+        sort = sort,
+        createdAt = createdAt,
+        syncId = syncId,
+        updatedAt = updatedAt ?: createdAt,
+        deletedAt = deletedAt
+    )
+
+    companion object {
+        fun fromEntity(item: PackingItem, tripSyncId: String?): PackingItemSnapshot =
+            PackingItemSnapshot(
+                id = item.id,
+                tripId = item.tripId,
+                name = item.name,
+                quantity = item.quantity,
+                category = item.category,
+                checked = item.checked,
+                sort = item.sort,
+                createdAt = item.createdAt,
+                syncId = item.syncId,
+                updatedAt = item.updatedAt,
+                deletedAt = item.deletedAt,
+                tripSyncId = tripSyncId
+            )
     }
 }
 
@@ -443,14 +593,22 @@ data class ItemSnapshot(
     val rating: Int?,
     val ratedAt: Long?,
     val deletedAt: Long?,
-    val note: String,
-    val imagePaths: List<String>,
     /**
-     * 与 [imagePaths] 一一对应的云端对象键（F20）。
-     * 为 null 表示旧备份没有这项；此时导入按「全部未上传」处理，
-     * 图片仍可用（本地文件会随备份还原），只是暂时不知道云端对应哪个对象。
+     * 「永久删除」墓碑标记（F21）。非空表示这条是永久删除留下的墓碑：
+     * 对方合并时直接物理清除，而不是把它重新插入库中。
      */
-    val imageObjectKeys: List<String>? = null,
+    val purgedAt: Long? = null,
+    val note: String,
+    /**
+     * 图片槽位的内容哈希（F22），顺序即展示顺序（首项为主图）。
+     *
+     * 只传哈希而不打包图片文件：图片本体在对象存储上，两台设备指向同一个桶，
+     * 对方按哈希推导对象键即可取回。这也让备份体积与图片数量无关。
+     *
+     * 为 null 表示旧备份（那时存的是本地路径与对象键），按「无图片」处理——
+     * 早期版本的图片信息不再还原，但其余字段完好。
+     */
+    val imageHashes: List<String>? = null,
     val createdAt: Long,
     val syncId: String? = null,
     val categorySyncId: String? = null,
@@ -459,8 +617,6 @@ data class ItemSnapshot(
 ) {
     fun toItem(
         targetId: Long,
-        resolvedImages: List<String>,
-        resolvedObjectKeys: List<String>,
         categoryId: Long?,
         locationId: Long?
     ): Item {
@@ -488,14 +644,9 @@ data class ItemSnapshot(
             rating = rating,
             ratedAt = ratedAt,
             deletedAt = deletedAt,
+            purgedAt = purgedAt,
             note = note,
-            imagePath = resolvedImages.firstOrNull().orEmpty(),
-            imagePaths = Item.encodeImagePaths(resolvedImages),
-            // 键与图等长对齐后才落库：导入时若有图片条目缺失（备份不完整），
-            // 两者会同步少一项，不会让后面的键前移错位。
-            imageObjectKeys = Item.encodeImageObjectKeys(
-                List(resolvedImages.size) { resolvedObjectKeys.getOrNull(it).orEmpty() }
-            ),
+            imageHashes = Item.encodeImageHashes(imageHashes.orEmpty()),
             createdAt = createdAt,
             syncId = syncId,
             updatedAt = updatedAt ?: createdAt
@@ -528,8 +679,7 @@ data class ItemSnapshot(
     companion object {
         fun fromEntity(
             item: Item,
-            imagePaths: List<String>,
-            imageObjectKeys: List<String>,
+            imageHashes: List<String>,
             categorySyncId: String?,
             locationSyncId: String?
         ): ItemSnapshot {
@@ -556,9 +706,9 @@ data class ItemSnapshot(
                 rating = item.rating,
                 ratedAt = item.ratedAt,
                 deletedAt = item.deletedAt,
+                purgedAt = item.purgedAt,
                 note = item.note,
-                imagePaths = imagePaths,
-                imageObjectKeys = imageObjectKeys,
+                imageHashes = imageHashes,
                 createdAt = item.createdAt,
                 syncId = item.syncId,
                 categorySyncId = categorySyncId,

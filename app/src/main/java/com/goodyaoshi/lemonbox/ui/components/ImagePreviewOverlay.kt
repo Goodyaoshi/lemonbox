@@ -39,18 +39,13 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun ImagePreviewOverlay(
-    imagePaths: List<String>,
+    imageHashes: List<String>,
     initialIndex: Int,
-    onDismissRequest: () -> Unit,
-    /**
-     * 与 [imagePaths] 一一对应的云端对象键（F20）：本地文件缺失时用它取回原图。
-     * 默认空列表表示不参与云端取图，行为与本功能引入之前一致。
-     */
-    imageObjectKeys: List<String> = emptyList()
+    onDismissRequest: () -> Unit
 ) {
     val pagerState = rememberPagerState(
-        initialPage = initialIndex.coerceIn(0, imagePaths.lastIndex),
-        pageCount = { imagePaths.size }
+        initialPage = initialIndex.coerceIn(0, imageHashes.lastIndex),
+        pageCount = { imageHashes.size }
     )
     val scope = rememberCoroutineScope()
 
@@ -67,10 +62,7 @@ fun ImagePreviewOverlay(
                 state = pagerState,
                 modifier = Modifier.fillMaxSize()
             ) { page ->
-                ZoomableImage(
-                    imagePath = imagePaths[page],
-                    objectKey = imageObjectKeys.getOrNull(page)
-                )
+                ZoomableImage(hash = imageHashes[page])
             }
 
             PreviewIconButton(
@@ -95,7 +87,7 @@ fun ImagePreviewOverlay(
                 )
             }
 
-            if (pagerState.currentPage < imagePaths.lastIndex) {
+            if (pagerState.currentPage < imageHashes.lastIndex) {
                 PreviewIconButton(
                     icon = Icons.Default.ChevronRight,
                     contentDescription = "下一张",
@@ -109,7 +101,7 @@ fun ImagePreviewOverlay(
             }
 
             Text(
-                text = "${pagerState.currentPage + 1}/${imagePaths.size}",
+                text = "${pagerState.currentPage + 1}/${imageHashes.size}",
                 color = Color.White,
                 fontSize = 13.sp,
                 modifier = Modifier
@@ -124,17 +116,17 @@ fun ImagePreviewOverlay(
 }
 
 @Composable
-private fun ZoomableImage(imagePath: String, objectKey: String?) {
+private fun ZoomableImage(hash: String) {
     // 预览页同样走统一解析：本地原图不在时从云端取，保证换设备也能放大看。
-    val model = rememberImageModel(imagePath, objectKey)
-    var scale by remember(imagePath) { mutableFloatStateOf(1f) }
-    var offsetX by remember(imagePath) { mutableFloatStateOf(0f) }
-    var offsetY by remember(imagePath) { mutableFloatStateOf(0f) }
+    val model = rememberImageModel(hash)
+    var scale by remember(hash) { mutableFloatStateOf(1f) }
+    var offsetX by remember(hash) { mutableFloatStateOf(0f) }
+    var offsetY by remember(hash) { mutableFloatStateOf(0f) }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .pointerInput(imagePath) {
+            .pointerInput(hash) {
                 detectTransformGestures { _, pan, zoom, _ ->
                     val nextScale = (scale * zoom).coerceIn(1f, 4f)
                     scale = nextScale

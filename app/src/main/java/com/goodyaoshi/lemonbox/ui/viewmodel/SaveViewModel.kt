@@ -33,7 +33,8 @@ data class SaveItemState(
     val price: String = "",
     val expireTime: Long? = null,
     val note: String = "",
-    val imagePaths: List<String> = emptyList(),
+    /** 图片槽位的内容哈希，顺序即展示顺序（首项为主图）。 */
+    val imageHashes: List<String> = emptyList(),
     /** 该物品单独的到期提醒阶梯（天）；为空表示跟随全局默认阶梯。 */
     val reminderDays: List<Int> = emptyList(),
     /** 购买日期，可选；未填为 null。 */
@@ -92,58 +93,67 @@ class SaveViewModel @Inject constructor(
 
     fun initFromPhoto(context: Context, imageUri: Uri?) {
         val current = _state.value
-        if (imageUri == null || current.imagePaths.isNotEmpty()) return
+        if (imageUri == null || current.imageHashes.isNotEmpty()) return
 
-        val savedPath = ImageUtil.saveImageToWorkingDir(context, imageUri)
-        _state.value = current.copy(imagePaths = savedPath?.let(::listOf).orEmpty())
+        val hash = ImageUtil.saveImageHash(context, imageUri)
+        _state.value = current.copy(imageHashes = hash?.let(::listOf).orEmpty())
     }
 
     fun initFromPhotos(context: Context, imageUris: List<Uri>) {
         val current = _state.value
-        if (imageUris.isEmpty() || current.imagePaths.isNotEmpty()) return
+        if (imageUris.isEmpty() || current.imageHashes.isNotEmpty()) return
 
-        val savedPaths = imageUris.mapNotNull { ImageUtil.saveImageToWorkingDir(context, it) }.distinct()
-        _state.value = current.copy(imagePaths = savedPaths)
+        val hashes = imageUris.mapNotNull { ImageUtil.saveImageHash(context, it) }.distinct()
+        _state.value = current.copy(imageHashes = hashes)
     }
 
     fun appendPhotos(context: Context, uris: List<Uri>) {
         if (uris.isEmpty()) return
-        val savedPaths = uris.mapNotNull { ImageUtil.saveImageToWorkingDir(context, it) }
-        if (savedPaths.isEmpty()) return
+        val hashes = uris.mapNotNull { ImageUtil.saveImageHash(context, it) }
+        if (hashes.isEmpty()) return
         _state.value = _state.value.copy(
-            imagePaths = (_state.value.imagePaths + savedPaths).distinct()
+            imageHashes = (_state.value.imageHashes + hashes).distinct()
         )
     }
 
     fun replacePrimaryPhoto(context: Context, uris: List<Uri>) {
-        val savedPaths = uris.mapNotNull { ImageUtil.saveImageToWorkingDir(context, it) }
-        if (savedPaths.isEmpty()) return
-        val currentPaths = _state.value.imagePaths.toMutableList()
-        currentPaths.firstOrNull()?.let(ImageUtil::deleteImage)
-        if (currentPaths.isEmpty()) {
-            currentPaths += savedPaths
+        val hashes = uris.mapNotNull { ImageUtil.saveImageHash(context, it) }
+        if (hashes.isEmpty()) return
+        val currentHashes = _state.value.imageHashes.toMutableList()
+        // 先落盘新图（上面已完成）再删旧图：同内容时新图会复用同一文件，顺序反了会误删。
+        currentHashes.firstOrNull()?.let { old ->
+            if (old !in hashes) {
+                ImageUtil.findLocalFile(context, old)?.let { ImageUtil.deleteImage(it.absolutePath) }
+            }
+        }
+        if (currentHashes.isEmpty()) {
+            currentHashes += hashes
         } else {
             // 一次连拍多张：第一张替换原主图，其余顺延为细节图。
-            currentPaths[0] = savedPaths.first()
-            currentPaths += savedPaths.drop(1)
+            currentHashes[0] = hashes.first()
+            currentHashes += hashes.drop(1)
         }
-        _state.value = _state.value.copy(imagePaths = currentPaths.distinct())
+        _state.value = _state.value.copy(imageHashes = currentHashes.distinct())
     }
 
-    fun removePhoto(index: Int) {
-        val currentPaths = _state.value.imagePaths.toMutableList()
-        val removed = currentPaths.getOrNull(index) ?: return
-        currentPaths.removeAt(index)
-        ImageUtil.deleteImage(removed)
-        _state.value = _state.value.copy(imagePaths = currentPaths)
+    fun removePhoto(context: Context, index: Int) {
+        val currentHashes = _state.value.imageHashes.toMutableList()
+        val removed = currentHashes.getOrNull(index) ?: return
+        currentHashes.removeAt(index)
+        // 若不再被任何槽位引用，就把本地文件删掉——它是上传前的副本，留着只是垃圾。
+        if (removed !in currentHashes) {
+            ImageUtil.findLocalFile(context, removed)?.let { ImageUtil.deleteImage(it.absolutePath) }
+        }
+        _state.value = _state.value.copy(imageHashes = currentHashes)
     }
 
     fun movePhoto(fromIndex: Int, toIndex: Int) {
-        val currentPaths = _state.value.imagePaths.toMutableList()
-        if (fromIndex !in currentPaths.indices || toIndex !in currentPaths.indices || fromIndex == toIndex) return
-        val moved = currentPaths.removeAt(fromIndex)
-        currentPaths.add(toIndex, moved)
-        _state.value = _state.value.copy(imagePaths = currentPaths)
+        val currentHashes = _state.value.imageHashes.toMutableList()
+        if (fromIndex !in currentHashes.indices || toIndex !in currentHashes.indices) return
+        if (fromIndex == toIndex) return
+        val moved = currentHashes.removeAt(fromIndex)
+        currentHashes.add(toIndex, moved)
+        _state.value = _state.value.copy(imageHashes = currentHashes)
     }
 
     fun updateName(name: String) {
@@ -239,7 +249,7 @@ class SaveViewModel @Inject constructor(
         _state.value = current.copy(isSaving = true, errorMessage = null)
         viewModelScope.launch {
             val now = MonotonicClock.now()
-            val normalizedImages = current.imagePaths.distinct()
+            val normalizedImages = current.imageHashes.distinct()
             val item = Item(
                 name = trimmedName,
                 barcode = current.barcode,
@@ -250,8 +260,7 @@ class SaveViewModel @Inject constructor(
                 price = current.price.toDoubleOrNull(),
                 expireTime = current.expireTime,
                 note = current.note.trim(),
-                imagePath = normalizedImages.firstOrNull().orEmpty(),
-                imagePaths = Item.encodeImagePaths(normalizedImages),
+                imageHashes = Item.encodeImageHashes(normalizedImages),
                 reminderDays = Item.encodeReminderDays(current.reminderDays),
                 purchaseDate = current.purchaseDate,
                 productionDate = current.productionDate,

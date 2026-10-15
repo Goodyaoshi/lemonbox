@@ -44,13 +44,8 @@ class AppMaintenance @Inject constructor(
 
     suspend fun run() {
         val cutoff = System.currentTimeMillis() - TOMBSTONE_TTL_MS
-        // 物理清除的墓碑：同时删本地文件与云端对象（云端可能已无本地副本，是唯一来源）。
-        val purgedKeys = mutableListOf<String>()
-        itemRepository.purgeDeletedItemsOlderThan(cutoff).forEach { item ->
-            item.imagePathList().forEach(ImageUtil::deleteImage)
-            purgedKeys += item.imageObjectKeyList()
-        }
-        cloudPurger.purgeCloudObjects(purgedKeys)
+        // 物理清除的墓碑：本地残留副本与云端对象一并收拾（云端可能已无本地副本，是唯一来源）。
+        cloudPurger.purgeImagesOf(itemRepository.purgeDeletedItemsOlderThan(cutoff))
         // 纪念日与待办提醒的软删墓碑：30 天后物理清除，删除动作仍会先同步到对方。
         anniversaryRepository.purgeDeletedOlderThan(cutoff)
         reminderRepository.purgeDeletedOlderThan(cutoff)

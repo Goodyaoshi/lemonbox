@@ -82,16 +82,30 @@ data class Item(
     val rating: Int? = null,
     val ratedAt: Long? = null,
     val deletedAt: Long? = null,
-    val note: String = "",
-    val imagePath: String = "",
-    val imagePaths: String = "",
     /**
-     * 与 [imagePaths] **下标一一对应**的云端对象键（F20）。
+     * 「永久删除」墓碑标记（F21）。
      *
-     * 按行对齐而非存集合：图片有序、可拖动排序，第一张是主图，"第几张图对应哪个对象"必须能表达。
-     * 空串＝该位置云端还没有对象（未上传成功或功能未开启）；为 null＝从未参与云同步（历史数据）。
+     * 为什么永久删除也要留痕：删除必须能被其他设备看见，否则云端快照里这条记录
+     * 直接消失，对方只会认为「它没被改过」而永远保留。所以物理删行改成写墓碑。
+     *
+     * 与 [deletedAt] 的区别：非空时表示这是永久删除的墓碑——不出现在回收站列表里
+     * （见 ItemDao.getRecycleItems），其他设备合并时直接物理清除、不重新插入。
+     * 清理时机与普通墓碑一致，由 AppMaintenance 按 TTL 物理清除。
      */
-    val imageObjectKeys: String? = null,
+    val purgedAt: Long? = null,
+    val note: String = "",
+    /**
+     * 图片槽位：每张图一个**内容哈希**，换行分隔，顺序即展示顺序（首项为主图）（F22）。
+     *
+     * 为什么只存哈希：本地文件名（`item_<hash>.jpg`）与云端对象键
+     * （`[prefix/]images/<hash>.jpg`）都由它唯一推导，因此不必像早先那样
+     * 再各存一列「本地路径」与「对象键」——三列信息本就是一列。
+     *
+     * 哈希存在即表示「这个槽位有一张图」，与它此刻在本地还是只在云端无关：
+     * 上传成功后本地副本会被删掉，但槽位与顺序必须保持，否则主图会漂移。
+     * 空项不占位：能落盘的图必然算得出哈希，没有哈希就没有这个槽位。
+     */
+    val imageHashes: String? = null,
     val createdAt: Long = System.currentTimeMillis(),
     /** 跨设备合并用的稳定标识：本地新建自动生成，历史数据由迁移回填。 */
     val syncId: String? = UUID.randomUUID().toString(),
@@ -102,48 +116,22 @@ data class Item(
     val totalQuantity: Int
         get() = quantity + consumedQuantity
 
-    fun imagePathList(): List<String> {
-        return decodeImagePaths(imagePaths, imagePath)
-    }
+    /** 全部图片槽位的内容哈希，顺序即展示顺序（首项为主图）。 */
+    fun imageHashList(): List<String> = decodeImageHashes(imageHashes)
+
+    /** 第 [index] 张图的内容哈希；没有则为 null。 */
+    fun imageHashAt(index: Int): String? =
+        imageHashList().getOrNull(index)?.takeIf { it.isNotBlank() }
+
+    /** 主图的内容哈希；没有则为 null。 */
+    fun primaryImageHash(): String? = imageHashAt(0)
 
     /**
-     * 与 [imagePathList] 等长的对象键列表；无键的位置是空串。
-     *
-     * 键列为空时会回退到从「云端占位路径」里取键——见 [CLOUD_SLOT_PREFIX]。
-     * 这样即使某条链路只写了占位路径、没写键列，也不会丢掉云端引用。
+     * 替换全部图片槽位（增删 / 重排图片必须走这里）。
+     * 只维护一份哈希列表，因此不存在「路径与键各自增删后错位」的可能。
      */
-    fun imageObjectKeyList(): List<String> {
-        val paths = imagePathList()
-        val keys = decodeImageObjectKeys(imageObjectKeys, paths.size)
-        return List(paths.size) { index ->
-            keys.getOrNull(index).orEmpty().ifBlank {
-                cloudSlotObjectKey(paths.getOrNull(index).orEmpty()).orEmpty()
-            }
-        }
-    }
-
-    /** 第 [index] 张图在云端的对象键；没有则 null（本地文件缺失时的兜底来源）。 */
-    fun imageObjectKeyAt(index: Int): String? =
-        imageObjectKeyList().getOrNull(index)?.takeIf { it.isNotBlank() }
-
-    /**
-     * 同时替换图片列表与对象键列表，保证两者等长、下标不错位。
-     * 增删或重排图片必须走这里——单独改 [imagePaths] 会让「A 图的键安到 B 图上」。
-     */
-    fun withImages(paths: List<String>, objectKeys: List<String>): Item = copy(
-        imagePath = paths.firstOrNull().orEmpty(),
-        imagePaths = encodeImagePaths(paths),
-        imageObjectKeys = encodeImageObjectKeys(
-            List(paths.size) { objectKeys.getOrNull(it).orEmpty() }
-        )
-    )
-
-    fun primaryImagePath(): String {
-        return imagePathList().firstOrNull().orEmpty()
-    }
-
-    /** 主图在云端的对象键；没有则 null（未上传或功能未开启）。 */
-    fun primaryImageObjectKey(): String? = imageObjectKeyAt(0)
+    fun withImageHashes(hashes: List<String>): Item =
+        copy(imageHashes = encodeImageHashes(hashes))
 
     companion object {
         /** 使用进度：还没开始用。 */
@@ -292,89 +280,23 @@ data class Item(
             decodeReminderDays(reminderDays).ifEmpty { globalLadder }.maxOrNull() ?: 0
 
         /**
-         * 「图只在云端、本地已无文件」的槽位占位前缀（F20）。
+         * 编码图片槽位：换行分隔，顺序即展示顺序。
          *
-         * 为什么需要占位：[encodeImagePaths] 会过滤空项，而图片路径与对象键必须按下标一一对应，
-         * 于是「本地文件已删、云端还有」这个槽位一旦留空，它后面的键就会整体前移、安到别的图上。
-         * 用一个非空且唯一的哨兵路径占住位置，键与下标都不会错。
-         *
-         * 读取侧无需特判：[File] 对 `cloud:...` 这种路径 `isFile` 恒为 false，
-         * 现有的「本地不可用则回退云端」逻辑会自动接管。
+         * **不留空项**：哈希就是槽位本身，没有哈希就没有这个槽位，
+         * 因此不像早先那样需要「空行占位」来防下标错位——一行一个槽位，天然对齐。
          */
-        const val CLOUD_SLOT_PREFIX = "cloud:"
-
-        /** 该槽位是否只是云端占位（本地并无文件）。 */
-        fun isCloudSlot(path: String): Boolean = path.startsWith(CLOUD_SLOT_PREFIX)
-
-        /** 从云端占位路径取回对象键；不是占位、或占位里没有对象键时返回 null。 */
-        fun cloudSlotObjectKey(path: String): String? =
-            path.takeIf { it.startsWith(CLOUD_SLOT_PREFIX) }
-                ?.removePrefix(CLOUD_SLOT_PREFIX)
-                // `#<index>` 是「尚未上传」的位置标记，不是对象键。
-                ?.takeIf { it.isNotBlank() && !it.startsWith(EMPTY_SLOT_MARKER) }
-
-        /** 为某个对象键生成云端占位路径。 */
-        fun cloudSlotPath(objectKey: String): String = CLOUD_SLOT_PREFIX + objectKey
-
-        /**
-         * 为「尚未上传」的槽位生成占位路径。
-         *
-         * 需要带上 [index]：占位值都为 `cloud:` 时会完全相同，一旦两条及以上并存，
-         * 图片列表用它当 UI key 会因重复而抛异常；带上位置即可保证唯一。
-         * 这段后缀不是对象键，[cloudSlotObjectKey] 会把它滤掉（返回 null）。
-         */
-        fun emptyCloudSlotPath(index: Int): String = CLOUD_SLOT_PREFIX + EMPTY_SLOT_MARKER + index
-
-        /** 不参与对象键推导的占位后缀标记。 */
-        private const val EMPTY_SLOT_MARKER = "#"
-
-        /**
-         * 编码图片列表。
-         *
-         * **不去重、不丢位置**：它与对象键按下标一一对应，任何一项被滤掉都会让后面的键
-         * 前移、安到别的图上。调用方若要避免同一张图出现两次，应在传入前自行 `distinct()`。
-         */
-        fun encodeImagePaths(paths: List<String>): String {
-            return paths
-                .map { it.trim() }
+        fun encodeImageHashes(hashes: List<String>): String? =
+            hashes.map { it.trim() }
                 .filter { it.isNotBlank() }
                 .joinToString(separator = "\n")
-        }
+                .ifBlank { null }
 
-        fun decodeImagePaths(encoded: String, legacyPrimaryPath: String = ""): List<String> {
-            val parsed = encoded
+        /** 解析图片槽位；空列与空白项一律忽略，返回顺序即展示顺序。 */
+        fun decodeImageHashes(encoded: String?): List<String> =
+            encoded.orEmpty()
                 .lineSequence()
                 .map { it.trim() }
                 .filter { it.isNotBlank() }
                 .toList()
-
-            return when {
-                parsed.isNotEmpty() -> parsed
-                legacyPrimaryPath.isNotBlank() -> listOf(legacyPrimaryPath)
-                else -> emptyList()
-            }
-        }
-
-        /**
-         * 编码对象键列表：**不做去空过滤**，空项以空行占位。
-         * 与 [encodeImagePaths] 的差别是刻意的——图片路径里的空项没有意义，
-         * 而对象键里的空项表示「这一张还没上传」，省略它会让后面所有键下标前移、全部错位。
-         */
-        fun encodeImageObjectKeys(keys: List<String>): String =
-            keys.joinToString("\n") { it.trim() }
-
-        /**
-         * 解码对象键并与 [count]（图片张数）对齐：
-         * 少了补空串、多了截断，无论如何都返回恰好 [count] 项。
-         * 这样即使历史数据、或图片被增删后两者长度不符，也不会按下标取到别人的键。
-         */
-        fun decodeImageObjectKeys(encoded: String?, count: Int): List<String> {
-            if (count <= 0) return emptyList()
-            val parsed = encoded.orEmpty()
-                .lineSequence()
-                .map { it.trim() }
-                .toList()
-            return List(count) { parsed.getOrNull(it).orEmpty() }
-        }
     }
 }

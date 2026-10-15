@@ -72,16 +72,15 @@ class ItemRepository @Inject constructor(
     )
 
     /**
-     * 只登记云端对象键（F20），刻意不走 [update]。
+     * 只登记图片槽位哈希（F22），刻意不走 [update]。
      *
      * 两点讲究：
      * - **不刷新 updatedAt**：图片刚传上去是同步的副产品，不是用户改了物品内容。
      *   若刷新时间戳，跨设备合并按「较新者胜」时本机会盖掉对方真实的编辑。
-     * - **整列覆盖**：`imageObjectKeys` 与图片列表按下标对齐，只能整体替换；
-     *   调用方用 [Item.withImages] 生成等长列表最稳妥，避免逐个改造成错位。
+     * - **整列覆盖**：哈希列表达完整的槽位与顺序，只能整体替换。
      */
-    suspend fun updateImageObjectKeys(item: Item) =
-        itemDao.updateImageObjectKeys(item.id, item.imageObjectKeys.orEmpty())
+    suspend fun updateImageHashes(item: Item) =
+        itemDao.updateImageHashes(item.id, item.imageHashes)
 
     suspend fun delete(item: Item) = itemDao.delete(item)
 
@@ -105,13 +104,33 @@ class ItemRepository @Inject constructor(
         }
     }
 
+    /**
+     * 永久删除：改写「永久删除墓碑」而不是物理删行（F21）。
+     *
+     * 物理删行会让这条记录从云端快照里彻底消失，其他设备因此认为「它没被改过」而永远保留，
+     * 删除就同步不出去。改成写墓碑后，它随快照传到各设备，对方据此把本地那份也清掉。
+     * 墓碑带 purgedAt 标记，因此不会出现在回收站，也只是暂存、到期由维护任务物理清除。
+     */
     suspend fun permanentlyDeleteFromTrash(ids: List<Long>): List<Item> {
         if (ids.isEmpty()) return emptyList()
         val deletedItems = itemDao.getDeletedItemsByIds(ids)
         if (deletedItems.isNotEmpty()) {
-            itemDao.deleteDeletedItemsByIds(deletedItems.map { it.id })
+            itemDao.markPurged(deletedItems.map { it.id }, MonotonicClock.now())
         }
         return deletedItems
+    }
+
+    /**
+     * 合并时收到对方的永久删除墓碑：把这批 id 也标记为永久删除（F21）。
+     *
+     * 不直接物理删行，有两个理由：一是本地那份可能还活着（deletedAt 为 NULL），
+     * 物理删除的 SQL 带 `deletedAt IS NOT NULL` 条件会漏掉它；二是本地留一份同样的
+     * 墓碑可以继续向第三方设备传播这次删除，且重复收到同一墓碑时天然幂等。
+     * 墓碑到期后由维护任务统一物理清除。
+     */
+    suspend fun purgeDeletedByIds(ids: List<Long>) {
+        if (ids.isEmpty()) return
+        itemDao.markPurged(ids, MonotonicClock.now())
     }
 
     /**

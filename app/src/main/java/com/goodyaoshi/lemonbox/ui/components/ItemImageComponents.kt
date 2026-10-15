@@ -54,22 +54,17 @@ import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
 
 @Composable
 fun ItemImageGallery(
-    imagePaths: List<String>,
+    imageHashes: List<String>,
     modifier: Modifier = Modifier,
     onCapturePrimary: () -> Unit,
     onCaptureDetail: () -> Unit,
     onScanBarcode: (() -> Unit)? = null,
     onRemoveImage: (Int) -> Unit,
-    onMoveImage: (fromIndex: Int, toIndex: Int) -> Unit,
-    /**
-     * 与 [imagePaths] 一一对应的云端对象键（F20）。
-     * 编辑已有物品时，本地文件可能已不在（换设备 / 被清理），靠它从云端把图取回来显示。
-     */
-    imageObjectKeys: List<String> = emptyList()
+    onMoveImage: (fromIndex: Int, toIndex: Int) -> Unit
 ) {
     val scanBarcodeAction = onScanBarcode
 
-    if (imagePaths.isEmpty()) {
+    if (imageHashes.isEmpty()) {
         if (scanBarcodeAction == null) {
             ActionImageSlot(
                 title = "拍主图",
@@ -104,19 +99,19 @@ fun ItemImageGallery(
 
     val density = LocalDensity.current
     val dragStepPx = with(density) { (120.dp + 10.dp).toPx() }
-    var draggingPath by remember { mutableStateOf<String?>(null) }
+    var draggingHash by remember { mutableStateOf<String?>(null) }
     var dragStartIndex by remember { mutableIntStateOf(-1) }
     var dragTargetIndex by remember { mutableIntStateOf(-1) }
     var dragOffsetX by remember { mutableFloatStateOf(0f) }
-    val displayPaths = remember(imagePaths, draggingPath, dragTargetIndex) {
-        val path = draggingPath
+    val displayHashes = remember(imageHashes, draggingHash, dragTargetIndex) {
+        val hash = draggingHash
         val targetIndex = dragTargetIndex
-        if (path == null || targetIndex !in imagePaths.indices) {
-            imagePaths
+        if (hash == null || targetIndex !in imageHashes.indices) {
+            imageHashes
         } else {
-            imagePaths.toMutableList().apply {
-                remove(path)
-                add(targetIndex.coerceIn(0, size), path)
+            imageHashes.toMutableList().apply {
+                remove(hash)
+                add(targetIndex.coerceIn(0, size), hash)
             }
         }
     }
@@ -132,47 +127,45 @@ fun ItemImageGallery(
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             // key 带上位置：同一张图可能挂在多个槽位（导入了含重复图的备份），
-            // 只用 path 作 key 会因重复而抛异常。项目内其它列表也是这个写法。
-            itemsIndexed(displayPaths, key = { index, path -> "$index-$path" }) { index, path ->
-                val sourceIndex = imagePaths.indexOf(path).takeIf { it >= 0 } ?: index
-                val isDragging = draggingPath == path
+            // 只用哈希作 key 会因重复而抛异常。项目内其它列表也是这个写法。
+            itemsIndexed(displayHashes, key = { index, hash -> "$index-$hash" }) { index, hash ->
+                val sourceIndex = imageHashes.indexOf(hash).takeIf { it >= 0 } ?: index
+                val isDragging = draggingHash == hash
                 val dragVisualOffset = if (isDragging) {
                     dragOffsetX - (dragTargetIndex - dragStartIndex) * dragStepPx
                 } else {
                     0f
                 }
                 DraggableImageCard(
-                    imagePath = path,
-                    // 键按原始下标取：拖动只是预览顺序变化，图的归属没变。
-                    objectKey = imageObjectKeys.getOrNull(sourceIndex),
+                    hash = hash,
                     title = if (index == 0) "主图" else "细节图",
                     onRemove = { onRemoveImage(sourceIndex) },
                     onMove = { deltaX ->
                         dragOffsetX += deltaX
-                        val startIndex = dragStartIndex.takeIf { it in imagePaths.indices } ?: sourceIndex
+                        val startIndex = dragStartIndex.takeIf { it in imageHashes.indices } ?: sourceIndex
                         val targetIndex = (startIndex + calculateDragSteps(dragOffsetX, dragStepPx))
-                            .coerceIn(0, imagePaths.lastIndex)
+                            .coerceIn(0, imageHashes.lastIndex)
                         dragTargetIndex = targetIndex
                     },
                     onDragStart = {
-                        draggingPath = path
+                        draggingHash = hash
                         dragStartIndex = sourceIndex
                         dragTargetIndex = sourceIndex
                         dragOffsetX = 0f
                     },
                     onDragEnd = {
-                        val fromIndex = imagePaths.indexOf(path).takeIf { it >= 0 } ?: dragStartIndex
+                        val fromIndex = imageHashes.indexOf(hash).takeIf { it >= 0 } ?: dragStartIndex
                         val toIndex = dragTargetIndex
-                        if (fromIndex in imagePaths.indices && toIndex in imagePaths.indices && fromIndex != toIndex) {
+                        if (fromIndex in imageHashes.indices && toIndex in imageHashes.indices && fromIndex != toIndex) {
                             onMoveImage(fromIndex, toIndex)
                         }
-                        draggingPath = null
+                        draggingHash = null
                         dragStartIndex = -1
                         dragTargetIndex = -1
                         dragOffsetX = 0f
                     },
                     onDragCancel = {
-                        draggingPath = null
+                        draggingHash = null
                         dragStartIndex = -1
                         dragTargetIndex = -1
                         dragOffsetX = 0f
@@ -223,8 +216,7 @@ fun ItemImageGallery(
 
 @Composable
 private fun DraggableImageCard(
-    imagePath: String,
-    objectKey: String?,
+    hash: String,
     title: String,
     onRemove: () -> Unit,
     onMove: (Float) -> Unit,
@@ -258,8 +250,7 @@ private fun DraggableImageCard(
             }
     ) {
         ImagePreviewCard(
-            imagePath = imagePath,
-            objectKey = objectKey,
+            hash = hash,
             title = title,
             onRemove = onRemove,
             modifier = Modifier.matchParentSize()
@@ -279,14 +270,13 @@ private fun calculateDragSteps(offsetPx: Float, stepPx: Float): Int {
 
 @Composable
 private fun ImagePreviewCard(
-    imagePath: String,
-    objectKey: String?,
+    hash: String,
     title: String,
     onRemove: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // 与其它图片位一致：本地在就用本地，本地没了才按对象键从云端取。
-    val model = rememberImageModel(imagePath, objectKey)
+    // 与其它图片位一致：本地在就用本地，本地没了才按哈希推导对象键从云端取。
+    val model = rememberImageModel(hash)
     Box(
         modifier = modifier
             .height(120.dp)

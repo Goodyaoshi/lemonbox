@@ -71,12 +71,11 @@ fun ItemCard(
     selectionSelected: Boolean? = null
 ) {
     val item = itemDetail.item
-    val primaryImagePath = item.primaryImagePath()
-    val primaryImageObjectKey = item.primaryImageObjectKey()
+    val primaryImageHash = item.primaryImageHash()
     // 图片来源交给统一解析：本地文件在就用本地（离线可看），本地没了才回退云端。
-    val primaryImageModel = rememberImageModel(primaryImagePath, primaryImageObjectKey)
-    // 有没有图不能只看本地路径：换设备后路径可能还没落地、但对象键已经在库里。
-    val hasPrimaryImage = primaryImagePath.isNotEmpty() || primaryImageObjectKey != null
+    val primaryImageModel = rememberImageModel(primaryImageHash)
+    // 有没有图只看哈希：它既表示槽位存在，也能推导出本地路径与对象键。
+    val hasPrimaryImage = primaryImageHash != null
     val inSelectionMode = selectionSelected != null
 
     AppSurfaceCard(

@@ -2,6 +2,7 @@ package com.goodyaoshi.lemonbox.data.imagecloud
 
 import android.content.Context
 import coil.request.ImageRequest
+import com.goodyaoshi.lemonbox.util.ImageUtil
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
@@ -94,17 +95,22 @@ class ImageUrlResolver @Inject constructor(
     private var cachedConfigAtMillis = 0L
 
     /**
-     * 解析出可直接喂给 `AsyncImage(model = ...)` 的值；无从取图时返回 null，
-     * 由调用方的占位/错误态接管。
+     * 由内容哈希解析出可直接喂给 `AsyncImage(model = ...)` 的值（F22）。
      *
-     * 注意：会做文件存在性判断，调用方应配合 `remember(localPath, objectKey)`，
-     * 避免每次重组都重新 stat。
+     * 只收一个哈希是有意的：本地路径（`item_<hash>.jpg`）与云端对象键
+     * （`[prefix/]images/<hash>.jpg`）都能由它算出来，调用方因此不必再各自维护
+     * 「路径」与「键」两份数据——它们本就是同一个哈希的两种呈现，分开存放只会漂移。
+     *
+     * 注意：会做文件存在性判断，调用方应配合 `remember(hash)` 避免每次重组都重新 stat。
      */
-    fun model(localPath: String?, objectKey: String?): Any? {
+    fun modelForHash(hash: String?): Any? {
+        val contentHash = hash.orEmpty().trim()
+        if (contentHash.isEmpty()) return null
+        val localPath = ImageUtil.localPathForHash(context, contentHash)
         val location = decideImageLocation(
             localPath = localPath,
-            localAvailable = localPath?.takeIf { it.isNotBlank() }?.let { File(it).isFile } == true,
-            objectKey = objectKey
+            localAvailable = File(localPath).isFile,
+            objectKey = ImageObjectKeys.forContentHash(config.prefix(), contentHash)
         )
         return when (location) {
             is ImageLocation.Local -> location.path
