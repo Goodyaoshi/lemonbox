@@ -1,0 +1,21 @@
+# 统一行尾（F9 配套）：仓库内一律用 LF 存储。
+#
+# 背景：此前无 .gitattributes 且各机器 core.autocrlf 不一，Migrations.kt 与
+# SeedDataProvider.kt 以 CRLF 入库——git diff --check 会把行尾的 CR 判成尾随空白，
+# 任何改动都会误报。text=auto 让 Git 自动识别文本做规范化，eol=lf 固定检出为 LF。
+* text=auto eol=lf
+
+# 二进制资源：不参与行尾转换，避免损坏。
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.jar binary
+*.apk binary
+*.aab binary
+*.so binary
+*.onnx binary
+*.zip binary
+*.ttf binary
+*.otf binary
