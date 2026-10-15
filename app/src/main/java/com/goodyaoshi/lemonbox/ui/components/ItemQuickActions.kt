@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -141,51 +142,63 @@ fun ItemMoreActionsDialog(
         onDismissRequest = onDismissRequest,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
-        Box(
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
                 .background(ScrimSoft),
             contentAlignment = Alignment.Center
         ) {
+            // 卡片高度上限 = 可用高度减上下留白。**必须限高**：否则贴到屏幕边缘、圆角被切。
+            // 留 24dp×2 的边距，既露出遮罩让用户能点外部关闭，也避免视觉上顶到状态栏。
+            val maxCardHeight = maxHeight - 48.dp
             AppSurfaceCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp)
-                    .widthIn(max = 420.dp),
+                    .widthIn(max = 420.dp)
+                    .heightIn(max = maxCardHeight),
                 shape = RoundedCornerShape(30.dp),
                 contentPadding = PaddingValues(22.dp),
                 shadowElevation = 26.dp
             ) {
-                Text(
-                    text = item.name,
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextPrimary
-                )
-                Text(
-                    text = "完整状态与操作，选中后立即保存",
-                    fontSize = 13.sp,
-                    color = TextSecondary,
-                    modifier = Modifier.padding(top = 6.dp)
-                )
-
+                // 只让标题与状态选择滚动；三个操作与「关闭」留在滚动区之外固定可见。
+                // 简易模式（系统字体放大到 1.3 倍以上）时，若把操作一起放进滚动区，
+                // 「删除」「关闭」会被挤出可视区——而它们恰恰是最需要能点到的。
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 16.dp)
-                        .heightIn(max = 300.dp)
+                        .weight(1f, fill = false)
                         .verticalScroll(rememberScrollState())
                 ) {
-                    StatusChipSection(
-                        dimension = StatusDimension.USAGE,
-                        selectedCode = item.usageStatus,
-                        onSelect = handlers.onSetUsageStatus
+                    Text(
+                        text = item.name,
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
                     )
-                    StatusChipSection(
-                        dimension = StatusDimension.DISPOSITION,
-                        selectedCode = item.disposition,
-                        onSelect = handlers.onSetDisposition
+                    Text(
+                        text = "完整状态与操作，选中后立即保存",
+                        fontSize = 13.sp,
+                        color = TextSecondary,
+                        modifier = Modifier.padding(top = 6.dp)
                     )
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 16.dp)
+                    ) {
+                        StatusChipSection(
+                            dimension = StatusDimension.USAGE,
+                            selectedCode = item.usageStatus,
+                            onSelect = handlers.onSetUsageStatus
+                        )
+                        StatusChipSection(
+                            dimension = StatusDimension.DISPOSITION,
+                            selectedCode = item.disposition,
+                            onSelect = handlers.onSetDisposition
+                        )
+                    }
                 }
 
                 Column(

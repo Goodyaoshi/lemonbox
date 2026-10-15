@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -138,17 +139,21 @@ fun HierarchicalPickerDialog(
         onDismissRequest = onDismissRequest,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
-        Box(
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
                 .background(ScrimSoft),
             contentAlignment = Alignment.Center
         ) {
+            // 卡片限高：不加的话，列表限高 + 标题 + 按钮的总高可能超过屏幕，
+            // 简易模式（系统字体放大）下底部按钮会被挤出可视区且无法滚到。
+            val maxCardHeight = maxHeight - 48.dp
             AppSurfaceCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp)
-                    .widthIn(max = 420.dp),
+                    .widthIn(max = 420.dp)
+                    .heightIn(max = maxCardHeight),
                 shape = RoundedCornerShape(30.dp),
                 contentPadding = PaddingValues(22.dp),
                 shadowElevation = 26.dp
@@ -178,7 +183,9 @@ fun HierarchicalPickerDialog(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(top = 14.dp)
-                            .heightIn(max = 380.dp),
+                            // weight 而非固定高度：列表占用「标题与按钮之外」的剩余空间，
+                            // 这样字体放大挤压空间时是列表变矮（仍可滚），按钮始终留在可见位置。
+                            .weight(1f, fill = false),
                         verticalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
                         items(buildVisibleRows(childrenByParent, expandedIds), key = { it.node.id }) { row ->
