@@ -4,6 +4,9 @@
 /local.properties
 /.idea
 /.trae
+/.reasonix
+/.claude
+/.agents
 .DS_Store
 /build
 /captures
@@ -29,3 +32,5 @@ UI草图.png
 
 # 设计文档与方案笔记：只留在本地，不进版本库
 /docs/
+/.mcp.json
+/skills-lock.json
