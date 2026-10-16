@@ -1,6 +1,7 @@
 package com.goodyaoshi.lemonbox.ui.screen.settings
 
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.LocalActivity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -35,7 +36,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -69,7 +69,9 @@ fun NotificationReliabilityScreen(
     val appSnackbar = LocalAppSnackbar.current
 
     // 电池优化白名单状态：从系统对话框回来（onResume）时刷新。
-    val activityContext = LocalContext.current as? ComponentActivity
+    // 取 LocalActivity 而不是把 LocalContext 向下转型：后者会被 lint 判为 ContextCastToActivity，
+    // 而且「上下文就是宿主 Activity」这件事在 Compose 里本就该由 LocalActivity 表达。
+    val activityContext = LocalActivity.current as? ComponentActivity
     var batteryOptimized by remember {
         mutableStateOf(
             activityContext?.let { ReminderReliability.isIgnoringBatteryOptimizations(it) } ?: true

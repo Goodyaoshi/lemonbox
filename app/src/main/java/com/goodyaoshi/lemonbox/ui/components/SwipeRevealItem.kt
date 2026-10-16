@@ -7,7 +7,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -107,7 +106,9 @@ fun SwipeRevealItem(
         }
     }
 
-    BoxWithConstraints(
+    // 这里只需要一个裁剪容器，尺寸由父级决定，故用 Box 而非 BoxWithConstraints（后者会带来
+    // 本处用不到的约束作用域，lint 会报 UnusedBoxWithConstraintsScope）。
+    Box(
         modifier = modifier.clipToBounds()
     ) {
         Row(
