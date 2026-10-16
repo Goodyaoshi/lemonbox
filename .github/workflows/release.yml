@@ -87,12 +87,10 @@ jobs:
           ORG_GRADLE_PROJECT_LEMON_KEYSTORE_PASSWORD: ${{ secrets.LEMON_KEYSTORE_PASSWORD }}
           ORG_GRADLE_PROJECT_LEMON_KEY_ALIAS: ${{ secrets.LEMON_KEY_ALIAS }}
           ORG_GRADLE_PROJECT_LEMON_KEY_PASSWORD: ${{ secrets.LEMON_KEY_PASSWORD }}
-          # 图片云端存储的非敏感配置（endpoint / region / bucket / prefix）。
-          # AccessKey / SecretKey 不在此列——它们在 App 内由用户填写，绝不进包。
-          ORG_GRADLE_PROJECT_LEMON_S3_ENDPOINT: ${{ secrets.LEMON_S3_ENDPOINT }}
-          ORG_GRADLE_PROJECT_LEMON_S3_REGION: ${{ secrets.LEMON_S3_REGION }}
-          ORG_GRADLE_PROJECT_LEMON_S3_BUCKET: ${{ secrets.LEMON_S3_BUCKET }}
-          ORG_GRADLE_PROJECT_LEMON_S3_PREFIX: ${{ secrets.LEMON_S3_PREFIX }}
+          # 云存储配置：整段**密文**（endpoint / region / bucket / prefix + AccessKey / SecretKey），
+          # 由 tools/encrypt-s3-config.mjs 用口令加密生成；口令只在 App 内由用户输入，绝不进 CI。
+          # 早先 endpoint 等以明文 Secret 注入、密钥由用户手填；现在包内只有密文。
+          ORG_GRADLE_PROJECT_LEMON_S3_PAYLOAD_ENCRYPTED: ${{ secrets.LEMON_S3_PAYLOAD_ENCRYPTED }}
         run: |
           chmod +x ./gradlew
           ./gradlew assembleRelease --no-daemon --console=plain \

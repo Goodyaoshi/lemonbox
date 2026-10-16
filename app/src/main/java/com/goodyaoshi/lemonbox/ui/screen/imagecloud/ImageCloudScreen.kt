@@ -56,9 +56,10 @@ import com.goodyaoshi.lemonbox.ui.viewmodel.ImageCloudViewModel
 /**
  * 云存储与同步设置（F20 · 仅正式包）：图片上传 + 多设备数据同步。
  *
- * 存储连接参数随包内置（CI Secrets 注入）、界面上**不展示也不可改**：所有客户端必须指向
- * 同一处存储才能互相看到图片，暴露给用户只会带来误改。用户唯一需要填的是自己的访问凭据——
- * 它只存在本机，由 [ImageCloudViewModel] 交给 Keystore 加密保存，绝不进 APK。
+ * 存储连接参数与访问密钥整份**加密**后随包内置（CI Secrets 注入密文）、界面上**不展示也不可改**：
+ * 所有客户端必须指向同一处存储才能互相看到数据，暴露给用户只会带来误改。用户唯一要做的是
+ * 输入**解锁口令**——解开密文后配置由 [ImageCloudViewModel] 交给 Keystore 加密保存在本机，
+ * 包内始终只有密文，没有任何明文密钥。
  *
  * 存量图片迁移就是「上传本机图片」：对象键由图片内容哈希决定，
  * 已上传过的会被跳过，因此这个按钮**可以反复点**，不会产生重复对象。
@@ -179,21 +180,22 @@ fun ImageCloudScreen(
                 }
 
                 Spacer(modifier = Modifier.height(20.dp))
-                EditorSectionLabel(label = "访问凭据")
+                EditorSectionLabel(label = "解锁口令")
                 Spacer(modifier = Modifier.height(8.dp))
                 AppSurfaceCard(shape = RoundedCornerShape(22.dp), shadowElevation = 12.dp) {
                     Text(
-                        text = if (state.hasCredentials) {
-                            "已保存凭据（加密存在本机，不会随 APK 分发）。要更换就重新填写。"
+                        text = if (state.unlocked) {
+                            "已解锁。存储地址与密钥解密后只加密存在本机，既不进安装包，也不随备份外传。" +
+                                "要换一份配置就重新输入口令。"
                         } else {
-                            "填你的对象存储访问密钥。它只保存在本机、经系统 Keystore 加密，" +
-                                "不会编译进安装包。"
+                            "存储地址与访问密钥都以密文内置在安装包里，输入口令即可解开。" +
+                                "口令只在本机用于解密，不会上传，也不会被保存。"
                         },
                         fontSize = 12.sp,
                         color = TextHint
                     )
-                    // 安全提示：阿里云 / AWS 等厂商官方均不推荐在移动端直存长期 AccessKey
-                    // （存在被逆向提取的风险）。如实告知，并给出可操作的缓解办法。
+                    // 安全提示：密文与 salt 都在包里，拿到包的人可以离线穷举口令，
+                    // 强度完全决定安全性。如实告知，而不是给一个「已加密」的错觉。
                     Spacer(modifier = Modifier.height(8.dp))
                     Row(verticalAlignment = Alignment.Top) {
                         Icon(
@@ -204,28 +206,22 @@ fun ImageCloudScreen(
                         )
                         Spacer(modifier = Modifier.size(6.dp))
                         Text(
-                            text = "建议单独创建一个只有该存储桶读写权限的子账号，" +
-                                "不要填主账号密钥——客户端长期密钥有被逆向提取的风险。",
+                            text = "口令是解开包内密文的唯一凭据，请用足够长的口令，" +
+                                "不要用生日、手机号这类可猜的组合——密文随包分发，可能被人离线穷举。",
                             fontSize = 12.sp,
                             color = StatusExpired
                         )
                     }
                     Spacer(modifier = Modifier.height(10.dp))
                     EditorInputBox(
-                        value = state.accessKey,
-                        onValueChange = viewModel::updateAccessKey,
-                        placeholder = "Access Key ID"
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    EditorInputBox(
-                        value = state.secretKey,
-                        onValueChange = viewModel::updateSecretKey,
-                        placeholder = "Secret Access Key",
-                        // 打码显示，避免旁人一眼看到密钥。
+                        value = state.passphrase,
+                        onValueChange = viewModel::updatePassphrase,
+                        placeholder = "解锁口令",
+                        // 打码显示，避免旁人一眼看到口令。
                         visualTransformation = PasswordVisualTransformation()
                     )
-                    if (state.hasCredentials) {
-                        TextButton(onClick = viewModel::clearCredentials) {
+                    if (state.unlocked) {
+                        TextButton(onClick = viewModel::lockCloud) {
                             Icon(
                                 imageVector = Icons.Default.Delete,
                                 contentDescription = null,
@@ -233,16 +229,20 @@ fun ImageCloudScreen(
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.size(6.dp))
-                            Text(text = "清除已保存的凭据", color = StatusExpired, fontSize = 13.sp)
+                            Text(text = "清除本机已保存的配置", color = StatusExpired, fontSize = 13.sp)
                         }
                     }
                 }
 
                 Spacer(modifier = Modifier.height(14.dp))
                 GradientButton(
-                    text = if (state.testing) "正在测试…" else "保存凭据并测试连接",
-                    enabled = !state.testing,
-                    onClick = viewModel::saveAndTest
+                    text = when {
+                        state.unlocking -> "正在解锁…"
+                        state.testing -> "正在测试…"
+                        else -> "解锁并测试连接"
+                    },
+                    enabled = !state.unlocking && !state.testing,
+                    onClick = viewModel::unlockAndTest
                 )
 
                 state.testMessage?.let { message ->

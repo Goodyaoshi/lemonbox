@@ -5,6 +5,8 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -13,25 +15,59 @@ import javax.crypto.spec.GCMParameterSpec
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** 对象存储的访问凭据。 */
-data class ImageCredentials(
+/**
+ * 云存储的完整配置：连接参数 + 访问凭据。
+ *
+ * 它是「口令解锁」的产物——用户在界面里只填口令，[S3PayloadCipher] 从包内密文里解出
+ * 这些字段，随即由 [ImageCredentialStore] 加密落到本机。之后每次同步都读本机这份，
+ * 不再需要口令。
+ */
+@Serializable
+data class ImageCloudCredentials(
+    val endpoint: String,
+    val region: String = "",
+    val bucket: String,
+    val prefix: String = "",
     val accessKey: String,
     val secretKey: String
 ) {
+    /**
+     * 是否可用：地址、桶与一对凭据都不能缺。
+     * region 有内置回落（见 [ImageCloudConfig]），prefix 允许为空，故二者不参与判定。
+     */
     val isComplete: Boolean
-        get() = accessKey.isNotBlank() && secretKey.isNotBlank()
+        get() = endpoint.isNotBlank() && bucket.isNotBlank() &&
+            accessKey.isNotBlank() && secretKey.isNotBlank()
 }
 
 /**
- * S3 访问凭据的本地加密存储（F20）。
+ * 解锁结果。界面据此给出不同提示；「密钥没配」与「口令不对」必须分开——
+ * 前者用户无能为力（得换包），后者用户重输即可。
+ */
+sealed interface UnlockOutcome {
+    data object Success : UnlockOutcome
+
+    /** 包内没有内置密文（开发者本地构建，或 CI 未配 Secret）。 */
+    data object NotConfigured : UnlockOutcome
+
+    /** 口令不对，或密文被损坏。 */
+    data object WrongPassphrase : UnlockOutcome
+
+    /** 系统 Keystore 不可用，解出来也存不住。 */
+    data object StorageUnavailable : UnlockOutcome
+}
+
+/**
+ * 云存储配置的本地加密存储（F20）。
  *
- * 安全前提：**凭据绝不进 APK**——BuildConfig 是明文常量，反编译即可读出。
- * 因此 endpoint / bucket 等非敏感项随包走，AccessKey / SecretKey 只存在用户设备上、由用户自己填。
+ * 安全前提：**密钥绝不进 APK 明文**——BuildConfig 是明文字符串常量，反编译即可读出。
+ * 因此包内只放 [S3PayloadCipher] 生成的密文（还需要用户的口令才能解开），
+ * 口令解开后的完整配置则落在本机、由 Keystore 里的 AES-256-GCM 再加密一层。
  *
  * 加密方式：Android Keystore 的 AES-256-GCM（密钥材料不出安全硬件），密文与随机 IV 存进
  * 独立 SharedPreferences。未引入已弃用的 androidx.security:security-crypto——只需一对
  * 加解密调用，手写依赖更少。Keystore 密钥可能因「清除数据 / 恢复出厂 / 锁屏凭据变更」失效，
- * 此时一律按「没有凭据」返回 null（不抛异常），由界面引导重新填写。
+ * 此时一律按「没有配置」返回 null（不抛异常），由界面引导重新输入口令解锁。
  */
 @Singleton
 class ImageCredentialStore @Inject constructor(
@@ -41,35 +77,37 @@ class ImageCredentialStore @Inject constructor(
     private val preferences =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
+    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+
     /**
-     * 读取凭据；未配置或解密失败（如 Keystore 密钥失效）时返回 null，
+     * 读取已解锁的配置；未解锁或解密失败（如 Keystore 密钥失效）时返回 null，
      * 并顺手清掉无法解密的脏数据，避免每次都白试一遍。
      */
-    fun load(): ImageCredentials? {
+    fun load(): ImageCloudCredentials? {
+        preferences.edit().remove(LEGACY_KEY_CREDENTIALS).apply()
         val blob = preferences.getString(KEY_CREDENTIALS, null) ?: return null
         val plain = decrypt(blob)
         if (plain == null) {
             preferences.edit().remove(KEY_CREDENTIALS).apply()
             return null
         }
-        // 明文格式：accessKey\nsecretKey（两者都不含换行）。
-        val parts = plain.split('\n', limit = 2)
-        if (parts.size != 2) {
+        val credentials = runCatching { json.decodeFromString<ImageCloudCredentials>(plain) }.getOrNull()
+        if (credentials == null || !credentials.isComplete) {
             preferences.edit().remove(KEY_CREDENTIALS).apply()
             return null
         }
-        return ImageCredentials(parts[0], parts[1]).takeIf { it.isComplete }
+        return credentials
     }
 
-    /** 加密保存凭据；加密失败（Keystore 不可用）返回 false，由界面提示用户。 */
-    fun save(credentials: ImageCredentials): Boolean {
-        val blob = encrypt("${credentials.accessKey}\n${credentials.secretKey}") ?: return false
+    /** 加密保存配置；加密失败（Keystore 不可用）返回 false，由调用方提示用户。 */
+    fun save(credentials: ImageCloudCredentials): Boolean {
+        val blob = encrypt(json.encodeToString(credentials)) ?: return false
         preferences.edit().putString(KEY_CREDENTIALS, blob).apply()
         return true
     }
 
     fun clear() {
-        preferences.edit().remove(KEY_CREDENTIALS).apply()
+        preferences.edit().remove(KEY_CREDENTIALS).remove(LEGACY_KEY_CREDENTIALS).apply()
     }
 
     fun hasCredentials(): Boolean = preferences.contains(KEY_CREDENTIALS)
@@ -122,7 +160,10 @@ class ImageCredentialStore @Inject constructor(
 
     private companion object {
         const val PREFS_NAME = "lemon_image_cloud_secrets"
-        const val KEY_CREDENTIALS = "credentials_v1"
+        // v2：存的是整份配置的 JSON（含连接参数）。v1 存的是「accessKey\nsecretKey」明文，
+        // 那个格式在「口令解锁」模型下已无意义，读到就顺手清掉。
+        const val KEY_CREDENTIALS = "credentials_v2"
+        const val LEGACY_KEY_CREDENTIALS = "credentials_v1"
         const val KEY_ALIAS = "lemonbox_image_cloud_credentials"
         const val ANDROID_KEYSTORE = "AndroidKeyStore"
         const val TRANSFORMATION = "AES/GCM/NoPadding"

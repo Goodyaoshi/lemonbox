@@ -7,24 +7,26 @@ import com.goodyaoshi.lemonbox.data.imagecloud.ImageCloudPreferences
 import com.goodyaoshi.lemonbox.data.imagecloud.ImageCloudSyncManager
 import com.goodyaoshi.lemonbox.data.imagecloud.ImageCloudSyncScheduler
 import com.goodyaoshi.lemonbox.data.imagecloud.ImageCloudSyncState
-import com.goodyaoshi.lemonbox.data.imagecloud.ImageCredentialStore
-import com.goodyaoshi.lemonbox.data.imagecloud.ImageCredentials
 import com.goodyaoshi.lemonbox.data.imagecloud.S3Outcome
+import com.goodyaoshi.lemonbox.data.imagecloud.UnlockOutcome
 import com.goodyaoshi.lemonbox.data.sync.CloudSyncManager
 import com.goodyaoshi.lemonbox.data.sync.CloudSyncScheduler
 import com.goodyaoshi.lemonbox.data.sync.CloudSyncState
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 /**
  * 云存储的设置页状态（F20）。
  *
- * 存储连接参数不在此列：它们随包内置、界面不展示也不可改，用户唯一能填的是访问凭据。
+ * 存储连接参数与密钥都不在此列：它们整份加密随包内置，界面既不展示也不可改，
+ * 用户唯一能提供的是**解锁口令**。
  */
 data class ImageCloudUiState(
     val supported: Boolean = false,
@@ -35,10 +37,11 @@ data class ImageCloudUiState(
     val cloudSyncEnabled: Boolean = true,
     /** 云同步的第一处待补齐事项；null 表示已就绪。 */
     val cloudSyncBlocker: String? = null,
-    /** 仅用于新填写；已保存的凭据回显为空，不把明文读回界面。 */
-    val accessKey: String = "",
-    val secretKey: String = "",
-    val hasCredentials: Boolean = false,
+    /** 仅用于新输入；解锁成功后立刻清空，不把口令留在界面上。 */
+    val passphrase: String = "",
+    /** 本机是否已解锁（解出的配置已加密存在本机）。 */
+    val unlocked: Boolean = false,
+    val unlocking: Boolean = false,
     val testing: Boolean = false,
     val testMessage: String? = null,
     val testOk: Boolean = false,
@@ -51,7 +54,6 @@ data class ImageCloudUiState(
 class ImageCloudViewModel @Inject constructor(
     private val config: ImageCloudConfig,
     private val preferences: ImageCloudPreferences,
-    private val credentialStore: ImageCredentialStore,
     private val syncManager: ImageCloudSyncManager,
     private val syncScheduler: ImageCloudSyncScheduler,
     private val cloudSyncManager: CloudSyncManager,
@@ -66,7 +68,7 @@ class ImageCloudViewModel @Inject constructor(
             backgroundSync = preferences.backgroundSync.value,
             cloudSyncEnabled = preferences.cloudSyncEnabled.value,
             cloudSyncBlocker = config.cloudSyncBlocker(),
-            hasCredentials = credentialStore.hasCredentials(),
+            unlocked = config.isUnlocked(),
             readinessBlocker = config.readiness().firstBlocker
         )
     )
@@ -129,6 +131,72 @@ class ImageCloudViewModel @Inject constructor(
         )
     }
 
+    fun updatePassphrase(value: String) = _uiState.update { it.copy(passphrase = value) }
+
+    /**
+     * 用口令解锁包内密文，随即测试连通性。
+     *
+     * 口令只在这一步用一次：解开后配置由 Keystore 加密落本机，之后同步直接读本机那份。
+     * 解密是 PBKDF2 十万次迭代（刻意慢），必须切到后台线程。
+     */
+    fun unlockAndTest() {
+        if (_uiState.value.unlocking) return
+        val passphrase = _uiState.value.passphrase
+        if (passphrase.isBlank()) {
+            _uiState.update { it.copy(testMessage = "请先输入口令", testOk = false) }
+            return
+        }
+
+        val previous = config.credentials()
+        _uiState.update {
+            it.copy(
+                unlocking = true,
+                testMessage = null,
+                // 立刻清空输入框，避免口令明文长期停留在界面上。
+                passphrase = ""
+            )
+        }
+
+        viewModelScope.launch {
+            val outcome = withContext(Dispatchers.Default) { config.unlock(passphrase) }
+            if (outcome is UnlockOutcome.Success && config.credentials() != previous) {
+                // 解出的配置与上一份不同：之前「已确认」的键是以旧目标确认的，不再可信。
+                syncManager.forgetKnownKeys()
+            }
+            _uiState.update {
+                it.copy(
+                    unlocking = false,
+                    testMessage = when (outcome) {
+                        UnlockOutcome.Success -> null
+                        UnlockOutcome.NotConfigured -> "此安装包未内置云存储配置"
+                        UnlockOutcome.WrongPassphrase -> "口令不对，解不开内置的存储配置"
+                        UnlockOutcome.StorageUnavailable -> "系统密钥库不可用，无法在本机保存配置"
+                    },
+                    testOk = false
+                )
+            }
+            refresh()
+
+            if (outcome is UnlockOutcome.Success) {
+                _uiState.update { it.copy(testing = true) }
+                val result = syncManager.testConnection()
+                _uiState.update {
+                    it.copy(
+                        testing = false,
+                        testOk = result is S3Outcome.Success,
+                        testMessage = when (result) {
+                            S3Outcome.Success -> "连接成功，可以开始上传了"
+                            S3Outcome.NotFound -> "没连上：存储桶不存在，或凭据没有访问权限"
+                            is S3Outcome.Error -> "没连上：${result.message}"
+                        }
+                    )
+                }
+                refresh()
+                refreshPendingCount()
+            }
+        }
+    }
+
     /**
      * 重新统计未上传张数。会读一遍本地图片算哈希，所以是挂起操作；
      * 由进入页面、同步结束、开关变化时触发，不在每次 recompose 时跑。
@@ -140,57 +208,12 @@ class ImageCloudViewModel @Inject constructor(
         }
     }
 
-    fun updateAccessKey(value: String) = _uiState.update { it.copy(accessKey = value) }
-    fun updateSecretKey(value: String) = _uiState.update { it.copy(secretKey = value) }
-
-    /**
-     * 保存凭据并测试连通性。
-     *
-     * 连接参数固定取自包内配置，这里只处理凭据。凭据留空表示「不改动已保存的那份」。
-     */
-    fun saveAndTest() {
-        if (_uiState.value.testing) return
-        val state = _uiState.value
-        val credentialsSubmitted = state.accessKey.isNotBlank() && state.secretKey.isNotBlank()
-        if (credentialsSubmitted) {
-            credentialStore.save(
-                ImageCredentials(state.accessKey.trim(), state.secretKey.trim())
-            )
-        }
-
-        _uiState.update {
-            it.copy(
-                testing = true,
-                testMessage = null,
-                // 提交成功后立刻清空输入框，避免明文凭据长期停留在界面上。
-                accessKey = if (credentialsSubmitted) "" else it.accessKey,
-                secretKey = if (credentialsSubmitted) "" else it.secretKey
-            )
-        }
-
-        viewModelScope.launch {
-            val result = syncManager.testConnection()
-            _uiState.update {
-                it.copy(
-                    testing = false,
-                    testOk = result is S3Outcome.Success,
-                    testMessage = when (result) {
-                        S3Outcome.Success -> "连接成功，可以开始上传了"
-                        S3Outcome.NotFound -> "没连上：存储桶不存在，或凭据没有访问权限"
-                        is S3Outcome.Error -> "没连上：${result.message}"
-                    }
-                )
-            }
-            refresh()
-            refreshPendingCount()
-        }
-    }
-
-    fun clearCredentials() {
-        credentialStore.clear()
-        // 凭据换了，之前「已确认」的键是以旧身份确认的，不再可信。
+    /** 锁定：清掉本机保存的配置，之后需要重新输入口令。 */
+    fun lockCloud() {
+        config.lock()
+        // 配置没了，之前「已确认」的键也不再可用。
         syncManager.forgetKnownKeys()
-        _uiState.update { it.copy(accessKey = "", secretKey = "", testMessage = null) }
+        _uiState.update { it.copy(passphrase = "", testMessage = null, testOk = false) }
         refresh()
         refreshPendingCount()
     }
@@ -207,7 +230,7 @@ class ImageCloudViewModel @Inject constructor(
                 backgroundSync = preferences.backgroundSync.value,
                 cloudSyncEnabled = preferences.cloudSyncEnabled.value,
                 cloudSyncBlocker = config.cloudSyncBlocker(),
-                hasCredentials = credentialStore.hasCredentials(),
+                unlocked = config.isUnlocked(),
                 readinessBlocker = config.readiness().firstBlocker
             )
         }

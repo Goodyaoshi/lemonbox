@@ -58,40 +58,24 @@ android {
         // 图片云端存储（S3 兼容）：debug 包一律不支持，避免开发期把测试图片传进真实存储桶。
         debug {
             buildConfigField("boolean", "IMAGE_CLOUD_SUPPORTED", "false")
-            buildConfigField("String", "S3_ENDPOINT", "\"\"")
-            buildConfigField("String", "S3_REGION", "\"\"")
-            buildConfigField("String", "S3_BUCKET", "\"\"")
-            buildConfigField("String", "S3_PREFIX", "\"\"")
+            buildConfigField("String", "S3_PAYLOAD_ENCRYPTED", "\"\"")
         }
 
         release {
             isMinifyEnabled = true
-            // 图片云端存储（仅正式包）——「配置进包、凭据手填」：
-            // endpoint / region / bucket / prefix 属非敏感配置，随包分发、由 CI Secrets 注入，
-            // 省去每台设备手填；AccessKey / SecretKey 绝不进包（BuildConfig 是明文字符串，
-            // 反编译即可读出），改由用户在应用内填写并以 Android Keystore 加密存本地。
-            // 本地未配这些属性时（如开发者自己跑 assembleRelease）为空串，
-            // App 据此提示「此版本未内置云配置」，而不是崩溃。
+            // 图片云端存储（仅正式包）——「配置密文进包、用户只输口令」：
+            // endpoint / region / bucket / prefix 与 AccessKey / SecretKey 整份由
+            // tools/encrypt-s3-config.mjs 用口令加密成一段密文，随包分发（CI Secret
+            // LEMON_S3_PAYLOAD_ENCRYPTED 注入）。BuildConfig 是明文字符串常量、反编译即可读出，
+            // 所以进包的**只能是密文**：没有口令谁也用不了其中的密钥，而用户只需记住一个口令，
+            // 不必在每台设备上各填一份 AccessKey / SecretKey。
+            // 口令绝不进 CI、不进包；本地未配该属性时（如开发者自己跑 assembleRelease）为空串，
+            // App 据此提示「此版本未内置云存储配置」，而不是崩溃。
             buildConfigField("boolean", "IMAGE_CLOUD_SUPPORTED", "true")
             buildConfigField(
                 "String",
-                "S3_ENDPOINT",
-                (findProperty("LEMON_S3_ENDPOINT") as String? ?: "").asBuildConfigLiteral()
-            )
-            buildConfigField(
-                "String",
-                "S3_REGION",
-                (findProperty("LEMON_S3_REGION") as String? ?: "").asBuildConfigLiteral()
-            )
-            buildConfigField(
-                "String",
-                "S3_BUCKET",
-                (findProperty("LEMON_S3_BUCKET") as String? ?: "").asBuildConfigLiteral()
-            )
-            buildConfigField(
-                "String",
-                "S3_PREFIX",
-                (findProperty("LEMON_S3_PREFIX") as String? ?: "").asBuildConfigLiteral()
+                "S3_PAYLOAD_ENCRYPTED",
+                (findProperty("LEMON_S3_PAYLOAD_ENCRYPTED") as String? ?: "").asBuildConfigLiteral()
             )
             isShrinkResources = true
             proguardFiles(
@@ -155,6 +139,30 @@ gradle.taskGraph.whenReady {
 ksp {
     // 导出 Room schema 到 app/schemas，便于审查迁移与后续做迁移测试。
     arg("room.schemaLocation", "$projectDir/schemas")
+}
+
+/**
+ * 生成云存储配置密文的命令行工具：
+ * ```
+ * $env:S3_PAYLOAD_PASSPHRASE='…'; .\gradlew encryptS3Payload --args="--in s3cfg.json"
+ * ```
+ * 入口在 unit test 源码集（见 EncryptS3Payload.kt）：它不属于 App 运行时、不进 APK，
+ * 却能直接复用 App 解密用的同一份 S3PayloadCipher，两端不可能算法漂移。
+ * 因此这里用「主源码集 + 单测源码集」的 Kotlin 产物加测试变体 classpath 来运行它。
+ */
+tasks.register<JavaExec>("encryptS3Payload") {
+    group = "tools"
+    description = "用口令加密云存储配置，生成 GitHub Secret LEMON_S3_PAYLOAD_ENCRYPTED"
+    dependsOn("compileDebugUnitTestKotlin")
+    mainClass.set("com.goodyaoshi.lemonbox.data.imagecloud.EncryptS3PayloadKt")
+    // classpath 在执行期才解析：AGP 的变体 configuration 到那时才一定存在。
+    doFirst {
+        classpath = files(
+            layout.buildDirectory.dir("tmp/kotlin-classes/debug"),
+            layout.buildDirectory.dir("tmp/kotlin-classes/debugUnitTest"),
+            configurations.getByName("debugUnitTestRuntimeClasspath")
+        )
+    }
 }
 
 // 分发副本：assembleRelease 完成后，把产物额外复制一份为「柠檬百宝箱.apk」到分发目录。

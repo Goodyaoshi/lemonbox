@@ -74,7 +74,6 @@ class ImageCloudSyncManager @Inject constructor(
     @ApplicationContext private val context: Context,
     private val config: ImageCloudConfig,
     private val preferences: ImageCloudPreferences,
-    private val credentialStore: ImageCredentialStore,
     private val client: S3ImageClient,
     private val itemRepository: ItemRepository,
     private val ledger: ImageCloudUploadLedger,
@@ -93,28 +92,19 @@ class ImageCloudSyncManager @Inject constructor(
     }
 
     /**
-     * 测试连通性。允许传入尚未保存的凭据，这样「填完就点测试」不必先落盘；
-     * 未传时用本地已保存的那份。刻意不检查开关状态——用户往往先验证再开启。
+     * 测试连通性，用的是本机已解锁的那份配置（口令解锁时就已经落盘，不必再传一份草稿）。
+     * 刻意不检查开关状态——用户往往先验证再开启。
      */
-    suspend fun testConnection(draft: ImageCredentials? = null): S3Outcome =
-        withContext(Dispatchers.IO) {
-            if (!config.hasConnectionConfig()) {
-                return@withContext S3Outcome.Error("请先补齐存储地址与存储桶")
-            }
-            val credentials = draft ?: credentialStore.load()
-            if (credentials == null || !credentials.isComplete) {
-                return@withContext S3Outcome.Error("请先填写访问凭据")
-            }
-            client.checkBucket(
-                S3Config(
-                    endpoint = config.endpoint(),
-                    region = config.region(),
-                    bucket = config.bucket(),
-                    accessKey = credentials.accessKey,
-                    secretKey = credentials.secretKey
-                )
+    suspend fun testConnection(): S3Outcome = withContext(Dispatchers.IO) {
+        val s3 = config.resolve()
+            ?: return@withContext S3Outcome.Error(
+                when {
+                    !config.hasBundledConfig() -> "此安装包未内置云存储配置"
+                    else -> "请先输入口令解锁云存储"
+                }
             )
-        }
+        client.checkBucket(s3)
+    }
 
     /**
      * 同步全部家当图片（存量迁移入口）。重复触发无副作用：已在云端的会被跳过。

@@ -14,7 +14,8 @@ import javax.inject.Singleton
  * 独立的 SharedPreferences 文件：与其他偏好零耦合，且不会被备份 / 导出流程
  * 顺带打包走（凭据同理，见 [ImageCredentialStore]）。
  *
- * 存储连接参数不在这里——它们固定取自包内配置，见 [ImageCloudConfig]。
+ * 存储连接参数与密钥不在这里——它们整份加密内置在包里，由用户口令解锁后
+ * 经 [ImageCloudConfig] 读取，见 [S3PayloadCipher] 与 [ImageCredentialStore]。
  */
 @Singleton
 class ImageCloudPreferences @Inject constructor(
@@ -39,7 +40,7 @@ class ImageCloudPreferences @Inject constructor(
      *
      * 与 [enabled] 相互独立：图片上传耗空间与流量，文字同步体积很小，
      * 两者的取舍不同——有人只想让数据不丢、不愿把照片传上去。
-     * 默认开启：真正的门槛是「是否填了凭据」，没凭据时本就不会动作。
+     * 默认开启：真正的门槛是「是否已输口令解锁」，没解锁时本就不会动作。
      */
     private val _cloudSyncEnabled = MutableStateFlow(preferences.getBoolean(KEY_CLOUD_SYNC_ENABLED, true))
 
