@@ -87,13 +87,13 @@ sealed class Screen(val route: String) {
     data object Settings : Screen("settings")
     data object LanSync : Screen("lan-sync")
 
-    /** 数据中心（IA-1）：设备同步与文件备份的统一二级页，从「我的」拆出减轻过载。 */
+    /** 数据中心（IA-1）：设备同步与数据导出的统一二级页，从「我的」拆出减轻过载。 */
     data object DataCenter : Screen("data-center")
 
     /** 通知可靠性（SET1）：电池白名单、自启动与常驻保活的独立二级页。 */
     data object NotificationReliability : Screen("notification-reliability")
 
-    /** 云存储（F20）：把家当图片备份到 S3 兼容对象存储，仅正式包支持。 */
+    /** 云存储（F20）：把家当图片上传到 S3 兼容对象存储，仅正式包支持。 */
     data object ImageCloud : Screen("image-cloud")
 
     data object ToBuy : Screen("to-buy")

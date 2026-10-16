@@ -60,7 +60,7 @@ import com.goodyaoshi.lemonbox.ui.viewmodel.ImageCloudViewModel
  * 同一处存储才能互相看到图片，暴露给用户只会带来误改。用户唯一需要填的是自己的访问凭据——
  * 它只存在本机，由 [ImageCloudViewModel] 交给 Keystore 加密保存，绝不进 APK。
  *
- * 存量图片迁移就是「一键同步全部图片」：对象键由图片内容哈希决定，
+ * 存量图片迁移就是「上传本机图片」：对象键由图片内容哈希决定，
  * 已上传过的会被跳过，因此这个按钮**可以反复点**，不会产生重复对象。
  */
 @Composable
@@ -151,7 +151,7 @@ fun ImageCloudScreen(
                     // 用户会以为是坏了。
                     SwitchRow(
                         title = "保存后自动上传",
-                        subtitle = if (state.autoUpload) "新录入的图片随手传" else "只在手动同步时上传",
+                        subtitle = if (state.autoUpload) "新录入的图片随手传" else "只在点「上传本机图片」时传",
                         checked = state.autoUpload,
                         onCheckedChange = viewModel::setAutoUpload,
                         enabled = state.enabled
@@ -162,7 +162,7 @@ fun ImageCloudScreen(
                         subtitle = if (state.backgroundSync) {
                             "每隔一阵在 WiFi 下自动把漏传的补上"
                         } else {
-                            "已关闭，漏传的只会在手动同步时补"
+                            "已关闭，漏传的只会在点「上传本机图片」时补"
                         },
                         checked = state.backgroundSync,
                         onCheckedChange = viewModel::setBackgroundSync,
@@ -261,7 +261,7 @@ fun ImageCloudScreen(
                 }
 
                 Spacer(modifier = Modifier.height(22.dp))
-                EditorSectionLabel(label = "同步已有图片")
+                EditorSectionLabel(label = "上传本机图片")
                 Spacer(modifier = Modifier.height(8.dp))
                 AppSurfaceCard(shape = RoundedCornerShape(22.dp), shadowElevation = 12.dp) {
                     Text(
@@ -323,7 +323,7 @@ fun ImageCloudScreen(
                         }
                     } else {
                         GradientButton(
-                            text = "检查并补传",
+                            text = "上传本机图片",
                             onClick = viewModel::syncAll
                         )
                         if (sync.total > 0) {
@@ -369,6 +369,17 @@ fun ImageCloudScreen(
                         fontWeight = FontWeight.SemiBold,
                         color = TextSecondary
                     )
+                    // 冲突可见（S4 的云端版）：云端同步是后台自动的，没法像局域网那样
+                    // 弹窗逐条勾选，因此把「有几条被较新的一方覆盖」如实报出来，
+                    // 而不是让 LWW 静默吃掉。0 条时不出现，避免每次同步都挂一行噪声。
+                    if (cloud.lastConflicts > 0) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        NoticeLine(
+                            text = "有 ${cloud.lastConflicts} 条两边都改过，已取较新的一方" +
+                                "（可在局域网同步里逐条对比）",
+                            isError = false
+                        )
+                    }
                     Spacer(modifier = Modifier.height(12.dp))
                     if (cloud.running) {
                         Text(

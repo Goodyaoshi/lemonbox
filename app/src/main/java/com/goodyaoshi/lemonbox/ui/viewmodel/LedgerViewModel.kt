@@ -51,11 +51,17 @@ data class LedgerOverview(
 class LedgerViewModel @Inject constructor(
     private val ledgerRepository: LedgerRepository,
     private val itemDao: ItemDao,
-    appPreferences: AppPreferences
+    private val appPreferences: AppPreferences
 ) : ViewModel() {
 
     /** 账期起算日（ST1）：口径外显到流水页，让「这个月」从几号算起一目了然。 */
     val monthStartDay: StateFlow<Int> = appPreferences.ledgerMonthStartDay
+
+    /**
+     * 设置账期起算日（1-28）。改完账期窗口即时重算，统计 / 预算 / 趋势等页共用同一份口径。
+     * 上限 28 是刻意的：29-31 在二月不存在，任一月都能落到同一天才不会出现「某月账期消失」。
+     */
+    fun setMonthStartDay(day: Int) = appPreferences.setLedgerMonthStartDay(day)
 
     private val _yearMonth = MutableStateFlow(YearMonth.now())
 

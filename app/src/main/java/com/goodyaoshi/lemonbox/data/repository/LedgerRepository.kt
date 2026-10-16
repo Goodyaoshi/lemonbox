@@ -51,6 +51,14 @@ class LedgerRepository @Inject constructor(
 
     suspend fun getRecord(id: Long): LedgerRecord? = recordDao.getById(id)
 
+    /**
+     * 按 syncId 查账单（含墓碑）。
+     *
+     * 周期记账的「本期是否已生成」判断：确定性 syncId（见 [recurringRecordSyncId]）
+     * 让规则同步到多台设备后，同一期账单只落一条。
+     */
+    suspend fun getRecordBySyncId(syncId: String): LedgerRecord? = recordDao.getBySyncId(syncId)
+
     /** 新增或更新账单；新增时补齐 syncId，更新时刷新 updatedAt。返回记录 id。 */
     suspend fun saveRecord(record: LedgerRecord): Long = if (record.id == 0L) {
         recordDao.insert(
@@ -73,10 +81,6 @@ class LedgerRepository @Inject constructor(
     suspend fun monthSums(start: Long, end: Long): Map<Int, Long> =
         recordDao.sumByTypeBetween(start, end)
             .associate { it.type to (it.total ?: 0L) }
-
-    /** 某账期支出按分类聚合（分，金额降序），供统计页使用。 */
-    suspend fun expenseByCategory(start: Long, end: Long) =
-        recordDao.sumExpenseByCategoryBetween(start, end)
 
     /** 某时间段按月 × 类型聚合（分，响应式），供趋势图使用。 */
     fun observeMonthTypeSumsBetween(
@@ -203,9 +207,6 @@ class LedgerRepository @Inject constructor(
     }
 
     /** 各分类当月预算（categoryId 为 null 的键表示总预算）。 */
-    fun budgetByCategory(budgets: List<LedgerBudget>): Map<Long?, Long> =
-        budgets.associate { it.categoryId to it.amount }
-
     // ---------- 同名去重（合并导入/局域网同步后调用） ----------
 
     /**

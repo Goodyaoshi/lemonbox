@@ -29,11 +29,7 @@ data class MealDishSpec(
 @Serializable
 data class MealSpec(
     val dishes: List<MealDishSpec> = emptyList()
-) {
-    /** 这道菜若来自菜谱库，用 [recipes] 换回名字；否则用基础名称。 */
-    fun dishName(spec: MealDishSpec, recipes: Map<Long, Recipe>): String =
-        spec.recipeId?.let { recipes[it]?.name } ?: spec.label.ifBlank { spec.dishRole.label }
-}
+)
 
 /** 展示用的一餐：每道菜带上「能用/还差」的食材评估。 */
 data class MealDish(

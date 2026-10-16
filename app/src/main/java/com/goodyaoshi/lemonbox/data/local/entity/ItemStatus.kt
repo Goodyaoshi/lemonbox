@@ -60,12 +60,6 @@ object ItemStatusCatalog {
         StatusDimension.DISPOSITION -> builtInDisposition
     }
 
-    /** 某个维度自定义状态的起始编号。 */
-    fun customBaseFor(dimension: StatusDimension): Int = when (dimension) {
-        StatusDimension.USAGE -> CUSTOM_USAGE_BASE
-        StatusDimension.DISPOSITION -> CUSTOM_DISPOSITION_BASE
-    }
-
     /** 未知状态码的兜底展示。 */
     fun fallbackLabel(code: Int): String = "状态 $code"
 }

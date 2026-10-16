@@ -12,6 +12,7 @@ import com.goodyaoshi.lemonbox.data.repository.AnniversaryRepository
 import com.goodyaoshi.lemonbox.data.repository.CategoryRepository
 import com.goodyaoshi.lemonbox.data.repository.ItemRepository
 import com.goodyaoshi.lemonbox.data.repository.LedgerRepository
+import com.goodyaoshi.lemonbox.data.repository.LedgerPlanningRepository
 import com.goodyaoshi.lemonbox.data.repository.LocationRepository
 import com.goodyaoshi.lemonbox.data.repository.ReminderRepository
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
@@ -38,6 +39,7 @@ class AppMaintenance @Inject constructor(
     private val locationRepository: LocationRepository,
     private val categoryRepository: CategoryRepository,
     private val ledgerRepository: LedgerRepository,
+    private val ledgerPlanningRepository: LedgerPlanningRepository,
     private val cloudPurger: ImageCloudPurger,
     private val appPreferences: AppPreferences
 ) {
@@ -49,6 +51,8 @@ class AppMaintenance @Inject constructor(
         // 纪念日与待办提醒的软删墓碑：30 天后物理清除，删除动作仍会先同步到对方。
         anniversaryRepository.purgeDeletedOlderThan(cutoff)
         reminderRepository.purgeDeletedOlderThan(cutoff)
+        // 记账模板与周期记账规则的软删墓碑（v10 起纳入同步，同样需要 30 天窗口）。
+        ledgerPlanningRepository.purgeDeletedOlderThan(cutoff)
 
         // 「永久删除」墓碑保留更久（半年）：要活到其他设备都拉到过这次删除为止。
         val purgedCutoff = System.currentTimeMillis() - PURGED_TOMBSTONE_TTL_MS

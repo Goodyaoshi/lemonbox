@@ -30,6 +30,9 @@ class FakeLedgerRecordDao(
 
     override suspend fun getById(id: Long): LedgerRecord? = records.firstOrNull { it.id == id }
 
+    override suspend fun getBySyncId(syncId: String): LedgerRecord? =
+        records.firstOrNull { it.syncId == syncId }
+
     override suspend fun sumByTypeBetween(start: Long, end: Long): List<LedgerTypeSum> =
         records.filter { it.deletedAt == null && it.recordTime in start until end }
             .groupBy { it.type }

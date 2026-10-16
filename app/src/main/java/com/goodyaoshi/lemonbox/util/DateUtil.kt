@@ -46,20 +46,6 @@ object DateUtil {
         return daysLeft in 0..days.toLong()
     }
 
-    fun isExpired(timestamp: Long): Boolean {
-        return daysUntil(timestamp) < 0
-    }
-
-    fun expiryText(timestamp: Long): String {
-        val days = daysUntil(timestamp)
-        return when {
-            days < 0 -> "已过期"
-            days == 0L -> "今天到期"
-            days <= 30 -> "${days}天后到期"
-            else -> formatDate(timestamp)
-        }
-    }
-
     fun expiryCountdownText(timestamp: Long): String {
         val days = daysUntil(timestamp)
         return when {

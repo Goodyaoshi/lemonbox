@@ -91,9 +91,6 @@ class ImageCloudConfig @Inject constructor(
         else -> null
     }
 
-    /** 多设备同步是否具备一切条件。 */
-    fun isCloudSyncReady(): Boolean = cloudSyncBlocker() == null
-
     /**
      * 合成最终配置；任一条件不满足返回 null。
      * 调用方（同步管理器）遇到 null 一律不动作，避免在配置残缺时发出必然失败的请求。

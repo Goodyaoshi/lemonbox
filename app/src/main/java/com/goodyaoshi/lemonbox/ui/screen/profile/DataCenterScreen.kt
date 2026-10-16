@@ -67,8 +67,8 @@ import com.goodyaoshi.lemonbox.ui.viewmodel.ProfileViewModel
 import kotlinx.coroutines.launch
 
 /**
- * 数据中心（IA-1）：设备同步与文件备份的统一二级页。
- * 从「我的」拆出，让个人设置与数据管理各归其位；导入仍走变更清单预览闸门。
+ * 数据中心（IA-1）：设备同步与数据导出的统一二级页。
+ * 从「我的」拆出，让个人设置与数据管理各归其位。
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable

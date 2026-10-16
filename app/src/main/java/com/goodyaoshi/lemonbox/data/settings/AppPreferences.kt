@@ -179,7 +179,7 @@ class AppPreferences @Inject constructor(
 
     /**
      * 记账月起始日（1-28），默认 1 即自然月。
-     * v1 只落数据层供账期窗口计算消费，暂不开放设置界面。
+     * 在记账页的「账期」入口可调；7 个账期窗口计算（统计/预算/趋势/年度回顾等）共用这一处。
      */
     val ledgerMonthStartDay: StateFlow<Int> = _ledgerMonthStartDay.asStateFlow()
 
@@ -427,11 +427,6 @@ class AppPreferences @Inject constructor(
     /** 备菜提醒默认触发时间（HH:mm）。 */
     val mealPrepFireTime: StateFlow<String> = _mealPrepFireTime.asStateFlow()
 
-    private val _searchHistory = MutableStateFlow(loadSearchHistory())
-
-    /** 搜索历史（最近 8 条，新的在前），持久化以免杀进程后丢失。 */
-    val searchHistory: StateFlow<List<String>> = _searchHistory.asStateFlow()
-
     // ---- H1：首页临期事项「今天忽略」----
     private val _expiryIgnores = MutableStateFlow(loadExpiryIgnores())
 
@@ -599,17 +594,6 @@ class AppPreferences @Inject constructor(
 
     /** 同步历史的 JSON 编解码配置：容忍旧版本多出的字段。 */
     private val syncReportsJson = Json { ignoreUnknownKeys = true }
-
-    fun setSearchHistory(history: List<String>) {
-        _searchHistory.value = history
-        preferences.edit().putString(KEY_SEARCH_HISTORY, history.joinToString(SEARCH_SEPARATOR)).apply()
-    }
-
-    private fun loadSearchHistory(): List<String> =
-        preferences.getString(KEY_SEARCH_HISTORY, null)
-            ?.split(SEARCH_SEPARATOR)
-            ?.filter { it.isNotBlank() }
-            ?: emptyList()
 
     private val _weeklyMenu = MutableStateFlow(loadWeeklyMenu())
 
@@ -1083,6 +1067,40 @@ class AppPreferences @Inject constructor(
         preferences.edit().putLong(pushKey(peerId), value).apply()
     }
 
+    /**
+     * 上一次写入全量 checkpoint（base）的时刻（毫秒）；从未写过为 null。
+     * 用于决定「距上次 base 超过 N 天」时刷新一份。
+     */
+    fun cloudBaseAt(): Long? =
+        preferences.getLong(KEY_CLOUD_BASE_AT, NO_WATERMARK).takeIf { it != NO_WATERMARK }
+
+    fun setCloudBaseAt(value: Long) {
+        preferences.edit().putLong(KEY_CLOUD_BASE_AT, value).apply()
+    }
+
+    /**
+     * 上次云同步遇到的冲突条数。
+     *
+     * 持久化的必要性：云同步多在后台自动进行（约 6 小时一次），用户往往不当场打开
+     * 设置页；不落盘的话「有内容被较新一方覆盖」这件事就永远不会被看到——
+     * 而它恰恰是用户唯一有机会察觉「数据被自动取舍了」的线索。
+     */
+    fun cloudLastConflicts(): Int = preferences.getInt(KEY_CLOUD_LAST_CONFLICTS, 0)
+
+    fun setCloudLastConflicts(value: Int) {
+        preferences.edit().putInt(KEY_CLOUD_LAST_CONFLICTS, value).apply()
+    }
+
+    /**
+     * 自上次写 base 以来成功推送的增量快照数；用于决定「攒够 N 次变更」时刷新一份 base。
+     * 增量攒得多，新设备从 base 起步才划算（否则要重放很多 rev）。
+     */
+    fun cloudPushesSinceBase(): Int = preferences.getInt(KEY_CLOUD_PUSHES_SINCE_BASE, 0)
+
+    fun setCloudPushesSinceBase(value: Int) {
+        preferences.edit().putInt(KEY_CLOUD_PUSHES_SINCE_BASE, value).apply()
+    }
+
     private fun pullKey(peerId: String) = "$KEY_SYNC_PULL_PREFIX$peerId"
 
     private fun pushKey(peerId: String) = "$KEY_SYNC_PUSH_PREFIX$peerId"
@@ -1136,7 +1154,7 @@ class AppPreferences @Inject constructor(
         /** 从未同步过的哨兵值。 */
         private const val NO_SYNC_AT = Long.MIN_VALUE
 
-        /** 搜索历史的分隔符：用换行避免与查询词冲突。 */
+        /** 已做菜单日期的分隔符：用换行避免与日期串冲突。 */
         private const val SEARCH_SEPARATOR = "\n"
 
         /** 自定义状态的分隔符：整体按换行分行，每行内以竖线分隔编号与名称。 */
@@ -1181,7 +1199,6 @@ class AppPreferences @Inject constructor(
         private const val KEY_EXPIRY_NOTIFIED_DATE = "expiry_notified_date"
         private const val KEY_EXPIRY_IGNORED_DATE = "expiry_ignored_date"
         private const val KEY_EXPIRY_IGNORED_KEYS = "expiry_ignored_keys"
-        private const val KEY_SEARCH_HISTORY = "search_history"
         private const val KEY_USER_FILTER_PRESETS = "user_filter_presets"
         private const val KEY_WEEKLY_MENU = "weekly_menu"
         private const val KEY_COOKED_MENU_DATES = "cooked_menu_dates"
@@ -1215,6 +1232,13 @@ class AppPreferences @Inject constructor(
         private const val KEY_NEXT_CUSTOM_DISPOSITION_CODE = "next_custom_disposition_code"
         private const val KEY_SYNC_PULL_PREFIX = "sync_pull_"
         private const val KEY_SYNC_PUSH_PREFIX = "sync_push_"
+
+        /** 上次写全量 checkpoint 的时刻，以及自那时起推送的增量快照数（见 cloudBaseAt 等）。 */
+        private const val KEY_CLOUD_BASE_AT = "cloud_base_at"
+        private const val KEY_CLOUD_PUSHES_SINCE_BASE = "cloud_pushes_since_base"
+
+        /** 上次云同步的冲突条数；落盘以便后台同步的冲突也能被用户看到。 */
+        private const val KEY_CLOUD_LAST_CONFLICTS = "cloud_last_conflicts"
 
         /**
          * 启动最早期的深色判定（Hilt 注入之前），用于选择启动主题，避免开屏闪白。

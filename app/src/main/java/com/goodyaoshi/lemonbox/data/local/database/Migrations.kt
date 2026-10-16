@@ -887,7 +887,10 @@ internal object Migrations {
             slotsById.forEach { (id, slots) ->
                 db.execSQL(
                     "UPDATE `items_new` SET `imageHashes` = ? WHERE `id` = ?",
-                    arrayOf(slots, id)
+                    // 显式写出 Array<Any?>：否则 slots(String?) 与 id(Long) 会被推断成
+                    // 「Comparable & Serializable」的交集类型，Kotlin 会对该 reified
+                    // 类型参数给出告警，且未来版本将升级为错误。
+                    arrayOf<Any?>(slots, id)
                 )
             }
             db.execSQL("DROP TABLE `items`")

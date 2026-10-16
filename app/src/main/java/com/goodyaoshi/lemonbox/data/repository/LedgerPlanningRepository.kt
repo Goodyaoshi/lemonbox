@@ -29,8 +29,6 @@ class LedgerPlanningRepository @Inject constructor(
 
     fun observeTemplates(): Flow<List<LedgerTemplate>> = templateDao.observeAll()
 
-    suspend fun getTemplate(id: Long): LedgerTemplate? = templateDao.getById(id)
-
     /** 新增或更新模板；返回模板 id。 */
     suspend fun saveTemplate(template: LedgerTemplate): Long = if (template.id == 0L) {
         templateDao.insert(
@@ -50,8 +48,6 @@ class LedgerPlanningRepository @Inject constructor(
     // ---------- 周期规则 ----------
 
     fun observeRules(): Flow<List<LedgerRecurringRule>> = ruleDao.observeAll()
-
-    suspend fun getRule(id: Long): LedgerRecurringRule? = ruleDao.getById(id)
 
     /** 新增或更新周期规则；返回规则 id。 */
     suspend fun saveRule(rule: LedgerRecurringRule): Long = if (rule.id == 0L) {
@@ -74,6 +70,12 @@ class LedgerPlanningRepository @Inject constructor(
     suspend fun deleteRule(id: Long) =
         ruleDao.softDelete(id, MonotonicClock.now(), MonotonicClock.now())
 
+    /** 物理清除超过保留期的软删墓碑（模板与周期规则共用同一套 30 天窗口）。 */
+    suspend fun purgeDeletedOlderThan(cutoff: Long) {
+        templateDao.purgeDeletedOlderThan(cutoff)
+        ruleDao.purgeDeletedOlderThan(cutoff)
+    }
+
     // ---------- 到点生成 ----------
 
     /**
@@ -90,19 +92,28 @@ class LedgerPlanningRepository @Inject constructor(
             var guard = 0
             var lastFired = rule.lastFiredAt
             while (fireAt <= now && guard < MAX_CATCH_UP) {
-                ledgerRepository.saveRecord(
-                    LedgerRecord(
-                        type = rule.type,
-                        amount = rule.amount,
-                        categoryId = rule.categoryId,
-                        assetId = rule.assetId,
-                        targetAssetId = rule.targetAssetId,
-                        recordTime = fireAt,
-                        remark = rule.remark.ifBlank { rule.name }
+                // 确定性 syncId：规则同步到多台设备后，两边都会到点生成同一期账单。
+                // 由「规则 + 触发时刻」派生同一个 syncId，两边的账单在合并时按 LWW
+                // 落在同一条记录上，不会变成两份重复账单。
+                val recordSyncId = recurringRecordSyncId(rule.syncId, rule.id, fireAt)
+                // 该期已存在（本机先前生成过，或同步来的对方已生成）：不重复创建，
+                // 但**仍要推进** lastFired/fireAt，否则这条规则会一直卡在同一期上。
+                if (ledgerRepository.getRecordBySyncId(recordSyncId) == null) {
+                    ledgerRepository.saveRecord(
+                        LedgerRecord(
+                            type = rule.type,
+                            amount = rule.amount,
+                            categoryId = rule.categoryId,
+                            assetId = rule.assetId,
+                            targetAssetId = rule.targetAssetId,
+                            recordTime = fireAt,
+                            remark = rule.remark.ifBlank { rule.name },
+                            syncId = recordSyncId
+                        )
                     )
-                )
+                    created++
+                }
                 lastFired = fireAt
-                created++
                 guard++
                 fireAt = RecurringClock.advance(fireAt, rule.unit, rule.repeatInterval)
             }
@@ -135,4 +146,21 @@ class LedgerPlanningRepository @Inject constructor(
         /** 单条规则一次最多补生成的账单数，防止长期未打开应用时瞬间写入过多记录。 */
         const val MAX_CATCH_UP = 120
     }
+}
+
+/**
+ * 周期生成账单的确定性 syncId：由「规则 syncId + 触发时刻」派生（F05）。
+ *
+ * 为什么必须确定性：周期规则现在会同步到多台设备，每台都会跑 [LedgerPlanningRepository.fireDueRules]。
+ * 若各自生成随机 syncId，同一期账单在两台设备上是两条不同记录，同步后就是两份重复账单。
+ * 用规则与触发时刻算出同一个 syncId，两边生成的账单在合并时按 LWW 落在同一条上，天然去重。
+ *
+ * [ruleSyncId] 为空（旧数据未能补齐）时回退到本地 ruleId：仍能保证本机重复运行不产生重复，
+ * 只是跨设备去重能力受限。
+ *
+ * 纯函数，可直接单测（去重逻辑写错的表现是「账单悄悄翻倍」，从界面上看不出来）。
+ */
+internal fun recurringRecordSyncId(ruleSyncId: String?, ruleId: Long, fireAt: Long): String {
+    val anchor = ruleSyncId?.takeIf { it.isNotBlank() } ?: "local-$ruleId"
+    return "recurring:$anchor:$fireAt"
 }

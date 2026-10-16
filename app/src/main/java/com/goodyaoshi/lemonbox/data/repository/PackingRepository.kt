@@ -26,8 +26,6 @@ class PackingRepository @Inject constructor(
 
     fun getTripFlow(id: Long): Flow<PackingTrip?> = tripDao.getByIdFlow(id)
 
-    suspend fun getTrip(id: Long): PackingTrip? = tripDao.getById(id)
-
     /** 新建行程；返回新 id。 */
     suspend fun createTrip(trip: PackingTrip): Long = tripDao.insert(
         trip.copy(
@@ -37,15 +35,6 @@ class PackingRepository @Inject constructor(
             updatedAt = MonotonicClock.now()
         )
     )
-
-    suspend fun updateTrip(trip: PackingTrip) {
-        tripDao.update(
-            trip.copy(
-                syncId = trip.syncId ?: UUID.randomUUID().toString(),
-                updatedAt = MonotonicClock.now()
-            )
-        )
-    }
 
     /** 删除行程：连带其下条目一并软删除。 */
     suspend fun deleteTrip(id: Long) {
@@ -61,8 +50,6 @@ class PackingRepository @Inject constructor(
     /** 全部未删除条目（列表页聚合各行程进度用）。 */
     fun observeAllActiveItems(): Flow<List<PackingItem>> = itemDao.observeAllActive()
 
-    suspend fun getItem(id: Long): PackingItem? = itemDao.getById(id)
-
     suspend fun addItem(item: PackingItem): Long = itemDao.insert(
         item.copy(
             id = 0,
@@ -71,15 +58,6 @@ class PackingRepository @Inject constructor(
             updatedAt = MonotonicClock.now()
         )
     )
-
-    suspend fun updateItem(item: PackingItem) {
-        itemDao.update(
-            item.copy(
-                syncId = item.syncId ?: UUID.randomUUID().toString(),
-                updatedAt = MonotonicClock.now()
-            )
-        )
-    }
 
     /** 勾选 / 取消勾选。 */
     suspend fun setChecked(item: PackingItem, checked: Boolean) {

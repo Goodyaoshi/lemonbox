@@ -2,6 +2,8 @@ package com.goodyaoshi.lemonbox.data.backup
 
 import com.goodyaoshi.lemonbox.data.local.entity.Anniversary
 import com.goodyaoshi.lemonbox.data.local.entity.ItemStatusOption
+import com.goodyaoshi.lemonbox.data.local.entity.LedgerRecord
+import com.goodyaoshi.lemonbox.data.local.entity.LedgerRecurringRule
 import com.goodyaoshi.lemonbox.data.local.entity.StatusDimension
 import com.goodyaoshi.lemonbox.data.meal.MealSpec
 import com.goodyaoshi.lemonbox.data.meal.Recipe
@@ -145,5 +147,102 @@ class BackupSnapshotTest {
     fun `自定义状态维度名非法时还原为null`() {
         val broken = CustomStatusSnapshot(code = 902, label = "坏数据", dimension = "NOPE")
         assertNull(broken.toOption())
+    }
+
+    // ---------- v10：记账模板与周期记账规则 ----------
+
+    @Test
+    fun `记账模板快照往返保留引用与同步字段`() {
+        val snapshot = LedgerTemplateSnapshot(
+            id = 4,
+            name = "早餐",
+            type = LedgerRecord.TYPE_EXPENSE,
+            amount = 1_500,
+            categoryId = 9,
+            assetId = 2,
+            targetAssetId = null,
+            remark = "豆浆油条",
+            sort = 3,
+            createdAt = 1_000L,
+            syncId = "tpl-1",
+            categorySyncId = "cat-9",
+            assetSyncId = "asset-2",
+            updatedAt = 2_000L,
+            deletedAt = null
+        )
+        val decoded = json.decodeFromString<LedgerTemplateSnapshot>(json.encodeToString(snapshot))
+        assertEquals(snapshot, decoded)
+    }
+
+    @Test
+    fun `记账模板旧JSON缺新字段按默认读入`() {
+        // v10 之前的备份里根本没有这类实体；即便有残缺 JSON，也应按默认值安全读入。
+        val legacy = json.decodeFromString<LedgerTemplateSnapshot>(
+            """{"id":1,"name":"房租","createdAt":5}"""
+        )
+        assertEquals(1L, legacy.id)
+        assertEquals(0L, legacy.amount)
+        assertNull(legacy.deletedAt)
+        // updatedAt 缺失时还原实体应退回 createdAt，而不是 null——
+        // 否则合并时 isRemoteNewer(null, local) 恒为 false，这条模板永远同步不过来。
+        assertEquals(5L, legacy.toTemplate(0, null, null, null).updatedAt)
+    }
+
+    @Test
+    fun `周期规则快照往返保留周期与下次生成时间`() {
+        val snapshot = LedgerRecurringRuleSnapshot(
+            id = 6,
+            name = "房租",
+            type = LedgerRecord.TYPE_EXPENSE,
+            amount = 300_000,
+            categoryId = 4,
+            assetId = 1,
+            targetAssetId = null,
+            remark = "每月一交",
+            repeatUnit = LedgerRecurringRule.RepeatUnit.MONTH.name,
+            repeatInterval = 1,
+            nextFireAt = 1_730_000_000_000L,
+            lastFiredAt = 1_727_000_000_000L,
+            enabled = true,
+            createdAt = 900L,
+            syncId = "rule-1",
+            categorySyncId = "cat-4",
+            assetSyncId = "asset-1",
+            updatedAt = 1_000L,
+            deletedAt = null
+        )
+        val decoded = json.decodeFromString<LedgerRecurringRuleSnapshot>(json.encodeToString(snapshot))
+        assertEquals(snapshot, decoded)
+        // 还原实体时 nextFireAt/lastFiredAt 原样保留：它们是规则状态，不是设备本地状态。
+        val rule = decoded.toRule(0, null, null, null)
+        assertEquals(1_730_000_000_000L, rule.nextFireAt)
+        assertEquals(1_727_000_000_000L, rule.lastFiredAt)
+        assertEquals(LedgerRecurringRule.RepeatUnit.MONTH, rule.unit)
+    }
+
+    /** 远端可能来自更新的版本，未知周期单位必须兜底而不是抛错。 */
+    @Test
+    fun `周期规则未知单位按 MONTH 兜底`() {
+        val unknown = LedgerRecurringRuleSnapshot(
+            id = 1,
+            name = "未知周期",
+            amount = 100,
+            repeatUnit = "FORTNIGHT",
+            nextFireAt = 1_000L,
+            createdAt = 0L
+        )
+
+        assertEquals(LedgerRecurringRule.RepeatUnit.MONTH, unknown.unit)
+    }
+
+    /** 旧的顶层备份 JSON 不含 v10 字段时，应读成空列表而不是报错。 */
+    @Test
+    fun `旧备份缺 v10 实体按空列表读入`() {
+        val legacy = json.decodeFromString<AppBackupPayload>(
+            """{"exportedAt":1,"categories":[],"locations":[],"items":[]}"""
+        )
+
+        assertTrue(legacy.ledgerTemplates.isEmpty())
+        assertTrue(legacy.ledgerRecurringRules.isEmpty())
     }
 }

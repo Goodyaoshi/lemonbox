@@ -41,6 +41,15 @@ interface LedgerRecordDao {
     @Query("SELECT * FROM ledger_records WHERE id = :id")
     suspend fun getById(id: Long): LedgerRecord?
 
+    /**
+     * 按 syncId 查一条账单（含墓碑）。
+     *
+     * 周期记账用它做「同一期是否已生成」的判断：deterministic syncId 让本机在
+     * 规则从别的设备同步过来后，不会把对方已生成的那一期再生成一遍。
+     */
+    @Query("SELECT * FROM ledger_records WHERE syncId = :syncId LIMIT 1")
+    suspend fun getBySyncId(syncId: String): LedgerRecord?
+
     /** 某时间段按类型汇总（支出/收入），供本月收支卡使用。 */
     @Query(
         "SELECT type, SUM(amount) AS total FROM ledger_records " +

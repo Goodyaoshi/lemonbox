@@ -77,19 +77,4 @@ data class SearchCriteria(
     val reminderLadder: List<Int> = emptyList(),
     val sort: SearchSort = SearchSort.CREATED_DESC,
     val summary: String? = null
-) {
-    fun hasStructuredFilters(): Boolean {
-        return itemIds.isNotEmpty() ||
-            itemName != null ||
-            categoryIds.isNotEmpty() ||
-            categoryName != null ||
-            locationIds.isNotEmpty() ||
-            locationName != null ||
-            semanticTerms.isNotEmpty() ||
-            status != SearchItemStatus.ANY ||
-            usageStatuses.isNotEmpty() ||
-            dispositions.isNotEmpty() ||
-            needRestockOnly ||
-            expiringWithinDays != null
-    }
-}
+)

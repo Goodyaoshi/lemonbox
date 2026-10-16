@@ -6,6 +6,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -129,6 +131,8 @@ fun LedgerScreen(
     var pendingBatchDelete by remember { mutableStateOf(false) }
     // 「更多」菜单展开态（IA-4）：低频入口收进菜单后的弹出开关。
     var moreMenuExpanded by remember { mutableStateOf(false) }
+    // 账期起算日设置（ST1）：此前只有读取侧、没有写入入口，值恒为 1。
+    var showMonthStartDialog by remember { mutableStateOf(false) }
     val appSnackbar = LocalAppSnackbar.current
 
     val dayGroups = remember(overview.records) {
@@ -274,14 +278,16 @@ fun LedgerScreen(
                             )
                         )
                         // ST1：口径外显——「这个月」从每月几号起算，不再让人猜。
+                        // 这一行同时是设置入口：点开可改起算日（此前只有读取侧、值恒为 1）。
                         Text(
-                            text = "账期：每月${monthStartDay}日起 · 点看统计",
+                            text = "账期：每月${monthStartDay}日起 · 点击调整",
                             fontSize = 11.sp,
                             color = TextHint,
                             textAlign = TextAlign.Center,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(top = 8.dp)
+                                .clickable { showMonthStartDialog = true }
                         )
                     }
                 }
@@ -478,6 +484,61 @@ fun LedgerScreen(
                     text = "确定要删除所选的 ${batchIds.size} 笔流水吗？删除后仍可撤销。",
                     color = TextSecondary,
                     fontSize = 14.sp
+                )
+            }
+        }
+
+        // 账期起算日设置（ST1）：此前该偏好只有读取侧（7 处账期窗口计算）、没有写入入口，
+        // 于是记账页一直显示「每月 1 日起」而用户无从修改。这里补上唯一的设置入口。
+        if (showMonthStartDialog) {
+            AppDialog(
+                title = "账期从每月几号起算",
+                subtitle = "影响统计、预算、趋势、年度回顾等所有按「月」聚合的口径。",
+                onDismissRequest = { showMonthStartDialog = false },
+                confirmText = "完成"
+            ) {
+                MonthStartDayPicker(
+                    selected = monthStartDay,
+                    onSelect = viewModel::setMonthStartDay
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 账期起算日选择（ST1）：1-28 的网格，点选即生效。
+ *
+ * 上限 28 是刻意的：29-31 在二月不存在。若允许选 31，二月就没有对应的同一天，
+ * 「这个月从 31 号算起」会在个别月份失去意义。
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun MonthStartDayPicker(
+    selected: Int,
+    onSelect: (Int) -> Unit
+) {
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        (1..28).forEach { day ->
+            val isSelected = day == selected
+            Box(
+                modifier = Modifier
+                    .size(width = 44.dp, height = 42.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(if (isSelected) OrangeStart.copy(alpha = 0.14f) else OrangeTint)
+                    .clickable { onSelect(day) },
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "$day",
+                    color = if (isSelected) OrangeStart else TextSecondary,
+                    fontSize = 13.sp,
+                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                    textAlign = TextAlign.Center
                 )
             }
         }

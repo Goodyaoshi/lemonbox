@@ -8,6 +8,8 @@ import com.goodyaoshi.lemonbox.data.local.entity.LedgerAsset
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerBudget
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerCategory
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerRecord
+import com.goodyaoshi.lemonbox.data.local.entity.LedgerRecurringRule
+import com.goodyaoshi.lemonbox.data.local.entity.LedgerTemplate
 import com.goodyaoshi.lemonbox.data.local.entity.LegacyStatusMapping
 import com.goodyaoshi.lemonbox.data.local.entity.Location
 import com.goodyaoshi.lemonbox.data.local.entity.PackingItem
@@ -52,6 +54,10 @@ data class AppBackupPayload(
     val timeCapsules: List<TimeCapsuleSnapshot> = emptyList(),
     val packingTrips: List<PackingTripSnapshot> = emptyList(),
     val packingItems: List<PackingItemSnapshot> = emptyList(),
+    // 记账模板与周期记账规则，v10 起导出。此前这两类只在「记账计划」页维护，
+    // 从未进备份：一台设备建的模板与周期规则，另一台上看不见。
+    val ledgerTemplates: List<LedgerTemplateSnapshot> = emptyList(),
+    val ledgerRecurringRules: List<LedgerRecurringRuleSnapshot> = emptyList(),
     // 菜谱/周菜单/自定义状态/提醒设置等偏好内容，v5 起导出。
     val preferences: PreferencesSnapshot? = null
 )
@@ -497,6 +503,173 @@ data class LedgerBudgetSnapshot(
                 updatedAt = budget.updatedAt,
                 deletedAt = budget.deletedAt
             )
+    }
+}
+
+/**
+ * 记账模板快照（v10 起导出）。
+ *
+ * 引用字段（分类 / 账户 / 转出账户）同 [LedgerRecordSnapshot]：一律以 syncId 导出，
+ * 导入端重映射到本地 id——本地主键跨设备对不上。
+ */
+@Serializable
+data class LedgerTemplateSnapshot(
+    val id: Long,
+    val name: String,
+    val type: Int = 0,
+    /** 金额（分），恒为正。 */
+    val amount: Long = 0,
+    val categoryId: Long? = null,
+    val assetId: Long? = null,
+    val targetAssetId: Long? = null,
+    val remark: String = "",
+    val sort: Int = 0,
+    val createdAt: Long,
+    val syncId: String? = null,
+    val categorySyncId: String? = null,
+    val assetSyncId: String? = null,
+    val targetAssetSyncId: String? = null,
+    val updatedAt: Long? = null,
+    val deletedAt: Long? = null
+) {
+    fun toTemplate(
+        targetId: Long,
+        categoryId: Long?,
+        assetId: Long?,
+        targetAssetId: Long?
+    ): LedgerTemplate = LedgerTemplate(
+        id = targetId,
+        name = name,
+        type = type,
+        amount = amount,
+        categoryId = categoryId,
+        assetId = assetId,
+        targetAssetId = targetAssetId,
+        remark = remark,
+        sort = sort,
+        createdAt = createdAt,
+        syncId = syncId,
+        updatedAt = updatedAt ?: createdAt,
+        deletedAt = deletedAt
+    )
+
+    companion object {
+        fun fromEntity(
+            template: LedgerTemplate,
+            categorySyncId: String?,
+            assetSyncId: String?,
+            targetAssetSyncId: String?
+        ): LedgerTemplateSnapshot = LedgerTemplateSnapshot(
+            id = template.id,
+            name = template.name,
+            type = template.type,
+            amount = template.amount,
+            categoryId = template.categoryId,
+            assetId = template.assetId,
+            targetAssetId = template.targetAssetId,
+            remark = template.remark,
+            sort = template.sort,
+            createdAt = template.createdAt,
+            syncId = template.syncId,
+            categorySyncId = categorySyncId,
+            assetSyncId = assetSyncId,
+            targetAssetSyncId = targetAssetSyncId,
+            updatedAt = template.updatedAt,
+            deletedAt = template.deletedAt
+        )
+    }
+}
+
+/**
+ * 周期记账规则快照（v10 起导出）。
+ *
+ * [nextFireAt] / [lastFiredAt] 是**规则的状态**而非设备本地状态，因此随快照走：
+ * 两台设备看到同一个「下次生成时间」，常态下不会各自生成同一期账单。
+ * 竞态（两边在同步前都到点）由生成账单的确定性 syncId 兜底去重，见
+ * [com.goodyaoshi.lemonbox.data.repository.LedgerPlanningRepository.fireDueRules]。
+ */
+@Serializable
+data class LedgerRecurringRuleSnapshot(
+    val id: Long,
+    val name: String,
+    val type: Int = 0,
+    /** 金额（分），恒为正。 */
+    val amount: Long,
+    val categoryId: Long? = null,
+    val assetId: Long? = null,
+    val targetAssetId: Long? = null,
+    val remark: String = "",
+    val repeatUnit: String = "MONTH",
+    val repeatInterval: Int = 1,
+    val nextFireAt: Long,
+    val lastFiredAt: Long? = null,
+    val enabled: Boolean = true,
+    val createdAt: Long,
+    val syncId: String? = null,
+    val categorySyncId: String? = null,
+    val assetSyncId: String? = null,
+    val targetAssetSyncId: String? = null,
+    val updatedAt: Long? = null,
+    val deletedAt: Long? = null
+) {
+    fun toRule(
+        targetId: Long,
+        categoryId: Long?,
+        assetId: Long?,
+        targetAssetId: Long?
+    ): LedgerRecurringRule = LedgerRecurringRule(
+        id = targetId,
+        name = name,
+        type = type,
+        amount = amount,
+        categoryId = categoryId,
+        assetId = assetId,
+        targetAssetId = targetAssetId,
+        remark = remark,
+        repeatUnit = repeatUnit,
+        repeatInterval = repeatInterval,
+        nextFireAt = nextFireAt,
+        lastFiredAt = lastFiredAt,
+        enabled = enabled,
+        createdAt = createdAt,
+        syncId = syncId,
+        updatedAt = updatedAt ?: createdAt,
+        deletedAt = deletedAt
+    )
+
+    /** 周期单位（非法值按 MONTH 兜底）；与实体 [LedgerRecurringRule.unit] 同名同义。 */
+    val unit: LedgerRecurringRule.RepeatUnit
+        get() = runCatching { LedgerRecurringRule.RepeatUnit.valueOf(repeatUnit) }
+            .getOrDefault(LedgerRecurringRule.RepeatUnit.MONTH)
+
+    companion object {
+        fun fromEntity(
+            rule: LedgerRecurringRule,
+            categorySyncId: String?,
+            assetSyncId: String?,
+            targetAssetSyncId: String?
+        ): LedgerRecurringRuleSnapshot = LedgerRecurringRuleSnapshot(
+            id = rule.id,
+            name = rule.name,
+            type = rule.type,
+            amount = rule.amount,
+            categoryId = rule.categoryId,
+            assetId = rule.assetId,
+            targetAssetId = rule.targetAssetId,
+            remark = rule.remark,
+            repeatUnit = rule.repeatUnit,
+            repeatInterval = rule.repeatInterval,
+            nextFireAt = rule.nextFireAt,
+            lastFiredAt = rule.lastFiredAt,
+            enabled = rule.enabled,
+            createdAt = rule.createdAt,
+            syncId = rule.syncId,
+            categorySyncId = categorySyncId,
+            assetSyncId = assetSyncId,
+            targetAssetSyncId = targetAssetSyncId,
+            updatedAt = rule.updatedAt,
+            deletedAt = rule.deletedAt
+        )
     }
 }
 

@@ -342,9 +342,7 @@ class ImageCloudSyncManager @Inject constructor(
 
     /**
      * 收集现存图片：按**内容哈希**归并，同一份内容只产出一条待上传项，
-     * 这正是「同一张图在多次 / 多设备同步中不重复」的根据；
-     * 同时把「哪些物品的哪一张图用了这份内容」全部记进 [ImageToSync.references]，
-     * 供上传成功后逐个位置回写对象键——只记首个引用会让其余位置永远显示未上传。
+     * 这正是「同一张图在多次 / 多设备同步中不重复」的根据。
      *
      * 哈希优先从文件名解析（F22）：落盘已改为 `item_<sha256>.jpg`，文件名就是哈希，
      * 不必再为每张图读盘算一遍。历史文件（旧 UUID 命名）解析不出时才回退读盘，
@@ -412,7 +410,7 @@ class ImageCloudSyncManager @Inject constructor(
      * 直接删会误伤仍在使用的图片。只有确认全库再无任何位置引用该键时才删。
      *
      * 失败与未就绪都静默跳过：物品删除本身已经完成，云端清理失败不该反过来阻断用户操作，
-     * 留下的孤儿下次再清（对象键持久化在物品行里，不会失去线索）。
+     * 留下的孤儿下次再清（对象键由槽位哈希推导，线索一直留在物品行里）。
      */
     override suspend fun purgeCloudObjects(candidateKeys: Collection<String>) =
         purgeCloudObjectsInternal(candidateKeys)

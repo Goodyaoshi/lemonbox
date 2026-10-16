@@ -2,16 +2,14 @@ package com.goodyaoshi.lemonbox.data.backup
 
 import com.goodyaoshi.lemonbox.data.local.entity.Anniversary
 import com.goodyaoshi.lemonbox.data.local.entity.Category
-import com.goodyaoshi.lemonbox.data.local.entity.Item
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerAsset
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerBudget
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerCategory
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerRecord
+import com.goodyaoshi.lemonbox.data.local.entity.LedgerRecurringRule
 import com.goodyaoshi.lemonbox.data.local.entity.Location
 import com.goodyaoshi.lemonbox.data.local.entity.Reminder
-import com.goodyaoshi.lemonbox.util.ImageUtil
 import com.goodyaoshi.lemonbox.util.ReminderClock
-import java.io.File
 import java.util.UUID
 
 /**
@@ -749,56 +747,136 @@ internal suspend fun AppBackupManager.mergePackingItems(
 }
 
 /**
- * 导入时的本地图片内容索引（F20）。
+ * 记账模板合并（v10）。
  *
- * 目前仅用于「导入旧版备份」这一条兼容路径（旧备份会打包图片文件，需按内容去重还原）；
- * 新版备份只传哈希、不打包图片，因此不经过这里。
- *
- * 解决什么问题：备份导入把图片逐张复制进本地，若本地已有内容相同的图，再复制一份
- * 纯属浪费——导入自己刚导出的备份会让本地图片直接翻倍。
- *
- * 为什么按大小预筛：内容不同而大小恰好相同的概率很低，先按文件大小分组，
- * 只在「大小相同」的候选里真正读盘算 SHA-256，避免为每张图遍历整个图片目录；
- * 算过的哈希会缓存，同一文件不会被反复读。
- *
- * 只是导入过程内的临时结构，用完即弃，不做持久化——判断依据始终是文件内容本身。
+ * 分类与账户引用跨设备对不上本地主键，因此按 syncId 重映射；解析不到就置 null，
+ * 让模板退化为「不指定分类/账户」而不是挂到错误的分类上——模板本就是可编辑的草稿，
+ * 少一个引用比指错更安全。
  */
-internal class LocalImageContentIndex(imagesDir: File) {
+internal suspend fun AppBackupManager.mergeLedgerTemplates(
+    snapshots: List<LedgerTemplateSnapshot>,
+    useSyncIds: Boolean,
+    categoryIdByKey: Map<String, Long>,
+    assetIdByKey: Map<String, Long>
+): MergeOutcome {
+    val local = ledgerPlanningRepository.getAllTemplatesSnapshot()
+    val localByKey = local.associateBy { keyOf(it.syncId, it.id, useSyncIds) }
+    var added = 0
+    var updated = 0
 
-    private val filesBySize = HashMap<Long, MutableList<File>>()
-    private val hashByPath = HashMap<String, String>()
-    private val pathByHash = HashMap<String, String>()
+    snapshots.forEach { snapshot ->
+        val key = keyOf(snapshot.syncId, snapshot.id, useSyncIds)
+        val existing = localByKey[key]
+        val categoryId = resolveReferenceId(
+            syncId = snapshot.categorySyncId,
+            fallbackId = snapshot.categoryId,
+            idByKey = categoryIdByKey,
+            useSyncIds = useSyncIds
+        )
+        val assetId = resolveReferenceId(
+            syncId = snapshot.assetSyncId,
+            fallbackId = snapshot.assetId,
+            idByKey = assetIdByKey,
+            useSyncIds = useSyncIds
+        )
+        val targetAssetId = resolveReferenceId(
+            syncId = snapshot.targetAssetSyncId,
+            fallbackId = snapshot.targetAssetId,
+            idByKey = assetIdByKey,
+            useSyncIds = useSyncIds
+        )
 
-    init {
-        imagesDir.listFiles()?.forEach { file ->
-            if (file.isFile) filesBySize.getOrPut(file.length()) { mutableListOf() } += file
+        if (existing == null) {
+            ledgerPlanningRepository.insertSyncedTemplate(
+                snapshot.toTemplate(
+                    targetId = 0,
+                    categoryId = categoryId,
+                    assetId = assetId,
+                    targetAssetId = targetAssetId
+                ).copy(syncId = snapshot.syncId.orNewSyncId())
+            )
+            added++
+        } else {
+            if (!isRemoteNewer(snapshot.updatedAt, existing.updatedAt)) return@forEach
+            ledgerPlanningRepository.updateSyncedTemplate(
+                snapshot.toTemplate(
+                    targetId = existing.id,
+                    categoryId = categoryId,
+                    assetId = assetId,
+                    targetAssetId = targetAssetId
+                ).copy(syncId = existing.syncId ?: snapshot.syncId.orNewSyncId())
+            )
+            updated++
         }
     }
+    return MergeOutcome(added, updated, emptyMap())
+}
 
-    /** 找本地已有的同内容文件；没有则返回 null。[size] 由调用方给出，免得再 stat 一次。 */
-    fun findByHash(hash: String, size: Long): String? {
-        // 先看已登记的（含本次导入刚落盘的），再在「大小相同」的候选里懒算哈希——
-        // 后者覆盖历史遗留的 UUID 命名文件，它们同样按内容参与去重。
-        pathByHash[hash]?.let { path -> if (File(path).isFile) return path }
-        filesBySize[size]?.forEach { candidate ->
-            val candidateHash = hashByPath.getOrPut(candidate.absolutePath) {
-                ImageUtil.contentHash(candidate).orEmpty()
-            }
-            if (candidateHash == hash) {
-                pathByHash[hash] = candidate.absolutePath
-                return candidate.absolutePath
-            }
+/**
+ * 周期记账规则合并（v10）。
+ *
+ * 与模板同样按 syncId 重映射分类/账户。`nextFireAt`/`lastFiredAt` 随 LWW 一起取较新的一方：
+ * 它们描述的是「这条规则生成到哪一期」，属于规则自身状态而非设备本地状态。
+ */
+internal suspend fun AppBackupManager.mergeLedgerRecurringRules(
+    snapshots: List<LedgerRecurringRuleSnapshot>,
+    useSyncIds: Boolean,
+    categoryIdByKey: Map<String, Long>,
+    assetIdByKey: Map<String, Long>
+): MergeOutcome {
+    val local = ledgerPlanningRepository.getAllRulesSnapshot()
+    val localByKey = local.associateBy { keyOf(it.syncId, it.id, useSyncIds) }
+    var added = 0
+    var updated = 0
+
+    snapshots.forEach { snapshot ->
+        val key = keyOf(snapshot.syncId, snapshot.id, useSyncIds)
+        val existing = localByKey[key]
+        val categoryId = resolveReferenceId(
+            syncId = snapshot.categorySyncId,
+            fallbackId = snapshot.categoryId,
+            idByKey = categoryIdByKey,
+            useSyncIds = useSyncIds
+        )
+        val assetId = resolveReferenceId(
+            syncId = snapshot.assetSyncId,
+            fallbackId = snapshot.assetId,
+            idByKey = assetIdByKey,
+            useSyncIds = useSyncIds
+        )
+        val targetAssetId = resolveReferenceId(
+            syncId = snapshot.targetAssetSyncId,
+            fallbackId = snapshot.targetAssetId,
+            idByKey = assetIdByKey,
+            useSyncIds = useSyncIds
+        )
+        val rule = snapshot.toRule(
+            targetId = existing?.id ?: 0,
+            categoryId = categoryId,
+            assetId = assetId,
+            targetAssetId = targetAssetId
+        ).let { resolved ->
+            // repeatUnit 归一：远端可能来自更新的版本，未知单位按 MONTH 兜底而不是让
+            // valueOf 抛错；间隔与 nextFireAt 做下界保护，避免 0 值把规则变成「每次都到点」。
+            resolved.copy(
+                repeatUnit = runCatching {
+                    LedgerRecurringRule.RepeatUnit.valueOf(snapshot.repeatUnit).name
+                }.getOrDefault(LedgerRecurringRule.RepeatUnit.MONTH.name),
+                repeatInterval = snapshot.repeatInterval.coerceAtLeast(1),
+                syncId = existing?.syncId ?: snapshot.syncId.orNewSyncId()
+            )
         }
-        return null
-    }
 
-    /** 登记刚落盘的文件，供本次导入中后续图片命中。 */
-    fun register(hash: String, path: String) {
-        pathByHash[hash] = path
-        hashByPath[path] = hash
-        val bucket = filesBySize.getOrPut(File(path).length()) { mutableListOf() }
-        if (bucket.none { it.absolutePath == path }) bucket += File(path)
+        if (existing == null) {
+            ledgerPlanningRepository.insertSyncedRule(rule)
+            added++
+        } else {
+            if (!isRemoteNewer(snapshot.updatedAt, existing.updatedAt)) return@forEach
+            ledgerPlanningRepository.updateSyncedRule(rule)
+            updated++
+        }
     }
+    return MergeOutcome(added, updated, emptyMap())
 }
 
 internal fun AppBackupManager.resolveParentKey(

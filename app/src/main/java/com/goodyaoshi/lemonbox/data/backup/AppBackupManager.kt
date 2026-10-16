@@ -12,6 +12,7 @@ import com.goodyaoshi.lemonbox.data.repository.AnniversaryRepository
 import com.goodyaoshi.lemonbox.data.repository.CategoryRepository
 import com.goodyaoshi.lemonbox.data.repository.ItemRepository
 import com.goodyaoshi.lemonbox.data.repository.LedgerRepository
+import com.goodyaoshi.lemonbox.data.repository.LedgerPlanningRepository
 import com.goodyaoshi.lemonbox.data.repository.LocationRepository
 import com.goodyaoshi.lemonbox.data.repository.PackingRepository
 import com.goodyaoshi.lemonbox.data.repository.ReminderRepository
@@ -19,6 +20,7 @@ import com.goodyaoshi.lemonbox.data.repository.TimeCapsuleRepository
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import com.goodyaoshi.lemonbox.util.DateUtil
 import com.goodyaoshi.lemonbox.util.LedgerMath
+import com.goodyaoshi.lemonbox.util.RecurringClock
 import com.goodyaoshi.lemonbox.util.TodoReminderScheduler
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -61,9 +63,14 @@ data class BackupMergeResult(
     /** 待办提醒，v5 起导出。 */
     val reminderAdded: Int = 0,
     val reminderUpdated: Int = 0,
-    /** 纪念日，v5 起导出。 */
+    /** 周年纪念，v5 起导出。 */
     val anniversaryAdded: Int = 0,
     val anniversaryUpdated: Int = 0,
+    /** 记账模板与周期记账规则，v10 起导出。 */
+    val ledgerTemplateAdded: Int = 0,
+    val ledgerTemplateUpdated: Int = 0,
+    val recurringRuleAdded: Int = 0,
+    val recurringRuleUpdated: Int = 0,
     /** 用户自建菜谱新增数，v5 起导出。 */
     val recipeAdded: Int = 0,
     /** 周菜单/已做日期/自定义状态/提醒设置是否有应用。 */
@@ -75,17 +82,21 @@ data class BackupMergeResult(
         get() = itemAdded + itemUpdated + categoryAdded + categoryUpdated +
             locationAdded + locationUpdated + ledgerAdded + ledgerUpdated +
             reminderAdded + reminderUpdated + anniversaryAdded + anniversaryUpdated +
+            ledgerTemplateAdded + ledgerTemplateUpdated +
+            recurringRuleAdded + recurringRuleUpdated +
             recipeAdded > 0 || prefsApplied
 
     /** 全实体合计的新增条数（同步历史用）。 */
     val totalAdded: Int
         get() = itemAdded + categoryAdded + locationAdded + ledgerAdded +
-            reminderAdded + anniversaryAdded + recipeAdded
+            reminderAdded + anniversaryAdded + recipeAdded +
+            ledgerTemplateAdded + recurringRuleAdded
 
     /** 全实体合计的更新条数（同步历史用）。 */
     val totalUpdated: Int
         get() = itemUpdated + categoryUpdated + locationUpdated + ledgerUpdated +
-            reminderUpdated + anniversaryUpdated
+            reminderUpdated + anniversaryUpdated +
+            ledgerTemplateUpdated + recurringRuleUpdated
 }
 
 /** 把合并结果转成一句用户可读的说明；手动导入与局域网同步共用。 */
@@ -106,6 +117,10 @@ fun BackupMergeResult.toUserMessage(): String {
         if (reminderUpdated > 0) add("更新提醒 $reminderUpdated 条")
         if (anniversaryAdded > 0) add("新增纪念日 $anniversaryAdded 个")
         if (anniversaryUpdated > 0) add("更新纪念日 $anniversaryUpdated 个")
+        if (ledgerTemplateAdded > 0) add("新增记账模板 $ledgerTemplateAdded 个")
+        if (ledgerTemplateUpdated > 0) add("更新记账模板 $ledgerTemplateUpdated 个")
+        if (recurringRuleAdded > 0) add("新增周期记账 $recurringRuleAdded 条")
+        if (recurringRuleUpdated > 0) add("更新周期记账 $recurringRuleUpdated 条")
         if (recipeAdded > 0) add("新增菜谱 $recipeAdded 道")
         if (prefsApplied) add("同步了菜单与提醒设置")
         if (userSkipped > 0) add("按你的勾选跳过 $userSkipped 条")
@@ -158,7 +173,9 @@ enum class SyncEntityKind(val label: String) {
     REMINDER("待办提醒"),
     TIME_CAPSULE("时间胶囊"),
     PACKING_TRIP("打包行程"),
-    PACKING_ITEM("打包条目")
+    PACKING_ITEM("打包条目"),
+    LEDGER_TEMPLATE("记账模板"),
+    LEDGER_RECURRING_RULE("周期记账")
 }
 
 /** 一个字段的本地值 vs 对方值对照（S3）：修改条目展开详情时逐行展示。 */
@@ -227,6 +244,8 @@ class AppBackupManager @Inject constructor(
     internal val categoryRepository: CategoryRepository,
     internal val locationRepository: LocationRepository,
     internal val ledgerRepository: LedgerRepository,
+    /** 记账模板与周期记账规则（F05）：v10 起纳入备份/同步。 */
+    internal val ledgerPlanningRepository: LedgerPlanningRepository,
     internal val anniversaryRepository: AnniversaryRepository,
     internal val reminderRepository: ReminderRepository,
     internal val timeCapsuleRepository: TimeCapsuleRepository,
@@ -235,7 +254,7 @@ class AppBackupManager @Inject constructor(
     private val appPreferences: AppPreferences,
     internal val appDatabase: AppDatabase,
     /**
-     * 图片云端同步：导入完成后用它补传「只有本地路径、没有对象键」的图（见 [importBackup]）。
+     * 图片云端同步：导入完成后用它把本机图片补传一次（见 [importBackup]）。
      * 依赖方向安全——同步器不依赖本类，无循环。
      */
     private val imageCloudSync: ImageCloudSyncManager
@@ -244,17 +263,6 @@ class AppBackupManager @Inject constructor(
     private val json = Json {
         ignoreUnknownKeys = true
         prettyPrint = true
-    }
-
-    suspend fun exportBackup(targetUri: Uri) {
-        val archive = createBackupZip()
-        try {
-            context.contentResolver.openOutputStream(targetUri)?.use { output ->
-                archive.file.inputStream().use { input -> input.copyTo(output) }
-            } ?: error("无法打开导出目标")
-        } finally {
-            archive.file.delete()
-        }
     }
 
     /**
@@ -357,6 +365,20 @@ class AppBackupManager @Inject constructor(
                 useSyncIds = useSyncIds,
                 tripIdByKey = tripOutcome.idByKey
             )
+            // v10 起：记账模板与周期记账规则进备份。两者都引用记账分类与账户，
+            // 复用上面已算好的 id 映射（模板/规则的 categoryId/assetId 是本地主键）。
+            val ledgerTemplateOutcome = mergeLedgerTemplates(
+                snapshots = backup.ledgerTemplates,
+                useSyncIds = useSyncIds,
+                categoryIdByKey = ledgerCategoryOutcome.idByKey,
+                assetIdByKey = ledgerAssetOutcome.idByKey
+            )
+            val recurringRuleOutcome = mergeLedgerRecurringRules(
+                snapshots = backup.ledgerRecurringRules,
+                useSyncIds = useSyncIds,
+                categoryIdByKey = ledgerCategoryOutcome.idByKey,
+                assetIdByKey = ledgerAssetOutcome.idByKey
+            )
             // v5 起：菜谱/周菜单/自定义状态/提醒设置等偏好内容。
             val prefs = backup.preferences
             val recipeAdded = prefs?.let { appPreferences.applySyncedRecipes(it.recipes) } ?: 0
@@ -397,10 +419,10 @@ class AppBackupManager @Inject constructor(
             ledgerRepository.deduplicateAssets()
             anniversaryRepository.deduplicateAnniversaries()
 
-            // 导入的图可能只有本地路径、没有对象键（旧备份、或对方也是从本地迁来的），
-            // 交给云端同步补传一次：它按内容哈希定键、已存在的跳过，顺带回写对象键并
-            // 在云端确认后清理本地副本。放到返回前触发，三个调用方（手动导入、局域网
-            // 同步的两端）都自动覆盖，不必各自记得补一次。
+            // 导入进来的图片槽位是内容哈希，本机可能还没有对应文件（图片只在云端）。
+            // 交给云端同步补传一次：它按内容哈希定键、已存在的跳过，并在云端确认后
+            // 清理本地副本。放到返回前触发，三个调用方（手动导入、局域网同步的两端）
+            // 都自动覆盖，不必各自记得补一次。
             // 未配置云端时它内部静默跳过，不影响导入本身。
             imageCloudSync.syncAll()
 
@@ -419,6 +441,10 @@ class AppBackupManager @Inject constructor(
                 reminderUpdated = reminderOutcome.updated,
                 anniversaryAdded = anniversaryOutcome.added,
                 anniversaryUpdated = anniversaryOutcome.updated,
+                ledgerTemplateAdded = ledgerTemplateOutcome.added,
+                ledgerTemplateUpdated = ledgerTemplateOutcome.updated,
+                recurringRuleAdded = recurringRuleOutcome.added,
+                recurringRuleUpdated = recurringRuleOutcome.updated,
                 recipeAdded = recipeAdded,
                 prefsApplied = prefsApplied
             )
@@ -489,6 +515,12 @@ class AppBackupManager @Inject constructor(
                 },
                 packingItems = backup.packingItems.filter {
                     qualified(SyncEntityKind.PACKING_ITEM, it.syncId, it.id) in keepKeys
+                },
+                ledgerTemplates = backup.ledgerTemplates.filter {
+                    qualified(SyncEntityKind.LEDGER_TEMPLATE, it.syncId, it.id) in keepKeys
+                },
+                ledgerRecurringRules = backup.ledgerRecurringRules.filter {
+                    qualified(SyncEntityKind.LEDGER_RECURRING_RULE, it.syncId, it.id) in keepKeys
                 }
             )
         }
@@ -510,6 +542,16 @@ class AppBackupManager @Inject constructor(
         val anniversaryKeys = anniversaryRepository.getAllSnapshot()
             .map { keyOf(it.syncId, it.id, useSyncIds) }.toSet()
         val reminderKeys = reminderRepository.getAllSnapshot()
+            .map { keyOf(it.syncId, it.id, useSyncIds) }.toSet()
+        val timeCapsuleKeys = timeCapsuleRepository.getAllSnapshot()
+            .map { keyOf(it.syncId, it.id, useSyncIds) }.toSet()
+        val packingTripKeys = packingRepository.getAllTripsSnapshot()
+            .map { keyOf(it.syncId, it.id, useSyncIds) }.toSet()
+        val packingItemKeys = packingRepository.getAllItemsSnapshot()
+            .map { keyOf(it.syncId, it.id, useSyncIds) }.toSet()
+        val ledgerTemplateKeys = ledgerPlanningRepository.getAllTemplatesSnapshot()
+            .map { keyOf(it.syncId, it.id, useSyncIds) }.toSet()
+        val recurringRuleKeys = ledgerPlanningRepository.getAllRulesSnapshot()
             .map { keyOf(it.syncId, it.id, useSyncIds) }.toSet()
 
         fun keep(key: String, deletedAt: Long?, localKeys: Set<String>): Boolean = when (scope) {
@@ -545,6 +587,23 @@ class AppBackupManager @Inject constructor(
             },
             reminders = backup.reminders.filter {
                 keep(keyOf(it.syncId, it.id, useSyncIds), it.deletedAt, reminderKeys)
+            },
+            // v9/v10 新增的实体此前漏在 scope 分支外：选「只同步新增」或「同步但不删除」时
+            // 它们会被整体丢弃，等于静默不同步。这里补齐，与 keepKeys 分支保持同一份实体清单。
+            timeCapsules = backup.timeCapsules.filter {
+                keep(keyOf(it.syncId, it.id, useSyncIds), it.deletedAt, timeCapsuleKeys)
+            },
+            packingTrips = backup.packingTrips.filter {
+                keep(keyOf(it.syncId, it.id, useSyncIds), it.deletedAt, packingTripKeys)
+            },
+            packingItems = backup.packingItems.filter {
+                keep(keyOf(it.syncId, it.id, useSyncIds), it.deletedAt, packingItemKeys)
+            },
+            ledgerTemplates = backup.ledgerTemplates.filter {
+                keep(keyOf(it.syncId, it.id, useSyncIds), it.deletedAt, ledgerTemplateKeys)
+            },
+            ledgerRecurringRules = backup.ledgerRecurringRules.filter {
+                keep(keyOf(it.syncId, it.id, useSyncIds), it.deletedAt, recurringRuleKeys)
             }
         )
     }
@@ -884,6 +943,75 @@ class AppBackupManager @Inject constructor(
             subtitle = { it.category }
         )
 
+        // 记账模板（v10）：标题用模板名，副标题用金额与类型，便于在变更列表里认出来。
+        changes += changeList(
+            entity = SyncEntityKind.LEDGER_TEMPLATE,
+            snapshots = backup.ledgerTemplates,
+            local = previewRows(
+                ledgerPlanningRepository.getAllTemplatesSnapshot(), useSyncIds,
+                { it.syncId }, { it.id }, { it.updatedAt ?: it.createdAt }, { it.deletedAt }
+            ).associateBy { it.key },
+            localSnapshots = snapshotJsonMap(
+                ledgerPlanningRepository.getAllTemplatesSnapshot(), useSyncIds, { it.syncId }, { it.id }
+            ) { template ->
+                LedgerTemplateSnapshot.fromEntity(
+                    template = template,
+                    categorySyncId = template.categoryId?.let { ledgerCategorySyncIdById[it] },
+                    assetSyncId = template.assetId?.let { ledgerAssetSyncIdById[it] },
+                    targetAssetSyncId = template.targetAssetId?.let { ledgerAssetSyncIdById[it] }
+                )
+            },
+            referenceNames = referenceNames,
+            syncedAfter = syncedAfter,
+            useSyncIds = useSyncIds,
+            syncId = { it.syncId },
+            id = { it.id },
+            updatedAt = { it.updatedAt ?: it.createdAt },
+            deletedAt = { it.deletedAt },
+            title = { it.name },
+            subtitle = {
+                "${recordTypeLabel(it.type)} · ${DateUtil.formatCurrency(LedgerMath.centsToYuan(it.amount))}"
+            },
+            specialValue = { field, value ->
+                if (field == "type") recordTypeLabel(value.toIntOrNull() ?: -1) else null
+            }
+        )
+
+        // 周期记账规则（v10）：副标题给出周期与下次生成日期。
+        changes += changeList(
+            entity = SyncEntityKind.LEDGER_RECURRING_RULE,
+            snapshots = backup.ledgerRecurringRules,
+            local = previewRows(
+                ledgerPlanningRepository.getAllRulesSnapshot(), useSyncIds,
+                { it.syncId }, { it.id }, { it.updatedAt ?: it.createdAt }, { it.deletedAt }
+            ).associateBy { it.key },
+            localSnapshots = snapshotJsonMap(
+                ledgerPlanningRepository.getAllRulesSnapshot(), useSyncIds, { it.syncId }, { it.id }
+            ) { rule ->
+                LedgerRecurringRuleSnapshot.fromEntity(
+                    rule = rule,
+                    categorySyncId = rule.categoryId?.let { ledgerCategorySyncIdById[it] },
+                    assetSyncId = rule.assetId?.let { ledgerAssetSyncIdById[it] },
+                    targetAssetSyncId = rule.targetAssetId?.let { ledgerAssetSyncIdById[it] }
+                )
+            },
+            referenceNames = referenceNames,
+            syncedAfter = syncedAfter,
+            useSyncIds = useSyncIds,
+            syncId = { it.syncId },
+            id = { it.id },
+            updatedAt = { it.updatedAt ?: it.createdAt },
+            deletedAt = { it.deletedAt },
+            title = { it.name },
+            subtitle = {
+                "每 ${it.repeatInterval}${RecurringClock.unitLabel(it.unit)} · " +
+                    DateUtil.formatCurrency(LedgerMath.centsToYuan(it.amount))
+            },
+            specialValue = { field, value ->
+                if (field == "type") recordTypeLabel(value.toIntOrNull() ?: -1) else null
+            }
+        )
+
         return BackupChanges(changes = changes)
     }
 
@@ -1016,6 +1144,8 @@ class AppBackupManager @Inject constructor(
         val allTimeCapsules = timeCapsuleRepository.getAllSnapshot()
         val allPackingTrips = packingRepository.getAllTripsSnapshot()
         val allPackingItems = packingRepository.getAllItemsSnapshot()
+        val allLedgerTemplates = ledgerPlanningRepository.getAllTemplatesSnapshot()
+        val allLedgerRules = ledgerPlanningRepository.getAllRulesSnapshot()
 
         val categorySyncIdById = allCategories.associate { it.id to it.syncId }
         val locationSyncIdById = allLocations.associate { it.id to it.syncId }
@@ -1084,6 +1214,16 @@ class AppBackupManager @Inject constructor(
         } else {
             allPackingItems.filter { (it.updatedAt ?: it.createdAt) > since }
         }
+        val ledgerTemplates = if (since == null) {
+            allLedgerTemplates
+        } else {
+            allLedgerTemplates.filter { (it.updatedAt ?: it.createdAt) > since }
+        }
+        val ledgerRecurringRules = if (since == null) {
+            allLedgerRules
+        } else {
+            allLedgerRules.filter { (it.updatedAt ?: it.createdAt) > since }
+        }
 
         val workingFile = File(context.cacheDir, "lemonbox-backup-${System.currentTimeMillis()}.zip")
         // 增量导出且过滤后一条不剩，说明自上次水位线以来本机没改过任何东西。
@@ -1092,7 +1232,8 @@ class AppBackupManager @Inject constructor(
             categories.isEmpty() && locations.isEmpty() && items.isEmpty() &&
             ledgerAssets.isEmpty() && ledgerCategories.isEmpty() && ledgerRecords.isEmpty() &&
             ledgerBudgets.isEmpty() && anniversaries.isEmpty() && reminders.isEmpty() &&
-            timeCapsules.isEmpty() && packingTrips.isEmpty() && packingItems.isEmpty()
+            timeCapsules.isEmpty() && packingTrips.isEmpty() && packingItems.isEmpty() &&
+            ledgerTemplates.isEmpty() && ledgerRecurringRules.isEmpty()
         val backup = AppBackupPayload(
             exportedAt = exportedAt,
             syncVersion = SYNC_VERSION,
@@ -1145,6 +1286,22 @@ class AppBackupManager @Inject constructor(
                 PackingItemSnapshot.fromEntity(
                     item = it,
                     tripSyncId = it.tripId.let { tripId -> packingTripSyncIdById[tripId] }
+                )
+            },
+            ledgerTemplates = ledgerTemplates.map { template ->
+                LedgerTemplateSnapshot.fromEntity(
+                    template = template,
+                    categorySyncId = template.categoryId?.let { ledgerCategorySyncIdById[it] },
+                    assetSyncId = template.assetId?.let { ledgerAssetSyncIdById[it] },
+                    targetAssetSyncId = template.targetAssetId?.let { ledgerAssetSyncIdById[it] }
+                )
+            },
+            ledgerRecurringRules = ledgerRecurringRules.map { rule ->
+                LedgerRecurringRuleSnapshot.fromEntity(
+                    rule = rule,
+                    categorySyncId = rule.categoryId?.let { ledgerCategorySyncIdById[it] },
+                    assetSyncId = rule.assetId?.let { ledgerAssetSyncIdById[it] },
+                    targetAssetSyncId = rule.targetAssetId?.let { ledgerAssetSyncIdById[it] }
                 )
             },
             preferences = PreferencesSnapshot(
@@ -1228,7 +1385,7 @@ class AppBackupManager @Inject constructor(
          * v7：纪念日类型 type（倒数日/正数日/生日），不再导出 v5 的 repeatYearly 旧字段。
          * v8：待买项新增可选归属 forWhom（self/partner/shared）。
          * v9：时间胶囊与旅行打包清单（行程 + 条目）纳入备份；旧版本读新备份时按空列表忽略。 */
-        const val SYNC_VERSION = 9
+        const val SYNC_VERSION = 10
 
         /** 从该版本起备份用 syncId 对齐；更早的备份退回数字 id。 */
         private const val SYNC_ID_VERSION = 2
