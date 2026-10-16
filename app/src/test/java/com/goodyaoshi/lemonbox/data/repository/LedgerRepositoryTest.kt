@@ -210,7 +210,9 @@ class LedgerRepositoryTest {
 
         repository.setBudget(categoryId = null, amountCents = 0)
 
-        assertTrue(budgetDao.budgets.isEmpty())
+        // 取消预算改为软删（写墓碑）以便同步：行仍在，但已非活跃（deletedAt 非空）。
+        assertTrue(budgetDao.budgets.isNotEmpty())
+        assertTrue(budgetDao.budgets.all { it.deletedAt != null })
     }
 
     // ---------- Fake DAO ----------
@@ -438,8 +440,10 @@ class LedgerRepositoryTest {
             budgets[index] = budget
         }
 
-        override suspend fun hardDelete(id: Long) {
-            budgets.removeAll { it.id == id }
+        override suspend fun softDelete(id: Long, deletedAt: Long) {
+            val index = budgets.indexOfFirst { it.id == id }
+            require(index >= 0) { "取消不存在的预算" }
+            budgets[index] = budgets[index].copy(deletedAt = deletedAt, updatedAt = deletedAt)
         }
 
         override suspend fun getCount(): Int = budgets.size

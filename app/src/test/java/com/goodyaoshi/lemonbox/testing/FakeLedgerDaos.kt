@@ -205,8 +205,9 @@ class FakeLedgerBudgetDao(
         if (index >= 0) budgets[index] = budget
     }
 
-    override suspend fun hardDelete(id: Long) {
-        budgets.removeAll { it.id == id }
+    override suspend fun softDelete(id: Long, deletedAt: Long) {
+        val index = budgets.indexOfFirst { it.id == id }
+        if (index >= 0) budgets[index] = budgets[index].copy(deletedAt = deletedAt, updatedAt = deletedAt)
     }
 
     override suspend fun getCount(): Int = budgets.size

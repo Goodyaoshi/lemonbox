@@ -490,6 +490,8 @@ internal suspend fun AppBackupManager.mergeLedgerBudgets(
             useSyncIds = useSyncIds
         )
         if (local == null) {
+            // 远端墓碑且本地从未有过这条：无需落库——本就没有它，凭空插一条墓碑只是噪声。
+            if (snapshot.deletedAt != null) return@forEach
             ledgerRepository.insertSyncedBudget(
                 LedgerBudget(
                     id = 0,
@@ -510,7 +512,8 @@ internal suspend fun AppBackupManager.mergeLedgerBudgets(
                     amount = snapshot.amount,
                     period = snapshot.period,
                     updatedAt = snapshot.updatedAt ?: local.updatedAt,
-                    deletedAt = null
+                    // 传播墓碑：对方取消预算（或删除）后，本端也据此隐藏，而不是把旧预算留着。
+                    deletedAt = snapshot.deletedAt
                 )
             )
             updated++
@@ -588,7 +591,8 @@ internal suspend fun AppBackupManager.mergeAnniversaries(
  */
 internal suspend fun AppBackupManager.mergeReminders(
     snapshots: List<ReminderSnapshot>,
-    useSyncIds: Boolean
+    useSyncIds: Boolean,
+    itemIdByKey: Map<String, Long> = emptyMap()
 ): MergeOutcome {
     val localReminders = reminderRepository.getAllSnapshot()
     val localByKey = localReminders.associateBy { keyOf(it.syncId, it.id, useSyncIds) }
@@ -598,6 +602,10 @@ internal suspend fun AppBackupManager.mergeReminders(
     snapshots.forEach { snapshot ->
         val key = keyOf(snapshot.syncId, snapshot.id, useSyncIds)
         val local = localByKey[key]
+        // 关联家当：以 syncId 重映射到本地 id（旧备份退回直传的 linkedItemId）。
+        val resolvedItemId = resolveReferenceId(
+            snapshot.itemSyncId, snapshot.linkedItemId, itemIdByKey, useSyncIds
+        )
         // 永久删除墓碑（F21）：对方已彻底删除，本方同样标成永久删除以便继续向第三方传播，
         // 不重新插入、也不当成软删。
         if (snapshot.purgedAt != null) {
@@ -605,12 +613,14 @@ internal suspend fun AppBackupManager.mergeReminders(
             return@forEach
         }
         if (local == null) {
-            reminderRepository.insertSynced(snapshot.toReminder(targetId = 0).recomputeFireAt())
+            reminderRepository.insertSynced(
+                snapshot.toReminder(targetId = 0, itemId = resolvedItemId).recomputeFireAt()
+            )
             added++
         } else {
             if (!isRemoteNewer(snapshot.updatedAt, local.updatedAt)) return@forEach
             reminderRepository.updateSynced(
-                snapshot.toReminder(targetId = local.id).copy(
+                snapshot.toReminder(targetId = local.id, itemId = resolvedItemId).copy(
                     syncId = local.syncId ?: snapshot.syncId.orNewSyncId()
                     // nextFireAt 由 recomputeFireAt 本地重算，不采用对方快照里的值。
                 ).recomputeFireAt(fallback = local.nextFireAt)

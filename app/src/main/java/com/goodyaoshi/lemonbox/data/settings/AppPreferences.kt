@@ -1024,6 +1024,39 @@ class AppPreferences @Inject constructor(
         return true
     }
 
+    /** 合并导入昵称：非空即覆盖；与其它标量偏好同款策略（单用户多设备，同一时刻只有一个写者）。 */
+    fun applySyncedNickname(name: String?): Boolean {
+        val normalized = name?.trim()?.take(MAX_NICKNAME_LENGTH)?.takeIf { it.isNotEmpty() } ?: return false
+        if (normalized == _nickname.value) return false
+        setNickname(normalized)
+        return true
+    }
+
+    /** 合并导入记账月起始日。 */
+    fun applySyncedLedgerMonthStartDay(day: Int?): Boolean {
+        if (day == null) return false
+        val normalized = day.coerceIn(1, 28)
+        if (normalized == _ledgerMonthStartDay.value) return false
+        setLedgerMonthStartDay(normalized)
+        return true
+    }
+
+    /** 合并导入预算超支提醒开关。 */
+    fun applySyncedBudgetReminderEnabled(enabled: Boolean?): Boolean {
+        if (enabled == null || enabled == _budgetReminderEnabled.value) return false
+        setBudgetReminderEnabled(enabled)
+        return true
+    }
+
+    /** 合并导入「未来 N 天菜谱」天数。 */
+    fun applySyncedMealPlanDays(days: Int?): Boolean {
+        if (days == null) return false
+        val normalized = days.coerceIn(MIN_MEAL_PLAN_DAYS, MAX_MEAL_PLAN_DAYS)
+        if (normalized == _mealPlanDays.value) return false
+        setMealPlanDays(normalized)
+        return true
+    }
+
     /** 去掉空白食材并清理首尾空格，保证展示与匹配都干净。 */
     private fun normalizeIngredients(ingredients: List<RecipeIngredient>): List<RecipeIngredient> =
         ingredients.mapNotNull { ingredient ->

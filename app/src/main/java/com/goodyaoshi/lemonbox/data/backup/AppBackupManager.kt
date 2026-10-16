@@ -355,7 +355,7 @@ class AppBackupManager @Inject constructor(
 
             // v5 起：纪念日与待办提醒进备份（含软删墓碑），LWW 合并。
             val anniversaryOutcome = mergeAnniversaries(backup.anniversaries, useSyncIds)
-            val reminderOutcome = mergeReminders(backup.reminders, useSyncIds)
+            val reminderOutcome = mergeReminders(backup.reminders, useSyncIds, itemOutcome.idByKey)
             // v9 起：时间胶囊与打包清单进备份。行程先合、拿到本地 id 映射后再合条目，
             // 因为条目的 tripId 是本地主键、跨设备对不上，必须靠行程 syncId 重新解析。
             val capsuleOutcome = mergeTimeCapsules(backup.timeCapsules, useSyncIds)
@@ -400,8 +400,13 @@ class AppBackupManager @Inject constructor(
                 val togetherApplied = appPreferences.applySyncedTogetherStartDate(
                     prefs.togetherStartDate, prefs.togetherStartDateUpdatedAt
                 ) || appPreferences.applySyncedTogetherLabelName(prefs.togetherLabelName)
+                // v12 起：昵称、记账月起始日、预算提醒开关、菜单天数也随偏好同步。
+                val miscApplied = appPreferences.applySyncedNickname(prefs.nickname) or
+                    appPreferences.applySyncedLedgerMonthStartDay(prefs.ledgerMonthStartDay) or
+                    appPreferences.applySyncedBudgetReminderEnabled(prefs.budgetReminderEnabled) or
+                    appPreferences.applySyncedMealPlanDays(prefs.mealPlanDays)
                 prefsApplied = weeklyMenuApplied || cookedApplied || statusesApplied ||
-                    reminderApplied || togetherApplied
+                    reminderApplied || togetherApplied || miscApplied
             }
             if (reminderOutcome.added + reminderOutcome.updated > 0) {
                 todoReminderScheduler.reschedule()
@@ -867,7 +872,12 @@ class AppBackupManager @Inject constructor(
             ).associateBy { it.key },
             localSnapshots = snapshotJsonMap(
                 reminderRepository.getAllSnapshot(), useSyncIds, { it.syncId }, { it.id }
-            ) { ReminderSnapshot.fromEntity(it) },
+            ) { reminder ->
+                ReminderSnapshot.fromEntity(
+                    reminder = reminder,
+                    itemSyncId = reminder.linkedItemId?.let { itemSyncIdById[it] }
+                )
+            },
             referenceNames = referenceNames,
             syncedAfter = syncedAfter,
             useSyncIds = useSyncIds,
@@ -1279,7 +1289,12 @@ class AppBackupManager @Inject constructor(
                 )
             },
             anniversaries = anniversaries.map { AnniversarySnapshot.fromEntity(it) },
-            reminders = reminders.map { ReminderSnapshot.fromEntity(it) },
+            reminders = reminders.map { reminder ->
+                ReminderSnapshot.fromEntity(
+                    reminder = reminder,
+                    itemSyncId = reminder.linkedItemId?.let { itemSyncIdById[it] }
+                )
+            },
             timeCapsules = timeCapsules.map { TimeCapsuleSnapshot.fromEntity(it) },
             packingTrips = packingTrips.map { PackingTripSnapshot.fromEntity(it) },
             packingItems = packingItems.map {
@@ -1317,7 +1332,11 @@ class AppBackupManager @Inject constructor(
                 mealPrepFireTime = appPreferences.mealPrepFireTime.value,
                 togetherStartDate = appPreferences.togetherStartDateSnapshot(),
                 togetherStartDateUpdatedAt = appPreferences.togetherUpdatedAt.value,
-                togetherLabelName = appPreferences.togetherLabelName.value
+                togetherLabelName = appPreferences.togetherLabelName.value,
+                nickname = appPreferences.nickname.value,
+                ledgerMonthStartDay = appPreferences.ledgerMonthStartDay.value,
+                budgetReminderEnabled = appPreferences.budgetReminderEnabled.value,
+                mealPlanDays = appPreferences.mealPlanDays.value
             )
         )
 
@@ -1385,7 +1404,7 @@ class AppBackupManager @Inject constructor(
          * v7：纪念日类型 type（倒数日/正数日/生日），不再导出 v5 的 repeatYearly 旧字段。
          * v8：待买项新增可选归属 forWhom（self/partner/shared）。
          * v9：时间胶囊与旅行打包清单（行程 + 条目）纳入备份；旧版本读新备份时按空列表忽略。 */
-        const val SYNC_VERSION = 10
+        const val SYNC_VERSION = 12
 
         /** 从该版本起备份用 syncId 对齐；更早的备份退回数字 id。 */
         private const val SYNC_ID_VERSION = 2

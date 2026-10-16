@@ -110,7 +110,15 @@ data class PreferencesSnapshot(
     /** 起始日最近修改时间戳（毫秒），多设备合并按「较新者胜」。 */
     val togetherStartDateUpdatedAt: Long? = null,
     /** 首页计数前缀（如「我们」）。 */
-    val togetherLabelName: String? = null
+    val togetherLabelName: String? = null,
+    /** 昵称；v12 起导出。null 表示旧快照，导入时忽略。 */
+    val nickname: String? = null,
+    /** 记账月起始日（1-28）；v12 起导出。i18n/统计口径相关。 */
+    val ledgerMonthStartDay: Int? = null,
+    /** 预算超支提醒开关；v12 起导出。 */
+    val budgetReminderEnabled: Boolean? = null,
+    /** 未来 N 天菜谱的天数；v12 起导出。 */
+    val mealPlanDays: Int? = null
 )
 
 /**
@@ -175,6 +183,16 @@ data class ReminderSnapshot(
     val completedAt: Long? = null,
     val source: String = "MANUAL",
     val sourceKey: String? = null,
+    /** 用药提醒的服药时刻（逗号分隔 HH:mm）；v11 起导出。 */
+    val doseTimes: String = "",
+    /** 疗程起始日（yyyy-MM-dd）；v11 起导出，null 表示未设疗程。 */
+    val courseStartDate: String? = null,
+    /** 疗程天数（0=不限）；v11 起导出。 */
+    val courseDays: Int = 0,
+    /** 关联家当的本地 id（仅用于兼容旧备份直传 id，导入以 [itemSyncId] 为准）。 */
+    val linkedItemId: Long? = null,
+    /** 关联家当的 syncId；跨设备重映射用（v11 起导出）。 */
+    val itemSyncId: String? = null,
     val createdAt: Long,
     val syncId: String? = null,
     val updatedAt: Long? = null,
@@ -182,8 +200,8 @@ data class ReminderSnapshot(
     /** 「永久删除」墓碑（F21）：非空表示这条是永久删除留下的墓碑，对方合并时直接本地清除。 */
     val purgedAt: Long? = null
 ) {
-    /** 还原成实体；nextFireAt 保留原值（0 时由导入端重算）。 */
-    fun toReminder(targetId: Long): Reminder = Reminder(
+    /** 还原成实体；nextFireAt 保留原值（0 时由导入端重算）。[itemId] 为本端解析后的关联家当 id。 */
+    fun toReminder(targetId: Long, itemId: Long? = null): Reminder = Reminder(
         id = targetId,
         title = title,
         note = note,
@@ -197,6 +215,10 @@ data class ReminderSnapshot(
         completedAt = completedAt,
         source = source,
         sourceKey = sourceKey,
+        doseTimes = doseTimes,
+        courseStartDate = courseStartDate,
+        courseDays = courseDays,
+        linkedItemId = itemId,
         createdAt = createdAt,
         syncId = syncId,
         updatedAt = updatedAt ?: createdAt,
@@ -205,7 +227,7 @@ data class ReminderSnapshot(
     )
 
     companion object {
-        fun fromEntity(reminder: Reminder): ReminderSnapshot = ReminderSnapshot(
+        fun fromEntity(reminder: Reminder, itemSyncId: String? = null): ReminderSnapshot = ReminderSnapshot(
             id = reminder.id,
             title = reminder.title,
             note = reminder.note,
@@ -219,6 +241,11 @@ data class ReminderSnapshot(
             completedAt = reminder.completedAt,
             source = reminder.source,
             sourceKey = reminder.sourceKey,
+            doseTimes = reminder.doseTimes,
+            courseStartDate = reminder.courseStartDate,
+            courseDays = reminder.courseDays,
+            linkedItemId = reminder.linkedItemId,
+            itemSyncId = itemSyncId,
             createdAt = reminder.createdAt,
             syncId = reminder.syncId,
             updatedAt = reminder.updatedAt,
@@ -767,6 +794,8 @@ data class ItemSnapshot(
     val trackMode: Int? = null,
     /** 待买归属码值（self/partner/shared）；v8 起导出，null 表示未标注。 */
     val forWhom: String? = null,
+    /** 物品级到期提醒阶梯覆盖（逗号分隔天数）；v11 起导出，null 表示跟随全局默认。 */
+    val reminderDays: String? = null,
     val rating: Int?,
     val ratedAt: Long?,
     val deletedAt: Long?,
@@ -818,6 +847,7 @@ data class ItemSnapshot(
             usageEndedAt = usageEndedAt,
             trackMode = trackMode ?: Item.TRACK_CONSUMABLE,
             forWhom = forWhom,
+            reminderDays = reminderDays,
             rating = rating,
             ratedAt = ratedAt,
             deletedAt = deletedAt,
@@ -880,6 +910,7 @@ data class ItemSnapshot(
                 usageEndedAt = item.usageEndedAt,
                 trackMode = item.trackMode,
                 forWhom = item.forWhom,
+                reminderDays = item.reminderDays,
                 rating = item.rating,
                 ratedAt = item.ratedAt,
                 deletedAt = item.deletedAt,

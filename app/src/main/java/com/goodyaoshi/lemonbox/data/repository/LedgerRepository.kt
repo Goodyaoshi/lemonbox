@@ -183,7 +183,10 @@ class LedgerRepository @Inject constructor(
     suspend fun setBudget(categoryId: Long?, amountCents: Long) {
         val existing = budgetDao.getByCategoryId(categoryId)
         if (amountCents <= 0) {
-            existing?.let { budgetDao.hardDelete(it.id) }
+            // 取消预算走软删（写墓碑）而非物理删：物理删会让这条从快照里彻底消失，
+            // 其他设备无从得知「被取消」，甚至会把旧预算重新同步回来。
+            // 墓碑行仍占住该 categoryId，重新设置时下面的 else 分支复用它（deletedAt = null）。
+            existing?.let { budgetDao.softDelete(it.id, MonotonicClock.now()) }
             return
         }
         if (existing == null) {
@@ -274,7 +277,8 @@ class LedgerRepository @Inject constructor(
     private suspend fun mergeBudgetIntoKeeper(fromCategoryId: Long, toCategoryId: Long, now: Long) {
         val dupBudget = budgetDao.getByCategoryId(fromCategoryId) ?: return
         if (budgetDao.getByCategoryId(toCategoryId) != null) {
-            budgetDao.hardDelete(dupBudget.id)
+            // 同样走软删（写墓碑）而非物理删：让这次「丢弃重复预算」也能同步出去。
+            budgetDao.softDelete(dupBudget.id, now)
         } else {
             budgetDao.update(dupBudget.copy(categoryId = toCategoryId, updatedAt = now))
         }
