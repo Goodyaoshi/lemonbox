@@ -42,10 +42,15 @@ class CloudSyncWorker @AssistedInject constructor(
 }
 
 /**
- * 周期同步调度器：注册一个约 6 小时一次的周期任务，约束为**仅不计费网络**。
+ * 周期同步调度器：注册一个约 1 小时一次的周期任务，约束为**任意联网**。
  *
- * 用 [ExistingPeriodicWorkPolicy.KEEP]：已排上就保留原有的。家当这类数据一天只改几次，
- * 更密的周期对及时性帮助有限，却会持续唤醒网络。
+ * 用 [ExistingPeriodicWorkPolicy.KEEP]：已排上就保留原有的。
+ *
+ * 为什么从「6 小时 + 仅 WiFi（UNMETERED）」放宽到「1 小时 + 任意联网（CONNECTED）」：
+ * 前者在真实使用中几乎不触发——国产 ROM 对 WorkManager 周期任务限制严格，
+ * 且 UNMETERED 意味着用移动数据时永远不跑，结果就是「改完对方几天看不到」。
+ * 周期任务本只是兜底（即时性由 [CloudSyncTrigger] 的前台/写入触发承担），
+ * 放宽后它至少能在后台真的跑起来。
  */
 @Singleton
 class CloudSyncScheduler @Inject constructor(
@@ -58,7 +63,7 @@ class CloudSyncScheduler @Inject constructor(
         )
             .setConstraints(
                 Constraints.Builder()
-                    .setRequiredNetworkType(NetworkType.UNMETERED)
+                    .setRequiredNetworkType(NetworkType.CONNECTED)
                     .build()
             )
             .build()
@@ -83,6 +88,6 @@ class CloudSyncScheduler @Inject constructor(
 
     private companion object {
         const val WORK_NAME = "cloud_sync"
-        const val REPEAT_INTERVAL_HOURS = 6L
+        const val REPEAT_INTERVAL_HOURS = 1L
     }
 }
