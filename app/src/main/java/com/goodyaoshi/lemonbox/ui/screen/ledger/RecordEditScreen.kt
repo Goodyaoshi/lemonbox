@@ -17,11 +17,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -30,8 +29,10 @@ import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -45,7 +46,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerRecord.Companion.TYPE_INCOME
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerRecord.Companion.TYPE_TRANSFER
@@ -99,6 +99,8 @@ fun RecordEditScreen(
     var showDiscardDialog by remember { mutableStateOf(false) }
     var showSaveTemplateDialog by remember { mutableStateOf(false) }
     var showRecurringDialog by remember { mutableStateOf(false) }
+    // 次要项折叠区（IA-4）：默认收起，让主路径（类型/金额/分类/账户/日期/保存）先浮出来。
+    var moreExpanded by remember { mutableStateOf(false) }
 
     LaunchedEffect(expenseCategories, incomeCategories, assets) {
         viewModel.ensureDefaults(expenseCategories, incomeCategories)
@@ -165,37 +167,28 @@ fun RecordEditScreen(
                 }
                 Text(
                     text = if (state.recordId > 0) "编辑账单" else "记一笔",
-                    fontSize = 18.sp,
+                    // 字号走主题字阶（F6）：titleLarge 为 18sp。
+                    style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary
                 )
                 Spacer(modifier = Modifier.weight(1f))
-                if (state.recordId == 0L) {
-                    // OCR 前置入口（IA-3）：拍照识别发票金额直接预填，不用再去「我的」绕一圈。
-                    Text(
-                        text = "拍照识别",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = TextSecondary,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(999.dp))
-                            .background(SurfaceWarmDeep)
-                            .clickable(onClick = onOpenOcr)
-                            .padding(horizontal = 12.dp, vertical = 8.dp)
-                    )
-                    Spacer(modifier = Modifier.size(8.dp))
-                    Text(
-                        text = if (continuousEntry) "连续录入·开" else "连续录入",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = if (continuousEntry) TagOrangeText else TextSecondary,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(999.dp))
-                            .background(if (continuousEntry) TagOrange else SurfaceWarmDeep)
-                            .clickable { viewModel.toggleContinuousEntry(!continuousEntry) }
-                            .padding(horizontal = 12.dp, vertical = 8.dp)
-                    )
-                }
+                // 次要项收进「更多」折叠区（IA-4）：默认收起，主路径只留类型/金额/分类/账户/日期/保存。
+                Text(
+                    text = if (moreExpanded) "收起" else "更多",
+                    // 字号走主题字阶（F6）：labelMedium 为 12sp。
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = TextSecondary,
+                    modifier = Modifier
+                        // 触达面积达标（F7）：文案胶囊补 48dp 最小热区。
+                        .minimumInteractiveComponentSize()
+                        // 胶囊走 CircleShape（F6）。
+                        .clip(CircleShape)
+                        .background(SurfaceWarmDeep)
+                        .clickable { moreExpanded = !moreExpanded }
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                )
             }
 
             // 固定切换：账单类型常驻页头下方，表单再长滚动后也能切。
@@ -222,7 +215,8 @@ fun RecordEditScreen(
                     .padding(horizontal = 16.dp)
             ) {
                 AppSurfaceCard(
-                    shape = RoundedCornerShape(24.dp),
+                    // 圆角走形状令牌（F6）：extraLarge 为 24dp。
+                    shape = MaterialTheme.shapes.extraLarge,
                     contentPadding = PaddingValues(0.dp),
                     shadowElevation = 12.dp
                 ) {
@@ -236,13 +230,15 @@ fun RecordEditScreen(
                             Row(verticalAlignment = Alignment.Bottom) {
                                 Text(
                                     text = "¥",
-                                    fontSize = 20.sp,
+                                    // 字号走主题字阶（F6）：titleLarge 为 18sp。
+                                    style = MaterialTheme.typography.titleLarge,
                                     fontWeight = FontWeight.Bold,
                                     color = TextSecondary
                                 )
                                 Text(
                                     text = state.amountText.ifEmpty { "0" },
-                                    fontSize = 32.sp,
+                                    // 字号走主题字阶（F6）：headlineLarge 为 28sp。
+                                    style = MaterialTheme.typography.headlineLarge,
                                     fontWeight = FontWeight.Bold,
                                     color = TextPrimary,
                                     maxLines = 1,
@@ -256,7 +252,8 @@ fun RecordEditScreen(
                             if (state.isExpression && previewCents != null) {
                                 Text(
                                     text = "= ¥" + LedgerMath.centsToInputText(previewCents),
-                                    fontSize = 13.sp,
+                                    // 字号走主题字阶（F6）：titleSmall 为 14sp。
+                                    style = MaterialTheme.typography.titleSmall,
                                     color = TextSecondary,
                                     maxLines = 1,
                                     modifier = Modifier.padding(start = 2.dp, top = 2.dp)
@@ -266,54 +263,109 @@ fun RecordEditScreen(
                         Spacer(modifier = Modifier.width(8.dp))
                         Box(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(999.dp))
+                                // 触达面积达标（F7）：日期胶囊补 48dp 最小热区。
+                                .minimumInteractiveComponentSize()
+                                // 胶囊走 CircleShape（F6）。
+                                .clip(CircleShape)
                                 .background(SurfaceWarmDeep)
                                 .clickable { showDatePicker = true }
                                 .padding(horizontal = 12.dp, vertical = 8.dp)
                         ) {
                             Text(
                                 text = formatDateLabel(state.recordDate),
-                                fontSize = 13.sp,
+                                // 字号走主题字阶（F6）：titleSmall 为 14sp。
+                                style = MaterialTheme.typography.titleSmall,
                                 color = TextSecondary
                             )
                         }
                     }
                 }
 
-                // F05：记账模板一键套用（有模板时才出现）。
-                if (templates.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        templates.forEach { template ->
-                            EditorSelectionChip(
-                                text = template.name,
-                                selected = false,
-                                onClick = { viewModel.applyTemplate(template) }
+                // 次要项收进折叠区（IA-4）：拍照/连续/模板/存模板/周期/备注默认收起。
+                if (moreExpanded) {
+                    if (state.recordId == 0L) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            // OCR 前置入口（IA-3）：拍照识别发票金额直接预填。
+                            Text(
+                                text = "拍照识别",
+                                // 字号走主题字阶（F6）：labelMedium 为 12sp。
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = TextSecondary,
+                                modifier = Modifier
+                                    // 触达面积达标（F7）：文案胶囊补 48dp 最小热区。
+                                    .minimumInteractiveComponentSize()
+                                    // 胶囊走 CircleShape（F6）。
+                                    .clip(CircleShape)
+                                    .background(SurfaceWarmDeep)
+                                    .clickable(onClick = onOpenOcr)
+                                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                            )
+                            Text(
+                                text = if (continuousEntry) "连续录入·开" else "连续录入",
+                                // 字号走主题字阶（F6）：labelMedium 为 12sp。
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (continuousEntry) TagOrangeText else TextSecondary,
+                                modifier = Modifier
+                                    // 触达面积达标（F7）：文案胶囊补 48dp 最小热区。
+                                    .minimumInteractiveComponentSize()
+                                    // 胶囊走 CircleShape（F6）。
+                                    .clip(CircleShape)
+                                    .background(if (continuousEntry) TagOrange else SurfaceWarmDeep)
+                                    .clickable { viewModel.toggleContinuousEntry(!continuousEntry) }
+                                    .padding(horizontal = 12.dp, vertical = 8.dp)
                             )
                         }
                     }
-                }
 
-                // F05：把当前填写存为模板 / 设为周期记账（仅新增记账时提供）。
-                if (state.recordId == 0L) {
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        HeaderActionPill(
-                            icon = Icons.Filled.BookmarkAdd,
-                            label = "存为模板",
-                            onClick = { showSaveTemplateDialog = true }
-                        )
-                        HeaderActionPill(
-                            icon = Icons.Filled.Repeat,
-                            label = "设为周期",
-                            onClick = { showRecurringDialog = true }
-                        )
+                    // F05：记账模板一键套用（有模板时才出现）。
+                    if (templates.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            templates.forEach { template ->
+                                EditorSelectionChip(
+                                    text = template.name,
+                                    selected = false,
+                                    onClick = { viewModel.applyTemplate(template) }
+                                )
+                            }
+                        }
                     }
+
+                    // F05：把当前填写存为模板 / 设为周期记账（仅新增记账时提供）。
+                    if (state.recordId == 0L) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            HeaderActionPill(
+                                icon = Icons.Filled.BookmarkAdd,
+                                label = "存为模板",
+                                onClick = { showSaveTemplateDialog = true }
+                            )
+                            HeaderActionPill(
+                                icon = Icons.Filled.Repeat,
+                                label = "设为周期",
+                                onClick = { showRecurringDialog = true }
+                            )
+                        }
+                    }
+
+                    // 备注挪到折叠区（IA-4）：主路径只留类型/金额/分类/账户/日期/保存。
+                    Box(modifier = Modifier.padding(top = 14.dp)) {
+                        EditorSectionLabel(label = "备注")
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    EditorInputBox(
+                        value = state.remark,
+                        onValueChange = viewModel::updateRemark,
+                        placeholder = "记点什么…"
+                    )
                 }
 
                 if (state.linkedItemId != null) {
@@ -329,7 +381,8 @@ fun RecordEditScreen(
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
                             text = state.linkedItemName ?: "关联物品",
-                            fontSize = 13.sp,
+                            // 字号走主题字阶（F6）：titleSmall 为 14sp。
+                            style = MaterialTheme.typography.titleSmall,
                             color = TextSecondary
                         )
                     }
@@ -416,15 +469,6 @@ fun RecordEditScreen(
                     }
                 }
 
-                Box(modifier = Modifier.padding(top = 14.dp)) {
-                    EditorSectionLabel(label = "备注")
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-                EditorInputBox(
-                    value = state.remark,
-                    onValueChange = viewModel::updateRemark,
-                    placeholder = "记点什么…"
-                )
                 Spacer(modifier = Modifier.height(16.dp))
             }
 
@@ -519,7 +563,8 @@ fun RecordEditScreen(
         ) {
             Text(
                 text = "确定要离开并丢弃当前填写的内容吗？",
-                fontSize = 14.sp,
+                // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+                style = MaterialTheme.typography.bodyMedium,
                 color = TextSecondary
             )
         }
@@ -595,7 +640,8 @@ fun RecordEditScreen(
                 Spacer(modifier = Modifier.height(12.dp))
                 Text(
                     text = "先填好金额和账户，才能开启周期记账。",
-                    fontSize = 13.sp,
+                    // 字号走主题字阶（F6）：titleSmall 为 14sp。
+                    style = MaterialTheme.typography.titleSmall,
                     color = TextSecondary
                 )
             }

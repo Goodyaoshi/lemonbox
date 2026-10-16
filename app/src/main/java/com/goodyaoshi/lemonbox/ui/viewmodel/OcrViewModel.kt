@@ -16,6 +16,7 @@ import com.goodyaoshi.lemonbox.util.ImageUtil
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -66,6 +67,9 @@ class OcrViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(OcrUiState())
     val uiState: StateFlow<OcrUiState> = _uiState.asStateFlow()
 
+    /** 正在进行的识别任务，供「取消」按钮中断（SET1）。 */
+    private var recognizeJob: Job? = null
+
     /** 当前是否处于移动数据网络，供下载前确认文案使用。 */
     fun isMeteredConnection(): Boolean = modelManager.isMeteredConnection()
 
@@ -81,7 +85,7 @@ class OcrViewModel @Inject constructor(
     /** 识别一张图片：保存到内部路径 → 降采样解码 → 离线识别 → 抽取记账/入库建议。 */
     fun recognize(uri: Uri) {
         if (_uiState.value.isRecognizing) return
-        viewModelScope.launch {
+        recognizeJob = viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isRecognizing = true, error = null)
             try {
                 val path = withContext(Dispatchers.IO) { ImageUtil.saveImageToWorkingDir(context, uri) }
@@ -126,6 +130,13 @@ class OcrViewModel @Inject constructor(
 
     fun consumeError() {
         _uiState.value = _uiState.value.copy(error = null)
+    }
+
+    /** 取消正在进行的识别（SET1）：中断协程并把 UI 从「识别中」复位。 */
+    fun cancelRecognize() {
+        recognizeJob?.cancel()
+        recognizeJob = null
+        _uiState.value = _uiState.value.copy(isRecognizing = false)
     }
 
     /** 清空识别结果（用于重新识别或删除模型后）。 */

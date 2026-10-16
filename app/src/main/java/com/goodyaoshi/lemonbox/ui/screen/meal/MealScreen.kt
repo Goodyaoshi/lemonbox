@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
@@ -37,7 +36,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -365,7 +363,8 @@ private fun MissingIngredientsBar(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 20.dp, vertical = 4.dp)
-            .clip(RoundedCornerShape(18.dp))
+            // 圆角走形状令牌（F6）：large 为 20dp。
+            .clip(MaterialTheme.shapes.large)
             .background(TagOrange.copy(alpha = 0.14f))
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 12.dp),
@@ -374,13 +373,15 @@ private fun MissingIngredientsBar(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = "本周菜单还缺 ${missing.size} 样主料",
-                fontSize = 13.sp,
+                // 字号走主题字阶（F6）：titleSmall 为 14sp。
+                style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
                 color = TagOrangeText
             )
             Text(
                 text = missing.take(3).joinToString("、") + if (missing.size > 3) "…" else "",
-                fontSize = 12.sp,
+                // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                style = MaterialTheme.typography.bodySmall,
                 color = TextSecondary,
                 modifier = Modifier.padding(top = 2.dp)
             )

@@ -9,7 +9,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -18,7 +19,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.StatusExpired
 import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarmDeep
@@ -41,7 +41,8 @@ fun SelectionTopBar(
 ) {
     AppSurfaceCard(
         modifier = modifier,
-        shape = RoundedCornerShape(24.dp),
+        // 圆角走形状令牌（F6）：收敛到 extraLarge（24dp）。
+        shape = MaterialTheme.shapes.extraLarge,
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
         shadowElevation = 10.dp
     ) {
@@ -52,13 +53,15 @@ fun SelectionTopBar(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = if (selectedCount == 0) "未选择项目" else "已选择 $selectedCount 项",
-                    fontSize = 16.sp,
+                    // 字号走主题字阶（F6）：titleMedium 为 16sp。
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary
                 )
                 Text(
                     text = hint,
-                    fontSize = 12.sp,
+                    // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                    style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary,
                     modifier = Modifier.padding(top = 3.dp)
                 )
@@ -66,11 +69,13 @@ fun SelectionTopBar(
             // 这里只是切换选择，不执行删除；沿用回收站的「全选 / 取消全选」文案约定。
             Text(
                 text = if (allSelected) "取消全选" else "全选",
-                fontSize = 13.sp,
+                // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+                style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.SemiBold,
                 color = OrangeStart,
                 modifier = Modifier
-                    .clip(RoundedCornerShape(999.dp))
+                    // 圆角走形状令牌（F6）：胶囊收敛到 CircleShape。
+                    .clip(CircleShape)
                     .clickable(onClick = onToggleSelectAll)
                     .padding(horizontal = 12.dp, vertical = 8.dp)
             )
@@ -111,12 +116,14 @@ fun SelectionActionButton(
     }
     Text(
         text = text,
-        fontSize = 13.sp,
+        // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+        style = MaterialTheme.typography.bodyMedium,
         fontWeight = FontWeight.SemiBold,
         color = content,
         textAlign = TextAlign.Center,
         modifier = modifier
-            .clip(RoundedCornerShape(999.dp))
+            // 圆角走形状令牌（F6）：胶囊收敛到 CircleShape。
+            .clip(CircleShape)
             .background(container)
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 9.dp)

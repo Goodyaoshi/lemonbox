@@ -19,11 +19,11 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -36,10 +36,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
@@ -51,6 +49,7 @@ import com.goodyaoshi.lemonbox.ui.components.PillTag
 import com.goodyaoshi.lemonbox.ui.components.QuantityStepper
 import com.goodyaoshi.lemonbox.ui.components.SectionHeader
 import com.goodyaoshi.lemonbox.ui.theme.CardWhite
+import com.goodyaoshi.lemonbox.ui.theme.OnScrim
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.SageAccent
 import com.goodyaoshi.lemonbox.ui.theme.TextHint
@@ -73,6 +72,9 @@ fun ScanScreen(
     val state by viewModel.state.collectAsState()
 
     var showCheckIn by remember { mutableStateOf(false) }
+    // 「使用」核销的二次确认（P2）：核销会改变在库数量且无撤销，
+    // 改为一键弹确认框，避免误触直接改数据。
+    var showConsumeConfirm by remember { mutableStateOf(false) }
     var checkInQuantity by remember { mutableIntStateOf(1) }
     var checkInExpiry by remember { mutableStateOf<Long?>(null) }
 
@@ -125,8 +127,8 @@ fun ScanScreen(
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = "扫码结果",
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
+                    // 页面主标题统一走主题字阶（F6）：headlineLarge 为 28sp。
+                    style = MaterialTheme.typography.headlineLarge,
                     color = TextPrimary
                 )
             }
@@ -139,19 +141,21 @@ fun ScanScreen(
                     .padding(horizontal = 20.dp)
             ) {
                 AppSurfaceCard(
-                    shape = RoundedCornerShape(24.dp),
+                    // 形状走令牌（F6）：24dp 收敛到 shapes.extraLarge。
+                    shape = MaterialTheme.shapes.extraLarge,
                     contentPadding = PaddingValues(horizontal = 18.dp, vertical = 18.dp),
                     shadowElevation = 14.dp
                 ) {
                     Text(
                         text = state.productName,
-                        fontSize = 22.sp,
-                        fontWeight = FontWeight.Bold,
+                        // 字号走主题字阶（F6）：headlineMedium 为 22sp。
+                        style = MaterialTheme.typography.headlineMedium,
                         color = TextPrimary
                     )
                     Text(
                         text = "条码：$barcode",
-                        fontSize = 12.sp,
+                        // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                        style = MaterialTheme.typography.bodySmall,
                         color = TextSecondary,
                         modifier = Modifier.padding(top = 4.dp)
                     )
@@ -188,7 +192,8 @@ fun ScanScreen(
                         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             state.activeItems.forEach { itemDetail ->
                                 AppSurfaceCard(
-                                    shape = RoundedCornerShape(20.dp),
+                                    // 形状走令牌（F6）：20dp 收敛到 shapes.large。
+                                    shape = MaterialTheme.shapes.large,
                                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
                                     shadowElevation = 8.dp
                                 ) {
@@ -199,14 +204,16 @@ fun ScanScreen(
                                         Column(modifier = Modifier.weight(1f)) {
                                             Text(
                                                 text = "${itemDetail.item.quantity} ${itemDetail.item.unit}",
-                                                fontSize = 16.sp,
+                                                // 字号走主题字阶（F6）：titleMedium 为 16sp。
+                                                style = MaterialTheme.typography.titleMedium,
                                                 fontWeight = FontWeight.SemiBold,
                                                 color = TextPrimary
                                             )
                                             Text(
                                                 text = itemDetail.item.expireTime?.let { "有效期至 ${DateUtil.formatDate(it)}" }
                                                     ?: "未设置有效期",
-                                                fontSize = 12.sp,
+                                                // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                                                style = MaterialTheme.typography.bodySmall,
                                                 color = TextSecondary,
                                                 modifier = Modifier.padding(top = 4.dp)
                                             )
@@ -220,19 +227,22 @@ fun ScanScreen(
                     state.hasHistory -> {
                         AppSurfaceCard(
                             modifier = Modifier.padding(top = 22.dp),
-                            shape = RoundedCornerShape(20.dp),
+                            // 形状走令牌（F6）：20dp 收敛到 shapes.large。
+                            shape = MaterialTheme.shapes.large,
                             contentPadding = PaddingValues(18.dp),
                             shadowElevation = 8.dp
                         ) {
                             Text(
                                 text = "暂无在库批次",
-                                fontSize = 15.sp,
+                                // 字号走主题字阶（F6）：titleMedium 为 16sp。
+                                style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.SemiBold,
                                 color = TextPrimary
                             )
                             Text(
                                 text = "这件东西之前已经用完或丢掉了，你可以再次入库。",
-                                fontSize = 12.sp,
+                                // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                                style = MaterialTheme.typography.bodySmall,
                                 color = TextSecondary,
                                 modifier = Modifier.padding(top = 4.dp)
                             )
@@ -242,19 +252,22 @@ fun ScanScreen(
                     else -> {
                         AppSurfaceCard(
                             modifier = Modifier.padding(top = 22.dp),
-                            shape = RoundedCornerShape(20.dp),
+                            // 形状走令牌（F6）：20dp 收敛到 shapes.large。
+                            shape = MaterialTheme.shapes.large,
                             contentPadding = PaddingValues(18.dp),
                             shadowElevation = 8.dp
                         ) {
                             Text(
                                 text = "未找到该条码的物品",
-                                fontSize = 15.sp,
+                                // 字号走主题字阶（F6）：titleMedium 为 16sp。
+                                style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.SemiBold,
                                 color = TextPrimary
                             )
                             Text(
                                 text = "还没有收录过这个条码，去登记第一件吧。",
-                                fontSize = 12.sp,
+                                // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                                style = MaterialTheme.typography.bodySmall,
                                 color = TextSecondary,
                                 modifier = Modifier.padding(top = 4.dp)
                             )
@@ -285,7 +298,8 @@ fun ScanScreen(
                         SecondaryActionButton(
                             text = "使用",
                             enabled = state.hasActive,
-                            onClick = { viewModel.consumeEarliest() },
+                            // 核销走二次确认（P2）：不即点即生效。
+                            onClick = { showConsumeConfirm = true },
                             modifier = Modifier.weight(1f)
                         )
                         GradientButton(
@@ -296,7 +310,9 @@ fun ScanScreen(
                                 checkInExpiry = null
                                 showCheckIn = true
                             },
-                            modifier = Modifier.weight(1f)
+                            // 主次分明（P2）：「入库」是主操作，占更宽（1.5f），
+                            // 与并排的「查看 / 使用」拉开对比，不再三键等宽。
+                            modifier = Modifier.weight(1.5f)
                         )
                     }
                 } else {
@@ -340,7 +356,8 @@ fun ScanScreen(
                     PillTag(
                         text = if (code == null) "不设置" else DateUtil.expiryQuickLabel(code),
                         backgroundColor = if (selected) OrangeStart else CardWhite,
-                        contentColor = if (selected) Color.White else TextHint,
+                        // 深色/浅色通用内容白：用 OnScrim 代替硬编码 Color.White。
+                        contentColor = if (selected) OnScrim else TextHint,
                         onClick = { checkInExpiry = value }
                     )
                 }
@@ -348,12 +365,29 @@ fun ScanScreen(
             if (checkInExpiry != null) {
                 Text(
                     text = "有效期至 ${DateUtil.formatDate(checkInExpiry!!)}",
-                    fontSize = 12.sp,
+                    // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                    style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary,
                     modifier = Modifier.padding(top = 4.dp)
                 )
             }
         }
+    }
+
+    // 「使用」核销二次确认（P2）：ScanViewModel 无撤销方法，故采用确认框兜底，
+    // 明确告知会消耗 1 件，避免误触即改在库数量。
+    if (showConsumeConfirm) {
+        AppDialog(
+            title = "用掉 1$unit？",
+            subtitle = "会消耗最早到期的在库批次 1$unit，并同步扣减这件东西的数量。",
+            onDismissRequest = { showConsumeConfirm = false },
+            confirmText = "确认使用",
+            destructiveConfirm = true,
+            onConfirm = {
+                viewModel.consumeEarliest()
+                showConsumeConfirm = false
+            }
+        )
     }
 }
 
@@ -367,14 +401,16 @@ private fun SecondaryActionButton(
     Box(
         modifier = modifier
             .height(56.dp)
-            .clip(RoundedCornerShape(28.dp))
+            // 形状走令牌（F6）：胶囊用 CircleShape。
+            .clip(CircleShape)
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
         Text(
             text = text,
             color = if (enabled) TextPrimary else TextHint,
-            fontSize = 16.sp,
+            // 字号走主题字阶（F6）：labelLarge 为 14sp。
+            style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.SemiBold
         )
     }

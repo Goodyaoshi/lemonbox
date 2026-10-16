@@ -33,13 +33,14 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FlashOff
 import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -60,7 +61,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -264,7 +264,7 @@ fun CameraScreen(
                         top = with(density) { y.toDp() - 36.dp }
                     )
                     .size(72.dp)
-                    .border(2.dp, Color.White.copy(alpha = 0.92f), RoundedCornerShape(20.dp))
+                    .border(2.dp, Color.White.copy(alpha = 0.92f), MaterialTheme.shapes.large)
             )
         }
 
@@ -306,7 +306,7 @@ fun CameraScreen(
             Text(
                 text = if (capturedUris.isEmpty()) "拍封面图" else "继续补拍细节图",
                 color = Color.White,
-                fontSize = 18.sp
+                style = MaterialTheme.typography.titleLarge
             )
 
             if (selectedTab == CameraTab.CAMERA) {
@@ -406,7 +406,7 @@ fun CameraScreen(
                                     contentDescription = "缩略图 ${index + 1}",
                                     modifier = Modifier
                                         .matchParentSize()
-                                        .clip(RoundedCornerShape(16.dp)),
+                                        .clip(MaterialTheme.shapes.medium),
                                     contentScale = ContentScale.Crop
                                 )
                                 Box(
@@ -414,7 +414,7 @@ fun CameraScreen(
                                         .align(Alignment.TopEnd)
                                         // 热区对齐 48dp（视觉角标仍 18dp），角标位置不变，
                                         // 仅把可点范围从角落向外扩大，便于点中。
-                                        .size(44.dp)
+                                        .size(48.dp)
                                         .clickable { capturedUris.removeAt(index) },
                                     contentAlignment = Alignment.TopEnd
                                 ) {
@@ -440,7 +440,9 @@ fun CameraScreen(
 
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(999.dp))
+                            // 触达面积达标（F7）：胶囊按钮不足 48dp 高，先撑出最小可点区再绘制。
+                            .minimumInteractiveComponentSize()
+                            .clip(CircleShape)
                             // 拍照浮层恒为暗色，主按钮沿用品牌柠檬黄（语义色板取值）。
                             .background(LemonStart)
                             .clickable {
@@ -451,7 +453,7 @@ fun CameraScreen(
                         Text(
                             text = "下一步",
                             color = Color.Black,
-                            fontSize = 14.sp,
+                            style = MaterialTheme.typography.titleSmall,
                             fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
                         )
                     }
@@ -466,9 +468,13 @@ fun CameraScreen(
                 CameraTab.values().forEach { tab ->
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.clickable {
+                        // 触达面积达标（F7）：页签文字约 34dp 高，先撑出 48dp 最小可点区再绘制。
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .clickable {
                             when (tab) {
-                                CameraTab.NO_IMAGE -> onSkipPhoto()
+                                // 「无图」改为真页签（IA-6）：点击只切页签，由页内「开始录入」再执行跳过，使该状态可达。
+                                CameraTab.NO_IMAGE -> selectedTab = tab
                                 CameraTab.GALLERY -> {
                                     selectedTab = tab
                                     if (capturedUris.isEmpty()) {
@@ -482,13 +488,13 @@ fun CameraScreen(
                         Text(
                             text = tab.label,
                             color = if (selectedTab == tab) Color.White else Color.White.copy(alpha = 0.58f),
-                            fontSize = 18.sp
+                            style = MaterialTheme.typography.titleLarge
                         )
                         Spacer(modifier = Modifier.height(6.dp))
                         Box(
                             modifier = Modifier
                                 .size(width = 24.dp, height = 3.dp)
-                                .clip(RoundedCornerShape(999.dp))
+                                .clip(CircleShape)
                                 .background(
                                     if (selectedTab == tab) LemonStart else Color.Transparent
                                 )
@@ -512,18 +518,20 @@ private fun NoImageState(
         Text(
             text = "不添加图片",
             color = Color.White,
-            fontSize = 18.sp
+            style = MaterialTheme.typography.titleLarge
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
             text = "直接进入录入，之后你还能补拍图片",
             color = Color.White.copy(alpha = 0.72f),
-            fontSize = 13.sp
+            style = MaterialTheme.typography.bodyMedium
         )
         Spacer(modifier = Modifier.height(16.dp))
         Box(
             modifier = Modifier
-                .clip(RoundedCornerShape(999.dp))
+                // 触达面积达标（F7）：胶囊按钮约 40dp 高，先撑出 48dp 最小可点区再绘制。
+                .minimumInteractiveComponentSize()
+                .clip(CircleShape)
                 .background(LemonStart)
                 .clickable(onClick = onSkipPhoto)
                 .padding(horizontal = 18.dp, vertical = 11.dp)
@@ -531,7 +539,7 @@ private fun NoImageState(
             Text(
                 text = "开始录入",
                 color = Color.Black,
-                fontSize = 14.sp,
+                style = MaterialTheme.typography.titleSmall,
                 fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
             )
         }
@@ -557,12 +565,14 @@ private fun EmptyGalleryState(
         Text(
             text = "还没有选择图片",
             color = Color.White,
-            fontSize = 16.sp
+            style = MaterialTheme.typography.titleMedium
         )
         Spacer(modifier = Modifier.height(8.dp))
         Box(
             modifier = Modifier
-                .clip(RoundedCornerShape(999.dp))
+                // 触达面积达标（F7）：胶囊按钮不足 48dp 高，先撑出最小可点区再绘制。
+                .minimumInteractiveComponentSize()
+                .clip(CircleShape)
                 .background(Color.White.copy(alpha = 0.16f))
                 .clickable(onClick = onPickGallery)
                 .padding(horizontal = 16.dp, vertical = 10.dp)
@@ -570,7 +580,7 @@ private fun EmptyGalleryState(
             Text(
                 text = "打开图库",
                 color = Color.White,
-                fontSize = 13.sp
+                style = MaterialTheme.typography.bodyMedium
             )
         }
     }

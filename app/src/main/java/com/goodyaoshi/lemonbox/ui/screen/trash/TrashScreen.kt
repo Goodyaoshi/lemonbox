@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
@@ -31,6 +30,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -41,7 +41,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -49,7 +48,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.data.local.entity.ItemDetail
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
@@ -62,6 +60,7 @@ import com.goodyaoshi.lemonbox.ui.components.SectionHeader
 import com.goodyaoshi.lemonbox.ui.components.SkeletonList
 import com.goodyaoshi.lemonbox.ui.theme.CardWhite
 import com.goodyaoshi.lemonbox.ui.theme.DividerSoft
+import com.goodyaoshi.lemonbox.ui.theme.OnScrim
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarm
 import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarmDeep
@@ -116,7 +115,8 @@ fun TrashScreen(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "回收站",
-                        style = MaterialTheme.typography.headlineMedium,
+                        // 页面主标题统一（F6）：走 headlineLarge（28sp）。
+                        style = MaterialTheme.typography.headlineLarge,
                         color = TextPrimary
                     )
                     Text(
@@ -141,7 +141,7 @@ fun TrashScreen(
             } else {
                 AppSurfaceCard(
                     modifier = Modifier.padding(horizontal = 20.dp),
-                    shape = RoundedCornerShape(24.dp),
+                    shape = MaterialTheme.shapes.extraLarge,
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
                     shadowElevation = 10.dp
                 ) {
@@ -152,13 +152,15 @@ fun TrashScreen(
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = if (selectedCount == 0) "未选择项目" else "已选择 $selectedCount 项",
-                                fontSize = 16.sp,
+                                // 字号走主题字阶（F6）：titleMedium 为 16sp。
+                                style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = TextPrimary
                             )
                             Text(
                                 text = "可以批量恢复，也能永久删除",
-                                fontSize = 12.sp,
+                                // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                                style = MaterialTheme.typography.bodySmall,
                                 color = TextSecondary,
                                 modifier = Modifier.padding(top = 3.dp)
                             )
@@ -263,7 +265,7 @@ fun TrashScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
+                        .clip(MaterialTheme.shapes.medium)
                         .background(StatusExpired.copy(alpha = 0.10f))
                         .clickable { acknowledged = !acknowledged }
                         .padding(horizontal = 12.dp, vertical = 10.dp),
@@ -273,14 +275,15 @@ fun TrashScreen(
                         modifier = Modifier
                             .size(22.dp)
                             .clip(CircleShape)
-                            .background(if (acknowledged) StatusExpired else CardWhite),
+                        // 硬编码白改走语义色令牌（F5）。
+                        .background(if (acknowledged) StatusExpired else CardWhite),
                         contentAlignment = Alignment.Center
                     ) {
                         if (acknowledged) {
                             Icon(
                                 imageVector = Icons.Default.Check,
                                 contentDescription = null,
-                                tint = Color.White,
+                                tint = OnScrim,
                                 modifier = Modifier.size(14.dp)
                             )
                         }
@@ -288,7 +291,8 @@ fun TrashScreen(
                     Spacer(modifier = Modifier.size(8.dp))
                     Text(
                         text = "我已确认这 ${pendingDeleteIds.size} 项无法恢复",
-                        fontSize = 13.sp,
+                        // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+                        style = MaterialTheme.typography.bodyMedium,
                         color = TextPrimary
                     )
                 }
@@ -309,7 +313,7 @@ private fun TrashItemCard(
     val deletedAt = item.deletedAt ?: System.currentTimeMillis()
     val restoreDeadline = deletedAt + 30L * 24 * 60 * 60 * 1000
     val daysLeft = DateUtil.daysUntil(restoreDeadline).coerceAtLeast(0)
-    val shape = RoundedCornerShape(24.dp)
+    val shape = MaterialTheme.shapes.extraLarge
 
     AppSurfaceCard(
         modifier = Modifier.border(
@@ -342,7 +346,8 @@ private fun TrashItemCard(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = item.name,
-                    fontSize = 16.sp,
+                    // 字号走主题字阶（F6）：titleMedium 为 16sp。
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary
                 )
@@ -350,19 +355,22 @@ private fun TrashItemCard(
                     text = listOfNotNull(itemDetail.categoryName, itemDetail.locationName)
                         .joinToString(" · ")
                         .ifBlank { "未分类 / 未设置位置" },
-                    fontSize = 12.sp,
+                    // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                    style = MaterialTheme.typography.bodySmall,
                     color = TextHint,
                     modifier = Modifier.padding(top = 3.dp)
                 )
                 Text(
                     text = "删除于 ${DateUtil.formatDateTime(deletedAt)}",
-                    fontSize = 12.sp,
+                    // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                    style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary,
                     modifier = Modifier.padding(top = 8.dp)
                 )
                 Text(
                     text = if (daysLeft == 0L) "今天内仍可恢复" else "剩余 $daysLeft 天可恢复",
-                    fontSize = 12.sp,
+                    // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                    style = MaterialTheme.typography.bodySmall,
                     color = OrangeStart,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.padding(top = 4.dp)
@@ -400,7 +408,7 @@ private fun TrashItemCard(
                             imageVector = Icons.Default.Check,
                             // 选中态已由上方 stateDescription 播报，图标此处留空避免重复播报。
                             contentDescription = null,
-                            tint = Color.White,
+                            tint = OnScrim,
                             modifier = Modifier.size(16.dp)
                         )
                     }
@@ -458,7 +466,9 @@ private fun TrashActionButton(
 
     Row(
         modifier = modifier
-            .clip(RoundedCornerShape(18.dp))
+            // 触达面积达标（F7）：先撑出 48dp 最小可点区（按钮高度不足 48dp）。
+            .minimumInteractiveComponentSize()
+            .clip(MaterialTheme.shapes.large)
             .background(background)
             .clickable(
                 enabled = enabled,
@@ -482,7 +492,8 @@ private fun TrashActionButton(
         }
         Text(
             text = text,
-            fontSize = 13.sp,
+            // 字号走主题字阶（F6）：labelLarge 为 14sp。
+            style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.SemiBold,
             color = contentColor
         )

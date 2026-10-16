@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 桌面小组件用色（浅色）：此前三口字体色 + 卡面背景 + 描边散落写死十六进制，
+     集中到颜色资源后随 values-night 自动适配深色，且全局只有一处可调。 -->
+<resources>
+    <color name="widget_card_bg">#FCF7F0</color>
+    <color name="widget_card_stroke">#F0E3D2</color>
+    <color name="widget_title_text">#B25A1E</color>
+    <color name="widget_body_text">#3B2F23</color>
+    <color name="widget_muted_text">#6B5844</color>
+</resources>

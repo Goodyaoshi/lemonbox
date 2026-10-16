@@ -5,15 +5,14 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -28,7 +27,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.OrangeTint
 import com.goodyaoshi.lemonbox.ui.theme.TextHint
@@ -120,7 +118,8 @@ fun ExpiryPickerDialog(
                     .toInstant()
                     .toEpochMilli()
             ),
-            fontSize = 18.sp,
+            // 字号走主题字阶（F6）：titleLarge 为 18sp。
+            style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.Bold,
             color = TextPrimary,
             modifier = Modifier.align(Alignment.CenterHorizontally)
@@ -131,7 +130,6 @@ fun ExpiryPickerDialog(
                 FixedGridOptions(
                     columns = 3,
                     items = years.toList(),
-                    key = { it },
                     label = { it.toString() },
                     selected = { selectedYear == it },
                     onSelect = {
@@ -145,7 +143,6 @@ fun ExpiryPickerDialog(
                 FixedGridOptions(
                     columns = 4,
                     items = (1..12).toList(),
-                    key = { it },
                     label = { "${it}月" },
                     selected = { selectedMonth == it },
                     onSelect = {
@@ -159,7 +156,6 @@ fun ExpiryPickerDialog(
                 FixedGridOptions(
                     columns = 7,
                     items = (1..maxDay).toList(),
-                    key = { it },
                     label = { it.toString() },
                     selected = { selectedDay == it },
                     onSelect = { selectedDay = it }
@@ -185,11 +181,14 @@ private fun ExpiryTab(
     val interactionSource = remember { MutableInteractionSource() }
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(18.dp))
+            // 圆角走形状令牌（F6）：收敛到 large（20dp）。
+            .clip(MaterialTheme.shapes.large)
             .background(
                 color = if (selected) OrangeStart.copy(alpha = 0.12f) else OrangeTint,
-                shape = RoundedCornerShape(18.dp)
+                shape = MaterialTheme.shapes.large
             )
+            // 触达面积达标（F7）：Tab 此前竖向只有 10dp 内距、高约 40dp，补足到 48dp 最小可点区。
+            .minimumInteractiveComponentSize()
             .clickable(
                 interactionSource = interactionSource,
                 indication = ripple(
@@ -204,7 +203,8 @@ private fun ExpiryTab(
         Text(
             text = text,
             color = if (selected) OrangeStart else TextSecondary,
-            fontSize = 13.sp,
+            // 字号走主题字阶（F6）：labelLarge 为 14sp。
+            style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.Medium
         )
     }
@@ -214,26 +214,36 @@ private fun ExpiryTab(
 private fun <T> FixedGridOptions(
     columns: Int,
     items: List<T>,
-    key: (T) -> Any,
     label: (T) -> String,
     selected: (T) -> Boolean,
     onSelect: (T) -> Unit
 ) {
-    LazyVerticalGrid(
-        columns = GridCells.Fixed(columns),
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(max = 300.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-        userScrollEnabled = true
+    // 审计修复：此前用 LazyVerticalGrid——它自带纵向滚动，嵌在弹窗内容区的 verticalScroll 里
+    // 会与外层滚动互相打架（选日期时滚不动 / 跳一下）。选项量级极小（年 ≤ 9、月 12、日 ≤ 31），
+    // 用普通网格一次铺满即可，既无嵌套滚动，也没有惰性列表的开销。
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        items(items, key = key) { item ->
-            ExpiryGridCell(
-                text = label(item),
-                selected = selected(item),
-                onClick = { onSelect(item) }
-            )
+        items.chunked(columns.coerceAtLeast(1)).forEach { rowItems ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                rowItems.forEach { item ->
+                    Box(modifier = Modifier.weight(1f)) {
+                        ExpiryGridCell(
+                            text = label(item),
+                            selected = selected(item),
+                            onClick = { onSelect(item) }
+                        )
+                    }
+                }
+                // 补齐最后一行的空位，保证每格等宽、列对齐。
+                repeat(columns - rowItems.size) {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
+            }
         }
     }
 }
@@ -248,11 +258,13 @@ private fun ExpiryGridCell(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 42.dp)
-            .clip(RoundedCornerShape(18.dp))
+            // 触达面积达标（F7）：日期格此前最小高仅 42dp，低于 48dp 最小可点区，选日期难点中。
+            .minimumInteractiveComponentSize()
+            // 圆角走形状令牌（F6）：收敛到 large（20dp）。
+            .clip(MaterialTheme.shapes.large)
             .background(
                 color = if (selected) OrangeStart.copy(alpha = 0.14f) else OrangeTint,
-                shape = RoundedCornerShape(18.dp)
+                shape = MaterialTheme.shapes.large
             )
             .clickable(
                 interactionSource = interactionSource,
@@ -268,7 +280,8 @@ private fun ExpiryGridCell(
         Text(
             text = text,
             color = if (selected) OrangeStart else TextHint,
-            fontSize = 13.sp,
+            // 字号走主题字阶（F6）：labelLarge 为 14sp。
+            style = MaterialTheme.typography.labelLarge,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
             textAlign = TextAlign.Center,
             maxLines = 1
@@ -344,7 +357,8 @@ fun LunarDatePickerDialog(
 
         Text(
             text = "农历${selectedYear}年${yearGanZhi?.let { "（$it）" } ?: ""}$monthName$dayName",
-            fontSize = 18.sp,
+            // 字号走主题字阶（F6）：titleLarge 为 18sp。
+            style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.Bold,
             color = TextPrimary,
             modifier = Modifier.align(Alignment.CenterHorizontally)
@@ -355,7 +369,6 @@ fun LunarDatePickerDialog(
                 FixedGridOptions(
                     columns = 4,
                     items = years,
-                    key = { it },
                     label = { it.toString() },
                     selected = { selectedYear == it },
                     onSelect = {
@@ -369,7 +382,6 @@ fun LunarDatePickerDialog(
                 FixedGridOptions(
                     columns = 4,
                     items = (1..12).toList(),
-                    key = { it },
                     label = { LunarMonth.fromYm(2024, it).getName() },
                     selected = { selectedMonth == it },
                     onSelect = {
@@ -384,7 +396,6 @@ fun LunarDatePickerDialog(
                 FixedGridOptions(
                     columns = 5,
                     items = (1..maxDay).toList(),
-                    key = { it },
                     label = { LunarDay.NAMES.getOrNull(it - 1) ?: it.toString() },
                     selected = { selectedDay == it },
                     onSelect = { selectedDay = it }

@@ -16,7 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -28,6 +28,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -50,7 +51,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.BuildConfig
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
@@ -80,14 +80,18 @@ private fun OptionChip(
 ) {
     Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(999.dp))
+            // 触达面积达标（F7）：胶囊约 34dp 高，先撑出 48dp 最小可点区，再绘制胶囊本身，视觉尺寸不变。
+            .minimumInteractiveComponentSize()
+            // 胶囊走 CircleShape（F6）：不再内联 RoundedCornerShape(999.dp)。
+            .clip(CircleShape)
             .background(if (selected) OrangeStart else SurfaceWarmDeep)
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 9.dp)
     ) {
         Text(
             text = label,
-            fontSize = 13.sp,
+            // 字号走主题字阶（F6）：labelLarge 为 14sp。
+            style = MaterialTheme.typography.labelLarge,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
             color = if (selected) Color.White else TextSecondary
         )
@@ -107,7 +111,10 @@ private fun ActionPillButton(
 ) {
     Row(
         modifier = Modifier
-            .clip(RoundedCornerShape(999.dp))
+            // 触达面积达标（F7）：胶囊约 34dp 高，先撑出 48dp 最小可点区，再绘制胶囊本身，视觉尺寸不变。
+            .minimumInteractiveComponentSize()
+            // 胶囊走 CircleShape（F6）：不再内联 RoundedCornerShape(999.dp)。
+            .clip(CircleShape)
             .background(OrangeStart.copy(alpha = 0.14f))
             .clickable(role = Role.Button, onClick = onClick)
             .padding(start = 14.dp, end = 10.dp, top = 8.dp, bottom = 8.dp),
@@ -116,7 +123,8 @@ private fun ActionPillButton(
     ) {
         Text(
             text = label,
-            fontSize = 13.sp,
+            // 字号走主题字阶（F6）：labelLarge 为 14sp。
+            style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.SemiBold,
             color = OrangeStart
         )
@@ -193,19 +201,19 @@ fun SettingsScreen(
 
             AppSurfaceCard(
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
-                shape = RoundedCornerShape(24.dp),
+                shape = MaterialTheme.shapes.extraLarge,
                 shadowElevation = 12.dp
             ) {
                 Text(
                     text = "外观",
-                    fontSize = 18.sp,
+                    style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary
                 )
                 Spacer(modifier = Modifier.size(6.dp))
                 Text(
                     text = "深色模式可跟随系统，也可手动固定。",
-                    fontSize = 12.sp,
+                    style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary
                 )
                 Spacer(modifier = Modifier.size(12.dp))
@@ -225,19 +233,19 @@ fun SettingsScreen(
 
             AppSurfaceCard(
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
-                shape = RoundedCornerShape(24.dp),
+                shape = MaterialTheme.shapes.extraLarge,
                 shadowElevation = 12.dp
             ) {
                 Text(
                     text = "安全",
-                    fontSize = 18.sp,
+                    style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary
                 )
                 Spacer(modifier = Modifier.size(6.dp))
                 Text(
                     text = "应用锁已从「我的」迁到这里：开启后进入 App 都要先验证。",
-                    fontSize = 12.sp,
+                    style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary
                 )
                 Spacer(modifier = Modifier.size(12.dp))
@@ -250,7 +258,7 @@ fun SettingsScreen(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "应用锁",
-                            fontSize = 14.sp,
+                            style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.SemiBold,
                             color = TextPrimary
                         )
@@ -260,7 +268,7 @@ fun SettingsScreen(
                             } else {
                                 "给私人内容加一道锁（PIN + 系统密码 / 指纹）"
                             },
-                            fontSize = 12.sp,
+                            style = MaterialTheme.typography.bodySmall,
                             color = TextSecondary
                         )
                     }
@@ -276,19 +284,19 @@ fun SettingsScreen(
 
             AppSurfaceCard(
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
-                shape = RoundedCornerShape(24.dp),
+                shape = MaterialTheme.shapes.extraLarge,
                 shadowElevation = 12.dp
             ) {
                 Text(
                     text = "提醒",
-                    fontSize = 18.sp,
+                    style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary
                 )
                 Spacer(modifier = Modifier.size(6.dp))
                 Text(
                     text = "通知时间点、备菜预填与预算超支提示。",
-                    fontSize = 12.sp,
+                    style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary
                 )
                 Spacer(modifier = Modifier.size(14.dp))
@@ -296,7 +304,7 @@ fun SettingsScreen(
                 // ---- 小组：通知时间 ----
                 Text(
                     text = "通知时间",
-                    fontSize = 14.sp,
+                    style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
                     color = TextPrimary
                 )
@@ -305,20 +313,22 @@ fun SettingsScreen(
                     // 提前几天（提醒阶梯）在家当设置里配，这里明说去处并给出跳转，
                     // 免得用户读完「命中提醒阶梯」却找不到在哪调。
                     text = "可多选。命中提醒阶梯的物品会在这些时间点汇总通知你。",
-                    fontSize = 12.sp,
+                    style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary
                 )
                 Spacer(modifier = Modifier.size(4.dp))
                 Row(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
+                        // 触达面积达标（F7）：行内链接本不足 48dp，先撑出最小可点区。
+                        .minimumInteractiveComponentSize()
+                        .clip(MaterialTheme.shapes.small)
                         .clickable(onClick = onOpenHouseholdSettings)
                         .padding(vertical = 2.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
                         text = "提前几天提醒 ›",
-                        fontSize = 12.sp,
+                        style = MaterialTheme.typography.bodySmall,
                         color = OrangeStart,
                         fontWeight = FontWeight.Medium
                     )
@@ -357,7 +367,7 @@ fun SettingsScreen(
                     } else {
                         "每天 ${reminderTimes.joinToString("、")} 各提醒一次"
                     },
-                    fontSize = 12.sp,
+                    style = MaterialTheme.typography.bodySmall,
                     color = OrangeStart,
                     fontWeight = FontWeight.Medium
                 )
@@ -367,14 +377,14 @@ fun SettingsScreen(
                 // ---- 小组：备菜提醒默认 ----
                 Text(
                     text = "备菜提醒默认",
-                    fontSize = 14.sp,
+                    style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
                     color = TextPrimary
                 )
                 Spacer(modifier = Modifier.size(4.dp))
                 Text(
                     text = "点周菜谱的「提醒准备」时会按这里预填。",
-                    fontSize = 12.sp,
+                    style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary
                 )
                 Spacer(modifier = Modifier.size(10.dp))
@@ -415,7 +425,7 @@ fun SettingsScreen(
                 Spacer(modifier = Modifier.size(8.dp))
                 Text(
                     text = "当前默认：" + (if (mealPrepDayShift == -1) "前一天 " else "当天 ") + mealPrepFireTime,
-                    fontSize = 12.sp,
+                    style = MaterialTheme.typography.bodySmall,
                     color = OrangeStart,
                     fontWeight = FontWeight.Medium
                 )
@@ -432,7 +442,7 @@ fun SettingsScreen(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "预算超支提醒",
-                            fontSize = 14.sp,
+                            style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.SemiBold,
                             color = TextPrimary
                         )
@@ -442,7 +452,7 @@ fun SettingsScreen(
                             } else {
                                 "已关闭，不再提示超支"
                             },
-                            fontSize = 12.sp,
+                            style = MaterialTheme.typography.bodySmall,
                             color = TextSecondary
                         )
                     }
@@ -455,14 +465,16 @@ fun SettingsScreen(
 
             AppSurfaceCard(
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
-                shape = RoundedCornerShape(24.dp),
+                shape = MaterialTheme.shapes.extraLarge,
                 shadowElevation = 12.dp
             ) {
                 // 通知可靠性独立成二级页（SET1）：MIUI 保活等平台适配内容不再占据主设置页。
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(18.dp))
+                        // 触达面积达标（F7）：整行跳转先撑出 48dp 最小可点区。
+                        .minimumInteractiveComponentSize()
+                        .clip(MaterialTheme.shapes.large)
                         .clickable(onClick = onOpenNotificationReliability)
                         .padding(vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -470,13 +482,13 @@ fun SettingsScreen(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "通知可靠性",
-                            fontSize = 15.sp,
+                            style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = TextPrimary
                         )
                         Text(
                             text = "电池白名单、自启动权限与常驻保活，保证提醒准点触发",
-                            fontSize = 12.sp,
+                            style = MaterialTheme.typography.bodySmall,
                             color = TextSecondary
                         )
                     }
@@ -490,7 +502,7 @@ fun SettingsScreen(
 
             AppSurfaceCard(
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
-                shape = RoundedCornerShape(24.dp),
+                shape = MaterialTheme.shapes.extraLarge,
                 shadowElevation = 12.dp
             ) {
                 // 可展开卡片（IA-5）：整行标题可点，尾部 chevron 折叠朝右、展开转向下；
@@ -498,14 +510,16 @@ fun SettingsScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(18.dp))
+                        // 触达面积达标（F7）：可展开标题行先撑出 48dp 最小可点区。
+                        .minimumInteractiveComponentSize()
+                        .clip(MaterialTheme.shapes.large)
                         .clickable { aboutExpanded = !aboutExpanded }
                         .padding(vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
                         text = "关于与更新",
-                        fontSize = 18.sp,
+                        style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = TextPrimary,
                         modifier = Modifier.weight(1f)
@@ -523,7 +537,7 @@ fun SettingsScreen(
                     Text(
                         text = "可检查新版本，也可随时下载安装包（重装、分享给他人）。下载交给浏览器，" +
                             "完成后在通知栏点开安装包即可。",
-                        fontSize = 12.sp,
+                        style = MaterialTheme.typography.bodySmall,
                         color = TextSecondary,
                         modifier = Modifier.padding(top = 6.dp)
                     )
@@ -537,7 +551,7 @@ fun SettingsScreen(
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = "版本 v${BuildConfig.VERSION_NAME}",
-                                fontSize = 14.sp,
+                                style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.SemiBold,
                                 color = TextPrimary
                             )
@@ -546,7 +560,7 @@ fun SettingsScreen(
                                     updateState.checking -> "正在检查更新…"
                                     else -> "从 GitHub Release 获取最新版本"
                                 },
-                                fontSize = 12.sp,
+                                style = MaterialTheme.typography.bodySmall,
                                 color = TextSecondary
                             )
                         }
@@ -573,13 +587,13 @@ fun SettingsScreen(
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = "下载安装包",
-                                fontSize = 14.sp,
+                                style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.SemiBold,
                                 color = TextPrimary
                             )
                             Text(
                                 text = "交给浏览器下载，完成后在通知栏点开安装",
-                                fontSize = 12.sp,
+                                style = MaterialTheme.typography.bodySmall,
                                 color = TextSecondary
                             )
                         }
@@ -596,7 +610,7 @@ fun SettingsScreen(
                         ) {
                             Text(
                                 text = message,
-                                fontSize = 12.sp,
+                                style = MaterialTheme.typography.bodySmall,
                                 color = OrangeStart,
                                 modifier = Modifier.weight(1f)
                             )
@@ -672,7 +686,7 @@ fun SettingsScreen(
                     // 完成后在通知栏点开安装包，是各 ROM 放行度最高的路径。
                     Text(
                         text = "请选择下载方式，完成后在通知栏点开安装包即可更新：",
-                        fontSize = 12.sp,
+                        style = MaterialTheme.typography.bodySmall,
                         color = TextSecondary
                     )
                     Row(
@@ -683,13 +697,13 @@ fun SettingsScreen(
                             onClick = { viewModel.downloadInBrowser(direct = false) },
                             modifier = Modifier.weight(1f)
                         ) {
-                            Text(text = "浏览器·加速下载", fontSize = 13.sp)
+                            Text(text = "浏览器·加速下载", style = MaterialTheme.typography.bodyMedium)
                         }
                         TextButton(
                             onClick = { viewModel.downloadInBrowser(direct = true) },
                             modifier = Modifier.weight(1f)
                         ) {
-                            Text(text = "浏览器·直连下载", fontSize = 13.sp)
+                            Text(text = "浏览器·直连下载", style = MaterialTheme.typography.bodyMedium)
                         }
                     }
                 }
@@ -713,7 +727,7 @@ fun SettingsScreen(
                             },
                             modifier = Modifier.weight(1f)
                         ) {
-                            Text(text = "浏览器·加速下载", fontSize = 13.sp)
+                            Text(text = "浏览器·加速下载", style = MaterialTheme.typography.bodyMedium)
                         }
                         TextButton(
                             onClick = {
@@ -722,7 +736,7 @@ fun SettingsScreen(
                             },
                             modifier = Modifier.weight(1f)
                         ) {
-                            Text(text = "浏览器·直连下载", fontSize = 13.sp)
+                            Text(text = "浏览器·直连下载", style = MaterialTheme.typography.bodyMedium)
                         }
                     }
                 }
@@ -781,7 +795,7 @@ private fun AppLockSettingsDialog(
             Text(
                 text = "输入当前 PIN 以关闭应用锁。",
                 color = TextSecondary,
-                fontSize = 13.sp
+                style = MaterialTheme.typography.bodyMedium
             )
             PinField(value = pin, onValueChange = { pin = it; error = false }, isError = error)
         }
@@ -796,7 +810,7 @@ private fun AppLockSettingsDialog(
             Text(
                 text = "设一个 4-12 位数字 PIN。之后进入 App 需要验证，也可以用系统密码 / 指纹。",
                 color = TextSecondary,
-                fontSize = 13.sp
+                style = MaterialTheme.typography.bodyMedium
             )
             PinField(value = pin, onValueChange = { pin = it }, isError = false)
         }
@@ -824,7 +838,7 @@ private fun PinField(
             Text(
                 text = "PIN 不对，再试一次",
                 color = StatusExpired,
-                fontSize = 12.sp,
+                style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(top = 4.dp)
             )
         }

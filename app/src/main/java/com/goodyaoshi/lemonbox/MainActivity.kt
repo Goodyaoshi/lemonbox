@@ -22,6 +22,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
@@ -32,6 +33,7 @@ import com.goodyaoshi.lemonbox.data.local.entity.StatusDimension
 import com.goodyaoshi.lemonbox.data.repository.ItemRepository
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import com.goodyaoshi.lemonbox.data.settings.ThemeMode
+import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppLockOverlay
 import com.goodyaoshi.lemonbox.ui.components.AppSnackbarState
 import com.goodyaoshi.lemonbox.ui.components.ItemStatusCatalogState
@@ -105,7 +107,6 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         handleShortcutIntent(intent)
-        requestNotificationPermission()
         startKeepAliveIfEnabled()
         // 应用锁（F19）：冷启动若已开启则先上锁。
         locked.value = appPreferences.appLockEnabled.value
@@ -137,6 +138,15 @@ class MainActivity : ComponentActivity() {
                             customStatuses.filter { it.dimension == StatusDimension.DISPOSITION }
                     )
                 }
+
+                // 通知权限不再冷启动即弹系统框（SET1）：先判断是否尚未授权，
+                // 再由下面的说明弹窗在用户点「允许」后才触发系统申请，先说明用途再索取。
+                var notificationIntroHandled by rememberSaveable { mutableStateOf(false) }
+                val needsNotificationPermission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    ContextCompat.checkSelfPermission(
+                        this@MainActivity,
+                        Manifest.permission.POST_NOTIFICATIONS
+                    ) != PackageManager.PERMISSION_GRANTED
 
                 LaunchedEffect(Unit) {
                     // 闪屏不再写死时长（F13）：等首个核心数据流（首页依赖的家当列表）
@@ -174,6 +184,24 @@ class MainActivity : ComponentActivity() {
                                 credentialAvailable = hasDeviceCredential(),
                                 onUnlocked = { locked.value = false },
                                 onUseDeviceCredential = { startCredentialAuth() }
+                            )
+                        }
+                        // 通知权限前置说明（SET1）：闪屏结束后、尚未授权时，先在应用内
+                        // 说清用途，点「允许」才发系统弹窗；选「取消」也记为已处理，
+                        // 同一会话内不再反复打扰。
+                        if (!showSplash && !notificationIntroHandled && needsNotificationPermission) {
+                            AppDialog(
+                                title = "允许发送通知？",
+                                subtitle = "用于待买清单与记账的到点提醒；不开启，提醒就不会按时响。"
+                                    + "之后随时可在系统设置里更改。",
+                                confirmText = "允许",
+                                onConfirm = {
+                                    notificationIntroHandled = true
+                                    notificationPermissionLauncher.launch(
+                                        Manifest.permission.POST_NOTIFICATIONS
+                                    )
+                                },
+                                onDismissRequest = { notificationIntroHandled = true }
                             )
                         }
                     }
@@ -232,19 +260,6 @@ class MainActivity : ComponentActivity() {
         ) ?: return
         authenticating = true
         credentialLauncher.launch(intent)
-    }
-
-    private fun requestNotificationPermission() {
-        // POST_NOTIFICATIONS 仅在 Android 13（API 33）及以上存在，低版本无需申请。
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(
-                    this,
-                    Manifest.permission.POST_NOTIFICATIONS
-                ) != PackageManager.PERMISSION_GRANTED
-            ) {
-                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-            }
-        }
     }
 
     /**

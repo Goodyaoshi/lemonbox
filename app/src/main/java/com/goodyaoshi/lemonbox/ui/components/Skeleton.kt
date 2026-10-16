@@ -19,7 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -27,9 +27,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarmDeep
@@ -56,7 +59,11 @@ fun SkeletonList(
             .fillMaxWidth()
             .padding(contentPadding)
             // 骨架是纯装饰，读屏只需要知道「正在加载」，不必逐个播报占位块。
-            .semantics { contentDescription = "正在加载" },
+            // 读屏可达（F8）：补 Polite 活动区域，进入加载态时自动播报「正在加载」。
+            .semantics {
+                contentDescription = "正在加载"
+                liveRegion = LiveRegionMode.Polite
+            },
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         if (showHeader) {
@@ -70,6 +77,8 @@ fun SkeletonList(
         repeat(itemCount.coerceAtLeast(1)) {
             SkeletonListCard(alpha = alpha)
         }
+        // 底栏占位（F7）：骨架常出现在带底部导航的列表页，补足占位避免末块被底栏压住。
+        BottomBarClearance()
     }
 }
 
@@ -78,7 +87,8 @@ fun SkeletonList(
 private fun SkeletonListCard(alpha: Float, modifier: Modifier = Modifier) {
     AppSurfaceCard(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
+        // 圆角走形状令牌（F6）。
+        shape = MaterialTheme.shapes.extraLarge,
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
         shadowElevation = 10.dp
     ) {
@@ -129,7 +139,8 @@ fun SkeletonDetail(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(imageHeight),
-            shape = RoundedCornerShape(0.dp),
+            // 圆角走形状令牌（F6）：方角收敛到 RectangleShape。
+            shape = RectangleShape,
             alpha = alpha
         )
         Column(modifier = Modifier.padding(20.dp)) {
@@ -151,7 +162,8 @@ fun SkeletonDetail(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(72.dp),
-                shape = RoundedCornerShape(20.dp),
+                // 圆角走形状令牌（F6）。
+                shape = MaterialTheme.shapes.large,
                 alpha = alpha
             )
             Spacer(modifier = Modifier.height(12.dp))
@@ -159,7 +171,8 @@ fun SkeletonDetail(
                 modifier = Modifier
                     .fillMaxWidth(0.82f)
                     .height(72.dp),
-                shape = RoundedCornerShape(20.dp),
+                // 圆角走形状令牌（F6）。
+                shape = MaterialTheme.shapes.large,
                 alpha = alpha
             )
         }
@@ -170,12 +183,14 @@ fun SkeletonDetail(
 @Composable
 fun SkeletonBlock(
     modifier: Modifier = Modifier,
-    shape: Shape = RoundedCornerShape(10.dp),
+    shape: Shape? = null,
     alpha: Float = 1f
 ) {
+    // 圆角走形状令牌（F6）：默认收敛到 small（8dp）。
+    val resolvedShape = shape ?: MaterialTheme.shapes.small
     Box(
         modifier = modifier
-            .clip(shape)
+            .clip(resolvedShape)
             .alpha(alpha)
             .background(SurfaceWarmDeep)
     )

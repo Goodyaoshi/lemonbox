@@ -1,7 +1,5 @@
 package com.goodyaoshi.lemonbox.ui.screen.packing
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,36 +11,36 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.data.local.entity.PackingItem
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
@@ -63,7 +61,6 @@ import com.goodyaoshi.lemonbox.ui.theme.TextHint
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
 import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
 import com.goodyaoshi.lemonbox.ui.viewmodel.PackingTripViewModel
-import kotlin.math.roundToInt
 
 /**
  * 单个行程的打包清单（F16）：逐条勾选「已装好」，可增删条目。
@@ -105,8 +102,8 @@ fun PackingTripScreen(
                 }
                 Text(
                     text = trip?.name ?: "打包清单",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
+                    // 字号走主题字阶（F6）：titleLarge 为 18sp。
+                    style = MaterialTheme.typography.titleLarge,
                     color = TextPrimary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -123,7 +120,19 @@ fun PackingTripScreen(
                     items = items,
                     openedKey = openedKey,
                     onOpenedChange = { openedKey = it },
-                    onToggle = viewModel::setChecked,
+                    // 勾选「已装好」补撤销（GAP-13）：与删除同一套 Snackbar 撤销范式，
+                    // 手滑打勾也能一键退回去（未勾选则直接落库，无需撤销）。
+                    onToggle = { item, checked ->
+                        viewModel.setChecked(item, checked)
+                        if (checked) {
+                            appSnackbar?.showUndo(
+                                "「${item.name}」已装好",
+                                DeleteCopy.UNDO_ACTION
+                            ) {
+                                viewModel.setChecked(item, false)
+                            }
+                        }
+                    },
                     onDelete = { pendingDelete = it },
                     onAdd = { showAdd = true }
                 )
@@ -194,7 +203,8 @@ private fun TripItemContent(
         } else {
             val checkedCount = items.count { it.checked }
             AppSurfaceCard(
-                shape = RoundedCornerShape(20.dp),
+                // 圆角走形状令牌（F6）：20dp 卡片收敛到 large。
+                shape = MaterialTheme.shapes.large,
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
                 shadowElevation = 8.dp
             ) {
@@ -204,8 +214,8 @@ private fun TripItemContent(
                     } else {
                         "已装 $checkedCount / ${items.size} 件"
                     },
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    // 字号走主题字阶（F6）：14sp 进度文字用 titleSmall 承载强调。
+                    style = MaterialTheme.typography.titleSmall,
                     color = if (checkedCount == items.size) LemonEnd else OrangeStart
                 )
             }
@@ -238,7 +248,8 @@ private fun TripItemContent(
 @Composable
 private fun PackingItemRow(item: PackingItem, onToggle: (Boolean) -> Unit) {
     AppSurfaceCard(
-        shape = RoundedCornerShape(20.dp),
+        // 圆角走形状令牌（F6）：20dp 卡片收敛到 large。
+        shape = MaterialTheme.shapes.large,
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
         shadowElevation = 8.dp
     ) {
@@ -257,8 +268,8 @@ private fun PackingItemRow(item: PackingItem, onToggle: (Boolean) -> Unit) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = if (item.quantity > 1) "${item.name} ×${item.quantity}" else item.name,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Medium,
+                    // 字号走主题字阶（F6）：titleMedium 为 16sp。
+                    style = MaterialTheme.typography.titleMedium,
                     color = if (item.checked) TextHint else TextPrimary,
                     textDecoration = if (item.checked) TextDecoration.LineThrough else null,
                     maxLines = 2,
@@ -284,14 +295,14 @@ private fun AddItemDialog(
 ) {
     var name by remember { mutableStateOf("") }
     var category by remember { mutableStateOf("") }
-    var quantity by remember { mutableStateOf(1f) }
+    var quantity by remember { mutableIntStateOf(1) }
 
     AppDialog(
         title = "添加要带的东西",
         onDismissRequest = onDismiss,
         confirmText = "添加",
         confirmEnabled = name.isNotBlank(),
-        onConfirm = { onConfirm(name, quantity.roundToInt().coerceAtLeast(1), category) }
+        onConfirm = { onConfirm(name, quantity.coerceAtLeast(1), category) }
     ) {
         OutlinedTextField(
             value = name,
@@ -307,19 +318,54 @@ private fun AddItemDialog(
             label = { Text("分组（可选，如「证件」）") },
             modifier = Modifier.fillMaxWidth()
         )
-        Text(
-            text = "数量：${quantity.roundToInt().coerceAtLeast(1)}",
-            fontSize = 14.sp,
-            color = TextSecondary
-        )
-        Slider(
-            value = quantity,
-            onValueChange = { quantity = it },
-            valueRange = 1f..20f,
-            steps = 18
-        )
+        // 数量改步进器（P2）：原先用 Slider 拖，一粒一粒对不准、也无从点按；
+        // 换成 −/数字/+ 三件套，每次整步增减，按钮保证 48dp 最小可点区。
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "数量",
+                // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+                style = MaterialTheme.typography.bodyMedium,
+                color = TextSecondary,
+                modifier = Modifier.weight(1f)
+            )
+            IconButton(
+                onClick = { quantity = (quantity - 1).coerceAtLeast(1) },
+                enabled = quantity > 1,
+                // 触达面积达标（F7）：步进按钮补足 48dp 最小可点区。
+                modifier = Modifier.size(48.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Remove,
+                    contentDescription = "减少数量",
+                    tint = OrangeStart
+                )
+            }
+            Text(
+                text = quantity.toString(),
+                // 字号走主题字阶（F6）：titleMedium 为 16sp。
+                style = MaterialTheme.typography.titleMedium,
+                color = TextPrimary,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.widthIn(min = 36.dp)
+            )
+            IconButton(
+                onClick = { quantity = (quantity + 1).coerceAtMost(MAX_QUANTITY) },
+                enabled = quantity < MAX_QUANTITY,
+                modifier = Modifier.size(48.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = "增加数量",
+                    tint = OrangeStart
+                )
+            }
+        }
     }
 }
 
 private const val MAX_ITEM_NAME = 30
 private const val MAX_CATEGORY = 12
+private const val MAX_QUANTITY = 20

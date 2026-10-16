@@ -23,7 +23,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ShowChart
 import androidx.compose.material.icons.filled.Add
@@ -31,6 +30,8 @@ import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material.icons.filled.Repeat
@@ -42,6 +43,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -55,7 +57,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerRecord.Companion.TYPE_EXPENSE
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerRecord.Companion.TYPE_INCOME
@@ -69,7 +70,6 @@ import com.goodyaoshi.lemonbox.ui.components.rememberBottomBarClearance
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.EmptyState
 import com.goodyaoshi.lemonbox.ui.components.AMOUNT_TNUM
-import com.goodyaoshi.lemonbox.ui.components.AmountTnumStyle
 import com.goodyaoshi.lemonbox.ui.components.LedgerAssetChip
 import com.goodyaoshi.lemonbox.ui.components.HeaderActionPill
 import com.goodyaoshi.lemonbox.ui.components.LedgerBudgetBar
@@ -133,6 +133,8 @@ fun LedgerScreen(
     var moreMenuExpanded by remember { mutableStateOf(false) }
     // 账期起算日设置（ST1）：此前只有读取侧、没有写入入口，值恒为 1。
     var showMonthStartDialog by remember { mutableStateOf(false) }
+    // 账户余额胶囊折叠（IA-4）：默认收起，首屏让位给流水；要看余额再展开。
+    var accountsExpanded by remember { mutableStateOf(false) }
     val appSnackbar = LocalAppSnackbar.current
 
     val dayGroups = remember(overview.records) {
@@ -264,7 +266,8 @@ fun LedgerScreen(
             ) {
                 item(key = "summary") {
                     AppSurfaceCard(
-                        shape = RoundedCornerShape(24.dp),
+                        // 圆角走形状令牌（F6）：extraLarge 为 24dp。
+                        shape = MaterialTheme.shapes.extraLarge,
                         contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
                         shadowElevation = 12.dp,
                         // ST1：点金额卡下钻统计页，明细就在那边。
@@ -281,12 +284,15 @@ fun LedgerScreen(
                         // 这一行同时是设置入口：点开可改起算日（此前只有读取侧、值恒为 1）。
                         Text(
                             text = "账期：每月${monthStartDay}日起 · 点击调整",
-                            fontSize = 11.sp,
+                            // 字号走主题字阶（F6）：labelSmall 为 11sp。
+                            style = MaterialTheme.typography.labelSmall,
                             color = TextHint,
                             textAlign = TextAlign.Center,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(top = 8.dp)
+                                // 触达面积达标（F7）：说明行同时是入口，撑出 48dp 最小可点区。
+                                .minimumInteractiveComponentSize()
                                 .clickable { showMonthStartDialog = true }
                         )
                     }
@@ -308,19 +314,55 @@ fun LedgerScreen(
                     )
                 }
                 if (assets.isNotEmpty()) {
-                    item(key = "assets") {
+                    // 账户余额胶囊收纳（IA-4）：此前与流水并列堆在首屏，把真正要看的流水挤到下面。
+                    // 改为一个默认收起的「账户」区，要看余额再展开，功能不减、只是折叠。
+                    item(key = "assets-toggle") {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                // 触达面积达标（F7）：折叠头撑出 48dp 最小可点区。
+                                .minimumInteractiveComponentSize()
+                                .clip(MaterialTheme.shapes.medium)
+                                .clickable { accountsExpanded = !accountsExpanded }
+                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            assets.forEach { asset ->
-                                LedgerAssetChip(
-                                    name = asset.name,
-                                    balanceText = DateUtil.formatCurrency(LedgerMath.centsToYuan(asset.balance)),
-                                    icon = ledgerIconFor(asset.icon)
-                                )
+                            Text(
+                                text = "账户",
+                                // 字号走主题字阶（F6）：titleSmall 为 14sp。
+                                style = MaterialTheme.typography.titleSmall,
+                                color = TextPrimary,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(
+                                text = if (accountsExpanded) "收起" else "展开",
+                                // 字号走主题字阶（F6）：labelMedium 为 12sp。
+                                style = MaterialTheme.typography.labelMedium,
+                                color = OrangeStart
+                            )
+                            Icon(
+                                imageVector = if (accountsExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                                contentDescription = if (accountsExpanded) "收起账户" else "展开账户",
+                                tint = TextSecondary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                    if (accountsExpanded) {
+                        item(key = "assets") {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                assets.forEach { asset ->
+                                    LedgerAssetChip(
+                                        name = asset.name,
+                                        balanceText = DateUtil.formatCurrency(LedgerMath.centsToYuan(asset.balance)),
+                                        icon = ledgerIconFor(asset.icon)
+                                    )
+                                }
                             }
                         }
                     }
@@ -457,8 +499,9 @@ fun LedgerScreen(
                     text = target.categoryName
                         ?.let { "确定要删除「$it」这一笔吗？删除后仍可撤销。" }
                         ?: "确定要删除这一笔吗？删除后仍可撤销。",
-                    color = TextSecondary,
-                    fontSize = 14.sp
+                    // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextSecondary
                 )
             }
         }
@@ -482,8 +525,9 @@ fun LedgerScreen(
             ) {
                 Text(
                     text = "确定要删除所选的 ${batchIds.size} 笔流水吗？删除后仍可撤销。",
-                    color = TextSecondary,
-                    fontSize = 14.sp
+                    // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextSecondary
                 )
             }
         }
@@ -527,8 +571,11 @@ private fun MonthStartDayPicker(
             val isSelected = day == selected
             Box(
                 modifier = Modifier
+                    // 触达面积达标（F7）：日期格视觉 42dp，撑出 48dp 最小可点区。
+                    .minimumInteractiveComponentSize()
                     .size(width = 44.dp, height = 42.dp)
-                    .clip(RoundedCornerShape(14.dp))
+                    // 圆角走形状令牌（F6）：medium 为 16dp。
+                    .clip(MaterialTheme.shapes.medium)
                     .background(if (isSelected) OrangeStart.copy(alpha = 0.14f) else OrangeTint)
                     .clickable { onSelect(day) },
                 contentAlignment = Alignment.Center
@@ -536,7 +583,8 @@ private fun MonthStartDayPicker(
                 Text(
                     text = "$day",
                     color = if (isSelected) OrangeStart else TextSecondary,
-                    fontSize = 13.sp,
+                    // 字号走主题字阶（F6）：titleSmall 为 14sp。
+                    style = MaterialTheme.typography.titleSmall,
                     fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                     textAlign = TextAlign.Center
                 )
@@ -562,7 +610,8 @@ private fun LedgerDayHeader(
     ) {
         Text(
             text = "${date.monthValue}月${date.dayOfMonth}日 ${weekNames[date.dayOfWeek.value - 1]}",
-            fontSize = 12.sp,
+            // 字号走主题字阶（F6）：labelMedium 为 12sp。
+            style = MaterialTheme.typography.labelMedium,
             color = TextHint
         )
         Spacer(modifier = Modifier.weight(1f))
@@ -602,7 +651,8 @@ internal fun LedgerRecordRow(
             recordUi.assetName
         ).joinToString(" · ")
     }
-    val rowShape = RoundedCornerShape(20.dp)
+    // 圆角走形状令牌（F6）：large 为 20dp。
+    val rowShape = MaterialTheme.shapes.large
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -636,7 +686,8 @@ internal fun LedgerRecordRow(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = title,
-                    fontSize = 15.sp,
+                    // 字号走主题字阶（F6）：titleSmall 为 14sp。
+                    style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
                     color = TextPrimary,
                     maxLines = 1
@@ -663,11 +714,11 @@ internal fun LedgerRecordRow(
         }
         Text(
             text = ledgerSignedAmountText(record.type, record.amount),
-            fontSize = 15.sp,
+            // 字号走主题字阶（F6）：titleSmall 为 14sp，并启用等宽数字（P2）。
+            style = MaterialTheme.typography.titleSmall.copy(fontFeatureSettings = AMOUNT_TNUM),
             fontWeight = FontWeight.SemiBold,
             color = ledgerTypeColor(record.type),
-            textAlign = TextAlign.End,
-            style = AmountTnumStyle
+            textAlign = TextAlign.End
         )
     }
 }

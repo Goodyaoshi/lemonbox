@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -42,25 +41,20 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
-import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.EmptyState
 import com.goodyaoshi.lemonbox.ui.components.ItemCard
 import com.goodyaoshi.lemonbox.ui.components.SectionHeader
 import com.goodyaoshi.lemonbox.ui.components.SegmentedTabs
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
-import com.goodyaoshi.lemonbox.ui.theme.StatusWarning
 import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarmDeep
-import com.goodyaoshi.lemonbox.ui.theme.TagOrange
-import com.goodyaoshi.lemonbox.ui.theme.TagOrangeText
+import com.goodyaoshi.lemonbox.ui.theme.TextHint
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
 import com.goodyaoshi.lemonbox.ui.viewmodel.ExpiryViewModel
 import com.goodyaoshi.lemonbox.util.DateUtil
@@ -86,6 +80,8 @@ fun ExpiryScreen(
     var selectedTab by remember { mutableIntStateOf(0) }
     // 当前展开快捷操作的物品 id（null 表示动作弹窗关闭）。
     var actionTargetId by remember { mutableStateOf<Long?>(null) }
+    // 待确认「标记为已丢弃」的物品 id（null 表示确认弹窗关闭）。
+    var discardTargetId by remember { mutableStateOf<Long?>(null) }
 
     val filteredItems = expirableItems
         .sortedBy { it.item.expireTime ?: Long.MAX_VALUE }
@@ -122,7 +118,8 @@ fun ExpiryScreen(
                 }
                 Text(
                     text = "到期提醒",
-                    style = MaterialTheme.typography.headlineMedium,
+                    // 页面主标题统一（F6）：走 headlineLarge（28sp），不再用 22sp。
+                    style = MaterialTheme.typography.headlineLarge,
                     color = TextPrimary
                 )
             }
@@ -177,42 +174,27 @@ fun ExpiryScreen(
                 }
             }
 
-            AppSurfaceCard(
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
-                shape = RoundedCornerShape(24.dp),
-                containerColor = TagOrange
+            // 小贴士弱化（P2）：原先用与数据卡同权重的彩色卡片承载、喧宾夺主；
+            // 改为列表下方的次要说明，只留一行低对比度轻提示。
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .background(Color.White.copy(alpha = 0.72f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Lightbulb,
-                            contentDescription = null,
-                            tint = StatusWarning
-                        )
-                    }
-                    androidx.compose.foundation.layout.Spacer(modifier = Modifier.size(12.dp))
-                    Column {
-                        Text(
-                            text = "小贴士",
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold,
-                            // 橙色浅底上改深琥珀字（TagOrangeText），保证与底色有足够对比度。
-                            color = TagOrangeText
-                        )
-                        Text(
-                            text = "建议你优先用掉快到期的东西，少浪费。",
-                            fontSize = 12.sp,
-                            color = TagOrangeText,
-                            modifier = Modifier.padding(top = 2.dp)
-                        )
-                    }
-                }
+                Icon(
+                    imageVector = Icons.Default.Lightbulb,
+                    contentDescription = null,
+                    tint = TextHint,
+                    modifier = Modifier.size(14.dp)
+                )
+                Spacer(modifier = Modifier.size(6.dp))
+                Text(
+                    text = "小贴士：优先用掉快到期的东西，少浪费。",
+                    // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextHint
+                )
             }
         }
     }
@@ -235,8 +217,9 @@ fun ExpiryScreen(
             ExpiryActionRow(
                 icon = Icons.Default.Delete,
                 label = "标记为已丢弃",
+                // 危险操作防误触（P1）：不再即点即生效，改为弹二次确认再执行。
                 onClick = {
-                    viewModel.markAsDiscarded(actionTarget.item.id)
+                    discardTargetId = actionTarget.item.id
                     actionTargetId = null
                 }
             )
@@ -258,6 +241,22 @@ fun ExpiryScreen(
             )
         }
     }
+
+    // 危险操作防误触（P1）：「标记为已丢弃」改走二次确认，避免误触直接改物品去向。
+    discardTargetId?.let { id ->
+        val targetName = expirableItems.firstOrNull { it.item.id == id }?.item?.name.orEmpty()
+        AppDialog(
+            title = "标记为已丢弃？",
+            subtitle = "「$targetName」会被标记为已丢弃，不再计入到期提醒。",
+            onDismissRequest = { discardTargetId = null },
+            confirmText = "标记为已丢弃",
+            destructiveConfirm = true,
+            onConfirm = {
+                viewModel.markAsDiscarded(id)
+                discardTargetId = null
+            }
+        )
+    }
 }
 
 @Composable
@@ -269,7 +268,8 @@ private fun ExpiryActionRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
+            // 圆角走形状令牌（F6）：收敛到 medium（16dp）。
+            .clip(MaterialTheme.shapes.medium)
             .clickable(role = Role.Button, onClick = onClick)
             .padding(vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -290,7 +290,8 @@ private fun ExpiryActionRow(
         }
         Text(
             text = label,
-            fontSize = 15.sp,
+            // 字号走主题字阶（F6）：titleSmall 为 14sp。
+            style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.Medium,
             color = TextPrimary,
             modifier = Modifier.padding(start = 12.dp)

@@ -23,7 +23,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -31,7 +30,9 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DeleteOutline
-import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -51,13 +52,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.data.local.entity.ItemDetail
 import com.goodyaoshi.lemonbox.data.local.entity.Reminder
@@ -70,6 +70,7 @@ import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.DeleteCopy
 import com.goodyaoshi.lemonbox.ui.components.EditorSelectionChip
 import com.goodyaoshi.lemonbox.ui.components.EmptyState
+import com.goodyaoshi.lemonbox.ui.components.ExpiryPickerDialog
 import com.goodyaoshi.lemonbox.ui.components.InlineNotice
 import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
 import com.goodyaoshi.lemonbox.ui.components.PillTag
@@ -88,7 +89,9 @@ import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
 import com.goodyaoshi.lemonbox.ui.viewmodel.RemindersViewModel
 import com.goodyaoshi.lemonbox.util.DateUtil
 import com.goodyaoshi.lemonbox.util.ReminderClock
+import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneId
 import java.time.temporal.ChronoUnit
 
 /** 提醒列表的分组标题。 */
@@ -210,7 +213,8 @@ fun RemindersScreen(
                         item(key = "header_${group.label}") {
                             Text(
                                 text = group.label,
-                                fontSize = 13.sp,
+                                // 字号走主题字阶（F6）：labelLarge 为 14sp。
+                                style = MaterialTheme.typography.labelLarge,
                                 fontWeight = FontWeight.SemiBold,
                                 color = TextHint,
                                 modifier = Modifier.padding(top = 12.dp, bottom = 8.dp)
@@ -336,7 +340,7 @@ fun RemindersScreen(
                     "确定删除这条已完成的提醒吗？删除后仍可撤销。"
                 },
                 color = TextSecondary,
-                fontSize = 14.sp
+                style = MaterialTheme.typography.bodyMedium
             )
         }
     }
@@ -353,9 +357,13 @@ private fun ReminderRow(
     onDelete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    // 行内操作收敛（P2）：原先「完成 + 稍后 + 编辑」三个热区并排，小屏容易误触；
+    // 现在主操作只留「完成」，其余收进「更多」菜单（触达面积达标 F7：IconButton 默认 48dp）。
+    var menuOpen by remember { mutableStateOf(false) }
     AppSurfaceCard(
         modifier = modifier,
-        shape = RoundedCornerShape(20.dp),
+        // 圆角走形状令牌（F6）：与全 App 卡片收敛到 large（20dp）。
+        shape = MaterialTheme.shapes.large,
         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
         shadowElevation = 8.dp
     ) {
@@ -379,7 +387,8 @@ private fun ReminderRow(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = reminder.title,
-                        fontSize = 14.sp,
+                        // 字号走主题字阶（F6）：titleSmall 为 14sp。
+                        style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold,
                         color = if (reminder.enabled) TextPrimary else TextHint,
                         textDecoration = if (reminder.completedAt != null) {
@@ -388,6 +397,7 @@ private fun ReminderRow(
                             null
                         },
                         maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false)
                     )
                     if (reminder.sourceKind == ReminderSource.MEAL_PREP) {
@@ -426,14 +436,14 @@ private fun ReminderRow(
                     } else {
                         reminder.completedAt?.let { "已完成 ${DateUtil.formatDateTime(it)}" } ?: "已暂停"
                     },
-                    fontSize = 12.sp,
+                    style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary,
                     modifier = Modifier.padding(top = 2.dp)
                 )
                 if (reminder.enabled && reminder.note.isNotBlank()) {
                     Text(
                         text = reminder.note,
-                        fontSize = 12.sp,
+                        style = MaterialTheme.typography.bodySmall,
                         color = TextHint,
                         maxLines = 2,
                         modifier = Modifier.padding(top = 2.dp)
@@ -443,7 +453,7 @@ private fun ReminderRow(
                     // 触发记录（R1）：上次真的响过是什么时候，漏提醒时不用靠猜。
                     Text(
                         text = "上次触发 ${DateUtil.formatDateTime(reminder.notifiedAt)}",
-                        fontSize = 12.sp,
+                        style = MaterialTheme.typography.bodySmall,
                         color = TextHint,
                         modifier = Modifier.padding(top = 2.dp)
                     )
@@ -458,25 +468,38 @@ private fun ReminderRow(
                     contentColor = TagGreenText,
                     onClick = onComplete
                 )
-                // 稍后（GAP-9）：只在这条已到点、还在等确认时出现——
-                // 暂时不做、又不愿勾「完成」污染周期节奏时，顺延一下即可。
-                if (reminder.awaitingConfirmation) {
-                    Spacer(modifier = Modifier.width(6.dp))
-                    PillTag(
-                        text = "稍后",
-                        backgroundColor = TagBlue,
-                        contentColor = TagBlueText,
-                        onClick = onSnooze
-                    )
-                }
-                // 编辑入口（GAP-8）：进行中的提醒可改内容与时间；归档组不给（改它没有语义）。
-                IconButton(onClick = onEdit) {
-                    Icon(
-                        imageVector = Icons.Default.Edit,
-                        contentDescription = "编辑提醒",
-                        tint = TextHint,
-                        modifier = Modifier.size(20.dp)
-                    )
+                // 稍后（GAP-9）与编辑（GAP-8）收进「更多」菜单：到点待确认时才有「稍后」，
+                // 编辑对进行中的提醒常开；归档组不给编辑（改它没有语义）。
+                Box {
+                    IconButton(onClick = { menuOpen = true }) {
+                        Icon(
+                            imageVector = Icons.Default.MoreVert,
+                            contentDescription = "更多操作",
+                            tint = TextHint,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = menuOpen,
+                        onDismissRequest = { menuOpen = false }
+                    ) {
+                        if (reminder.awaitingConfirmation) {
+                            DropdownMenuItem(
+                                text = { Text("稍后 3 小时") },
+                                onClick = {
+                                    menuOpen = false
+                                    onSnooze()
+                                }
+                            )
+                        }
+                        DropdownMenuItem(
+                            text = { Text("编辑") },
+                            onClick = {
+                                menuOpen = false
+                                onEdit()
+                            }
+                        )
+                    }
                 }
             } else {
                 IconButton(onClick = onDelete) {
@@ -523,6 +546,11 @@ private fun ReminderEditorDialog(
     var weekdays by remember(existing) {
         mutableStateOf(existing?.weekdays?.let { Reminder.decodeWeekdays(it).toSet() } ?: setOf(1))
     }
+    // 每周几收敛（P1）：「每天 / 工作日」之外的组合才展开七天，默认收起。
+    var customWeek by remember(existing) {
+        val set = existing?.weekdays?.let { Reminder.decodeWeekdays(it).toSet() } ?: setOf(1)
+        mutableStateOf(set != (1..7).toSet() && set != (1..5).toSet())
+    }
     var fireTime by remember(existing) { mutableStateOf(existing?.fireTime ?: "19:00") }
     var showTimePicker by remember { mutableStateOf(false) }
     var medication by remember(existing) { mutableStateOf(existing?.isMedication ?: false) }
@@ -536,6 +564,7 @@ private fun ReminderEditorDialog(
     var linkedItemId by remember(existing) { mutableStateOf(existing?.linkedItemId) }
     var showDoseTimePicker by remember { mutableStateOf(false) }
     var showItemPicker by remember { mutableStateOf(false) }
+    var showDatePicker by remember { mutableStateOf(false) }
 
     val targetDate = remember(dayOffset) { LocalDate.now().plusDays(dayOffset.toLong()).toString() }
     val targetLabel = remember(dayOffset) {
@@ -599,7 +628,7 @@ private fun ReminderEditorDialog(
             if (activeItems.isEmpty()) {
                 Text(
                     text = "还没有在库家当，先去「家当」里入库这盒药吧。",
-                    fontSize = 12.sp,
+                    style = MaterialTheme.typography.bodySmall,
                     color = TextHint,
                     modifier = Modifier.padding(vertical = 12.dp)
                 )
@@ -621,6 +650,29 @@ private fun ReminderEditorDialog(
                 }
             }
         }
+    }
+
+    // 提醒日期选择（P1）：原先只能 ±1 天在 0..30 内步进，想选下个月要点三十次；
+    // 改为复用统一的日期选择器，可任意选未来日期，过去日期收敛回今天。
+    if (showDatePicker) {
+        ExpiryPickerDialog(
+            selectedDateMillis = LocalDate.now()
+                .plusDays(dayOffset.toLong())
+                .atStartOfDay(ZoneId.systemDefault())
+                .toInstant()
+                .toEpochMilli(),
+            onDismissRequest = { showDatePicker = false },
+            title = "选择提醒日期",
+            onConfirm = { millis ->
+                if (millis != null) {
+                    val picked = Instant.ofEpochMilli(millis)
+                        .atZone(ZoneId.systemDefault())
+                        .toLocalDate()
+                    dayOffset = ChronoUnit.DAYS.between(LocalDate.now(), picked).toInt().coerceAtLeast(0)
+                }
+                showDatePicker = false
+            }
+        )
     }
 
     AppDialog(
@@ -691,7 +743,7 @@ private fun ReminderEditorDialog(
             medication -> {
                 Text(
                     text = "每天在选中时刻各提醒一次，到点带疗程进度和库存余量。",
-                    fontSize = 12.sp,
+                    style = MaterialTheme.typography.bodySmall,
                     color = TextHint
                 )
                 FlowRow(
@@ -719,7 +771,7 @@ private fun ReminderEditorDialog(
                     StepButton("−") { courseDays = (courseDays - 1).coerceAtLeast(0) }
                     Text(
                         text = if (courseDays == 0) "不限" else "$courseDays 天",
-                        fontSize = 15.sp,
+                        style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                         color = TextPrimary,
                         modifier = Modifier.padding(horizontal = 16.dp)
@@ -736,16 +788,13 @@ private fun ReminderEditorDialog(
             }
 
             repeatType == ReminderRepeatType.ONCE -> {
+                // 日期选择（P1）：旧实现只能 ±1 天步进；现在点开就是完整的日期选择器。
                 StepRow(label = "提醒日期") {
-                    StepButton("−") { dayOffset = (dayOffset - 1).coerceAtLeast(0) }
-                    Text(
+                    EditorSelectionChip(
                         text = targetLabel,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = TextPrimary,
-                        modifier = Modifier.padding(horizontal = 16.dp)
+                        selected = true,
+                        onClick = { showDatePicker = true }
                     )
-                    StepButton("+") { dayOffset = (dayOffset + 1).coerceAtMost(30) }
                 }
             }
 
@@ -754,7 +803,7 @@ private fun ReminderEditorDialog(
                     StepButton("−") { intervalDays = (intervalDays - 1).coerceAtLeast(1) }
                     Text(
                         text = "$intervalDays",
-                        fontSize = 15.sp,
+                        style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                         color = TextPrimary,
                         modifier = Modifier.padding(horizontal = 16.dp)
@@ -764,23 +813,53 @@ private fun ReminderEditorDialog(
             }
 
             repeatType == ReminderRepeatType.WEEKLY -> {
+                // 每周几收敛（P1）：七个 chip 平铺改成「每天 / 工作日 / 自定义」预设，
+                // 只有选了「自定义」才展开七天，减少首屏噪音与误点。
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    ReminderClock.WEEKDAY_LABELS.forEachIndexed { index, label ->
-                        val day = index + 1
-                        EditorSelectionChip(
-                            text = label,
-                            selected = day in weekdays,
-                            onClick = {
-                                weekdays = if (day in weekdays) {
-                                    weekdays - day
-                                } else {
-                                    weekdays + day
+                    EditorSelectionChip(
+                        text = "每天",
+                        selected = !customWeek && weekdays == (1..7).toSet(),
+                        onClick = {
+                            weekdays = (1..7).toSet()
+                            customWeek = false
+                        }
+                    )
+                    EditorSelectionChip(
+                        text = "工作日",
+                        selected = !customWeek && weekdays == (1..5).toSet(),
+                        onClick = {
+                            weekdays = (1..5).toSet()
+                            customWeek = false
+                        }
+                    )
+                    EditorSelectionChip(
+                        text = "自定义",
+                        selected = customWeek,
+                        onClick = { customWeek = true }
+                    )
+                }
+                if (customWeek) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        ReminderClock.WEEKDAY_LABELS.forEachIndexed { index, label ->
+                            val day = index + 1
+                            EditorSelectionChip(
+                                text = label,
+                                selected = day in weekdays,
+                                onClick = {
+                                    weekdays = if (day in weekdays) {
+                                        weekdays - day
+                                    } else {
+                                        weekdays + day
+                                    }
                                 }
-                            }
-                        )
+                            )
+                        }
                     }
                 }
             }
@@ -819,14 +898,15 @@ private fun PickerRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            // 圆角走形状令牌（F6）：medium 为 16dp。
+            .clip(MaterialTheme.shapes.medium)
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
             text = text,
-            fontSize = 14.sp,
+            style = MaterialTheme.typography.bodyMedium,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
             color = if (selected) OrangeStart else TextPrimary,
             modifier = Modifier.weight(1f)
@@ -858,7 +938,7 @@ private fun StepRow(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(text = label, fontSize = 13.sp, color = TextSecondary)
+        Text(text = label, style = MaterialTheme.typography.labelLarge, color = TextSecondary)
         Spacer(modifier = Modifier.weight(1f))
         content()
     }
@@ -870,18 +950,25 @@ private fun StepButton(text: String, onClick: () -> Unit) {
         // 热区对齐 48dp（视觉块仍 34dp），便于点按。
         modifier = Modifier
             .size(48.dp)
-            .clip(RoundedCornerShape(12.dp))
+            // 圆角走形状令牌（F6）：medium 为 16dp。
+            .clip(MaterialTheme.shapes.medium)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
         Box(
             modifier = Modifier
                 .size(34.dp)
-                .clip(RoundedCornerShape(12.dp))
+                .clip(MaterialTheme.shapes.medium)
                 .background(SurfaceWarmDeep),
             contentAlignment = Alignment.Center
         ) {
-            Text(text = text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = OrangeStart)
+            Text(
+                text = text,
+                // 字号走主题字阶（F6）：titleMedium 为 16sp。
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = OrangeStart
+            )
         }
     }
 }

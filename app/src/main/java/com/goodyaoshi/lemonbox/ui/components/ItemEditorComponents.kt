@@ -17,11 +17,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -35,11 +35,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.OrangeTint
@@ -59,7 +57,8 @@ fun EditorSectionLabel(
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(
             text = label,
-            fontSize = 13.sp,
+            // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+            style = MaterialTheme.typography.bodyMedium,
             color = TextSecondary,
             fontWeight = FontWeight.Medium
         )
@@ -93,7 +92,8 @@ fun EditorInputBox(
         modifier = modifier
             .fillMaxWidth()
             .height(minHeight.dp)
-            .clip(RoundedCornerShape(18.dp))
+            // 圆角走形状令牌（F6）：收敛到 large（20dp）。
+            .clip(MaterialTheme.shapes.large)
             .background(OrangeTint)
             .padding(horizontal = 16.dp, vertical = 16.dp),
         contentAlignment = Alignment.CenterStart
@@ -101,7 +101,8 @@ fun EditorInputBox(
         if (value.isEmpty()) {
             Text(
                 text = placeholder,
-                fontSize = 15.sp,
+                // 字号走主题字阶（F6）：titleMedium 为 16sp。
+                style = MaterialTheme.typography.titleMedium,
                 color = TextHint
             )
         }
@@ -123,8 +124,8 @@ fun EditorInputBox(
                 singleLine = singleLine,
                 readOnly = readOnly,
                 visualTransformation = visualTransformation,
-                textStyle = TextStyle(
-                    fontSize = 15.sp,
+                // 字号走主题字阶（F6）：titleMedium 为 16sp。
+                textStyle = MaterialTheme.typography.titleMedium.copy(
                     color = TextPrimary
                 ),
                 cursorBrush = SolidColor(OrangeStart)
@@ -144,7 +145,8 @@ fun EditorSelectionChip(
 ) {
     Row(
         modifier = modifier
-            .clip(RoundedCornerShape(999.dp))
+            // 圆角走形状令牌（F6）：胶囊收敛到 CircleShape。
+            .clip(CircleShape)
             .background(if (selected) OrangeStart.copy(alpha = 0.12f) else OrangeTint)
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 10.dp),
@@ -162,7 +164,8 @@ fun EditorSelectionChip(
         }
         Text(
             text = text,
-            fontSize = 13.sp,
+            // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+            style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.Medium,
             color = if (selected) OrangeStart else TextSecondary
         )
@@ -210,7 +213,8 @@ fun ReminderLadderPicker(
         } else {
             "跟随默认：${defaultLadder.joinToString("、") { "$it 天" }}"
         },
-        fontSize = 12.sp,
+        // 字号走主题字阶（F6）：bodySmall 为 12sp。
+        style = MaterialTheme.typography.bodySmall,
         color = TextHint
     )
 }
@@ -221,7 +225,8 @@ fun BarcodeAssociationCard(
     onClear: () -> Unit
 ) {
     AppSurfaceCard(
-        shape = RoundedCornerShape(20.dp),
+        // 圆角走形状令牌（F6）：收敛到 large（20dp）。
+        shape = MaterialTheme.shapes.large,
         contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 12.dp),
         containerColor = OrangeTint,
         shadowElevation = 6.dp
@@ -230,7 +235,8 @@ fun BarcodeAssociationCard(
             Box(
                 modifier = Modifier
                     .size(34.dp)
-                    .background(OrangeStart.copy(alpha = 0.14f), RoundedCornerShape(14.dp)),
+                    // 圆角走形状令牌（F6）：收敛到 medium（16dp）。
+                    .background(OrangeStart.copy(alpha = 0.14f), MaterialTheme.shapes.medium),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -244,25 +250,29 @@ fun BarcodeAssociationCard(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = "已关联条码",
-                    fontSize = 13.sp,
+                    // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+                    style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.SemiBold,
                     // 该卡底为 OrangeTint，正文取语义「橙标签文字」，深色模式下随主题切换。
                     color = TagOrangeText
                 )
                 Text(
                     text = barcode,
-                    fontSize = 12.sp,
+                    // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                    style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary,
                     modifier = Modifier.padding(top = 2.dp)
                 )
             }
             Text(
                 text = "移除",
-                fontSize = 12.sp,
+                // 字号走主题字阶（F6）：labelMedium 为 12sp。
+                style = MaterialTheme.typography.labelMedium,
                 color = OrangeStart,
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier
-                    .clip(RoundedCornerShape(14.dp))
+                    // 圆角走形状令牌（F6）：收敛到 medium（16dp）。
+                    .clip(MaterialTheme.shapes.medium)
                     .clickable(onClick = onClear)
                     .padding(horizontal = 10.dp, vertical = 8.dp)
             )
@@ -281,7 +291,8 @@ fun QuantityStepper(
         StepperButton(text = "-", onClick = onDecrease)
         Text(
             text = "$quantity $unit",
-            fontSize = 18.sp,
+            // 字号走主题字阶（F6）：titleLarge 为 18sp。
+            style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.Bold,
             color = TextPrimary,
             modifier = Modifier.padding(horizontal = 18.dp)
@@ -312,8 +323,9 @@ private fun StepperButton(
         ) {
             Text(
                 text = text,
+                // 字号走主题字阶（F6）：headlineMedium 为 20sp。
+                style = MaterialTheme.typography.headlineMedium,
                 color = TextPrimary,
-                fontSize = 20.sp,
                 fontWeight = FontWeight.Bold
             )
         }
@@ -345,11 +357,13 @@ fun UnitPickerRow(
             val selected = candidate == unit
             Text(
                 text = candidate,
-                fontSize = 13.sp,
+                // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+                style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Medium,
                 color = if (selected) OrangeStart else TextSecondary,
                 modifier = Modifier
-                    .clip(RoundedCornerShape(999.dp))
+                    // 圆角走形状令牌（F6）：胶囊收敛到 CircleShape。
+                    .clip(CircleShape)
                     .background(if (selected) OrangeTint else SurfaceWarmDeep)
                     .clickable { onUnitChange(candidate) }
                     .padding(horizontal = 14.dp, vertical = 8.dp)
@@ -359,11 +373,13 @@ fun UnitPickerRow(
         if (unit.isNotBlank() && unit !in COMMON_UNITS) {
             Text(
                 text = unit,
-                fontSize = 13.sp,
+                // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+                style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Medium,
                 color = OrangeStart,
                 modifier = Modifier
-                    .clip(RoundedCornerShape(999.dp))
+                    // 圆角走形状令牌（F6）：胶囊收敛到 CircleShape。
+                    .clip(CircleShape)
                     .background(OrangeTint)
                     .clickable {
                         customInput = unit
@@ -374,11 +390,13 @@ fun UnitPickerRow(
         }
         Text(
             text = "自定义",
-            fontSize = 13.sp,
+            // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+            style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.Medium,
             color = OrangeStart,
             modifier = Modifier
-                .clip(RoundedCornerShape(999.dp))
+                // 圆角走形状令牌（F6）：胶囊收敛到 CircleShape。
+                .clip(CircleShape)
                 .background(SurfaceWarmDeep)
                 .clickable {
                     customInput = if (unit in COMMON_UNITS) "" else unit

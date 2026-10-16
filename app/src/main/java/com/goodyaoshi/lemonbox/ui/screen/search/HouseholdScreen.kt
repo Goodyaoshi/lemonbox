@@ -56,7 +56,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.data.local.entity.Item
 import com.goodyaoshi.lemonbox.data.local.entity.ItemDetail
@@ -298,10 +297,11 @@ fun HouseholdScreen(
                     if (showBackArrow && onBack != null) {
                         Box(
                             modifier = Modifier
-                                .size(38.dp)
-                                .clip(RoundedCornerShape(19.dp))
+                                // 触达面积达标（F7）：外框对齐 48dp（原 38dp）。
+                                .size(48.dp)
+                                .clip(CircleShape)
                                 .background(CardWhite.copy(alpha = 0.96f))
-                                .border(1.dp, DividerSoft, RoundedCornerShape(19.dp))
+                                .border(1.dp, DividerSoft, CircleShape)
                                 .clickable { onBack.invoke() },
                             contentAlignment = Alignment.Center
                         ) {
@@ -316,14 +316,15 @@ fun HouseholdScreen(
                     }
                     Text(
                         text = "家当",
-                        fontSize = 30.sp,
-                        fontWeight = FontWeight.Bold,
+                        // 页面主标题统一（F6）：走 headlineLarge（28sp），不再用 30sp。
+                        style = MaterialTheme.typography.headlineLarge,
                         color = TextPrimary
                     )
                 }
                 Text(
                     text = "搜索与筛选都在这里，条件可以自由叠加。",
-                    fontSize = 13.sp,
+                    // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+                    style = MaterialTheme.typography.bodyMedium,
                     color = TextSecondary,
                     modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
                 )
@@ -443,11 +444,12 @@ fun HouseholdScreen(
                     }
                     Text(
                         text = "清空",
-                        fontSize = 12.sp,
+                        // 字号走主题字阶（F6）：labelMedium 为 12sp。
+                        style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Medium,
                         color = TextSecondary,
                         modifier = Modifier
-                            .clip(RoundedCornerShape(999.dp))
+                            .clip(CircleShape)
                             .clickable { viewModel.resetFilter() }
                             .padding(horizontal = 6.dp, vertical = 4.dp)
                     )
@@ -621,7 +623,8 @@ fun HouseholdScreen(
                 Text(
                     text = "确定要删除「${item.name}」吗？",
                     color = TextSecondary,
-                    fontSize = 14.sp
+                    // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+                    style = MaterialTheme.typography.bodyMedium
                 )
             }
         }
@@ -645,7 +648,8 @@ fun HouseholdScreen(
                 Text(
                     text = "只删除这个筛选预设，不影响任何家当数据。",
                     color = TextSecondary,
-                    fontSize = 14.sp
+                    // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+                    style = MaterialTheme.typography.bodyMedium
                 )
             }
         }
@@ -740,7 +744,7 @@ private fun buildActiveChips(
 private fun ActiveConditionChip(label: String, onRemove: () -> Unit) {
     Row(
         modifier = Modifier
-            .clip(RoundedCornerShape(999.dp))
+            .clip(CircleShape)
             .background(OrangeStart.copy(alpha = 0.12f))
             .clickable(onClick = onRemove)
             .padding(start = 12.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
@@ -748,7 +752,8 @@ private fun ActiveConditionChip(label: String, onRemove: () -> Unit) {
     ) {
         Text(
             text = label,
-            fontSize = 12.sp,
+            // 字号走主题字阶（F6）：labelMedium 为 12sp。
+            style = MaterialTheme.typography.labelMedium,
             fontWeight = FontWeight.Medium,
             color = OrangeStart
         )
@@ -770,7 +775,7 @@ private fun FilterEntryChip(
 ) {
     Box {
         AppSurfaceCard(
-            shape = RoundedCornerShape(999.dp),
+            shape = CircleShape,
             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 9.dp),
             containerColor = if (selected) OrangeStart.copy(alpha = 0.12f) else CardWhite,
             shadowElevation = 8.dp,
@@ -786,7 +791,8 @@ private fun FilterEntryChip(
                 Spacer(modifier = Modifier.size(6.dp))
                 Text(
                     text = "筛选",
-                    fontSize = 13.sp,
+                    // 字号走主题字阶（F6）：labelLarge 为 14sp。
+                    style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.SemiBold,
                     color = if (selected) OrangeStart else TextPrimary
                 )
@@ -827,7 +833,7 @@ private fun PresetChip(
     onLongClick: (() -> Unit)? = null
 ) {
     AppSurfaceCard(
-        shape = RoundedCornerShape(999.dp),
+        shape = CircleShape,
         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 9.dp),
         containerColor = if (selected) OrangeStart.copy(alpha = 0.12f) else CardWhite,
         shadowElevation = 8.dp,
@@ -844,7 +850,8 @@ private fun PresetChip(
         ) {
             Text(
                 text = label,
-                fontSize = 13.sp,
+                // 字号走主题字阶（F6）：labelLarge 为 14sp。
+                style = MaterialTheme.typography.labelLarge,
                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
                 color = if (selected) OrangeStart else TextPrimary
             )
@@ -852,7 +859,8 @@ private fun PresetChip(
                 Spacer(modifier = Modifier.size(5.dp))
                 Text(
                     text = count.toString(),
-                    fontSize = 12.sp,
+                    // 字号走主题字阶（F6）：labelMedium 为 12sp。
+                    style = MaterialTheme.typography.labelMedium,
                     color = if (selected) OrangeStart else TextHint
                 )
             }
@@ -889,13 +897,14 @@ private fun LibraryFilterSheetContent(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = "筛选条件",
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
+                    // 字号走主题字阶（F6）：titleLarge 为 18sp。
+                    style = MaterialTheme.typography.titleLarge,
                     color = TextPrimary
                 )
                 Text(
                     text = "同一个维度可以多选，不同维度之间是「同时满足」。",
-                    fontSize = 12.sp,
+                    // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                    style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary,
                     modifier = Modifier.padding(top = 4.dp)
                 )
@@ -905,7 +914,8 @@ private fun LibraryFilterSheetContent(
                 contentDescription = "关闭",
                 tint = TextHint,
                 modifier = Modifier
-                    .size(32.dp)
+                    // 触达面积达标（F7）：热区对齐 48dp（原 32dp）。
+                    .size(48.dp)
                     .clip(CircleShape)
                     .clickable(onClick = onDone)
                     .padding(6.dp)
@@ -999,7 +1009,8 @@ private fun SheetSection(title: String, content: @Composable () -> Unit) {
     Column(modifier = Modifier.padding(top = 18.dp)) {
         Text(
             text = title,
-            fontSize = 14.sp,
+            // 字号走主题字阶（F6）：titleSmall 为 14sp。
+            style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.SemiBold,
             color = TextPrimary
         )
@@ -1022,14 +1033,15 @@ private fun SelectableChip(
 ) {
     Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(999.dp))
+            .clip(CircleShape)
             .background(if (selected) accent.copy(alpha = 0.14f) else SurfaceWarmDeep)
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 9.dp)
     ) {
         Text(
             text = label,
-            fontSize = 13.sp,
+            // 字号走主题字阶（F6）：labelLarge 为 14sp。
+            style = MaterialTheme.typography.labelLarge,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
             color = if (selected) accent else TextSecondary
         )
@@ -1046,7 +1058,8 @@ private fun PickerField(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
+            // 形状走形状令牌（F6）：medium 为 16dp。
+            .clip(MaterialTheme.shapes.medium)
             .background(SurfaceWarmDeep)
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 13.dp),
@@ -1054,13 +1067,15 @@ private fun PickerField(
     ) {
         Text(
             text = label,
-            fontSize = 13.sp,
+            // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+            style = MaterialTheme.typography.bodyMedium,
             color = TextSecondary,
             modifier = Modifier.weight(1f)
         )
         Text(
             text = value ?: placeholder,
-            fontSize = 13.sp,
+            // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+            style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.Medium,
             color = if (value != null) OrangeStart else TextHint
         )
@@ -1076,7 +1091,8 @@ private fun SheetButton(
 ) {
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(18.dp))
+            // 形状走形状令牌（F6）：large 为 20dp。
+            .clip(MaterialTheme.shapes.large)
             .background(if (highlight) OrangeStart.copy(alpha = 0.12f) else SurfaceWarmDeep)
             .clickable(onClick = onClick)
             .padding(vertical = 14.dp),
@@ -1084,7 +1100,8 @@ private fun SheetButton(
     ) {
         Text(
             text = text,
-            fontSize = 14.sp,
+            // 字号走主题字阶（F6）：labelLarge 为 14sp。
+            style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.SemiBold,
             color = if (highlight) OrangeStart else TextSecondary
         )

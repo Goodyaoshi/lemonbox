@@ -17,16 +17,17 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MailOutline
 import androidx.compose.material.icons.outlined.MarkEmailRead
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -37,11 +38,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.data.local.entity.TimeCapsule
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
@@ -50,10 +50,12 @@ import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.EmptyState
 import com.goodyaoshi.lemonbox.ui.components.ExpiryPickerDialog
 import com.goodyaoshi.lemonbox.ui.components.LemonFab
-import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
 import com.goodyaoshi.lemonbox.ui.components.PillTag
+import com.goodyaoshi.lemonbox.ui.components.SwipeActionSpec
+import com.goodyaoshi.lemonbox.ui.components.SwipeRevealItem
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.OrangeTint
+import com.goodyaoshi.lemonbox.ui.theme.StatusExpired
 import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarmDeep
 import com.goodyaoshi.lemonbox.ui.theme.TextHint
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
@@ -73,9 +75,11 @@ fun TimeCapsuleScreen(
     viewModel: TimeCapsuleViewModel = hiltViewModel()
 ) {
     val capsules by viewModel.capsules.collectAsState()
-    val appSnackbar = LocalAppSnackbar.current
     var showCompose by remember { mutableStateOf(false) }
     var readingId by remember { mutableStateOf<Long?>(null) }
+    // 删除入口（P3）：胶囊原先只能写不能删，这里补上左滑删除并二次确认（软删无撤销）。
+    var openedKey by remember { mutableStateOf<Any?>(null) }
+    var pendingDelete by remember { mutableStateOf<TimeCapsule?>(null) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         AppDecorativeBackground()
@@ -101,8 +105,8 @@ fun TimeCapsuleScreen(
                 }
                 Text(
                     text = "时间胶囊",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
+                    // 字号走主题字阶（F6）：titleLarge 为 18sp。
+                    style = MaterialTheme.typography.titleLarge,
                     color = TextPrimary
                 )
             }
@@ -114,17 +118,15 @@ fun TimeCapsuleScreen(
             ) {
                 CapsuleContent(
                     capsules = capsules,
+                    openedKey = openedKey,
+                    onOpenedChange = { openedKey = it },
                     onAdd = { showCompose = true },
+                    // 只有已解锁的卡可点（未解锁卡在 CapsuleCard 里被禁用），点开即记录首次阅读。
                     onOpen = { capsule ->
-                        if (capsule.isUnlocked()) {
-                            viewModel.open(capsule)
-                            readingId = capsule.id
-                        } else {
-                            appSnackbar?.postMessage(
-                                "还有 ${capsule.daysUntilUnlock()} 天才能打开"
-                            )
-                        }
-                    }
+                        viewModel.open(capsule)
+                        readingId = capsule.id
+                    },
+                    onDeleteRequest = { pendingDelete = it }
                 )
                 Spacer(modifier = Modifier.height(120.dp))
             }
@@ -156,12 +158,39 @@ fun TimeCapsuleScreen(
             dismissText = null
         ) {
             reading.forWhom?.takeIf { it.isNotBlank() }?.let {
-                Text(text = "写给：$it", fontSize = 12.sp, color = TextHint)
+                Text(
+                    text = "写给：$it",
+                    // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextHint
+                )
             }
             Text(
                 text = reading.content.ifBlank { "（没有写正文）" },
-                fontSize = 15.sp,
+                // 字号走主题字阶（F6）：titleMedium 为 16sp。
+                style = MaterialTheme.typography.titleMedium,
                 color = TextPrimary
+            )
+        }
+    }
+
+    // 删除确认（P3）：破坏性操作先弹二次确认；软删无撤销，所以文案讲清楚不可恢复。
+    pendingDelete?.let { target ->
+        AppDialog(
+            title = "删除时间胶囊",
+            onDismissRequest = { pendingDelete = null },
+            confirmText = "删除",
+            destructiveConfirm = true,
+            onConfirm = {
+                viewModel.delete(target)
+                pendingDelete = null
+            }
+        ) {
+            Text(
+                text = "确定要删除「${target.title}」吗？删除后无法恢复。",
+                // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+                style = MaterialTheme.typography.bodyMedium,
+                color = TextSecondary
             )
         }
     }
@@ -170,8 +199,11 @@ fun TimeCapsuleScreen(
 @Composable
 private fun CapsuleContent(
     capsules: List<TimeCapsule>,
+    openedKey: Any?,
+    onOpenedChange: (Any?) -> Unit,
     onAdd: () -> Unit,
-    onOpen: (TimeCapsule) -> Unit
+    onOpen: (TimeCapsule) -> Unit,
+    onDeleteRequest: (TimeCapsule) -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -188,7 +220,21 @@ private fun CapsuleContent(
             )
         } else {
             capsules.forEach { capsule ->
-                CapsuleCard(capsule = capsule, onClick = { onOpen(capsule) })
+                // 左滑露出删除（P3）：与待买/打包同一套侧滑语言，未解锁的卡也能删。
+                SwipeRevealItem(
+                    itemKey = capsule.id,
+                    openedItemKey = openedKey,
+                    onOpenedItemChange = onOpenedChange,
+                    actions = listOf(
+                        SwipeActionSpec(
+                            label = "删除",
+                            icon = Icons.Default.Delete,
+                            backgroundColor = StatusExpired
+                        ) { onDeleteRequest(capsule) }
+                    )
+                ) { _, _ ->
+                    CapsuleCard(capsule = capsule, onClick = { onOpen(capsule) })
+                }
             }
         }
     }
@@ -198,10 +244,14 @@ private fun CapsuleContent(
 private fun CapsuleCard(capsule: TimeCapsule, onClick: () -> Unit) {
     val unlocked = capsule.isUnlocked()
     AppSurfaceCard(
-        shape = RoundedCornerShape(22.dp),
+        // 圆角走形状令牌（F6）：22dp 卡片收敛到 extraLarge（24dp）。
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
         shadowElevation = 12.dp,
-        onClick = onClick
+        // 未解锁卡整体弱化并禁用（P1）：点了没反应会让人以为卡死，这里直接把「点不动」表达出来；
+        // 传 onClick = null 走非交互分支（不走 Material3 禁用态，免得卡底色被压到近乎透明）；
+        // 倒计时改由下方徽标承载，不再依赖点击弹提示。
+        modifier = Modifier.alpha(if (unlocked) 1f else 0.6f),
+        onClick = if (unlocked) onClick else null
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -230,8 +280,8 @@ private fun CapsuleCard(capsule: TimeCapsule, onClick: () -> Unit) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = capsule.title,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.SemiBold,
+                        // 字号走主题字阶（F6）：titleMedium 为 16sp。
+                        style = MaterialTheme.typography.titleMedium,
                         color = TextPrimary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -247,22 +297,33 @@ private fun CapsuleCard(capsule: TimeCapsule, onClick: () -> Unit) {
                 capsule.forWhom?.takeIf { it.isNotBlank() }?.let {
                     Text(
                         text = "写给：$it",
-                        fontSize = 12.sp,
+                        // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                        style = MaterialTheme.typography.bodySmall,
                         color = TextHint,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.padding(top = 1.dp)
                     )
                 }
-                Text(
-                    text = statusText(capsule),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = if (unlocked) OrangeStart else TextSecondary,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 4.dp)
-                )
+                if (unlocked) {
+                    Text(
+                        text = statusText(capsule),
+                        // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                        style = MaterialTheme.typography.bodySmall,
+                        color = OrangeStart,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                } else {
+                    // 倒计时徽标（P1）：未解锁卡把「还有几天」做成徽标，一眼看清状态。
+                    PillTag(
+                        text = "还有 ${capsule.daysUntilUnlock()} 天开启",
+                        backgroundColor = SurfaceWarmDeep,
+                        contentColor = TextSecondary,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
             }
         }
     }
@@ -315,7 +376,8 @@ private fun ComposeCapsuleDialog(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(16.dp))
+                // 圆角走形状令牌（F6）：16dp 收敛到 medium。
+                .clip(MaterialTheme.shapes.medium)
                 .background(SurfaceWarmDeep)
                 .clickable { showDatePicker = true }
                 .padding(horizontal = 14.dp, vertical = 12.dp),
@@ -323,14 +385,15 @@ private fun ComposeCapsuleDialog(
         ) {
             Text(
                 text = "开启日期",
-                fontSize = 14.sp,
+                // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+                style = MaterialTheme.typography.bodyMedium,
                 color = TextSecondary,
                 modifier = Modifier.weight(1f)
             )
             Text(
                 text = formatDate(toStartOfDayMillis(unlockDate)),
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold,
+                // 字号走主题字阶（F6）：14sp 日期值用 titleSmall 承载强调。
+                style = MaterialTheme.typography.titleSmall,
                 color = OrangeStart
             )
         }

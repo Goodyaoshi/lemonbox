@@ -21,7 +21,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -49,7 +48,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
@@ -134,12 +132,12 @@ fun DataCenterScreen(
             )
             AppSurfaceCard(
                 modifier = Modifier.padding(horizontal = 20.dp),
-                shape = RoundedCornerShape(24.dp),
+                shape = MaterialTheme.shapes.extraLarge,
                 shadowElevation = 12.dp
             ) {
                 MenuRow(
                     icon = Icons.Default.Sync,
-                    title = "局域网同步",
+                    title = "设备同步",
                     subtitle = "同一 WiFi 下用配对码互相补齐数据",
                     onClick = onOpenLanSync
                 )
@@ -159,7 +157,7 @@ fun DataCenterScreen(
             )
             AppSurfaceCard(
                 modifier = Modifier.padding(horizontal = 20.dp),
-                shape = RoundedCornerShape(24.dp),
+                shape = MaterialTheme.shapes.extraLarge,
                 shadowElevation = 12.dp
             ) {
                 MenuRow(
@@ -205,7 +203,7 @@ fun DataCenterScreen(
                 Text(
                     text = "大概几秒钟，先别退出应用",
                     color = TextSecondary,
-                    fontSize = 14.sp
+                    style = MaterialTheme.typography.titleSmall
                 )
             }
         }
@@ -266,13 +264,13 @@ fun DataCenterScreen(
             Text(
                 text = backupState.message.orEmpty(),
                 color = TextSecondary,
-                fontSize = 14.sp
+                style = MaterialTheme.typography.titleSmall
             )
             if (backupState.isError) {
                 Text(
                     text = "你的数据没有改动，可以再试一次。",
                     color = TextHint,
-                    fontSize = 12.sp,
+                    style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.padding(top = 6.dp)
                 )
             }
@@ -292,13 +290,14 @@ private fun SectionTitle(
         Box(
             modifier = Modifier
                 .size(width = 4.dp, height = 14.dp)
-                .clip(RoundedCornerShape(2.dp))
+                // 圆角走形状令牌（F6）：小圆角统一到 small。
+                .clip(MaterialTheme.shapes.small)
                 .background(LemonEnd)
         )
         Spacer(modifier = Modifier.size(6.dp))
         Text(
             text = title,
-            fontSize = 13.sp,
+            style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.Bold,
             color = TextSecondary
         )
@@ -315,7 +314,7 @@ private fun MenuRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
+            .clip(MaterialTheme.shapes.large)
             .clickable(onClick = onClick)
             .padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -338,13 +337,13 @@ private fun MenuRow(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = title,
-                fontSize = 15.sp,
+                style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold,
                 color = TextPrimary
             )
             Text(
                 text = subtitle,
-                fontSize = 12.sp,
+                style = MaterialTheme.typography.bodySmall,
                 color = TextHint
             )
         }

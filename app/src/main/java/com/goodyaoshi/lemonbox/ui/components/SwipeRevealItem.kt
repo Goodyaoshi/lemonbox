@@ -16,8 +16,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -31,7 +31,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -45,7 +44,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import com.goodyaoshi.lemonbox.ui.theme.OnScrim
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.max
@@ -55,7 +54,8 @@ data class SwipeActionSpec(
     val label: String,
     val icon: ImageVector,
     val backgroundColor: Color,
-    val contentColor: Color = Color.White,
+    // 前景色走主题令牌（F6）：不再是硬编码 Color.White，值同为不透明白。
+    val contentColor: Color = OnScrim,
     val onClick: () -> Unit
 )
 
@@ -67,7 +67,6 @@ fun SwipeRevealItem(
     actions: List<SwipeActionSpec>,
     modifier: Modifier = Modifier,
     actionWidth: Dp = 76.dp,
-    shape: Shape = RoundedCornerShape(22.dp),
     content: @Composable (closeActions: () -> Unit, isOpen: Boolean) -> Unit
 ) {
     val scope = rememberCoroutineScope()
@@ -184,7 +183,8 @@ private fun SwipeActionButton(
             .width(width)
             .height(height)
             .padding(horizontal = 4.dp, vertical = 5.dp)
-            .clip(RoundedCornerShape(18.dp))
+            // 圆角走形状令牌（F6）：动作按钮收敛到 medium（16dp）。
+            .clip(MaterialTheme.shapes.medium)
             .background(action.backgroundColor)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
@@ -205,7 +205,8 @@ private fun SwipeActionButton(
             Text(
                 text = action.label,
                 color = action.contentColor,
-                fontSize = 12.sp,
+                // 字号走主题字阶（F6）：labelMedium 为 12sp。
+                style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.padding(top = 6.dp)
             )

@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -26,6 +25,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Luggage
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -37,15 +37,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.EmptyState
+import com.goodyaoshi.lemonbox.ui.components.ExpiryPickerDialog
 import com.goodyaoshi.lemonbox.ui.components.LemonFab
 import com.goodyaoshi.lemonbox.ui.components.SwipeActionSpec
 import com.goodyaoshi.lemonbox.ui.components.SwipeRevealItem
@@ -53,12 +52,14 @@ import com.goodyaoshi.lemonbox.ui.theme.LemonEnd
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.OrangeTint
 import com.goodyaoshi.lemonbox.ui.theme.StatusExpired
-import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarmDeep
 import com.goodyaoshi.lemonbox.ui.theme.TextHint
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
 import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
 import com.goodyaoshi.lemonbox.ui.viewmodel.PackingListViewModel
 import com.goodyaoshi.lemonbox.ui.viewmodel.PackingTripRow
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 
 /**
  * 旅行打包清单列表（F16）：按行程展示，每个行程带打包进度，点进去勾选清单。
@@ -97,8 +98,8 @@ fun PackingListScreen(
                 }
                 Text(
                     text = "打包清单",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
+                    // 字号走主题字阶（F6）：titleLarge 为 18sp。
+                    style = MaterialTheme.typography.titleLarge,
                     color = TextPrimary
                 )
             }
@@ -190,7 +191,7 @@ private fun TripContent(
 @Composable
 private fun TripCard(row: PackingTripRow, onClick: () -> Unit) {
     AppSurfaceCard(
-        shape = RoundedCornerShape(22.dp),
+        // 圆角走形状令牌（F6）：22dp 卡片收敛到 extraLarge（24dp）。
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
         shadowElevation = 12.dp,
         onClick = onClick
@@ -217,8 +218,8 @@ private fun TripCard(row: PackingTripRow, onClick: () -> Unit) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = row.trip.name,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    // 字号走主题字阶（F6）：titleMedium 为 16sp。
+                    style = MaterialTheme.typography.titleMedium,
                     color = TextPrimary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -234,7 +235,8 @@ private fun TripCard(row: PackingTripRow, onClick: () -> Unit) {
                 if (subtitle.isNotBlank()) {
                     Text(
                         text = subtitle,
-                        fontSize = 12.sp,
+                        // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                        style = MaterialTheme.typography.bodySmall,
                         color = TextHint,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -243,8 +245,8 @@ private fun TripCard(row: PackingTripRow, onClick: () -> Unit) {
                 }
                 Text(
                     text = progressLabel(row),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                    style = MaterialTheme.typography.bodySmall,
                     color = if (row.totalCount > 0 && row.checkedCount == row.totalCount) {
                         LemonEnd
                     } else {
@@ -264,13 +266,51 @@ private fun CreateTripDialog(
 ) {
     var name by remember { mutableStateOf("") }
     var destination by remember { mutableStateOf("") }
+    // 起止日期（P1）：出行日期原先是只读展示、建行程时无法录入，这里补上可选的出发/返回日期，
+    // 与提醒页同一套 ExpiryPickerDialog 选择器，选完回填 yyyy-MM-dd。
+    var startDate by remember { mutableStateOf<String?>(null) }
+    var endDate by remember { mutableStateOf<String?>(null) }
+    var pickingStart by remember { mutableStateOf(false) }
+    var pickingEnd by remember { mutableStateOf(false) }
+
+    if (pickingStart) {
+        ExpiryPickerDialog(
+            selectedDateMillis = startDate.toLocalMillis(),
+            onDismissRequest = { pickingStart = false },
+            title = "选择出发日期",
+            onClear = {
+                startDate = null
+                pickingStart = false
+            },
+            onConfirm = { millis ->
+                startDate = millis?.toDateString()
+                pickingStart = false
+            }
+        )
+    }
+    if (pickingEnd) {
+        ExpiryPickerDialog(
+            selectedDateMillis = endDate.toLocalMillis(),
+            onDismissRequest = { pickingEnd = false },
+            title = "选择返回日期",
+            onClear = {
+                endDate = null
+                pickingEnd = false
+            },
+            onConfirm = { millis ->
+                endDate = millis?.toDateString()
+                pickingEnd = false
+            }
+        )
+    }
 
     AppDialog(
         title = "新建行程",
+        subtitle = "出行日期可选，先定个大概也能建起来。",
         onDismissRequest = onDismiss,
         confirmText = "创建",
         confirmEnabled = name.isNotBlank(),
-        onConfirm = { onConfirm(name, destination, null, null) }
+        onConfirm = { onConfirm(name, destination, startDate, endDate) }
     ) {
         OutlinedTextField(
             value = name,
@@ -286,13 +326,64 @@ private fun CreateTripDialog(
             label = { Text("目的地（可选）") },
             modifier = Modifier.fillMaxWidth()
         )
+        TripDateField(label = "出发日期", value = startDate, onPick = { pickingStart = true })
+        TripDateField(label = "返回日期", value = endDate, onPick = { pickingEnd = true })
     }
 }
 
+/** 表单里的日期行：显示已选日期，整行可点开选择器（清空走选择器内的「清空」）。 */
+@Composable
+private fun TripDateField(
+    label: String,
+    value: String?,
+    onPick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(MaterialTheme.shapes.medium)
+            .clickable(onClick = onPick)
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = label,
+                // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+                style = MaterialTheme.typography.bodyMedium,
+                color = TextSecondary
+            )
+            Text(
+                text = value ?: "未设置，点击选择",
+                // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                style = MaterialTheme.typography.bodySmall,
+                color = if (value == null) TextHint else OrangeStart
+            )
+        }
+        Text(
+            text = if (value == null) "选择" else "修改",
+            // 字号走主题字阶（F6）：labelLarge 为 14sp。
+            style = MaterialTheme.typography.labelLarge,
+            color = OrangeStart
+        )
+    }
+}
+
+/** yyyy-MM-dd 文本转日期选择器需要的毫秒（按系统时区，避免时区导致日期偏移一天）。 */
+private fun String?.toLocalMillis(): Long? = this
+    ?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+    ?.atStartOfDay(ZoneId.systemDefault())
+    ?.toInstant()
+    ?.toEpochMilli()
+
+private fun Long.toDateString(): String =
+    Instant.ofEpochMilli(this).atZone(ZoneId.systemDefault()).toLocalDate().toString()
+
 private fun progressLabel(row: PackingTripRow): String = when {
     row.totalCount == 0 -> "还没有要带的东西"
-    row.checkedCount == row.totalCount -> "全部 ${row.totalCount} 件都装好了"
-    else -> "已装 ${row.checkedCount}/${row.totalCount}"
+    row.checkedCount == row.totalCount -> "全部 ${row.totalCount} 件都装好了（100%）"
+    // 进度补百分比（P2）：光看「3/8」要心算，直接把完成度写清楚。
+    else -> "已装 ${row.checkedCount}/${row.totalCount}（${row.checkedCount * 100 / row.totalCount}%）"
 }
 
 private fun dateRangeLabel(start: String?, end: String?): String = when {

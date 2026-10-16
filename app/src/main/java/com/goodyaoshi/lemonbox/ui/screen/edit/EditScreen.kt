@@ -32,12 +32,10 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -48,7 +46,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.data.local.entity.Item
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
@@ -263,7 +260,8 @@ fun EditScreen(
                 }
                 Text(
                     text = "编辑物品",
-                    fontSize = 22.sp,
+                    // 页面主标题统一走主题字阶（F6）：headlineLarge 为 28sp。
+                    style = MaterialTheme.typography.headlineLarge,
                     color = TextPrimary
                 )
             }
@@ -346,7 +344,8 @@ fun EditScreen(
                     ) {
                         Text(
                             text = "更多信息",
-                            fontSize = 14.sp,
+                            // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+                            style = MaterialTheme.typography.bodyMedium,
                             color = TextSecondary
                         )
                         Spacer(modifier = Modifier.width(4.dp))
@@ -457,7 +456,8 @@ fun EditScreen(
                                 Spacer(modifier = Modifier.size(6.dp))
                                 Text(
                                     text = "不按件扣数量，按使用天数统计成本",
-                                    fontSize = 12.sp,
+                                    // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                                    style = MaterialTheme.typography.bodySmall,
                                     color = TextHint
                                 )
                             }
@@ -539,19 +539,27 @@ fun EditScreen(
         }
 
         if (state.conflict) {
-            AlertDialog(
+            // 保存冲突弹窗改走全 App 统一的 AppDialog（P2）：此前用默认 AlertDialog，
+            // 与其余弹窗的遮罩 / 圆角 / 按钮版式断层，像外来模块。
+            AppDialog(
+                title = "这条物品在别处被修改过",
                 onDismissRequest = viewModel::dismissConflict,
-                title = { Text("这条物品在别处被修改过") },
-                text = {
-                    Text("另一台设备（或本机其它操作）在你编辑期间改动了它。继续保存会用你当前的内容覆盖对方；也可以放弃你的改动、载入最新版本。")
-                },
-                confirmButton = {
-                    TextButton(onClick = viewModel::confirmOverwrite) { Text("仍然覆盖") }
-                },
-                dismissButton = {
-                    TextButton(onClick = viewModel::discardConflictAndReload) { Text("载入最新") }
-                }
-            )
+                confirmText = "仍然覆盖",
+                destructiveConfirm = true,
+                onConfirm = viewModel::confirmOverwrite,
+                // 「载入最新」是放弃本机改动的独立动作，放在第二动作位；
+                // 取消（点遮罩 / 返回）即维持编辑，故不额外占一个按钮位。
+                dismissText = null,
+                secondaryText = "载入最新",
+                onSecondary = viewModel::discardConflictAndReload
+            ) {
+                Text(
+                    text = "另一台设备（或本机其它操作）在你编辑期间改动了它。继续保存会用你当前的内容覆盖对方；也可以放弃你的改动、载入最新版本。",
+                    // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextSecondary
+                )
+            }
         }
 
         if (showCategoryPicker) {
@@ -658,7 +666,8 @@ fun EditScreen(
             ) {
                 Text(
                     text = "确定要离开并丢弃当前的修改吗？",
-                    fontSize = 14.sp,
+                    // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+                    style = MaterialTheme.typography.bodyMedium,
                     color = TextSecondary
                 )
             }

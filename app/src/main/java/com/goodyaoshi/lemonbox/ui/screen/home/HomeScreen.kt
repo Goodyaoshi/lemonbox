@@ -35,6 +35,7 @@ import androidx.compose.material.icons.outlined.NotificationsOff
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -52,7 +53,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.data.local.entity.ItemDetail
 import com.goodyaoshi.lemonbox.data.repository.WeeklyMealDay
@@ -71,6 +71,7 @@ import com.goodyaoshi.lemonbox.ui.theme.LemonEnd
 import com.goodyaoshi.lemonbox.ui.theme.LemonStart
 import com.goodyaoshi.lemonbox.ui.theme.OnLemon
 import com.goodyaoshi.lemonbox.ui.theme.OnLemonSoft
+import com.goodyaoshi.lemonbox.ui.theme.OnScrim
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.OrangeTint
 import com.goodyaoshi.lemonbox.ui.theme.StatusExpired
@@ -164,7 +165,8 @@ fun HomeScreen(
                 Box(
                     modifier = Modifier
                         .size(52.dp)
-                        .clip(RoundedCornerShape(26.dp))
+                        // 形状走形状令牌（F6）：圆形统一用 CircleShape。
+                        .clip(CircleShape)
                         .background(OrangeTint)
                         .clickable(onClick = onNavigateToScan),
                     contentAlignment = Alignment.Center
@@ -291,7 +293,8 @@ private fun HeroHeader(togetherLabel: String?, nickname: String) {
                 .matchParentSize()
                 .background(
                     brush = Brush.radialGradient(
-                        colors = listOf(Color.White.copy(alpha = 0.24f), Color.Transparent),
+                        // 硬编码白改走语义色令牌（F5）：OnScrim 即纯白，明暗通用。
+                        colors = listOf(OnScrim.copy(alpha = 0.24f), Color.Transparent),
                         radius = 620f
                     ),
                     shape = RoundedCornerShape(bottomStart = 36.dp, bottomEnd = 36.dp)
@@ -321,8 +324,9 @@ private fun HeroHeader(togetherLabel: String?, nickname: String) {
                         color = OnLemonSoft,
                         style = MaterialTheme.typography.labelMedium,
                         modifier = Modifier
-                            .clip(RoundedCornerShape(50))
-                            .background(Color.White.copy(alpha = 0.18f))
+                            .clip(CircleShape)
+                            // 硬编码白改走语义色令牌（F5）。
+                            .background(OnScrim.copy(alpha = 0.18f))
                             .padding(horizontal = 10.dp, vertical = 4.dp)
                     )
                 }
@@ -459,7 +463,7 @@ private fun TodaySection(
                     scaleX = finishScale.value
                     scaleY = finishScale.value
                 },
-                shape = RoundedCornerShape(22.dp),
+                shape = MaterialTheme.shapes.large,
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
                 containerColor = CardWhite.copy(alpha = 0.72f),
                 shadowElevation = 8.dp
@@ -471,7 +475,7 @@ private fun TodaySection(
                     Box(
                         modifier = Modifier
                             .size(36.dp)
-                            .clip(RoundedCornerShape(14.dp))
+                            .clip(MaterialTheme.shapes.medium)
                             .background(LemonEnd.copy(alpha = 0.12f)),
                         contentAlignment = Alignment.Center
                     ) {
@@ -486,7 +490,8 @@ private fun TodaySection(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = if (justFinished) "今天都办完了，去休息吧" else "今天没有要紧事",
-                            fontSize = 14.sp,
+                            // 字号走主题字阶（F6）：titleSmall 为 14sp。
+                            style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.SemiBold,
                             color = TextPrimary
                         )
@@ -496,7 +501,8 @@ private fun TodaySection(
                             } else {
                                 "待办提醒、临期家当和待买都会汇到这里"
                             },
-                            fontSize = 12.sp,
+                            // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                            style = MaterialTheme.typography.bodySmall,
                             color = TextSecondary,
                             modifier = Modifier.padding(top = 2.dp)
                         )
@@ -507,12 +513,13 @@ private fun TodaySection(
             // 选了某一类但该类刚好被清空（如刚把待买都办掉）：给一句提示，别让卡片毫无内容。
             Text(
                 text = "这一类暂时没有事了",
-                fontSize = 13.sp,
+                // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+                style = MaterialTheme.typography.bodyMedium,
                 color = TextSecondary
             )
         } else {
             AppSurfaceCard(
-                shape = RoundedCornerShape(22.dp),
+                shape = MaterialTheme.shapes.large,
                 contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
                 shadowElevation = 12.dp
             ) {
@@ -568,7 +575,8 @@ private fun TodayIgnoredRow(
         Spacer(modifier = Modifier.width(6.dp))
         Text(
             text = "今天已忽略 · ${event.title}",
-            fontSize = 12.sp,
+            // 字号走主题字阶（F6）：bodySmall 为 12sp。
+            style = MaterialTheme.typography.bodySmall,
             color = TextHint,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -576,11 +584,14 @@ private fun TodayIgnoredRow(
         )
         Text(
             text = "撤销",
-            fontSize = 12.sp,
+            // 字号走主题字阶（F6）：labelMedium 为 12sp。
+            style = MaterialTheme.typography.labelMedium,
             fontWeight = FontWeight.SemiBold,
             color = OrangeStart,
             modifier = Modifier
-                .clip(RoundedCornerShape(8.dp))
+                // 触达面积达标（F7）：热区对齐 48dp（视觉尺寸不变）。
+                .minimumInteractiveComponentSize()
+                .clip(MaterialTheme.shapes.small)
                 .clickable(onClick = onUndo)
                 .padding(horizontal = 8.dp, vertical = 4.dp)
         )
@@ -597,7 +608,7 @@ private fun TodayEventExpandRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
+            .clip(MaterialTheme.shapes.medium)
             .clickable(onClick = onToggle)
             .padding(horizontal = 10.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.Center,
@@ -605,7 +616,8 @@ private fun TodayEventExpandRow(
     ) {
         Text(
             text = if (expanded) "收起" else "还有 $hiddenCount 件，展开查看",
-            fontSize = 13.sp,
+            // 字号走主题字阶（F6）：labelLarge 为 14sp。
+            style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.SemiBold,
             color = OrangeStart
         )
@@ -644,7 +656,7 @@ private fun TodayEventRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
+            .clip(MaterialTheme.shapes.medium)
             .clickable(onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -652,7 +664,7 @@ private fun TodayEventRow(
         Box(
             modifier = Modifier
                 .size(36.dp)
-                .clip(RoundedCornerShape(14.dp))
+                .clip(MaterialTheme.shapes.medium)
                 .background(accent.copy(alpha = 0.12f)),
             contentAlignment = Alignment.Center
         ) {
@@ -667,7 +679,8 @@ private fun TodayEventRow(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = event.title,
-                fontSize = 14.sp,
+                // 字号走主题字阶（F6）：titleSmall 为 14sp。
+                style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
                 color = TextPrimary,
                 maxLines = 1,
@@ -676,7 +689,8 @@ private fun TodayEventRow(
             event.detail?.let { detail ->
                 Text(
                     text = detail,
-                    fontSize = 12.sp,
+                    // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                    style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -773,7 +787,7 @@ private fun AnniversarySection(
             modifier = Modifier.padding(top = 12.dp, bottom = 10.dp)
         )
         AppSurfaceCard(
-            shape = RoundedCornerShape(22.dp),
+            shape = MaterialTheme.shapes.large,
             contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
             shadowElevation = 12.dp
         ) {
@@ -782,7 +796,7 @@ private fun AnniversarySection(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(16.dp))
+                            .clip(MaterialTheme.shapes.medium)
                             // IA-3：点这一行直达该纪念日的编辑页，就地改名字/日期。
                             .clickable { onOpenEdit(row.anniversary.id) }
                             .padding(horizontal = 10.dp, vertical = 8.dp),
@@ -791,7 +805,7 @@ private fun AnniversarySection(
                         Box(
                             modifier = Modifier
                                 .size(36.dp)
-                                .clip(RoundedCornerShape(14.dp))
+                                .clip(MaterialTheme.shapes.medium)
                                 .background(OrangeStart.copy(alpha = 0.12f)),
                             contentAlignment = Alignment.Center
                         ) {
@@ -806,7 +820,8 @@ private fun AnniversarySection(
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = row.name,
-                                fontSize = 14.sp,
+                                // 字号走主题字阶（F6）：titleSmall 为 14sp。
+                                style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.SemiBold,
                                 color = TextPrimary,
                                 maxLines = 1,
@@ -814,7 +829,8 @@ private fun AnniversarySection(
                             )
                             Text(
                                 text = row.statusText,
-                                fontSize = 12.sp,
+                                // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                                style = MaterialTheme.typography.bodySmall,
                                 color = TextSecondary,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -857,7 +873,7 @@ private fun TodayMealCard(
         )
         Spacer(modifier = Modifier.height(10.dp))
         AppSurfaceCard(
-            shape = RoundedCornerShape(22.dp),
+            shape = MaterialTheme.shapes.large,
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
             shadowElevation = 12.dp,
             onClick = onGoPlan
@@ -865,7 +881,8 @@ private fun TodayMealCard(
             if (day == null) {
                 Text(
                     text = "今天还没安排，去吃饭页看看吧",
-                    fontSize = 13.sp,
+                    // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+                    style = MaterialTheme.typography.bodyMedium,
                     color = TextSecondary
                 )
             } else {
@@ -875,7 +892,8 @@ private fun TodayMealCard(
                 ) {
                     Text(
                         text = day.title,
-                        fontSize = 15.sp,
+                        // 字号走主题字阶（F6）：titleMedium 为 16sp。
+                        style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                         color = TextPrimary,
                         maxLines = 2,
@@ -888,7 +906,8 @@ private fun TodayMealCard(
                         PillTag(
                             text = "做了",
                             backgroundColor = OrangeStart,
-                            contentColor = Color.White,
+                            // 硬编码白改走语义色令牌（F5）。
+                            contentColor = OnScrim,
                             onClick = onCooked
                         )
                     }
@@ -897,7 +916,8 @@ private fun TodayMealCard(
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
                         text = "还缺：${day.missing.joinToString("、")}",
-                        fontSize = 12.sp,
+                        // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                        style = MaterialTheme.typography.bodySmall,
                         color = TagOrangeText,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis

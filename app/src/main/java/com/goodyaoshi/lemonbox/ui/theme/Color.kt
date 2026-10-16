@@ -69,6 +69,10 @@ val ScrimMedium = Color.Black.copy(alpha = 0.32f)
 val ScrimSoft = Color.Black.copy(alpha = 0.24f)
 /** 图片顶部的轻微压暗渐变。 */
 val ScrimFaint = Color.Black.copy(alpha = 0.12f)
+/** 深色遮罩之上的内容色（预览层按钮 / 页码）：遮罩恒为深色，故此处恒用浅色，不随主题切换。 */
+val OnScrim = Color(0xFFFFFFFF)
+/** 深色遮罩之上的次级衬底色（按钮底、页码底的半透明浅色）。 */
+val OnScrimScrim = Color(0x24FFFFFF)
 /** 卡片阴影的落点色，收到一处便于整体微调。 */
 val ShadowSpot = Color.Black.copy(alpha = 0.08f)
 

@@ -22,7 +22,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -43,8 +43,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.goodyaoshi.lemonbox.data.local.entity.ItemDetail
 import com.goodyaoshi.lemonbox.data.meal.BASE_SOUP_LABEL
 import com.goodyaoshi.lemonbox.data.meal.BASE_STAPLES
@@ -121,8 +121,8 @@ internal fun WeeklyMenuSection(
             .padding(horizontal = 20.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        DayMealGrid(day = day, onItemClick = onItemClick)
-
+        // 主操作上移（P1）：把「做了 / 换一道 / 编辑一餐」操作条挪到菜品网格之上，
+        // 首屏即可见，不再被网格与缺料状态行压到屏幕下方而漏掉结算流程。
         DayMealActionRow(
             day = day,
             hasPrepReminder = day.dateKey in mealPrepDays,
@@ -131,6 +131,8 @@ internal fun WeeklyMenuSection(
             onEdit = { onEdit(day.dateKey) },
             onPrepReminder = { onPrepReminder(day.dateKey) }
         )
+
+        DayMealGrid(day = day, onItemClick = onItemClick)
     }
 }
 
@@ -143,7 +145,8 @@ private fun MealDayTab(
 ) {
     Column(
         modifier = Modifier
-            .clip(RoundedCornerShape(16.dp))
+            // 圆角走形状令牌（F6）：medium 为 16dp。
+            .clip(MaterialTheme.shapes.medium)
             .background(if (selected) OrangeStart else SurfaceWarmDeep)
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 8.dp),
@@ -151,7 +154,8 @@ private fun MealDayTab(
     ) {
         Text(
             text = day.dayLabel,
-            fontSize = 13.sp,
+            // 字号走主题字阶（F6）：labelLarge 为 14sp。
+            style = MaterialTheme.typography.labelLarge,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
             color = if (selected) Color.White else TextSecondary
         )
@@ -210,7 +214,8 @@ private fun MealDishCard(
 
     AppSurfaceCard(
         modifier = modifier,
-        shape = RoundedCornerShape(18.dp),
+        // 圆角走形状令牌（F6）：large 为 20dp。
+        shape = MaterialTheme.shapes.large,
         contentPadding = PaddingValues(12.dp),
         containerColor = CardWhite.copy(alpha = 0.8f),
         shadowElevation = 6.dp
@@ -225,10 +230,13 @@ private fun MealDishCard(
         Spacer(modifier = Modifier.height(4.dp))
         Text(
             text = dish.label,
-            fontSize = 14.sp,
+            // 字号走主题字阶（F6）：titleSmall 为 14sp。
+            style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.SemiBold,
             color = TextPrimary,
-            maxLines = 2
+            maxLines = 2,
+            // 长菜名截断补省略号（P2）：maxLines 生效又不丢「被截断了」的信号。
+            overflow = TextOverflow.Ellipsis
         )
         Spacer(modifier = Modifier.height(6.dp))
         when {
@@ -253,7 +261,9 @@ private fun MealDishCard(
                 // 字号走主题字阶（F6），并满足说明文字 ≥12sp（F7）。
                 style = MaterialTheme.typography.bodySmall,
                 color = TagOrangeText,
-                maxLines = 2
+                maxLines = 2,
+                // 缺料清单截断补省略号（P2）：多味主料被截断时给出省略号。
+                overflow = TextOverflow.Ellipsis
             )
         }
         if (available.isNotEmpty()) {
@@ -292,7 +302,8 @@ internal fun DayMealActionRow(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = if (day.missing.isEmpty()) "现有食材够做这一餐" else "缺 ${day.missing.size} 样主料",
-                fontSize = 12.sp,
+                // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                style = MaterialTheme.typography.bodySmall,
                 color = TextSecondary,
                 modifier = Modifier.weight(1f)
             )
@@ -302,14 +313,16 @@ internal fun DayMealActionRow(
                 // 备菜提醒（如提前一晚解冻肉）：一天一条，生成后显示「已提醒」。
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(999.dp))
+                        // 胶囊用 CircleShape（F6）：形状令牌化，替换内联 999dp 圆角。
+                        .clip(CircleShape)
                         .background(if (hasPrepReminder) TagGreen else SurfaceWarmDeep)
                         .clickable(enabled = !hasPrepReminder, onClick = onPrepReminder)
                         .padding(horizontal = 12.dp, vertical = 6.dp)
                 ) {
                     Text(
                         text = if (hasPrepReminder) "已提醒" else "提醒准备",
-                        fontSize = 12.sp,
+                        // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                        style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.Medium,
                         color = if (hasPrepReminder) TagGreenText else TextSecondary
                     )
@@ -361,7 +374,8 @@ private fun MealActionButton(
 ) {
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(14.dp))
+            // 圆角走形状令牌（F6）：medium 为 16dp。
+            .clip(MaterialTheme.shapes.medium)
             .background(if (primary) OrangeStart else SurfaceWarmDeep)
             .clickable(onClick = onClick)
             .padding(vertical = 10.dp),
@@ -369,7 +383,8 @@ private fun MealActionButton(
     ) {
         Text(
             text = label,
-            fontSize = 13.sp,
+            // 字号走主题字阶（F6）：labelLarge 为 14sp。
+            style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.SemiBold,
             color = if (primary) Color.White else TextSecondary
         )
@@ -408,14 +423,16 @@ internal fun MealPlanDaysDialog(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(text = "自定义天数", fontSize = 13.sp, color = TextSecondary)
+            // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+            Text(text = "自定义天数", style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
             Spacer(modifier = Modifier.weight(1f))
             PlanDayStepButton(text = "−") {
                 days = (days - 1).coerceAtLeast(MIN_PLAN_DAYS)
             }
             Text(
                 text = "$days",
-                fontSize = 16.sp,
+                // 字号走主题字阶（F6）：titleMedium 为 16sp。
+                style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
                 color = TextPrimary,
                 modifier = Modifier.padding(horizontal = 16.dp)
@@ -429,15 +446,29 @@ internal fun MealPlanDaysDialog(
 
 @Composable
 private fun PlanDayStepButton(text: String, onClick: () -> Unit) {
+    // 触达面积达标（F7）：用 48dp 热区承接点击，视觉圆钮仍 36dp，外观不变。
     Box(
         modifier = Modifier
-            .size(36.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(SurfaceWarmDeep)
+            .size(48.dp)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        Text(text = text, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = OrangeStart)
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                // 圆角走形状令牌（F6）：medium 为 16dp。
+                .clip(MaterialTheme.shapes.medium)
+                .background(SurfaceWarmDeep),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = text,
+                // 字号走主题字阶（F6）：titleLarge 为 18sp。
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = OrangeStart
+            )
+        }
     }
 }
 
@@ -486,7 +517,8 @@ internal fun MealEditorSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
+                // 圆角走形状令牌（F6）：底部弹层顶角统一到 extraLarge（24dp）。
+                .clip(MaterialTheme.shapes.extraLarge)
                 .background(CardWhite)
                 .navigationBarsPadding()
                 .padding(horizontal = 20.dp)
@@ -494,13 +526,15 @@ internal fun MealEditorSheet(
         ) {
             Text(
                 text = "${day.dayLabel}吃什么",
-                fontSize = 20.sp,
+                // 字号走主题字阶（F6）：弹窗标题统一 headlineMedium（22sp）。
+                style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold,
                 color = TextPrimary
             )
             Text(
                 text = "主食 + 蛋白必配，蔬菜、汤饮可选；一道菜可顶多个角色。保存后缺的主料自动进待买。",
-                fontSize = 12.sp,
+                // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                style = MaterialTheme.typography.bodySmall,
                 color = TextSecondary,
                 modifier = Modifier.padding(top = 4.dp)
             )
@@ -512,7 +546,12 @@ internal fun MealEditorSheet(
             )
             Spacer(modifier = Modifier.height(8.dp))
             if (selection.isEmpty()) {
-                Text(text = "还没选菜，到下面按分类挑一道吧。", fontSize = 12.sp, color = TextHint)
+                Text(
+                    text = "还没选菜，到下面按分类挑一道吧。",
+                    // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextHint
+                )
             } else {
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -558,7 +597,8 @@ internal fun MealEditorSheet(
                 if (options.isEmpty()) {
                     Text(
                         text = "菜谱库里还没有「${MealPickTab.entries[tabIndex].label}」菜谱，去「菜谱库」添加一道吧。",
-                        fontSize = 12.sp,
+                        // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                        style = MaterialTheme.typography.bodySmall,
                         color = TextHint
                     )
                 } else {
@@ -652,7 +692,8 @@ private fun SheetActionButton(
 ) {
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(18.dp))
+            // 圆角走形状令牌（F6）：large 为 20dp。
+            .clip(MaterialTheme.shapes.large)
             .background(
                 when {
                     !enabled -> SurfaceWarmDeep
@@ -666,7 +707,8 @@ private fun SheetActionButton(
     ) {
         Text(
             text = text,
-            fontSize = 14.sp,
+            // 字号走主题字阶（F6）：labelLarge 为 14sp。
+            style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.SemiBold,
             color = when {
                 !enabled -> TextHint
@@ -796,9 +838,11 @@ internal fun MealPrepDialog(
                 )
             }
             // 时间独立选择：默认带出设置页配置的时间，也能临时改成任意分钟。
+            // 选中态修正（P1）：此前恒 false 看起来像「没选」；这里展示的时刻就是当前提醒时间，
+            // 置为选中态，与上方「触发日」chip 的选中语义对齐。
             EditorSelectionChip(
                 text = fireTime,
-                selected = false,
+                selected = true,
                 onClick = { showTimePicker = true }
             )
         }

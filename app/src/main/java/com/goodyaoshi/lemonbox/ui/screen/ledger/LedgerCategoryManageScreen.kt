@@ -21,7 +21,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
@@ -29,6 +28,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -40,7 +40,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerCategory
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
@@ -106,7 +105,8 @@ fun LedgerCategoryManageScreen(
                 }
                 Text(
                     text = "记账分类",
-                    fontSize = 18.sp,
+                    // 字号走主题字阶（F6）：titleLarge 为 18sp。
+                    style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary
                 )
@@ -151,7 +151,9 @@ fun LedgerCategoryManageScreen(
                         ) { _, _ ->
                             LedgerCategoryRow(
                                 category = category,
-                                onClick = { editingCategory = category }
+                                onClick = { editingCategory = category },
+                                // 显式删除入口（P2）：点行内垃圾桶即可删除，不再只靠左滑发现。
+                                onDelete = { pendingDelete = category }
                             )
                         }
                     }
@@ -207,7 +209,8 @@ fun LedgerCategoryManageScreen(
             Text(
                 text = "确定要删除「${category.name}」吗？",
                 color = TextSecondary,
-                fontSize = 14.sp
+                // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+                style = MaterialTheme.typography.bodyMedium
             )
         }
     }
@@ -217,12 +220,14 @@ fun LedgerCategoryManageScreen(
 @Composable
 private fun LedgerCategoryRow(
     category: LedgerCategory,
-    onClick: (() -> Unit)?
+    onClick: (() -> Unit)?,
+    onDelete: (() -> Unit)? = null
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
+            // 圆角走形状令牌（F6）：large 为 20dp。
+            .clip(MaterialTheme.shapes.large)
             .background(CardWhite)
             .clickable(enabled = onClick != null, onClick = { onClick?.invoke() })
             .padding(horizontal = 14.dp, vertical = 12.dp),
@@ -244,7 +249,8 @@ private fun LedgerCategoryRow(
         }
         Text(
             text = category.name,
-            fontSize = 15.sp,
+            // 字号走主题字阶（F6）：titleSmall 为 14sp。
+            style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.Medium,
             color = TextPrimary,
             modifier = Modifier
@@ -264,6 +270,15 @@ private fun LedgerCategoryRow(
                 style = MaterialTheme.typography.bodySmall,
                 color = TextHint
             )
+            // 显式删除入口（P2）：此前删除仅靠左滑、不可发现，这里补一个可见的垃圾桶按钮。
+            IconButton(onClick = { onDelete?.invoke() }) {
+                Icon(
+                    imageVector = Icons.Filled.Delete,
+                    contentDescription = "删除${category.name}",
+                    tint = TextHint,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
         }
     }
 }
@@ -320,6 +335,8 @@ internal fun IconPickCell(
 ) {
     Box(
         modifier = Modifier
+            // 触达面积达标（P2）：图标格视觉 40dp，撑出 48dp 最小可点区，视觉尺寸不变。
+            .minimumInteractiveComponentSize()
             .size(40.dp)
             .clip(CircleShape)
             .background(if (selected) OrangeStart.copy(alpha = 0.16f) else SurfaceWarmDeep)

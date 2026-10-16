@@ -14,13 +14,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -29,13 +29,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.goodyaoshi.lemonbox.data.local.entity.Item
 import com.goodyaoshi.lemonbox.data.local.entity.ItemDetail
@@ -78,9 +79,23 @@ fun ItemCard(
     val hasPrimaryImage = primaryImageHash != null
     val inSelectionMode = selectionSelected != null
 
+    // 读屏可达（F8）：整卡点击在批量模式下就是「切换勾选」。此前整卡与行首勾选框
+    // 各自声明了一份 Checkbox 语义，读屏会出现两个聚焦点、同一个动作，顺序混乱；
+    // 现在把勾选语义收归整卡一处，行首勾选框降为纯视觉，聚焦一次即可知「是否已选中」。
+    val cardModifier = if (inSelectionMode) {
+        modifier.semantics {
+            role = Role.Checkbox
+            contentDescription = "选择该家当"
+            stateDescription = if (selectionSelected == true) "已选中" else "未选中"
+        }
+    } else {
+        modifier
+    }
+
     AppSurfaceCard(
-        modifier = modifier,
-        shape = RoundedCornerShape(22.dp),
+        modifier = cardModifier,
+        // 圆角走形状令牌（F6）：与卡片 large 档位对齐。
+        shape = MaterialTheme.shapes.large,
         contentPadding = androidx.compose.foundation.layout.PaddingValues(14.dp),
         shadowElevation = 12.dp,
         onClick = onClick
@@ -89,7 +104,8 @@ fun ItemCard(
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (selectionSelected != null) {
-                // 批量勾选框：与回收站/待买同一套视觉与读屏处理（48dp 热区 + Checkbox 语义）。
+                // 批量勾选框：与回收站/待买同一套视觉（48dp 热区）；语义收归整卡，
+                // 此处只负责画，避免与整卡重复声明同一动作。
                 Box(
                     modifier = Modifier
                         .size(48.dp)
@@ -100,10 +116,7 @@ fun ItemCard(
                             role = Role.Checkbox,
                             onClick = onClick
                         )
-                        .semantics {
-                            contentDescription = "选择该家当"
-                            stateDescription = if (selectionSelected) "已选中" else "未选中"
-                        },
+                        .clearAndSetSemantics {},
                     contentAlignment = Alignment.Center
                 ) {
                     Box(
@@ -131,21 +144,24 @@ fun ItemCard(
                     contentDescription = item.name,
                     modifier = Modifier
                         .size(62.dp)
-                        .clip(RoundedCornerShape(16.dp)),
+                        // 圆角走形状令牌（F6）。
+                        .clip(MaterialTheme.shapes.medium),
                     contentScale = ContentScale.Crop
                 )
             } else {
                 Box(
                     modifier = Modifier
                         .size(62.dp)
-                        .clip(RoundedCornerShape(16.dp))
+                        // 圆角走形状令牌（F6）。
+                        .clip(MaterialTheme.shapes.medium)
                         .background(OrangeStart.copy(alpha = 0.12f)),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = item.name.take(1),
                         color = OrangeStart,
-                        fontSize = 24.sp,
+                        // 字号走主题字阶（F6）：headlineSmall 为 24sp。
+                        style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -159,7 +175,8 @@ fun ItemCard(
             ) {
                 Text(
                     text = item.name,
-                    fontSize = 15.sp,
+                    // 字号走主题字阶（F6）：titleSmall 为 14sp。
+                    style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary,
                     maxLines = 1,
@@ -177,7 +194,8 @@ fun ItemCard(
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
                             text = category,
-                            fontSize = 12.sp,
+                            // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                            style = MaterialTheme.typography.bodySmall,
                             color = OrangeStart,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
@@ -196,7 +214,8 @@ fun ItemCard(
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
                             text = location,
-                            fontSize = 12.sp,
+                            // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                            style = MaterialTheme.typography.bodySmall,
                             color = TextSecondary,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
@@ -214,13 +233,15 @@ fun ItemCard(
                         } else {
                             "数量 ${item.quantity}${item.unit}"
                         },
-                        fontSize = 12.sp,
+                        // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                        style = MaterialTheme.typography.bodySmall,
                         color = TextSecondary
                     )
                     item.price?.let { price ->
                         Text(
                             text = DateUtil.formatCurrency(price),
-                            fontSize = 12.sp,
+                            // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                            style = MaterialTheme.typography.bodySmall,
                             color = TextSecondary
                         )
                     }
@@ -247,7 +268,8 @@ fun ItemCard(
                         } else {
                             "已用 ${usageDayCount}天"
                         },
-                        fontSize = 13.sp,
+                        // 字号走主题字阶（F6）：labelLarge 为 14sp。
+                        style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.Medium,
                         color = TextPrimary,
                         maxLines = 1,

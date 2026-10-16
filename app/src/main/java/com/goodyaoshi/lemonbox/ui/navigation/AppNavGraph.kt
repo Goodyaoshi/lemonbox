@@ -18,17 +18,19 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.automirrored.outlined.ReceiptLong
@@ -70,6 +72,9 @@ import androidx.navigation.navArgument
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerCategory
 import com.goodyaoshi.lemonbox.ui.components.AppSnackbarHost
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
+import com.goodyaoshi.lemonbox.ui.components.BottomBarContentPadding
+import com.goodyaoshi.lemonbox.ui.components.BottomBarOuterMargin
+import com.goodyaoshi.lemonbox.ui.components.BottomBarRowMinHeight
 import com.goodyaoshi.lemonbox.ui.components.GlassPanel
 import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
 import com.goodyaoshi.lemonbox.ui.components.rememberBottomBarPanelClearance
@@ -233,10 +238,21 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
         Screen.Profile.route
     ) && !cameraExitGuard
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    // 宽屏断点（E1）：此前全 App 没有任何自适应，平板 / 折叠屏展开态下正文整屏铺开，
+    // 行宽过长、底栏被拉成超长胶囊。这里在全局唯一壳层收口，覆盖全部页面；窄屏逐字不变。
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val wideScreen = maxWidth >= WideScreenBreakpoint
+        // 宽屏：内容收进居中的栏并占满高度；窄屏：铺满原行为。
+        val pageModifier = if (wideScreen) {
+            Modifier
+                .fillMaxHeight()
+                .widthIn(max = WideScreenContentMaxWidth)
+                .align(Alignment.TopCenter)
+        } else {
+            Modifier.fillMaxSize()
+        }
         Box(
-            modifier = Modifier
-                .fillMaxSize()
+            modifier = pageModifier
                 .hazeSource(hazeState)
         ) {
             NavHost(
@@ -642,7 +658,13 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
                 }
 
                 composable(Screen.LedgerPlan.route) {
-                    LedgerPlanScreen(onBack = { navController.popBackStack() })
+                    LedgerPlanScreen(
+                        onBack = { navController.popBackStack() },
+                        // 模板空态的「去记一笔」通道（P2）：与其它记账页同款接线。
+                        onNavigateToRecordEdit = { recordId ->
+                            navController.navigateSingleTop(Screen.RecordEdit.createRoute(recordId = recordId))
+                        }
+                    )
                 }
 
                 composable(Screen.LedgerTrend.route) {
@@ -922,7 +944,9 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
                                 )
                             )
                         },
-                        onOpenRestockForecast = { navController.navigateSingleTop(Screen.RestockForecast.route) }
+                        onOpenRestockForecast = { navController.navigateSingleTop(Screen.RestockForecast.route) },
+                        // 结账无账户时的「去添加账户」直达记账页（P2）。
+                        onNavigateToLedger = { navController.navigateSingleTop(Screen.Ledger.route) }
                     )
                 }
 
@@ -967,7 +991,12 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .navigationBarsPadding()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    // 外距与占位高度共用同一常量（F7）：保证末项不会被底栏压住。
+                    .padding(horizontal = 16.dp, vertical = BottomBarOuterMargin)
+                    // 宽屏断点（E1）：底栏与页面内容同宽居中对齐，不铺满整块大屏。
+                    .then(
+                        if (wideScreen) Modifier.widthIn(max = WideScreenContentMaxWidth) else Modifier
+                    )
             )
         }
 
@@ -1041,7 +1070,8 @@ private fun LemonBottomBar(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .sizeIn(minHeight = 64.dp),
+                // 行高与底栏占位高度共用同一常量（F7）：两侧不会漂移。
+                .sizeIn(minHeight = BottomBarRowMinHeight),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -1059,8 +1089,9 @@ private fun LemonBottomBar(
         GlassPanel(
             modifier = modifier.fillMaxWidth(),
             hazeState = hazeState,
-            shape = RoundedCornerShape(26.dp),
-            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 7.dp),
+            // 圆角走形状令牌（F6）：底栏与全 App 卡片统一收敛到 extraLarge，不再内联字面量。
+            shape = MaterialTheme.shapes.extraLarge,
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = BottomBarContentPadding),
             containerColor = GlassWhite,
             borderColor = GlassWhite,
             shadowElevation = 20.dp,
@@ -1070,8 +1101,9 @@ private fun LemonBottomBar(
     } else {
         AppSurfaceCard(
             modifier = modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(26.dp),
-            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 7.dp),
+            // 圆角走形状令牌（F6）：与底栏统一收敛到 extraLarge。
+            shape = MaterialTheme.shapes.extraLarge,
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = BottomBarContentPadding),
             containerColor = CardWhite,
             shadowElevation = 12.dp,
             content = barContent
@@ -1095,6 +1127,12 @@ private fun rememberMotionEnabled(): Boolean {
         ) > 0f
     }
 }
+
+/** 宽屏断点（E1）：600dp 是 Material 指南「中等窗口」的起点，约 7 寸平板竖屏 / 折叠屏展开态。 */
+private val WideScreenBreakpoint = 600.dp
+
+/** 宽屏时页面内容与底栏的最大宽度（E1）：限制正文行宽，避免一行文字横跨整块大屏。 */
+private val WideScreenContentMaxWidth = 600.dp
 
 /** 转场时长：轻量、不拖沓，约 260ms，避免动效喧宾夺主。 */
 private const val NAV_TRANSITION_DURATION_MS = 260
@@ -1158,7 +1196,8 @@ private fun BottomItem(
     val color = if (selected) OrangeStart else TextHint
     Column(
         modifier = modifier
-            .clip(RoundedCornerShape(20.dp))
+            // 圆角走形状令牌（F6）：选中高亮与卡片小圆角统一到 large（20dp）。
+            .clip(MaterialTheme.shapes.large)
             // 命中区兜底到 48dp（F7）：视觉尺寸可以小巧，热区不能缩水。
             .minimumInteractiveComponentSize()
             // 声明为 Tab 角色，读屏可正确播报「标签页」（F16）。

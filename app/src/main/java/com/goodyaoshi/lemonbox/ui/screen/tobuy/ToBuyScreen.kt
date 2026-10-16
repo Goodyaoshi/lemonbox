@@ -26,7 +26,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -40,7 +39,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -60,10 +58,8 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.data.forecast.RestockForecast
 import com.goodyaoshi.lemonbox.data.local.entity.Item
@@ -92,6 +88,7 @@ import com.goodyaoshi.lemonbox.ui.components.TreeNode
 import com.goodyaoshi.lemonbox.ui.components.UnitPickerRow
 import com.goodyaoshi.lemonbox.ui.components.buildTreePathLabel
 import com.goodyaoshi.lemonbox.ui.theme.CardWhite
+import com.goodyaoshi.lemonbox.ui.theme.OnScrim
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.OrangeTint
 import com.goodyaoshi.lemonbox.ui.theme.StatusExpired
@@ -109,6 +106,9 @@ fun ToBuyScreen(
     onBack: () -> Unit,
     onRecordPurchase: (itemId: Long, amountCents: Long, name: String) -> Unit = { _, _, _ -> },
     onOpenRestockForecast: () -> Unit = {},
+    // 结账无账户时的「去添加账户」直达入口（P2）：此前只有一段文字，用户走到末步无路可走；
+    // 默认空实现以免调用方（如预览）必须提供。
+    onNavigateToLedger: () -> Unit = {},
     viewModel: ToBuyViewModel = hiltViewModel()
 ) {
     val items by viewModel.items.collectAsState()
@@ -179,7 +179,8 @@ fun ToBuyScreen(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "待买清单",
-                        style = MaterialTheme.typography.headlineMedium,
+                        // 页面主标题统一走主题字阶（F6）：headlineLarge 为 28sp。
+                        style = MaterialTheme.typography.headlineLarge,
                         color = TextPrimary
                     )
                     Text(
@@ -195,7 +196,8 @@ fun ToBuyScreen(
                 if (items.isNotEmpty() && !isSelectionMode) {
                     Row(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(999.dp))
+                            // 形状走令牌（F6）：胶囊用 CircleShape。
+                            .clip(CircleShape)
                             .background(SurfaceWarmDeep)
                             .clickable {
                                 // 收起可能滑开的侧滑行，避免带着旧手势状态进入批量模式。
@@ -207,7 +209,8 @@ fun ToBuyScreen(
                     ) {
                         Text(
                             text = "批量",
-                            fontSize = 13.sp,
+                            // 字号走主题字阶（F6）：labelLarge 为 14sp。
+                            style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.SemiBold,
                             color = TextPrimary
                         )
@@ -217,7 +220,8 @@ fun ToBuyScreen(
                 Spacer(modifier = Modifier.size(8.dp))
                 Row(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(999.dp))
+                        // 形状走令牌（F6）：胶囊用 CircleShape。
+                        .clip(CircleShape)
                         .background(OrangeStart.copy(alpha = 0.12f))
                         .clickable { showAddDialog = true }
                         .padding(horizontal = 14.dp, vertical = 9.dp),
@@ -232,7 +236,8 @@ fun ToBuyScreen(
                     Spacer(modifier = Modifier.size(4.dp))
                     Text(
                         text = "添加",
-                        fontSize = 13.sp,
+                        // 字号走主题字阶（F6）：labelLarge 为 14sp。
+                        style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.SemiBold,
                         color = OrangeStart
                     )
@@ -482,7 +487,8 @@ fun ToBuyScreen(
             Text(
                 text = "确定要删除「${item.name}」吗？",
                 color = TextSecondary,
-                fontSize = 14.sp
+                // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+                style = MaterialTheme.typography.bodyMedium
             )
         }
     }
@@ -495,6 +501,7 @@ fun ToBuyScreen(
         BatchCheckoutSheet(
             items = selectedItems,
             assets = assets,
+            onNavigateToLedger = onNavigateToLedger,
             onDismiss = { showCheckout = false },
             onConfirm = { rows, assetId ->
                 showCheckout = false
@@ -565,7 +572,8 @@ private fun ToBuyItemCard(
     onToggleSelection: () -> Unit = {}
 ) {
     AppSurfaceCard(
-        shape = RoundedCornerShape(22.dp),
+        // 形状走令牌（F6）：22dp 内联圆角收敛到 shapes.large（20dp）。
+        shape = MaterialTheme.shapes.large,
         contentPadding = PaddingValues(start = 14.dp, top = 14.dp, bottom = 14.dp, end = 6.dp),
         shadowElevation = 12.dp,
         // 批量模式下整行可点即切换勾选，热区远大于 28dp 的勾选框本身；普通模式保持不可点。
@@ -627,7 +635,8 @@ private fun ToBuyItemCard(
                                 imageVector = Icons.Default.Check,
                                 // 选中态已由上方 stateDescription 播报，图标此处留空避免重复播报。
                                 contentDescription = null,
-                                tint = Color.White,
+                                // 深色/浅色通用内容白：用 OnScrim 代替硬编码 Color.White。
+                                tint = OnScrim,
                                 modifier = Modifier.size(16.dp)
                             )
                         }
@@ -639,7 +648,8 @@ private fun ToBuyItemCard(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = name,
-                        fontSize = 16.sp,
+                        // 字号走主题字阶（F6）：titleMedium 为 16sp。
+                        style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = TextPrimary
                     )
@@ -654,7 +664,8 @@ private fun ToBuyItemCard(
                 }
                 Text(
                     text = "数量 $quantity$unit · $subtitle",
-                    fontSize = 12.sp,
+                    // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                    style = MaterialTheme.typography.bodySmall,
                     color = TextHint,
                     modifier = Modifier.padding(top = 3.dp)
                 )
@@ -773,7 +784,8 @@ private fun RestockSuggestionRow(
     onAdd: () -> Unit
 ) {
     AppSurfaceCard(
-        shape = RoundedCornerShape(20.dp),
+        // 形状走令牌（F6）：20dp 内联圆角收敛到 shapes.large（20dp）。
+        shape = MaterialTheme.shapes.large,
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
         shadowElevation = 8.dp
     ) {
@@ -781,13 +793,15 @@ private fun RestockSuggestionRow(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = forecast.detail.item.name,
-                    fontSize = 15.sp,
+                    // 字号走主题字阶（F6）：titleMedium 为 16sp。
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary
                 )
                 Text(
                     text = restockReason(forecast),
-                    fontSize = 12.sp,
+                    // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                    style = MaterialTheme.typography.bodySmall,
                     color = TextHint,
                     modifier = Modifier.padding(top = 2.dp)
                 )
@@ -795,7 +809,8 @@ private fun RestockSuggestionRow(
             PillTag(
                 text = "加入待买",
                 backgroundColor = OrangeStart,
-                contentColor = Color.White,
+                // 深色/浅色通用内容白：用 OnScrim 代替硬编码 Color.White。
+                contentColor = OnScrim,
                 onClick = onAdd
             )
         }
@@ -828,6 +843,7 @@ private data class CheckoutDraft(
 private fun BatchCheckoutSheet(
     items: List<Item>,
     assets: List<LedgerAsset>,
+    onNavigateToLedger: () -> Unit,
     onDismiss: () -> Unit,
     onConfirm: (rows: List<CheckoutRow>, assetId: Long) -> Unit
 ) {
@@ -866,13 +882,15 @@ private fun BatchCheckoutSheet(
             Spacer(modifier = Modifier.size(20.dp))
             Text(
                 text = "买完并记账",
-                fontSize = 18.sp,
+                // 字号走主题字阶（F6）：titleLarge 为 18sp。
+                style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 color = TextPrimary
             )
             Text(
                 text = "勾选要入账的物品，金额已按价格预填、可改；确认后一起归位到家当。",
-                fontSize = 13.sp,
+                // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+                style = MaterialTheme.typography.bodyMedium,
                 color = TextSecondary,
                 modifier = Modifier.padding(top = 2.dp)
             )
@@ -895,25 +913,28 @@ private fun BatchCheckoutSheet(
                         )
                         Text(
                             text = draft.item.name,
-                            fontSize = 14.sp,
+                            // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+                            style = MaterialTheme.typography.bodyMedium,
                             color = TextPrimary,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f)
                         )
                         Spacer(modifier = Modifier.size(8.dp))
-                        OutlinedTextField(
-                            value = draft.priceText,
-                            onValueChange = { text ->
-                                drafts = drafts.toMutableList()
-                                    .also { it[index] = draft.copy(priceText = text) }
-                            },
-                            enabled = draft.include,
-                            singleLine = true,
-                            label = { Text("金额") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                            modifier = Modifier.width(120.dp)
-                        )
+                        // 输入框走全 App 统一的 EditorInputBox（P2）：替换原 Material
+                        // OutlinedTextField，避免输入框样式在结账层突变。
+                        // 注：EditorInputBox 无 keyboardOptions，金额键盘由 Decimal 退化为默认键盘；
+                        // 其内部 fillMaxWidth，故用固定宽 Box 约束为 120dp。
+                        Box(modifier = Modifier.width(120.dp)) {
+                            EditorInputBox(
+                                value = draft.priceText,
+                                onValueChange = { text ->
+                                    drafts = drafts.toMutableList()
+                                        .also { it[index] = draft.copy(priceText = text) }
+                                },
+                                placeholder = "金额"
+                            )
+                        }
                     }
                 }
             }
@@ -921,13 +942,22 @@ private fun BatchCheckoutSheet(
             if (assets.isEmpty()) {
                 Text(
                     text = "还没有账户，先去记账页添加一个账户，再回来批量记账。",
-                    fontSize = 13.sp,
+                    // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+                    style = MaterialTheme.typography.bodyMedium,
                     color = TagOrangeText
+                )
+                Spacer(modifier = Modifier.size(10.dp))
+                // 直达按钮（P2）：此前这里只有一段文字，用户走到末步无路可走，
+                // 只能退出去自己找路；现在给「去添加账户」一键跳到记账页。
+                GradientButton(
+                    text = "去添加账户",
+                    onClick = onNavigateToLedger
                 )
             } else {
                 Text(
                     text = "记到哪个账户",
-                    fontSize = 13.sp,
+                    // 字号走主题字阶（F6）：labelLarge 为 14sp。
+                    style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.SemiBold,
                     color = TextPrimary
                 )

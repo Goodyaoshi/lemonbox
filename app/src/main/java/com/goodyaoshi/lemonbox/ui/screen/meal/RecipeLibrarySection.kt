@@ -19,7 +19,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -45,10 +45,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.data.meal.DishRole
 import com.goodyaoshi.lemonbox.data.meal.Recipe
@@ -117,7 +116,8 @@ fun RecipeLibraryScreen(
                 }
                 Text(
                     text = "菜谱库",
-                    fontSize = 18.sp,
+                    // 字号走主题字阶（F6）：titleLarge 为 18sp。
+                    style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary
                 )
@@ -202,7 +202,8 @@ fun RecipeLibraryScreen(
         ) {
             Text(
                 text = "确定要删除「${recipe.name}」吗？",
-                fontSize = 14.sp,
+                // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+                style = MaterialTheme.typography.bodyMedium,
                 color = TextSecondary
             )
         }
@@ -281,7 +282,8 @@ private fun RecipeCard(
     onDelete: () -> Unit
 ) {
     AppSurfaceCard(
-        shape = RoundedCornerShape(22.dp),
+        // 圆角走形状令牌（F6）：extraLarge 为 24dp。
+        shape = MaterialTheme.shapes.extraLarge,
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
         shadowElevation = 12.dp
     ) {
@@ -297,9 +299,13 @@ private fun RecipeCard(
             Spacer(modifier = Modifier.size(8.dp))
             Text(
                 text = recipe.name,
-                fontSize = 16.sp,
+                // 字号走主题字阶（F6）：titleMedium 为 16sp。
+                style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
                 color = TextPrimary,
+                // 长菜名限行截断（P2）：此前无 maxLines，长名会把编辑/删除按钮挤出屏。
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f)
             )
             IconButton(onClick = onEdit) {
@@ -400,7 +406,8 @@ internal fun RecipeEditorDialog(
         Column {
             Text(
                 text = "分类（配餐用，可多选）",
-                fontSize = 13.sp,
+                // 字号走主题字阶（F6）：labelLarge 为 14sp。
+                style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.SemiBold,
                 color = TextSecondary
             )
@@ -443,7 +450,8 @@ internal fun RecipeEditorDialog(
                 if (groupIdx.isEmpty()) return@forEach
                 Text(
                     text = group,
-                    fontSize = 12.sp,
+                    // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                    style = MaterialTheme.typography.bodySmall,
                     fontWeight = FontWeight.SemiBold,
                     color = TextSecondary,
                     modifier = Modifier.padding(top = 4.dp)
@@ -471,7 +479,8 @@ internal fun RecipeEditorDialog(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(999.dp))
+                // 胶囊用 CircleShape（F6）：形状令牌化，替换内联 999dp 圆角。
+                .clip(CircleShape)
                 .background(SurfaceWarmDeep)
                 .clickable {
                     ingredients.add(RecipeIngredient(label = ""))
@@ -493,7 +502,8 @@ internal fun RecipeEditorDialog(
             Spacer(modifier = Modifier.size(4.dp))
             Text(
                 text = "添加食材",
-                fontSize = 13.sp,
+                // 字号走主题字阶（F6）：labelLarge 为 14sp。
+                style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.Medium,
                 color = OrangeStart
             )
@@ -541,7 +551,8 @@ private fun IngredientEditorRow(
                 .padding(start = 6.dp)
                 // 触达面积达标（F7）：可选/必选切换热区补足到 48dp，视觉尺寸不变。
                 .minimumInteractiveComponentSize()
-                .clip(RoundedCornerShape(999.dp))
+                // 胶囊用 CircleShape（F6）：形状令牌化。
+                .clip(CircleShape)
                 .background(if (ingredient.optional) TagOrange else SurfaceWarmDeep)
                 .clickable(onClick = onToggleOptional)
                 .padding(horizontal = 8.dp, vertical = 5.dp)
@@ -620,7 +631,8 @@ private fun IngredientPickerDialog(
             groups.forEach { group ->
                 Text(
                     text = group.group,
-                    fontSize = 13.sp,
+                    // 字号走主题字阶（F6）：labelLarge 为 14sp。
+                    style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.SemiBold,
                     color = TextSecondary
                 )
@@ -631,14 +643,16 @@ private fun IngredientPickerDialog(
                     group.options.forEach { option ->
                         Box(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(999.dp))
+                                // 胶囊用 CircleShape（F6）：形状令牌化。
+                                .clip(CircleShape)
                                 .background(SurfaceWarmDeep)
                                 .clickable { onPick(option) }
                                 .padding(horizontal = 12.dp, vertical = 7.dp)
                         ) {
                             Text(
                                 text = option,
-                                fontSize = 13.sp,
+                                // 字号走主题字阶（F6）：labelLarge 为 14sp。
+                                style = MaterialTheme.typography.labelLarge,
                                 color = TextPrimary
                             )
                         }

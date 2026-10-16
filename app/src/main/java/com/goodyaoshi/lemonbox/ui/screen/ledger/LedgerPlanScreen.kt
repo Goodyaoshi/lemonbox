@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
@@ -26,6 +25,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -37,7 +37,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerRecord.Companion.TYPE_INCOME
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerRecord.Companion.TYPE_TRANSFER
@@ -70,6 +69,8 @@ import java.time.format.DateTimeFormatter
 @Composable
 fun LedgerPlanScreen(
     onBack: () -> Unit,
+    // 模板由「记一笔」时保存产生，空态需要一条直达通道（P2）；带默认值不破坏既有调用方。
+    onNavigateToRecordEdit: (Long?) -> Unit = {},
     viewModel: LedgerPlanViewModel = hiltViewModel()
 ) {
     val templates by viewModel.templates.collectAsState()
@@ -104,7 +105,8 @@ fun LedgerPlanScreen(
                 }
                 Text(
                     text = "记账计划",
-                    fontSize = 18.sp,
+                    // 字号走主题字阶（F6）：titleLarge 为 18sp。
+                    style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary
                 )
@@ -129,6 +131,9 @@ fun LedgerPlanScreen(
                             EmptyState(
                                 title = "还没有记账模板",
                                 message = "记一笔时点「存为模板」，常用账单就能一键套用。",
+                                // 空态给直达按钮（P2）：此前只有一段文字，用户走到末步无处可去。
+                                actionLabel = "去记一笔",
+                                onAction = { onNavigateToRecordEdit(null) },
                                 modifier = Modifier.padding(top = 6.dp)
                             )
                         }
@@ -184,7 +189,10 @@ fun LedgerPlanScreen(
                                 color = ledgerTypeColor(TYPE_INCOME),
                                 fontWeight = FontWeight.SemiBold,
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
+                                    // 触达面积达标（F7）：文案按钮补 48dp 最小热区。
+                                    .minimumInteractiveComponentSize()
+                                    // 圆角走形状令牌（F6）：small 为 8dp。
+                                    .clip(MaterialTheme.shapes.small)
                                     .clickable {
                                         viewModel.fireNow { created ->
                                             appSnackbar?.postMessage(
@@ -222,7 +230,8 @@ fun LedgerPlanScreen(
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .clip(RoundedCornerShape(22.dp))
+                                        // 圆角走形状令牌（F6）：large 为 20dp。
+                                        .clip(MaterialTheme.shapes.large)
                                         .background(CardWhite)
                                         .padding(horizontal = 14.dp, vertical = 12.dp),
                                     verticalAlignment = Alignment.CenterVertically
@@ -230,7 +239,8 @@ fun LedgerPlanScreen(
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(
                                             text = rule.name,
-                                            fontSize = 15.sp,
+                                            // 字号走主题字阶（F6）：titleSmall 为 14sp。
+                                            style = MaterialTheme.typography.titleSmall,
                                             fontWeight = FontWeight.SemiBold,
                                             color = TextPrimary
                                         )
@@ -254,7 +264,8 @@ fun LedgerPlanScreen(
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text(
                                         text = ledgerSignedAmountText(rule.type, rule.amount),
-                                        fontSize = 14.sp,
+                                        // 字号走主题字阶（F6）：titleSmall 为 14sp。
+                                        style = MaterialTheme.typography.titleSmall,
                                         fontWeight = FontWeight.SemiBold,
                                         color = ledgerTypeColor(rule.type)
                                     )
@@ -286,7 +297,8 @@ fun LedgerPlanScreen(
             Text(
                 text = "确定要删除模板「${template.name}」吗？",
                 color = TextSecondary,
-                fontSize = 14.sp
+                // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+                style = MaterialTheme.typography.bodyMedium
             )
         }
     }
@@ -306,7 +318,8 @@ fun LedgerPlanScreen(
             Text(
                 text = "确定要删除「${rule.name}」吗？",
                 color = TextSecondary,
-                fontSize = 14.sp
+                // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+                style = MaterialTheme.typography.bodyMedium
             )
         }
     }
@@ -321,7 +334,8 @@ private fun PlanRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(22.dp))
+            // 圆角走形状令牌（F6）：large 为 20dp。
+            .clip(MaterialTheme.shapes.large)
             .background(CardWhite)
             .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -329,7 +343,8 @@ private fun PlanRow(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = title,
-                fontSize = 15.sp,
+                // 字号走主题字阶（F6）：titleSmall 为 14sp。
+                style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
                 color = TextPrimary
             )

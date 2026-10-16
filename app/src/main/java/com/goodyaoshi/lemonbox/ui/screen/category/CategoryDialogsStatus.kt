@@ -25,7 +25,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.StickyNote2
@@ -64,6 +63,7 @@ import androidx.compose.material.icons.filled.WaterDrop
 import androidx.compose.material.icons.filled.WineBar
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -80,7 +80,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.data.local.entity.Category
 import com.goodyaoshi.lemonbox.data.local.entity.ItemStatusCatalog
@@ -136,14 +135,16 @@ internal fun ExpiryReminderPanel(
             Column {
                 Text(
                     text = "有效期快捷选项",
-                    fontSize = 15.sp,
+                    // 字号走主题字阶（F6）：titleSmall 为 14sp。
+                    style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
                     color = TextPrimary
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = "自定义家当录入页「有效期」里的快捷档位（支持 x天/x周/x月/x年）。",
-                    fontSize = 12.sp,
+                    // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                    style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary
                 )
                 Spacer(modifier = Modifier.height(10.dp))
@@ -175,7 +176,8 @@ internal fun ExpiryReminderPanel(
                             DateUtil.expiryQuickLabel(it)
                         }
                     },
-                    fontSize = 12.sp,
+                    // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                    style = MaterialTheme.typography.bodySmall,
                     color = OrangeStart,
                     fontWeight = FontWeight.Medium
                 )
@@ -186,14 +188,16 @@ internal fun ExpiryReminderPanel(
             Column {
                 Text(
                     text = "到期提醒阶梯",
-                    fontSize = 15.sp,
+                    // 字号走主题字阶（F6）：titleSmall 为 14sp。
+                    style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
                     color = TextPrimary
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = "可多选。未单独设置过的物品都跟着这份默认阶梯，到期进入所选档位时提醒。",
-                    fontSize = 12.sp,
+                    // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                    style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary
                 )
                 Spacer(modifier = Modifier.height(10.dp))
@@ -216,7 +220,8 @@ internal fun ExpiryReminderPanel(
                     } else {
                         "当前阶梯：${reminderLadder.joinToString("、") { "$it 天" }}"
                     },
-                    fontSize = 12.sp,
+                    // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                    style = MaterialTheme.typography.bodySmall,
                     color = OrangeStart,
                     fontWeight = FontWeight.Medium
                 )
@@ -245,7 +250,8 @@ internal fun ExpiryQuickDialog(
         Column {
             Text(
                 text = "输入数值并选好单位，就能加进快捷档位。",
-                fontSize = 12.sp,
+                // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                style = MaterialTheme.typography.bodySmall,
                 color = TextSecondary
             )
             Spacer(modifier = Modifier.height(10.dp))
@@ -292,7 +298,8 @@ internal fun ExpiryQuickDialog(
                 Spacer(modifier = Modifier.height(10.dp))
                 Text(
                     text = "当前档位：" + added.joinToString("、") { DateUtil.expiryQuickLabel(it) },
-                    fontSize = 12.sp,
+                    // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                    style = MaterialTheme.typography.bodySmall,
                     color = OrangeStart,
                     fontWeight = FontWeight.Medium
                 )
@@ -310,14 +317,16 @@ internal fun OptionChip(
 ) {
     Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(999.dp))
+            // 胶囊走 CircleShape（F6）。
+            .clip(CircleShape)
             .background(if (selected) OrangeStart else SurfaceWarmDeep)
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 9.dp)
     ) {
         Text(
             text = label,
-            fontSize = 13.sp,
+            // 字号走主题字阶（F6）：labelLarge 为 14sp。
+            style = MaterialTheme.typography.labelLarge,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
             color = if (selected) CardWhite else TextSecondary
         )
@@ -341,7 +350,8 @@ internal fun StatusOptionsPanel(
             Column {
                 Text(
                     text = statusDimensionTitle(dimension),
-                    fontSize = 14.sp,
+                    // 字号走主题字阶（F6）：titleSmall 为 14sp。
+                    style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
                     color = TextPrimary
                 )
@@ -368,7 +378,8 @@ internal fun StatusOptionsPanel(
                         }
                     Row(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(999.dp))
+                            // 胶囊走 CircleShape（F6）。
+                            .clip(CircleShape)
                             .background(SurfaceWarmDeep)
                             .clickable { onAdd(dimension) }
                             .padding(horizontal = 14.dp, vertical = 9.dp),
@@ -383,7 +394,8 @@ internal fun StatusOptionsPanel(
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
                             text = "自定义",
-                            fontSize = 13.sp,
+                            // 字号走主题字阶（F6）：labelLarge 为 14sp。
+                            style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.Medium,
                             color = OrangeStart
                         )
@@ -404,7 +416,8 @@ internal fun StatusChip(
 ) {
     Row(
         modifier = Modifier
-            .clip(RoundedCornerShape(999.dp))
+            // 胶囊走 CircleShape（F6）。
+            .clip(CircleShape)
             .background(tint.copy(alpha = 0.12f))
             .clickable(enabled = onEdit != null) { onEdit?.invoke() }
             .padding(
@@ -417,7 +430,8 @@ internal fun StatusChip(
     ) {
         Text(
             text = label,
-            fontSize = 13.sp,
+            // 字号走主题字阶（F6）：labelLarge 为 14sp。
+            style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.Medium,
             color = tint
         )
@@ -425,7 +439,8 @@ internal fun StatusChip(
             Spacer(modifier = Modifier.width(4.dp))
             Box(
                 modifier = Modifier
-                    .size(20.dp)
+                    // 触达面积达标（F7）：删除小圆视觉不变，外层热区撑到 48dp。
+                    .size(48.dp)
                     .clip(CircleShape)
                     .clickable(onClick = remove),
                 contentAlignment = Alignment.Center
@@ -467,7 +482,8 @@ internal fun CategoryEditorDialog(
         )
         Text(
             text = "选择图标",
-            fontSize = 13.sp,
+            // 字号走主题字阶（F6）：labelLarge 为 14sp。
+            style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.Medium,
             color = TextSecondary
         )
@@ -482,7 +498,8 @@ internal fun CategoryEditorDialog(
                 Box(
                     modifier = Modifier
                         .size(52.dp)
-                        .clip(RoundedCornerShape(16.dp))
+                        // 圆角走形状令牌（F6）：收敛到 medium（16dp）。
+                        .clip(MaterialTheme.shapes.medium)
                         .background(
                             if (selectedIconKey == option.key) OrangeStart.copy(alpha = 0.1f)
                             else OrangeTint
@@ -494,7 +511,8 @@ internal fun CategoryEditorDialog(
                             } else {
                                 Color.Transparent
                             },
-                            shape = RoundedCornerShape(16.dp)
+                            // 与上方 clip 保持同一形状令牌（F6）。
+                            shape = MaterialTheme.shapes.medium
                         )
                         .clickable { onIconSelect(option.key) },
                     contentAlignment = Alignment.Center

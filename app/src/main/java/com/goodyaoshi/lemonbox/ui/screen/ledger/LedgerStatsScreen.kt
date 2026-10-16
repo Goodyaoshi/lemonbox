@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -26,6 +25,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -37,10 +37,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerCategory
-import com.goodyaoshi.lemonbox.ui.components.AmountTnumStyle
+import com.goodyaoshi.lemonbox.ui.components.AMOUNT_TNUM
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.EmptyState
@@ -52,6 +51,8 @@ import com.goodyaoshi.lemonbox.ui.components.SegmentedTabs
 import com.goodyaoshi.lemonbox.ui.components.categorySlot
 import com.goodyaoshi.lemonbox.ui.components.categorySolidColors
 import com.goodyaoshi.lemonbox.ui.components.ledgerIconFor
+import com.goodyaoshi.lemonbox.ui.theme.StatusExpired
+import com.goodyaoshi.lemonbox.ui.theme.StatusNormal
 import com.goodyaoshi.lemonbox.ui.theme.TextHint
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
 import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
@@ -79,7 +80,8 @@ fun LedgerStatsScreen(
     val kind = if (kindIndex == 0) LedgerCategory.KIND_EXPENSE else LedgerCategory.KIND_INCOME
     val monthKey = yearMonth.toString()
     // 分类配色统一走共享色槽（P2）：扇区与图例都按分类身份取色，排序变化不再换色。
-    val palette = categorySolidColors()
+    // 饼图避开红绿语义对（P2）：红绿色盲不友好，剔除 StatusExpired(红)/StatusNormal(绿)。
+    val palette = categorySolidColors().filterNot { it == StatusExpired || it == StatusNormal }
     // 图例与下方「分类排行」统一展示全部分类（此前图例只列 Top5，与饼图/排行口径不一致）。
     // 百分比取整后由最大的分类吸收余数，保证各项相加恰为 100%。
     val percents = remember(slices) { percentLabels(slices) }
@@ -108,7 +110,8 @@ fun LedgerStatsScreen(
                 }
                 Text(
                     text = "记账统计",
-                    fontSize = 18.sp,
+                    // 字号走主题字阶（F6）：titleLarge 为 18sp。
+                    style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary
                 )
@@ -148,7 +151,8 @@ fun LedgerStatsScreen(
                     )
                 } else {
                     AppSurfaceCard(
-                        shape = RoundedCornerShape(24.dp),
+                        // 圆角走形状令牌（F6）：extraLarge 为 24dp。
+                        shape = MaterialTheme.shapes.extraLarge,
                         contentPadding = PaddingValues(18.dp),
                         shadowElevation = 12.dp
                     ) {
@@ -172,12 +176,14 @@ fun LedgerStatsScreen(
                                     )
                                     Text(
                                         text = DateUtil.formatCurrency(LedgerMath.centsToYuan(totalCents)),
-                                        fontSize = 15.sp,
+                                        // 字号走主题字阶（F6）：titleSmall 为 14sp。
                                         fontWeight = FontWeight.Bold,
                                         color = TextPrimary,
                                         textAlign = TextAlign.Center,
                                         // 金额启用等宽数字（P2）：多行/切换月份时个位对齐不跳动。
-                                        style = AmountTnumStyle
+                                        style = MaterialTheme.typography.titleSmall.copy(
+                                            fontFeatureSettings = AMOUNT_TNUM
+                                        )
                                     )
                                 }
                             }
@@ -188,6 +194,8 @@ fun LedgerStatsScreen(
                                         verticalAlignment = Alignment.CenterVertically,
                                         modifier = Modifier
                                             .fillMaxWidth()
+                                            // 触达面积达标（P2）：图例行高补足 48dp 最小热区。
+                                            .minimumInteractiveComponentSize()
                                             .clickable {
                                                 onOpenCategory(kind, slice.categoryId, monthKey)
                                             }
@@ -204,7 +212,8 @@ fun LedgerStatsScreen(
                                         Spacer(modifier = Modifier.width(6.dp))
                                         Text(
                                             text = slice.name,
-                                            fontSize = 12.sp,
+                                            // 字号走主题字阶（F6）：labelMedium 为 12sp。
+                                            style = MaterialTheme.typography.labelMedium,
                                             color = TextSecondary,
                                             modifier = Modifier.weight(1f),
                                             maxLines = 1
@@ -222,7 +231,8 @@ fun LedgerStatsScreen(
                     }
                     Spacer(modifier = Modifier.height(14.dp))
                     AppSurfaceCard(
-                        shape = RoundedCornerShape(24.dp),
+                        // 圆角走形状令牌（F6）：extraLarge 为 24dp。
+                        shape = MaterialTheme.shapes.extraLarge,
                         contentPadding = PaddingValues(horizontal = 18.dp, vertical = 12.dp),
                         shadowElevation = 12.dp
                     ) {

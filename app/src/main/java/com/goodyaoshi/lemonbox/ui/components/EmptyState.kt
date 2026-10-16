@@ -12,11 +12,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.outlined.Inventory2
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
@@ -28,7 +28,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.TagOrange
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
@@ -77,14 +76,16 @@ fun EmptyState(
             Spacer(modifier = Modifier.height(16.dp))
             Text(
                 text = title,
-                fontSize = 16.sp,
+                // 字号走主题字阶（F6）：与孪生错误态 ErrorState 对齐到 titleMedium。
+                style = MaterialTheme.typography.titleMedium,
                 color = TextPrimary,
                 textAlign = TextAlign.Center
             )
             Spacer(modifier = Modifier.height(6.dp))
             Text(
                 text = message,
-                fontSize = 13.sp,
+                // 字号走主题字阶（F6）：与 ErrorState 对齐到 bodySmall。
+                style = MaterialTheme.typography.bodySmall,
                 color = TextSecondary,
                 textAlign = TextAlign.Center
             )
@@ -120,7 +121,8 @@ internal fun StateActionPill(
         modifier = Modifier
             // 触达面积达标（F7）：胶囊本身不高，先撑出最小可点区再画胶囊，视觉尺寸不变。
             .minimumInteractiveComponentSize()
-            .clip(RoundedCornerShape(999.dp))
+            // 圆角走形状令牌（F6）：胶囊收敛到 CircleShape。
+            .clip(CircleShape)
             .background(containerColor)
             .clickable(onClick = onClick)
             .padding(horizontal = 18.dp, vertical = 10.dp),
@@ -135,7 +137,8 @@ internal fun StateActionPill(
         Spacer(modifier = Modifier.width(6.dp))
         Text(
             text = label,
-            fontSize = 14.sp,
+            // 字号走主题字阶（F6）：labelLarge 为 14sp。
+            style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.SemiBold,
             color = contentColor
         )

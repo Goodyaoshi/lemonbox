@@ -121,6 +121,11 @@ class SettingsViewModel @Inject constructor(
         appPreferences.setAutoStartConfirmed(true)
     }
 
+    /** 撤销「自启动已确认」的记录（SET1）：用户点撤销或重新设置时回退状态。 */
+    fun clearAutoStartConfirmed() {
+        appPreferences.setAutoStartConfirmed(false)
+    }
+
     /** 切换保活开关：开则立刻拉起前台服务，关则停掉常驻通知。 */
     fun setKeepAliveEnabled(enabled: Boolean) {
         appPreferences.setKeepAliveEnabled(enabled)

@@ -3,7 +3,6 @@ package com.goodyaoshi.lemonbox.ui.components
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarDuration
@@ -18,6 +17,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
@@ -158,8 +160,13 @@ private fun DualActionSnackbar(
     onAction: (Int) -> Unit
 ) {
     Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            // 读屏可达（F8）：双动作提示是自定义 Surface，补 liveRegion 让读屏播报
+            // 「操作已完成 + 可撤销」，否则视障用户既不知已成功、更不知能撤销。
+            .semantics { liveRegion = LiveRegionMode.Polite },
+        // 圆角走形状令牌（F6）：收敛到 medium（16dp）。
+        shape = MaterialTheme.shapes.medium,
         color = SurfaceWarmDeep,
         contentColor = TextPrimary,
         tonalElevation = 6.dp,

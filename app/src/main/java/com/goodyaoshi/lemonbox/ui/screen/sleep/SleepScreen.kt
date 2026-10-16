@@ -16,13 +16,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -33,9 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.data.widget.WidgetSnapshot
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
@@ -76,7 +75,7 @@ fun SleepScreen(
                 .statusBarsPadding()
                 .navigationBarsPadding()
         ) {
-            // 顶栏与其他页面同规格：8/6 内边距、20sp 加粗标题。
+            // 顶栏与其他页面同规格：8/6 内边距、18sp 加粗标题（titleLarge）。
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -92,8 +91,8 @@ fun SleepScreen(
                 }
                 Text(
                     text = "睡前氛围",
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
+                    // 字号走主题字阶（F6）：titleLarge 为 18sp。
+                    style = MaterialTheme.typography.titleLarge,
                     color = TextPrimary
                 )
             }
@@ -107,13 +106,14 @@ fun SleepScreen(
                 Column(modifier = Modifier.padding(horizontal = 20.dp)) {
                     Text(
                         text = "今天也辛苦了",
-                        fontSize = 24.sp,
-                        fontWeight = FontWeight.Bold,
+                        // 字号走主题字阶（F6）：headlineSmall 为 24sp。
+                        style = MaterialTheme.typography.headlineSmall,
                         color = TextPrimary
                     )
                     Text(
                         text = "把手机先放一放，给今天收个尾，然后好好睡一觉。",
-                        fontSize = 13.sp,
+                        // 字号走主题字阶（F6）：labelLarge 承载 13sp。
+                        style = MaterialTheme.typography.labelLarge,
                         color = TextSecondary,
                         modifier = Modifier.padding(top = 6.dp)
                     )
@@ -122,7 +122,7 @@ fun SleepScreen(
                     SectionHeader(title = "今日速览")
                     Spacer(modifier = Modifier.height(10.dp))
                     AppSurfaceCard(
-                        shape = RoundedCornerShape(22.dp),
+                        // 圆角走形状令牌（F6）：22dp 卡片收敛到 extraLarge（24dp，默认值）。
                         shadowElevation = 12.dp
                     ) {
                         SnapshotLine("待买清单", snapshotToBuy(review))
@@ -134,7 +134,7 @@ fun SleepScreen(
                     SectionHeader(title = "就寝提醒")
                     Spacer(modifier = Modifier.height(10.dp))
                     AppSurfaceCard(
-                        shape = RoundedCornerShape(22.dp),
+                        // 圆角走形状令牌（F6）：22dp 卡片收敛到 extraLarge（24dp，默认值）。
                         shadowElevation = 12.dp
                     ) {
                         Row(
@@ -151,13 +151,14 @@ fun SleepScreen(
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = "到点提醒该休息了",
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.SemiBold,
+                                    // 字号走主题字阶（F6）：titleMedium 为 16sp。
+                                    style = MaterialTheme.typography.titleMedium,
                                     color = TextPrimary
                                 )
                                 Text(
                                     text = if (enabled) "每晚 $time 提醒" else "当前未开启",
-                                    fontSize = 12.sp,
+                                    // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                                    style = MaterialTheme.typography.bodySmall,
                                     color = TextSecondary
                                 )
                             }
@@ -193,7 +194,8 @@ fun SleepScreen(
                     Spacer(modifier = Modifier.height(24.dp))
                     Text(
                         text = "晚安，${BrandCopy.APP_NAME}先替你看着东西。",
-                        fontSize = 12.sp,
+                        // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                        style = MaterialTheme.typography.bodySmall,
                         color = TextHint,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -214,14 +216,15 @@ private fun SnapshotLine(label: String, value: String) {
     ) {
         Text(
             text = label,
-            fontSize = 14.sp,
+            // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+            style = MaterialTheme.typography.bodyMedium,
             color = TextSecondary,
             modifier = Modifier.weight(1f)
         )
         Text(
             text = value,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.SemiBold,
+            // 字号走主题字阶（F6）：14sp 数值用 titleSmall 承载强调。
+            style = MaterialTheme.typography.titleSmall,
             color = TextPrimary
         )
     }
@@ -231,15 +234,16 @@ private fun SnapshotLine(label: String, value: String) {
 private fun TimeChip(label: String, selected: Boolean, onClick: () -> Unit) {
     Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(999.dp))
+            // 圆角走形状令牌（F6）：999dp 胶囊收敛到 CircleShape。
+            .clip(CircleShape)
             .background(if (selected) OrangeStart else SurfaceWarmDeep)
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 8.dp)
     ) {
         Text(
             text = label,
-            fontSize = 13.sp,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+            // 字号走主题字阶（F6）：labelLarge 承载 13sp。
+            style = MaterialTheme.typography.labelLarge,
             color = if (selected) Color.White else TextSecondary
         )
     }

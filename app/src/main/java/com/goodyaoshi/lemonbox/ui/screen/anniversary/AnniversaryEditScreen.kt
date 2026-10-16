@@ -20,7 +20,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -47,7 +47,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.data.local.entity.Anniversary
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
@@ -73,8 +72,11 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 
-/** 提前提醒的可选天数：0=当天，其余为提前 N 天。 */
-private val REMIND_DAY_OPTIONS = listOf(0, 1, 3, 7, 14, 30)
+/** 提前提醒的常用档位（P1）：0=当天、提前 1/3 天直出，其余收进「更多」。 */
+private val REMIND_PRIMARY_OPTIONS = listOf(0, 1, 3)
+
+/** 提前提醒的长尾档位：点「更多」后展开。 */
+private val REMIND_MORE_OPTIONS = listOf(7, 14, 30)
 
 /** 纪念日类型的可选项与说明。 */
 private val TYPE_CHIP_OPTIONS = listOf(
@@ -89,12 +91,16 @@ private fun typeHint(type: Int): String = when (type) {
     else -> "盯着一个未来的日子，一天天倒数"
 }
 
-/** 重复周期的可选档位（「不重复」默认选中，单独列在第一位）。 */
-private val REPEAT_CHIP_OPTIONS = listOf(
-    Anniversary.REPEAT_DAY to "每天",
-    Anniversary.REPEAT_WEEK to "每周",
+/** 重复周期的常用档位（P1）：「不重复」默认选中，月/年直出，日/周频率收进「更多」。 */
+private val REPEAT_PRIMARY_OPTIONS = listOf(
     Anniversary.REPEAT_MONTH to "每月",
     Anniversary.REPEAT_YEAR to "每年"
+)
+
+/** 重复周期的长尾档位：点「更多」后展开。 */
+private val REPEAT_MORE_OPTIONS = listOf(
+    Anniversary.REPEAT_DAY to "每天",
+    Anniversary.REPEAT_WEEK to "每周"
 )
 
 /** 重复间隔的上限：每 99 天/周/月/年封顶，防误触出天文数字。 */
@@ -136,6 +142,9 @@ fun AnniversaryEditScreen(
     var pendingDelete by remember { mutableStateOf(false) }
     var duplicateName by remember { mutableStateOf(false) }
     var showDiscardDialog by remember { mutableStateOf(false) }
+    // 重复周期与提前提醒的「更多」展开（P1）：把长尾档位收起，单一决策点不超过 4 个 chip。
+    var showMoreRepeat by remember { mutableStateOf(false) }
+    var showMoreRemind by remember { mutableStateOf(false) }
 
     LaunchedEffect(loaded) {
         val a = loaded ?: return@LaunchedEffect
@@ -283,7 +292,8 @@ fun AnniversaryEditScreen(
                 }
                 Text(
                     text = if (viewModel.isEditMode) "编辑纪念日" else "新增纪念日",
-                    fontSize = 18.sp,
+                    // 字号走主题字阶（F6）：titleLarge 为 18sp。
+                    style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary
                 )
@@ -297,7 +307,7 @@ fun AnniversaryEditScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 AppSurfaceCard(
-                    shape = RoundedCornerShape(22.dp),
+                    shape = MaterialTheme.shapes.extraLarge,
                     contentPadding = PaddingValues(16.dp),
                     shadowElevation = 12.dp
                 ) {
@@ -318,13 +328,14 @@ fun AnniversaryEditScreen(
                 }
 
                 AppSurfaceCard(
-                    shape = RoundedCornerShape(22.dp),
+                    shape = MaterialTheme.shapes.extraLarge,
                     contentPadding = PaddingValues(16.dp),
                     shadowElevation = 12.dp
                 ) {
                     Text(
                         text = "类型",
-                        fontSize = 13.sp,
+                        // 字号走主题字阶（F6）：labelLarge 为 14sp。
+                        style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.SemiBold,
                         color = TextSecondary
                     )
@@ -351,7 +362,7 @@ fun AnniversaryEditScreen(
                 }
 
                 AppSurfaceCard(
-                    shape = RoundedCornerShape(22.dp),
+                    shape = MaterialTheme.shapes.extraLarge,
                     contentPadding = PaddingValues(16.dp),
                     shadowElevation = 12.dp
                 ) {
@@ -378,7 +389,7 @@ fun AnniversaryEditScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(18.dp))
+                                .clip(MaterialTheme.shapes.large)
                                 .background(OrangeTint)
                                 .clickable { showLunarPicker = true }
                                 .padding(horizontal = 14.dp, vertical = 12.dp),
@@ -393,7 +404,8 @@ fun AnniversaryEditScreen(
                             Spacer(modifier = Modifier.size(8.dp))
                             Text(
                                 text = "出生日期：${lunarDateLabel(lunarYear, lunarMonth, lunarDay)}",
-                                fontSize = 15.sp,
+                                // 字号走主题字阶（F6）：titleMedium 为 16sp。
+                                style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.SemiBold,
                                 color = TextPrimary
                             )
@@ -402,7 +414,7 @@ fun AnniversaryEditScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(18.dp))
+                                .clip(MaterialTheme.shapes.large)
                                 .background(OrangeTint)
                                 .clickable { showSolarPicker = true }
                                 .padding(horizontal = 14.dp, vertical = 12.dp),
@@ -421,7 +433,8 @@ fun AnniversaryEditScreen(
                                     Anniversary.TYPE_COUNTUP -> "从哪天开始：${solarDate.year}年${solarDate.monthValue}月${solarDate.dayOfMonth}日"
                                     else -> "目标日期：${solarDate.year}年${solarDate.monthValue}月${solarDate.dayOfMonth}日"
                                 },
-                                fontSize = 15.sp,
+                                // 字号走主题字阶（F6）：titleMedium 为 16sp。
+                                style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.SemiBold,
                                 color = TextPrimary
                             )
@@ -440,20 +453,22 @@ fun AnniversaryEditScreen(
                             ageAtNext = previewAge,
                             birthdayExtra = previewExtra
                         ),
-                        fontSize = 12.sp,
+                        // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                        style = MaterialTheme.typography.bodySmall,
                         color = if (previewDays == null) StatusExpired else TextSecondary
                     )
                 }
 
                 if (type == Anniversary.TYPE_COUNTDOWN) {
                     AppSurfaceCard(
-                        shape = RoundedCornerShape(22.dp),
+                        shape = MaterialTheme.shapes.extraLarge,
                         contentPadding = PaddingValues(16.dp),
                         shadowElevation = 12.dp
                     ) {
                         Text(
                             text = "重复",
-                            fontSize = 13.sp,
+                            // 字号走主题字阶（F6）：labelLarge 为 14sp。
+                            style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.SemiBold,
                             color = TextSecondary
                         )
@@ -465,6 +480,8 @@ fun AnniversaryEditScreen(
                             color = TextHint
                         )
                         Spacer(modifier = Modifier.size(10.dp))
+                        // 单一决策点不超过 4 个 chip（P1）：月/年直出，日/周频率收在「更多」里。
+                        val moreRepeatSelected = REPEAT_MORE_OPTIONS.any { it.first == repeatUnit }
                         FlowRow(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -474,12 +491,32 @@ fun AnniversaryEditScreen(
                                 selected = repeatUnit == Anniversary.REPEAT_NONE,
                                 onClick = { pickRepeatUnit(Anniversary.REPEAT_NONE) }
                             )
-                            REPEAT_CHIP_OPTIONS.forEach { (unit, label) ->
+                            REPEAT_PRIMARY_OPTIONS.forEach { (unit, label) ->
                                 SelectionChip(
                                     text = label,
                                     selected = repeatUnit == unit,
                                     onClick = { pickRepeatUnit(unit) }
                                 )
+                            }
+                            SelectionChip(
+                                text = "更多…",
+                                selected = moreRepeatSelected,
+                                onClick = { showMoreRepeat = !showMoreRepeat }
+                            )
+                        }
+                        if (showMoreRepeat || moreRepeatSelected) {
+                            Spacer(modifier = Modifier.size(8.dp))
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                REPEAT_MORE_OPTIONS.forEach { (unit, label) ->
+                                    SelectionChip(
+                                        text = label,
+                                        selected = repeatUnit == unit,
+                                        onClick = { pickRepeatUnit(unit) }
+                                    )
+                                }
                             }
                         }
                         if (repeatUnit != Anniversary.REPEAT_NONE) {
@@ -487,7 +524,8 @@ fun AnniversaryEditScreen(
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
                                     text = "每",
-                                    fontSize = 14.sp,
+                                    // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+                                    style = MaterialTheme.typography.bodyMedium,
                                     fontWeight = FontWeight.SemiBold,
                                     color = TextPrimary
                                 )
@@ -502,7 +540,8 @@ fun AnniversaryEditScreen(
                                 Spacer(modifier = Modifier.size(10.dp))
                                 Text(
                                     text = "$repeatInterval",
-                                    fontSize = 16.sp,
+                                    // 字号走主题字阶（F6）：titleMedium 为 16sp。
+                                    style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold,
                                     color = OrangeStart,
                                     modifier = Modifier.width(32.dp),
@@ -520,7 +559,8 @@ fun AnniversaryEditScreen(
                                 Spacer(modifier = Modifier.size(10.dp))
                                 Text(
                                     text = repeatUnitWord,
-                                    fontSize = 14.sp,
+                                    // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+                                    style = MaterialTheme.typography.bodyMedium,
                                     fontWeight = FontWeight.SemiBold,
                                     color = TextPrimary
                                 )
@@ -531,13 +571,14 @@ fun AnniversaryEditScreen(
 
                 if (type != Anniversary.TYPE_COUNTUP) {
                     AppSurfaceCard(
-                        shape = RoundedCornerShape(22.dp),
+                        shape = MaterialTheme.shapes.extraLarge,
                         contentPadding = PaddingValues(16.dp),
                         shadowElevation = 12.dp
                     ) {
                         Text(
                             text = "提前提醒",
-                            fontSize = 13.sp,
+                            // 字号走主题字阶（F6）：labelLarge 为 14sp。
+                            style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.SemiBold,
                             color = TextSecondary
                         )
@@ -553,6 +594,8 @@ fun AnniversaryEditScreen(
                             color = TextHint
                         )
                         Spacer(modifier = Modifier.size(10.dp))
+                        // 单一决策点不超过 4 个 chip（P1）：当天/提前 1/3 天直出，7/14/30 天收在「更多」里。
+                        val moreRemindSelected = remindDays.any { it in REMIND_MORE_OPTIONS }
                         FlowRow(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -562,7 +605,7 @@ fun AnniversaryEditScreen(
                                 selected = remindDays.isEmpty(),
                                 onClick = { remindDays = emptySet() }
                             )
-                            REMIND_DAY_OPTIONS.forEach { day ->
+                            REMIND_PRIMARY_OPTIONS.forEach { day ->
                                 val selected = day in remindDays
                                 SelectionChip(
                                     text = if (day == 0) "当天" else "提前${day}天",
@@ -572,13 +615,36 @@ fun AnniversaryEditScreen(
                                     }
                                 )
                             }
+                            SelectionChip(
+                                text = "更多…",
+                                selected = moreRemindSelected,
+                                onClick = { showMoreRemind = !showMoreRemind }
+                            )
+                        }
+                        if (showMoreRemind || moreRemindSelected) {
+                            Spacer(modifier = Modifier.size(8.dp))
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                REMIND_MORE_OPTIONS.forEach { day ->
+                                    val selected = day in remindDays
+                                    SelectionChip(
+                                        text = "提前${day}天",
+                                        selected = selected,
+                                        onClick = {
+                                            remindDays = if (selected) remindDays - day else remindDays + day
+                                        }
+                                    )
+                                }
+                            }
                         }
                     }
                 }
 
                 if (viewModel.isEditMode) {
                     AppSurfaceCard(
-                        shape = RoundedCornerShape(22.dp),
+                        shape = MaterialTheme.shapes.extraLarge,
                         contentPadding = PaddingValues(16.dp),
                         shadowElevation = 12.dp
                     ) {
@@ -591,12 +657,12 @@ fun AnniversaryEditScreen(
                     }
                     Text(
                         text = "删除这个纪念日",
-                        fontSize = 14.sp,
+                        style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Medium,
                         color = StatusExpired,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(16.dp))
+                            .clip(MaterialTheme.shapes.medium)
                             .clickable { pendingDelete = true }
                             .padding(vertical = 12.dp),
                         textAlign = TextAlign.Center
@@ -700,7 +766,7 @@ fun AnniversaryEditScreen(
         ) {
             Text(
                 text = "「${name.trim()}」与已有纪念日重复，就没有再存一份。",
-                fontSize = 14.sp,
+                style = MaterialTheme.typography.bodyMedium,
                 color = TextSecondary
             )
         }
@@ -720,7 +786,7 @@ fun AnniversaryEditScreen(
         ) {
             Text(
                 text = "确定要删除「${name}」吗？",
-                fontSize = 14.sp,
+                style = MaterialTheme.typography.bodyMedium,
                 color = TextSecondary
             )
         }
@@ -742,7 +808,7 @@ fun AnniversaryEditScreen(
         ) {
             Text(
                 text = "确定要离开并丢弃当前的填写内容吗？",
-                fontSize = 14.sp,
+                style = MaterialTheme.typography.bodyMedium,
                 color = TextSecondary
             )
         }
@@ -799,7 +865,7 @@ private fun SelectionChip(
 ) {
     Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(999.dp))
+            .clip(CircleShape)
             .background(if (selected) OrangeStart else SurfaceWarmDeep)
             .alpha(if (enabled) 1f else 0.45f)
             .clickable(enabled = enabled, onClick = onClick)
@@ -807,7 +873,8 @@ private fun SelectionChip(
     ) {
         Text(
             text = text,
-            fontSize = 13.sp,
+            // 字号走主题字阶（F6）：labelLarge 为 14sp。
+            style = MaterialTheme.typography.labelLarge,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
             color = if (selected) CardWhite else TextSecondary
         )
@@ -822,20 +889,29 @@ private fun StepCircle(
     onClick: () -> Unit
 ) {
     Box(
+        // 热区扩到 48dp（P2）：原先 34dp 圆钮手指点不中，视觉块仍 34dp。
         modifier = Modifier
-            .size(34.dp)
-            .clip(RoundedCornerShape(999.dp))
-            .background(SurfaceWarmDeep)
-            .alpha(if (enabled) 1f else 0.45f)
+            .size(48.dp)
+            .clip(CircleShape)
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        Text(
-            text = label,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = if (enabled) TextPrimary else TextHint
-        )
+        Box(
+            modifier = Modifier
+                .size(34.dp)
+                .clip(CircleShape)
+                .background(SurfaceWarmDeep)
+                .alpha(if (enabled) 1f else 0.45f),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = label,
+                // 字号走主题字阶（F6）：titleMedium 为 16sp。
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = if (enabled) TextPrimary else TextHint
+            )
+        }
     }
 }
 
@@ -854,13 +930,15 @@ private fun SwitchRow(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = title,
-                fontSize = 15.sp,
+                // 字号走主题字阶（F6）：titleMedium 为 16sp。
+                style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
                 color = TextPrimary
             )
             Text(
                 text = subtitle,
-                fontSize = 12.sp,
+                // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                style = MaterialTheme.typography.bodySmall,
                 color = TextHint,
                 modifier = Modifier.padding(top = 1.dp)
             )

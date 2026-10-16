@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -30,6 +29,7 @@ import androidx.compose.material3.DatePicker
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -46,10 +46,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
@@ -130,8 +128,8 @@ fun AnniversaryScreen(
                 }
                 Text(
                     text = "纪念日",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
+                    // 字号走主题字阶（F6）：titleLarge 为 18sp。
+                    style = MaterialTheme.typography.titleLarge,
                     color = TextPrimary,
                     modifier = Modifier.weight(1f)
                 )
@@ -242,7 +240,8 @@ fun AnniversaryScreen(
                 Text(
                     text = "确定要删除「${row.name}」吗？",
                     color = TextSecondary,
-                    fontSize = 14.sp
+                    // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+                    style = MaterialTheme.typography.bodyMedium
                 )
             }
         }
@@ -266,23 +265,24 @@ private fun SettingRow(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = label,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold,
+                // 字号走主题字阶（F6）：14sp 标签用 titleSmall 承载强调。
+                style = MaterialTheme.typography.titleSmall,
                 color = TextPrimary
             )
             Text(
                 text = value,
-                fontSize = 12.sp,
+                // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                style = MaterialTheme.typography.bodySmall,
                 color = if (value.startsWith("未设置")) TextSecondary else OrangeStart
             )
         }
         Text(
             text = actionLabel,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.SemiBold,
+            // 字号走主题字阶（F6）：labelLarge 为 14sp；胶囊圆角走 CircleShape。
+            style = MaterialTheme.typography.labelLarge,
             color = OrangeStart,
             modifier = Modifier
-                .clip(RoundedCornerShape(999.dp))
+                .clip(CircleShape)
                 .clickable(onClick = onAction)
                 .padding(horizontal = 10.dp, vertical = 6.dp)
         )
@@ -402,7 +402,7 @@ private fun AnniversaryContent(
     }
 }
 
-/** 单张纪念日卡：上行=图标+名称+日期标签+开关，下行=状态文字；停用的整行降透明度。
+/** 单张纪念日卡：上行=图标+名称+日期标签+开关，下行=状态文字；停用只弱化内容不弱化开关。
  *  状态独立成行，生日这类长状态（下次 M/D · 还有 N 天 · 满 N 岁）不再把名称挤没。 */
 @Composable
 private fun AnniversaryCard(
@@ -411,68 +411,77 @@ private fun AnniversaryCard(
     onClick: () -> Unit
 ) {
     AppSurfaceCard(
-        shape = RoundedCornerShape(22.dp),
+        // 圆角走形状令牌（F6）：22dp 卡片收敛到 extraLarge（24dp）。
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
         shadowElevation = 12.dp,
-        modifier = Modifier.alpha(if (row.enabled) 1f else 0.55f),
         onClick = onClick
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
+            // 停用只弱化内容（IA-6）：把透明度收在「图标+文字」这一行，右下角开关保持原样，
+            // 不再整卡连开关一起变淡，避免用户想开启却找不到发灰的开关。
+            Row(
                 modifier = Modifier
-                    .size(38.dp)
-                    .clip(CircleShape)
-                    .background(OrangeTint),
-                contentAlignment = Alignment.Center
+                    .weight(1f)
+                    .alpha(if (row.enabled) 1f else 0.55f),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = Icons.Default.Favorite,
-                    contentDescription = null,
-                    tint = OrangeStart,
-                    modifier = Modifier.size(18.dp)
-                )
-            }
-            Spacer(modifier = Modifier.size(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = row.name,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = TextPrimary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false)
-                    )
-                    Spacer(modifier = Modifier.size(8.dp))
-                    PillTag(
-                        text = row.dateLabel,
-                        backgroundColor = SurfaceWarmDeep,
-                        contentColor = TextSecondary
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(CircleShape)
+                        .background(OrangeTint),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Favorite,
+                        contentDescription = null,
+                        tint = OrangeStart,
+                        modifier = Modifier.size(18.dp)
                     )
                 }
-                row.note.takeIf { it.isNotBlank() }?.let { note ->
+                Spacer(modifier = Modifier.size(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = row.name,
+                            // 字号走主题字阶（F6）：titleMedium 为 16sp。
+                            style = MaterialTheme.typography.titleMedium,
+                            color = TextPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                        Spacer(modifier = Modifier.size(8.dp))
+                        PillTag(
+                            text = row.dateLabel,
+                            backgroundColor = SurfaceWarmDeep,
+                            contentColor = TextSecondary
+                        )
+                    }
+                    row.note.takeIf { it.isNotBlank() }?.let { note ->
+                        Text(
+                            text = note,
+                            // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextHint,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(top = 1.dp)
+                        )
+                    }
                     Text(
-                        text = note,
-                        fontSize = 12.sp,
-                        color = TextHint,
-                        maxLines = 1,
+                        text = row.statusText,
+                        // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                        style = MaterialTheme.typography.bodySmall,
+                        color = OrangeStart,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(top = 1.dp)
+                        modifier = Modifier.padding(top = 4.dp)
                     )
                 }
-                Text(
-                    text = row.statusText,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = OrangeStart,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 4.dp)
-                )
             }
             Spacer(modifier = Modifier.size(8.dp))
             Switch(

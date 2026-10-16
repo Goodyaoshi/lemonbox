@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -24,16 +25,20 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
+import com.goodyaoshi.lemonbox.ui.theme.OnScrim
+import com.goodyaoshi.lemonbox.ui.theme.OnScrimScrim
 import com.goodyaoshi.lemonbox.ui.theme.ScrimStrong
 import kotlinx.coroutines.launch
 
@@ -102,14 +107,22 @@ fun ImagePreviewOverlay(
 
             Text(
                 text = "${pagerState.currentPage + 1}/${imageHashes.size}",
-                color = Color.White,
-                fontSize = 13.sp,
+                // 内容色走语义令牌（F6）：遮罩恒为深色，此处恒为浅色令牌 [OnScrim]。
+                color = OnScrim,
+                // 字号走主题字阶（F6）：labelMedium 为 12sp。
+                style = MaterialTheme.typography.labelMedium,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 26.dp)
                     .clip(CircleShape)
-                    .background(Color.White.copy(alpha = 0.14f))
+                    .background(OnScrimScrim)
                     .padding(horizontal = 12.dp, vertical = 8.dp)
+                    // 读屏可达（F8）：页码是翻页后的状态信息，补 liveRegion 让读屏播报「第几张」，
+                    // 否则视障用户滑到下一张也不知道当前进度。
+                    .semantics {
+                        liveRegion = LiveRegionMode.Polite
+                        contentDescription = "第 ${pagerState.currentPage + 1} 张，共 ${imageHashes.size} 张"
+                    }
             )
         }
     }
@@ -167,7 +180,8 @@ private fun PreviewIconButton(
     Box(
         modifier = modifier
             .clip(CircleShape)
-            .background(Color.White.copy(alpha = 0.14f))
+            // 衬底色与内容色走语义令牌（F6）：遮罩恒为深色，此处恒为浅色令牌。
+            .background(OnScrimScrim)
             .clickable(onClick = onClick)
             .padding(12.dp),
         contentAlignment = Alignment.Center
@@ -175,7 +189,7 @@ private fun PreviewIconButton(
         Icon(
             imageVector = icon,
             contentDescription = contentDescription,
-            tint = Color.White
+            tint = OnScrim
         )
     }
 }

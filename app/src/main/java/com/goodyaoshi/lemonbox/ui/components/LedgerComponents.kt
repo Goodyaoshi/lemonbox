@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Backspace
 import androidx.compose.material.icons.automirrored.filled.Chat
@@ -40,6 +39,7 @@ import androidx.compose.material.icons.filled.Work
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -55,7 +55,6 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.goodyaoshi.lemonbox.ui.theme.DividerSoft
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.OrangeTint
@@ -66,6 +65,8 @@ import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarmDeep
 import com.goodyaoshi.lemonbox.ui.theme.TextHint
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
 import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
+import com.goodyaoshi.lemonbox.util.DateUtil
+import com.goodyaoshi.lemonbox.util.LedgerMath
 
 /**
  * 金额文本的 OpenType 字体特性（P2）：启用等宽数字。
@@ -140,7 +141,8 @@ fun LedgerMonthBar(
         Text(
             text = "${year}年${month}月",
             color = TextPrimary,
-            fontSize = 16.sp,
+            // 字号走主题字阶（F6）：titleMedium 为 16sp。
+            style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
             textAlign = TextAlign.Center,
             modifier = Modifier.weight(1f)
@@ -158,6 +160,8 @@ private fun MonthArrow(icon: ImageVector, contentDescription: String, onClick: (
     val interactionSource = remember { MutableInteractionSource() }
     Box(
         modifier = Modifier
+            // 触达面积达标（F7）：箭头视觉 34dp，撑出 48dp 最小可点区，视觉尺寸不变。
+            .minimumInteractiveComponentSize()
             .size(34.dp)
             .clip(CircleShape)
             .background(SurfaceWarmDeep)
@@ -202,14 +206,19 @@ fun LedgerSummaryCard(
 @Composable
 private fun LedgerSummaryItem(label: String, value: String, accent: Color, modifier: Modifier) {
     Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(text = label, color = TextSecondary, fontSize = 12.sp)
+        Text(
+            text = label,
+            // 字号走主题字阶（F6）：labelMedium 为 12sp。
+            style = MaterialTheme.typography.labelMedium,
+            color = TextSecondary
+        )
         Text(
             text = value,
             color = accent,
-            fontSize = 17.sp,
+            // 字号走主题字阶（F6）：titleMedium 为 16sp。
+            style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = AMOUNT_TNUM),
             fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(top = 3.dp),
-            style = AmountTnumStyle
+            modifier = Modifier.padding(top = 3.dp)
         )
     }
 }
@@ -222,12 +231,15 @@ fun LedgerBudgetBar(
     ratio: Float,
     over: Boolean,
     modifier: Modifier = Modifier,
-    onClick: (() -> Unit)? = null
+    onClick: (() -> Unit)? = null,
+    // 状态补白文字（P2）：超支不再只靠变红，补一句可读的状态说明。
+    statusText: String? = null
 ) {
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
+            // 圆角走形状令牌（F6）：medium 为 16dp，不再内联 18dp。
+            .clip(MaterialTheme.shapes.medium)
             .background(SurfaceWarmDeep)
             .clickable(enabled = onClick != null, onClick = { onClick?.invoke() })
             .padding(horizontal = 14.dp, vertical = 12.dp)
@@ -236,15 +248,16 @@ fun LedgerBudgetBar(
             Text(
                 text = title,
                 color = TextPrimary,
-                fontSize = 13.sp,
+                // 字号走主题字阶（F6）：titleSmall 为 14sp。
+                style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.weight(1f)
             )
             Text(
                 text = subtitle,
                 color = if (over) StatusExpired else TextSecondary,
-                fontSize = 12.sp,
-                style = AmountTnumStyle
+                // 字号走主题字阶（F6）：labelMedium 为 12sp，并启用等宽数字（P2）。
+                style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = AMOUNT_TNUM)
             )
         }
         Spacer(modifier = Modifier.height(8.dp))
@@ -252,15 +265,25 @@ fun LedgerBudgetBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(8.dp)
-                .clip(RoundedCornerShape(4.dp))
+                // 圆角走形状令牌（F6）：small 为 8dp，正好是满圆胶囊条。
+                .clip(MaterialTheme.shapes.small)
                 .background(DividerSoft)
         ) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth(ratio.coerceIn(0.02f, 1f))
                     .height(8.dp)
-                    .clip(RoundedCornerShape(4.dp))
+                    .clip(MaterialTheme.shapes.small)
                     .background(if (over) StatusExpired else OrangeStart)
+            )
+        }
+        statusText?.let {
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = it,
+                color = if (over) StatusExpired else TextSecondary,
+                // 字号走主题字阶（F6）：labelMedium 为 12sp。
+                style = MaterialTheme.typography.labelMedium
             )
         }
     }
@@ -277,7 +300,10 @@ fun LedgerAssetChip(
 ) {
     Row(
         modifier = modifier
-            .clip(RoundedCornerShape(18.dp))
+            // 触达面积达标（F7）：胶囊约 38dp 高，撑出 48dp 最小可点区，视觉尺寸不变。
+            .minimumInteractiveComponentSize()
+            // 圆角走形状令牌（F6）：medium 为 16dp。
+            .clip(MaterialTheme.shapes.medium)
             .background(SurfaceWarmDeep)
             .clickable(enabled = onClick != null, onClick = { onClick?.invoke() })
             .padding(horizontal = 14.dp, vertical = 10.dp),
@@ -299,7 +325,8 @@ fun LedgerAssetChip(
             Text(
                 text = balanceText,
                 color = TextPrimary,
-                fontSize = 13.sp,
+                // 字号走主题字阶（F6）：titleSmall 为 14sp。
+                style = MaterialTheme.typography.titleSmall.copy(fontFeatureSettings = AMOUNT_TNUM),
                 fontWeight = FontWeight.SemiBold
             )
         }
@@ -394,25 +421,32 @@ fun LedgerRankRow(
                 Text(
                     text = "$rank. $name",
                     color = TextPrimary,
-                    fontSize = 13.sp,
+                    // 字号走主题字阶（F6）：titleSmall 为 14sp。
+                    style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Medium,
                     modifier = Modifier.weight(1f)
                 )
-                Text(text = amountText, color = TextPrimary, fontSize = 13.sp, style = AmountTnumStyle)
+                Text(
+                    text = amountText,
+                    color = TextPrimary,
+                    // 字号走主题字阶（F6）：titleSmall 为 14sp，并启用等宽数字（P2）。
+                    style = MaterialTheme.typography.titleSmall.copy(fontFeatureSettings = AMOUNT_TNUM)
+                )
             }
             Spacer(modifier = Modifier.height(6.dp))
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(6.dp)
-                    .clip(RoundedCornerShape(3.dp))
+                    // 圆角走形状令牌（F6）：small 为 8dp，满圆胶囊条封顶到 6dp 高。
+                    .clip(MaterialTheme.shapes.small)
                     .background(DividerSoft)
             ) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth(ratio.coerceIn(0.015f, 1f))
                         .height(6.dp)
-                        .clip(RoundedCornerShape(3.dp))
+                        .clip(MaterialTheme.shapes.small)
                         .background(OrangeStart)
                 )
             }
@@ -453,7 +487,8 @@ fun AmountKeyboard(
                         modifier = Modifier
                             .weight(1f)
                             .height(52.dp)
-                            .clip(RoundedCornerShape(18.dp))
+                            // 圆角走形状令牌（F6）：medium 为 16dp，不再内联 18dp。
+                            .clip(MaterialTheme.shapes.medium)
                             .background(SurfaceWarmDeep)
                             .clickable(
                                 interactionSource = interactionSource,
@@ -475,7 +510,8 @@ fun AmountKeyboard(
                             Text(
                                 text = key,
                                 color = if (isOperator) OrangeStart else TextPrimary,
-                                fontSize = 20.sp,
+                                // 字号走主题字阶（F6）：titleLarge 为 18sp。
+                                style = MaterialTheme.typography.titleLarge,
                                 fontWeight = if (isOperator) FontWeight.Bold else FontWeight.Medium
                             )
                         }
@@ -499,14 +535,14 @@ fun ledgerTypeColor(type: Int): Color = when (type) {
 /** 金额展示的统一前缀。 */
 const val LEDGER_CURRENCY_SYMBOL = "¥"
 
-/** 分 → 带符号金额文本：-2500 → "-25"，流水行展示用。 */
+/**
+ * 分 → 带符号金额文本：统一走 [DateUtil.formatCurrency]（P1）。
+ * 此前流水行自写一套「无 ¥、无千分位、小数位随值变」的格式，与同屏当日小计
+ * 「-¥25.00」两套并存，会被当成算错账。这里改为与全站同一格式化器，
+ * 输出「+¥25.00 / -¥25.00」，收支符号规则也随之一致。
+ */
 fun ledgerSignedAmountText(type: Int, cents: Long): String {
-    val yuan = cents / 100.0
-    val text = if (yuan % 1.0 == 0.0) {
-        yuan.toLong().toString()
-    } else {
-        String.format(java.util.Locale.CHINA, "%.2f", yuan)
-    }
+    val text = DateUtil.formatCurrency(LedgerMath.centsToYuan(cents))
     return when (type) {
         1 -> "+$text"
         else -> "-$text"

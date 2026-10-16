@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
@@ -40,7 +39,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.data.local.dao.LedgerAssetWithBalance
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
@@ -124,7 +122,8 @@ fun LedgerAssetsScreen(
                 }
                 Text(
                     text = "资产负债",
-                    fontSize = 18.sp,
+                    // 字号走主题字阶（F6）：titleLarge 为 18sp。
+                    style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary
                 )
@@ -132,7 +131,8 @@ fun LedgerAssetsScreen(
 
             Column(modifier = Modifier.padding(horizontal = 16.dp)) {
                 AppSurfaceCard(
-                    shape = RoundedCornerShape(24.dp),
+                    // 圆角走形状令牌（F6）：extraLarge 为 24dp。
+                    shape = MaterialTheme.shapes.extraLarge,
                     contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
                     shadowElevation = 12.dp
                 ) {
@@ -289,7 +289,8 @@ fun LedgerAssetsScreen(
             Text(
                 text = "确定要删除「${asset.name}」吗？",
                 color = TextSecondary,
-                fontSize = 14.sp
+                // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+                style = MaterialTheme.typography.bodyMedium
             )
         }
     }
@@ -305,7 +306,8 @@ fun LedgerAssetsScreen(
             Text(
                 text = "可以先把相关账单删掉或换到别的账户，再回来删除哦。",
                 color = TextSecondary,
-                fontSize = 14.sp
+                // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+                style = MaterialTheme.typography.bodyMedium
             )
         }
     }
@@ -321,7 +323,8 @@ fun LedgerAssetsScreen(
             Text(
                 text = "账户名称不区分大小写，且不能有前后空格差异的同名项。",
                 color = TextSecondary,
-                fontSize = 14.sp
+                // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+                style = MaterialTheme.typography.bodyMedium
             )
         }
     }
@@ -336,7 +339,8 @@ private fun LedgerAssetRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
+            // 圆角走形状令牌（F6）：large 为 20dp。
+            .clip(MaterialTheme.shapes.large)
             .background(CardWhite)
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 12.dp),
@@ -358,7 +362,8 @@ private fun LedgerAssetRow(
         }
         Text(
             text = asset.name,
-            fontSize = 15.sp,
+            // 字号走主题字阶（F6）：titleSmall 为 14sp。
+            style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.Medium,
             color = TextPrimary,
             modifier = Modifier
@@ -367,7 +372,8 @@ private fun LedgerAssetRow(
         )
         Text(
             text = formatCents(asset.balance),
-            fontSize = 15.sp,
+            // 字号走主题字阶（F6）：titleSmall 为 14sp。
+            style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.SemiBold,
             color = TextPrimary
         )
@@ -391,7 +397,8 @@ private fun SummaryItem(
         )
         Text(
             text = value,
-            fontSize = 15.sp,
+            // 字号走主题字阶（F6）：titleSmall 为 14sp。
+            style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.Bold,
             color = valueColor,
             modifier = Modifier.padding(top = 4.dp)
@@ -440,6 +447,14 @@ private fun LedgerAssetEditDialog(
             value = balanceText,
             onValueChange = { balanceText = it },
             placeholder = "现在有多少钱就填多少"
+        )
+        // 正负口径说明（P2）：此前未说明正负，用户不知道信用卡欠款该填什么。
+        Text(
+            text = "有钱填正数；信用卡欠款填负数，会自动计入总负债。",
+            // 字号走主题字阶（F6）：labelMedium 为 12sp。
+            style = MaterialTheme.typography.labelMedium,
+            color = TextHint,
+            modifier = Modifier.padding(top = 6.dp)
         )
         Spacer(modifier = Modifier.height(12.dp))
         EditorSectionLabel(label = "图标")

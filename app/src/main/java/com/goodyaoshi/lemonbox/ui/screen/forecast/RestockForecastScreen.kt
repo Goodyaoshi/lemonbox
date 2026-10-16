@@ -16,31 +16,42 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.data.forecast.RestockForecast
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.EmptyState
 import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
+import com.goodyaoshi.lemonbox.ui.components.PillTag
+import com.goodyaoshi.lemonbox.ui.components.SkeletonList
 import com.goodyaoshi.lemonbox.ui.theme.CardWhite
 import com.goodyaoshi.lemonbox.ui.theme.StatusExpired
 import com.goodyaoshi.lemonbox.ui.theme.StatusWarning
+import com.goodyaoshi.lemonbox.ui.theme.TagBlue
+import com.goodyaoshi.lemonbox.ui.theme.TagBlueText
 import com.goodyaoshi.lemonbox.ui.theme.TagOrange
+import com.goodyaoshi.lemonbox.ui.theme.TagOrangeText
+import com.goodyaoshi.lemonbox.ui.theme.TagRed
+import com.goodyaoshi.lemonbox.ui.theme.TagRedText
 import com.goodyaoshi.lemonbox.ui.theme.TextHint
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
 import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
@@ -50,6 +61,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import kotlin.math.ceil
 import kotlin.math.roundToInt
+import kotlinx.coroutines.delay
 
 /**
  * 常买物品预测（F08）：按消耗速度推算每件家当离用完还有多久，
@@ -62,6 +74,17 @@ fun RestockForecastScreen(
 ) {
     val forecasts by viewModel.forecasts.collectAsState()
     val appSnackbar = LocalAppSnackbar.current
+
+    // 加载态（P2）：数据从 Room 流式读取，首帧是无初始值的空列表，
+    // 先给一小段等待窗口画骨架，避免数据未到就先渲染「还没有可预测的物品」造成误读。
+    var dataSettled by remember { mutableStateOf(false) }
+    LaunchedEffect(forecasts) {
+        if (forecasts.isNotEmpty()) dataSettled = true
+    }
+    LaunchedEffect(Unit) {
+        delay(500)
+        dataSettled = true
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         AppDecorativeBackground()
@@ -87,8 +110,8 @@ fun RestockForecastScreen(
                 }
                 Text(
                     text = "补货预测",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
+                    // 页面主标题统一走主题字阶（F6）：headlineLarge 为 28sp。
+                    style = MaterialTheme.typography.headlineLarge,
                     color = TextPrimary
                 )
             }
@@ -106,7 +129,12 @@ fun RestockForecastScreen(
                         modifier = Modifier.padding(horizontal = 2.dp, vertical = 4.dp)
                     )
                 }
-                if (forecasts.isEmpty()) {
+                if (!dataSettled) {
+                    item(key = "loading") {
+                        // 加载态（P2）：数据未到时先画骨架，与列表卡片同构。
+                        SkeletonList(showHeader = false)
+                    }
+                } else if (forecasts.isEmpty()) {
                     item(key = "empty") {
                         EmptyState(
                             title = "还没有可预测的物品",
@@ -141,24 +169,49 @@ private fun ForecastRow(
         1 -> StatusWarning
         else -> TextHint
     }
+    // 紧迫度不只靠颜色（P2）：再给一句明确文案并渲染成标签，色觉障碍用户也能读懂轻重。
+    val urgencyText = when (forecast.urgency) {
+        0 -> "快用完了"
+        1 -> "该补货了"
+        else -> "还够用"
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(22.dp))
+            // 圆角走形状令牌（F6）：收敛到 large（20dp）。
+            .clip(MaterialTheme.shapes.large)
             .background(CardWhite)
             .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = item.name,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = TextPrimary
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = item.name,
+                    // 字号走主题字阶（F6）：titleSmall 为 14sp。
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = TextPrimary
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                PillTag(
+                    text = urgencyText,
+                    backgroundColor = when (forecast.urgency) {
+                        0 -> TagRed
+                        1 -> TagOrange
+                        else -> TagBlue
+                    },
+                    contentColor = when (forecast.urgency) {
+                        0 -> TagRedText
+                        1 -> TagOrangeText
+                        else -> TagBlueText
+                    }
+                )
+            }
             Text(
                 text = "每天约 ${formatDaily(forecast.dailyConsumption)} ${item.unit}" +
                     " · 还能用 ${formatDays(forecast.daysUntilEmpty)}",
+                // 字号走主题字阶（F6）：bodySmall 为 12sp。
                 style = MaterialTheme.typography.bodySmall,
                 color = TextSecondary,
                 modifier = Modifier.padding(top = 2.dp)
@@ -175,17 +228,21 @@ private fun ForecastRow(
         if (item.needRestock) {
             Text(
                 text = "已在待买",
-                fontSize = 12.sp,
+                // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                style = MaterialTheme.typography.bodySmall,
                 color = TextHint
             )
         } else {
             Text(
                 text = "加入待买",
-                fontSize = 13.sp,
+                // 字号走主题字阶（F6）：labelLarge 为 14sp。
+                style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.SemiBold,
                 color = TextPrimary,
                 modifier = Modifier
-                    .clip(RoundedCornerShape(999.dp))
+                    // 触达面积达标（F7）：原胶囊仅约 32dp 高，先撑出 48dp 最小可点区，视觉尺寸不变。
+                    .minimumInteractiveComponentSize()
+                    .clip(CircleShape)
                     .background(TagOrange)
                     .clickable(onClick = onAddToBuy)
                     .padding(horizontal = 12.dp, vertical = 7.dp)

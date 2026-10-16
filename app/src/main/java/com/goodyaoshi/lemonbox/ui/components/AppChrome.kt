@@ -26,7 +26,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -137,8 +136,29 @@ fun AppDecorativeBackground(modifier: Modifier = Modifier) {
     }
 }
 
-/** 底部导航栏卡片自身的高度（含上下外距 8+8），不含系统导航条。 */
-private val BottomBarPanelHeight = 94.dp
+/** 触达面积下限（F7）：Compose 的最小可点击尺寸，底栏单项的热区不会低于此值。 */
+private val BottomBarMinTouchTarget = 48.dp
+
+/** 底栏内容行的最小高度：与 `LemonBottomBar` 内 Row 的 `sizeIn(minHeight)` 保持一致。 */
+internal val BottomBarRowMinHeight = 64.dp
+
+/** 底栏内容区上下内边距：与 `LemonBottomBar` 的 `contentPadding` 保持一致。 */
+internal val BottomBarContentPadding = 7.dp
+
+/** 底栏卡片在屏幕上的上下外距：与 `LemonBottomBar` 调用处的 `padding(vertical)` 保持一致。 */
+internal val BottomBarOuterMargin = 8.dp
+
+/**
+ * 底部导航栏卡片自身的占位高度（含上下外距），不含系统导航条。
+ *
+ * 由底栏自身的结构参数推导，避免「改动底栏却忘记同步这个数字」导致滚动页末项被压住
+ * （F7）。内容行再与 48dp 最小热区取大：即使 [BottomItem] 的 `minimumInteractiveComponentSize()`
+ * 把单项热区撑到 48dp，底栏也不会高于这里算出的占位值。
+ */
+internal val BottomBarPanelHeight: Dp
+    get() = maxOf(BottomBarRowMinHeight, BottomBarMinTouchTarget) +
+        BottomBarContentPadding * 2 +
+        BottomBarOuterMargin * 2
 
 /** 悬浮按钮与底部导航栏之间的间距。 */
 private val FabAboveBottomBarGap = 16.dp
@@ -217,7 +237,8 @@ fun rememberBottomBarPanelClearance(extra: Dp = 0.dp): Dp =
 @Composable
 fun AppSurfaceCard(
     modifier: Modifier = Modifier,
-    shape: Shape = RoundedCornerShape(28.dp),
+    // 圆角走形状令牌（F6）：与全 App 卡片统一收敛到 extraLarge（24dp）。
+    shape: Shape = MaterialTheme.shapes.extraLarge,
     contentPadding: PaddingValues = PaddingValues(20.dp),
     containerColor: Color = CardWhite.copy(alpha = 0.96f),
     shadowElevation: Dp = 18.dp,
@@ -272,7 +293,8 @@ fun AppSurfaceCard(
 fun GlassPanel(
     modifier: Modifier = Modifier,
     hazeState: HazeState? = null,
-    shape: Shape = RoundedCornerShape(28.dp),
+    // 圆角走形状令牌（F6）：统一收敛到 extraLarge（24dp）。
+    shape: Shape = MaterialTheme.shapes.extraLarge,
     contentPadding: PaddingValues = PaddingValues(20.dp),
     containerColor: Color = GlassWhite,
     borderColor: Color = GlassWhite,
@@ -330,7 +352,8 @@ fun SegmentedTabs(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(22.dp))
+            // 圆角走形状令牌（F6）：外框中圆角档位。
+            .clip(MaterialTheme.shapes.large)
             .background(SurfaceWarmDeep)
             .padding(4.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -340,7 +363,8 @@ fun SegmentedTabs(
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    .clip(RoundedCornerShape(18.dp))
+                    // 圆角走形状令牌（F6）：选中块小圆角档位。
+                    .clip(MaterialTheme.shapes.medium)
                     .background(if (selected) CardWhite else Color.Transparent)
                     // 触达面积达标（F7）：分段标签原本仅约 34dp 高，补足到 48dp 最小可点区。
                     .minimumInteractiveComponentSize()
@@ -393,7 +417,8 @@ fun SectionHeader(
         action?.let {
             val actionModifier = if (onActionClick != null) {
                 Modifier
-                    .clip(RoundedCornerShape(8.dp))
+                    // 圆角走形状令牌（F6）：收敛到 small（8dp）。
+                    .clip(MaterialTheme.shapes.small)
                     // 触达面积达标（F7）：纯文字操作入口补足到 48dp 最小可点区。
                     .minimumInteractiveComponentSize()
                     .clickable(onClick = onActionClick)
@@ -429,7 +454,8 @@ fun HeaderActionPill(
         modifier = modifier
             // 触达面积达标（F7）：胶囊仅约 30dp 高，先撑出 48dp 最小可点区，再绘制胶囊本身，视觉尺寸不变。
             .minimumInteractiveComponentSize()
-            .clip(RoundedCornerShape(999.dp))
+            // 圆角走形状令牌（F6）：胶囊收敛到 CircleShape。
+            .clip(CircleShape)
             .background(SurfaceWarmDeep)
             .clickable(onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 7.dp),
@@ -454,7 +480,7 @@ fun HeaderActionPill(
                 // 角标随位数自然变宽（最小 16dp 圆形），避免两位数被裁切。
                 modifier = Modifier
                     .sizeIn(minWidth = 16.dp, minHeight = 16.dp)
-                    .clip(RoundedCornerShape(999.dp))
+                    .clip(CircleShape)
                     // 语义标签红（随主题切换）：深色模式下自动提亮，避免浅底刺眼。
                     .background(TagRedText)
                     .padding(horizontal = 4.dp),
@@ -480,7 +506,8 @@ fun PillTag(
     contentColor: Color,
     onClick: (() -> Unit)? = null
 ) {
-    val shape = RoundedCornerShape(999.dp)
+    // 圆角走形状令牌（F6）：胶囊收敛到 CircleShape。
+    val shape = CircleShape
 
     Box(
         modifier = if (onClick == null) {
@@ -523,7 +550,8 @@ fun StatTile(
 ) {
     AppSurfaceCard(
         modifier = modifier,
-        shape = RoundedCornerShape(24.dp),
+        // 圆角走形状令牌（F6）。
+        shape = MaterialTheme.shapes.extraLarge,
         contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
         shadowElevation = 14.dp
     ) {

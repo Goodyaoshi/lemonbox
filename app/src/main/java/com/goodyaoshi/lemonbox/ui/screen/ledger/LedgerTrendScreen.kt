@@ -12,21 +12,23 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
@@ -34,11 +36,16 @@ import com.goodyaoshi.lemonbox.ui.components.EmptyState
 import com.goodyaoshi.lemonbox.ui.components.LedgerTrendBarChart
 import com.goodyaoshi.lemonbox.ui.components.LedgerTrendLegend
 import com.goodyaoshi.lemonbox.ui.components.LedgerTrendLineChart
+import com.goodyaoshi.lemonbox.ui.components.SegmentedTabs
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
 import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
 import com.goodyaoshi.lemonbox.ui.viewmodel.LedgerTrendViewModel
 
-/** 收支趋势：近 6 个月的收入/支出折线与月度对比柱状，全部用 Canvas 自绘。 */
+/**
+ * 收支趋势：近 6 个月的收入/支出趋势图，全部用 Canvas 自绘。
+ * 折线与柱状两图数据完全相同（P1），此前并列两卡占屏却零新增信息；
+ * 现合并为一张卡、用切换器二选一，删除冗余占屏。
+ */
 @Composable
 fun LedgerTrendScreen(
     onBack: () -> Unit,
@@ -47,6 +54,8 @@ fun LedgerTrendScreen(
     viewModel: LedgerTrendViewModel = hiltViewModel()
 ) {
     val trend by viewModel.trend.collectAsState()
+    // 0 = 折线，1 = 柱状（P1）：两图数据相同，同一坐标系二选一即可。
+    var chartMode by remember { mutableIntStateOf(0) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         AppDecorativeBackground()
@@ -72,7 +81,8 @@ fun LedgerTrendScreen(
                 }
                 Text(
                     text = "收支趋势",
-                    fontSize = 18.sp,
+                    // 字号走主题字阶（F6）：titleLarge 为 18sp。
+                    style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary
                 )
@@ -94,14 +104,16 @@ fun LedgerTrendScreen(
                     )
                 } else {
                     AppSurfaceCard(
-                        shape = RoundedCornerShape(24.dp),
+                        // 圆角走形状令牌（F6）：extraLarge 为 24dp。
+                        shape = MaterialTheme.shapes.extraLarge,
                         contentPadding = PaddingValues(18.dp),
                         shadowElevation = 12.dp
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = "近 6 个月趋势",
-                                fontSize = 13.sp,
+                                text = "近 6 个月收支",
+                                // 字号走主题字阶（F6）：titleSmall 为 14sp。
+                                style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
                                 color = TextSecondary,
                                 modifier = Modifier.weight(1f)
@@ -109,38 +121,28 @@ fun LedgerTrendScreen(
                             LedgerTrendLegend()
                         }
                         Spacer(modifier = Modifier.height(12.dp))
-                        LedgerTrendLineChart(
-                            points = trend.points,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(176.dp)
+                        // 切换器二选一（P1）：折线看趋势、柱状看对比，同一份数据只占一卡。
+                        SegmentedTabs(
+                            labels = listOf("折线", "柱状"),
+                            selectedIndex = chartMode,
+                            onSelect = { chartMode = it }
                         )
-                    }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    AppSurfaceCard(
-                        shape = RoundedCornerShape(24.dp),
-                        contentPadding = PaddingValues(18.dp),
-                        shadowElevation = 12.dp
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = "月度收支对比",
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = TextSecondary,
-                                modifier = Modifier.weight(1f)
-                            )
-                            LedgerTrendLegend()
-                        }
                         Spacer(modifier = Modifier.height(12.dp))
-                        LedgerTrendBarChart(
-                            points = trend.points,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(160.dp)
-                        )
+                        if (chartMode == 0) {
+                            LedgerTrendLineChart(
+                                points = trend.points,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(176.dp)
+                            )
+                        } else {
+                            LedgerTrendBarChart(
+                                points = trend.points,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(176.dp)
+                            )
+                        }
                     }
                 }
                 Spacer(modifier = Modifier.height(24.dp))

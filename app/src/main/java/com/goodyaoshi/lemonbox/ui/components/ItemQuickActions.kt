@@ -5,20 +5,14 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
@@ -30,7 +24,9 @@ import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.TaskAlt
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -39,16 +35,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import com.goodyaoshi.lemonbox.data.local.entity.Item
 import com.goodyaoshi.lemonbox.data.local.entity.StatusDimension
 import com.goodyaoshi.lemonbox.ui.theme.LemonStart
 import com.goodyaoshi.lemonbox.ui.theme.OnLemon
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.SageAccent
-import com.goodyaoshi.lemonbox.ui.theme.ScrimSoft
 import com.goodyaoshi.lemonbox.ui.theme.StatusExpired
 import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarm
 import com.goodyaoshi.lemonbox.ui.theme.TextHint
@@ -138,131 +130,112 @@ fun ItemMoreActionsDialog(
     handlers: ItemActionHandlers,
     onDismissRequest: () -> Unit
 ) {
-    Dialog(
-        onDismissRequest = onDismissRequest,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
-        BoxWithConstraints(
+    // 遮罩 + 卡片骨架统一走 AppModalPanel（P1）：此前这里自己复刻了一份 30dp 圆角 + 限高逻辑。
+    AppModalPanel(onDismissRequest = onDismissRequest) {
+        // 只让标题与状态选择滚动；三个操作与「关闭」留在滚动区之外固定可见。
+        // 简易模式（系统字体放大到 1.3 倍以上）时，若把操作一起放进滚动区，
+        // 「删除」「关闭」会被挤出可视区——而它们恰恰是最需要能点到的。
+        Column(
             modifier = Modifier
-                .fillMaxSize()
-                .background(ScrimSoft),
-            contentAlignment = Alignment.Center
+                .fillMaxWidth()
+                .weight(1f, fill = false)
+                .verticalScroll(rememberScrollState())
         ) {
-            // 卡片高度上限 = 可用高度减上下留白。**必须限高**：否则贴到屏幕边缘、圆角被切。
-            // 留 24dp×2 的边距，既露出遮罩让用户能点外部关闭，也避免视觉上顶到状态栏。
-            val maxCardHeight = maxHeight - 48.dp
-            AppSurfaceCard(
+            Text(
+                text = item.name,
+                // 字号走主题字阶（F6）：headlineMedium 为 22sp，与 AppDialog 标题同档。
+                style = MaterialTheme.typography.headlineMedium,
+                color = TextPrimary
+            )
+            Text(
+                text = "完整状态与操作，选中后立即保存",
+                // 字号走主题字阶（F6）：bodySmall 为 12sp（F7 下限）。
+                style = MaterialTheme.typography.bodySmall,
+                color = TextSecondary,
+                modifier = Modifier.padding(top = 6.dp)
+            )
+
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp)
-                    .widthIn(max = 420.dp)
-                    .heightIn(max = maxCardHeight),
-                shape = RoundedCornerShape(30.dp),
-                contentPadding = PaddingValues(22.dp),
-                shadowElevation = 26.dp
+                    .padding(top = 16.dp)
             ) {
-                // 只让标题与状态选择滚动；三个操作与「关闭」留在滚动区之外固定可见。
-                // 简易模式（系统字体放大到 1.3 倍以上）时，若把操作一起放进滚动区，
-                // 「删除」「关闭」会被挤出可视区——而它们恰恰是最需要能点到的。
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f, fill = false)
-                        .verticalScroll(rememberScrollState())
-                ) {
-                    Text(
-                        text = item.name,
-                        fontSize = 22.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimary
-                    )
-                    Text(
-                        text = "完整状态与操作，选中后立即保存",
-                        fontSize = 13.sp,
-                        color = TextSecondary,
-                        modifier = Modifier.padding(top = 6.dp)
-                    )
+                StatusChipSection(
+                    dimension = StatusDimension.USAGE,
+                    selectedCode = item.usageStatus,
+                    onSelect = handlers.onSetUsageStatus
+                )
+                StatusChipSection(
+                    dimension = StatusDimension.DISPOSITION,
+                    selectedCode = item.disposition,
+                    onSelect = handlers.onSetDisposition
+                )
+            }
+        }
 
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 16.dp)
-                    ) {
-                        StatusChipSection(
-                            dimension = StatusDimension.USAGE,
-                            selectedCode = item.usageStatus,
-                            onSelect = handlers.onSetUsageStatus
-                        )
-                        StatusChipSection(
-                            dimension = StatusDimension.DISPOSITION,
-                            selectedCode = item.disposition,
-                            onSelect = handlers.onSetDisposition
-                        )
-                    }
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            MoreActionRow(
+                icon = Icons.Default.ShoppingCart,
+                title = if (item.needRestock) "取消待买" else "加入待买",
+                subtitle = if (item.needRestock) "从待买清单里移除" else "记进待买清单，方便补货",
+                tint = LemonStart,
+                onClick = {
+                    handlers.onToggleRestock()
+                    onDismissRequest()
                 }
+            )
+            MoreActionRow(
+                icon = Icons.Default.Edit,
+                title = "编辑",
+                subtitle = "修改名称、分类、位置、价格等",
+                tint = SageAccent,
+                onClick = {
+                    onDismissRequest()
+                    handlers.onEdit()
+                }
+            )
+            MoreActionRow(
+                icon = Icons.Default.Delete,
+                title = "删除",
+                subtitle = DeleteCopy.SOFT_ACTION_SUBTITLE,
+                tint = StatusExpired,
+                destructive = true,
+                onClick = {
+                    onDismissRequest()
+                    handlers.onDelete()
+                }
+            )
+        }
 
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 4.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp)
-                ) {
-                    MoreActionRow(
-                        icon = Icons.Default.ShoppingCart,
-                        title = if (item.needRestock) "取消待买" else "加入待买",
-                        subtitle = if (item.needRestock) "从待买清单里移除" else "记进待买清单，方便补货",
-                        tint = LemonStart,
-                        onClick = {
-                            handlers.onToggleRestock()
-                            onDismissRequest()
-                        }
-                    )
-                    MoreActionRow(
-                        icon = Icons.Default.Edit,
-                        title = "编辑",
-                        subtitle = "修改名称、分类、位置、价格等",
-                        tint = SageAccent,
-                        onClick = {
-                            onDismissRequest()
-                            handlers.onEdit()
-                        }
-                    )
-                    MoreActionRow(
-                        icon = Icons.Default.Delete,
-                        title = "删除",
-                        subtitle = DeleteCopy.SOFT_ACTION_SUBTITLE,
-                        tint = StatusExpired,
-                        destructive = true,
-                        onClick = {
-                            onDismissRequest()
-                            handlers.onDelete()
-                        }
-                    )
-                }
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 18.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(18.dp))
-                            .background(SurfaceWarm)
-                            .clickable(onClick = onDismissRequest)
-                            .padding(vertical = 14.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "关闭",
-                            color = TextSecondary,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-                }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 18.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    // 圆角 / 热区走统一令牌（F6/F7）：与 AppDialog 的动作按钮同档。
+                    .clip(MaterialTheme.shapes.medium)
+                    .background(SurfaceWarm)
+                    .minimumInteractiveComponentSize()
+                    .clickable(onClick = onDismissRequest)
+                    .padding(vertical = 14.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "关闭",
+                    color = TextSecondary,
+                    // 字号走主题字阶（F6）：labelLarge 为 14sp。
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
             }
         }
     }
@@ -283,7 +256,8 @@ private fun StatusChipSection(
     ) {
         Text(
             text = statusDimensionTitle(dimension),
-            fontSize = 13.sp,
+            // 字号走主题字阶（F6）：labelLarge 为 14sp。
+            style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.SemiBold,
             color = TextSecondary
         )
@@ -299,14 +273,18 @@ private fun StatusChipSection(
                 val (container, content) = itemStatusColors(dimension, option.code)
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(14.dp))
+                        // 圆角走形状令牌（F6）。
+                        .clip(MaterialTheme.shapes.medium)
                         .background(if (selected) container else SurfaceWarm)
+                        // 触达面积达标（F7）：状态胶囊补足到 48dp 最小可点区。
+                        .minimumInteractiveComponentSize()
                         .clickable { onSelect(option.code) }
                         .padding(horizontal = 14.dp, vertical = 8.dp)
                 ) {
                     Text(
                         text = option.label,
-                        fontSize = 12.sp,
+                        // 字号走主题字阶（F6）：labelMedium 为 12sp（F7 下限）。
+                        style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.SemiBold,
                         color = if (selected) content else TextHint
                     )
@@ -328,7 +306,8 @@ private fun MoreActionRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
+            // 圆角走形状令牌（F6）。
+            .clip(MaterialTheme.shapes.large)
             .clickable(onClick = onClick)
             .padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -351,13 +330,15 @@ private fun MoreActionRow(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = title,
-                fontSize = 15.sp,
+                // 字号走主题字阶（F6）：titleSmall 为 14sp。
+                style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold,
                 color = if (destructive) StatusExpired else TextPrimary
             )
             Text(
                 text = subtitle,
-                fontSize = 12.sp,
+                // 字号走主题字阶（F6）：bodySmall 为 12sp（F7 下限）。
+                style = MaterialTheme.typography.bodySmall,
                 color = TextHint
             )
         }

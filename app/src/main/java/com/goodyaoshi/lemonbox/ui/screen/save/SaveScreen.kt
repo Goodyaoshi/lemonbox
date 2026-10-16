@@ -28,7 +28,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -39,6 +39,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -51,12 +52,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.goodyaoshi.lemonbox.data.local.entity.Item
@@ -86,6 +88,8 @@ import com.goodyaoshi.lemonbox.ui.scan.ScanActivity
 import com.goodyaoshi.lemonbox.ui.theme.CardWhite
 import com.goodyaoshi.lemonbox.ui.theme.DividerSoft
 import com.goodyaoshi.lemonbox.ui.theme.GlassWhite
+import com.goodyaoshi.lemonbox.ui.theme.OnScrim
+import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.ScrimMedium
 import com.goodyaoshi.lemonbox.ui.theme.TagRedText
 import com.goodyaoshi.lemonbox.ui.theme.TextHint
@@ -286,30 +290,39 @@ fun SaveScreen(
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "返回",
-                        tint = Color.White
+                        // 压暗照片上的浅色内容色，走语义令牌（P2 收敛硬编码白）。
+                        tint = OnScrim
                     )
                 }
                 Spacer(modifier = Modifier.weight(1f))
                 Text(
                     text = "快速录入",
-                    color = Color.White,
-                    fontSize = 16.sp,
+                    color = OnScrim,
+                    // 字号走主题字阶（F6）：titleMedium 为 16sp。
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold
                 )
                 Spacer(modifier = Modifier.weight(1f))
                 Spacer(modifier = Modifier.size(8.dp))
                 Text(
                     text = if (continuousEntry) "连续录入·开" else "连续录入",
-                    color = Color.White,
-                    fontSize = 12.sp,
+                    // 对比度修复（P1）：原为白字 + 白色半透明底，压在浅色照片上几乎看不清；
+                    // 改为「开 = 不透明品牌色底」「关 = 深色遮罩底」，两种状态填充差异明确，
+                    // 文字一律用深遮罩上的浅色内容色，任何照片上都读得清。
+                    color = OnScrim,
+                    // 字号走主题字阶（F6）：labelMedium 为 12sp。
+                    style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier
-                        .clip(RoundedCornerShape(999.dp))
-                        .background(
-                            if (continuousEntry) Color.White.copy(alpha = 0.32f)
-                            else Color.White.copy(alpha = 0.14f)
-                        )
-                        .clickable { viewModel.toggleContinuousEntry(!continuousEntry) }
+                        // 触达面积达标（F7）：先撑出 48dp 最小可点区，再绘制胶囊本身，视觉尺寸不变。
+                        .minimumInteractiveComponentSize()
+                        .clip(CircleShape)
+                        .background(if (continuousEntry) OrangeStart else ScrimMedium)
+                        // 读屏可达（F8）：以开关角色播报，并给出开/关状态描述。
+                        .semantics { stateDescription = if (continuousEntry) "已开启" else "已关闭" }
+                        .clickable(role = Role.Switch) {
+                            viewModel.toggleContinuousEntry(!continuousEntry)
+                        }
                         .padding(horizontal = 12.dp, vertical = 8.dp)
                 )
             }
@@ -323,7 +336,8 @@ fun SaveScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(horizontal = 16.dp, vertical = 6.dp),
-                    shape = RoundedCornerShape(30.dp)
+                    // 圆角走形状令牌（F6）：收敛到 extraLarge（24dp）。
+                    shape = MaterialTheme.shapes.extraLarge
                 ) {
                     Column(
                         modifier = Modifier
@@ -336,7 +350,8 @@ fun SaveScreen(
                             modifier = Modifier
                                 .align(Alignment.CenterHorizontally)
                                 .size(width = 42.dp, height = 4.dp)
-                                .background(DividerSoft, RoundedCornerShape(999.dp))
+                                // 胶囊走 CircleShape（F6）。
+                                .background(DividerSoft, CircleShape)
                         )
                         Spacer(modifier = Modifier.height(14.dp))
 
@@ -405,7 +420,8 @@ fun SaveScreen(
                         ) {
                             Text(
                                 text = "更多信息（选填）",
-                                fontSize = 14.sp,
+                                // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+                                style = MaterialTheme.typography.bodyMedium,
                                 color = TextSecondary
                             )
                             Spacer(modifier = Modifier.width(4.dp))
@@ -496,7 +512,8 @@ fun SaveScreen(
                                     Spacer(modifier = Modifier.height(6.dp))
                                     Text(
                                         text = "电器、调料这类一直用的东西：不按件扣数量，按使用天数统计成本",
-                                        fontSize = 12.sp,
+                                        // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                                        style = MaterialTheme.typography.bodySmall,
                                         color = TextHint
                                     )
 
@@ -712,7 +729,8 @@ fun SaveScreen(
             ) {
                 Text(
                     text = "确定要离开并丢弃当前的录入内容吗？",
-                    fontSize = 14.sp,
+                    // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+                    style = MaterialTheme.typography.bodyMedium,
                     color = TextSecondary
                 )
             }

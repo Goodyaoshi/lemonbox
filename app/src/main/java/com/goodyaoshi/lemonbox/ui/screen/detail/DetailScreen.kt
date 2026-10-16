@@ -22,7 +22,6 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
@@ -32,6 +31,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -53,7 +53,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.goodyaoshi.lemonbox.data.local.entity.Item
@@ -82,6 +81,7 @@ import com.goodyaoshi.lemonbox.ui.theme.BackgroundTop
 import com.goodyaoshi.lemonbox.ui.theme.LemonEnd
 import com.goodyaoshi.lemonbox.ui.theme.LemonStart
 import com.goodyaoshi.lemonbox.ui.theme.OnLemon
+import com.goodyaoshi.lemonbox.ui.theme.OnScrim
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.ScrimMedium
 import com.goodyaoshi.lemonbox.ui.theme.ScrimSoft
@@ -253,8 +253,9 @@ fun DetailScreen(
                         ) {
                             Text(
                                 text = pageItem.name.take(1),
-                                fontSize = 72.sp,
-                                fontWeight = FontWeight.Bold,
+                                // 字号走主题字阶（F6）：海报级占位首字改用展示级最大字阶
+                                // displaySmall（34sp），不再用游离的 72sp 内联字号。
+                                style = MaterialTheme.typography.displaySmall,
                                 color = OnLemon
                             )
                         }
@@ -327,12 +328,14 @@ fun DetailScreen(
 
                 Text(
                     text = "${pagerState.currentPage + 1}/${pagerItems.size}",
-                    color = Color.White,
-                    fontSize = 12.sp,
+                    // 字号走主题字阶（F6）：labelMedium 为 12sp。
+                    style = MaterialTheme.typography.labelMedium,
+                    color = OnScrim,
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .padding(bottom = 24.dp)
-                        .clip(RoundedCornerShape(999.dp))
+                        // 形状走令牌（F6）：胶囊用 CircleShape。
+                        .clip(CircleShape)
                         .background(ScrimMedium)
                         .padding(horizontal = 10.dp, vertical = 6.dp)
                 )
@@ -346,8 +349,8 @@ fun DetailScreen(
             ) {
                 Text(
                     text = item.name,
-                    fontSize = 28.sp,
-                    fontWeight = FontWeight.Bold,
+                    // 页面主标题统一走主题字阶（F6）：headlineLarge 为 28sp。
+                    style = MaterialTheme.typography.headlineLarge,
                     color = TextPrimary
                 )
 
@@ -369,7 +372,8 @@ fun DetailScreen(
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
                                 text = it,
-                                fontSize = 13.sp,
+                                // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+                                style = MaterialTheme.typography.bodyMedium,
                                 color = TextSecondary
                             )
                         }
@@ -455,7 +459,9 @@ fun DetailScreen(
                     tail = {
                         Switch(
                             checked = item.needRestock,
-                            onCheckedChange = null
+                            // 读屏/键盘可独立操作开关（F8）：给出真实回调，
+                            // 而非 onCheckedChange = null 只能靠整行点击。
+                            onCheckedChange = { viewModel.setNeedRestock(item.id, it) }
                         )
                     },
                     onClick = { viewModel.setNeedRestock(item.id, !item.needRestock) }
@@ -508,7 +514,8 @@ fun DetailScreen(
             Text(
                 text = "确定要删除「${item.name}」吗？",
                 color = TextSecondary,
-                fontSize = 14.sp
+                // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+                style = MaterialTheme.typography.bodyMedium
             )
         }
     }
@@ -554,22 +561,31 @@ private fun ArrowCircleButton(
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
+    // 触达面积达标（F7）：外层 48dp 承载点击区域，内层 42dp 负责视觉，
+    // 与同排的 [DeleteCircleButton] 保持一致的圆形直径与热区。
     Box(
         modifier = modifier
             .padding(horizontal = 12.dp)
-            .size(42.dp)
+            .size(48.dp)
             .clip(CircleShape)
-            .background(ScrimSoft)
             // 悬浮在图片上的纯图标按钮，声明 Button 角色（F16）。
             .clickable(role = Role.Button, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        Icon(
-            imageVector = icon,
-            // 图片之上的浮层按钮没有文字，必须给出描述（F16）。
-            contentDescription = contentDescription,
-            tint = Color.White
-        )
+        Box(
+            modifier = Modifier
+                .size(42.dp)
+                .clip(CircleShape)
+                .background(ScrimSoft),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                // 图片之上的浮层按钮没有文字，必须给出描述（F16）。
+                contentDescription = contentDescription,
+                tint = OnScrim
+            )
+        }
     }
 }
 
@@ -623,7 +639,8 @@ private fun DetailInfoRow(
     ) {
         Text(
             text = label,
-            fontSize = 14.sp,
+            // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+            style = MaterialTheme.typography.bodyMedium,
             color = TextSecondary,
             // 用最小宽度而非固定宽度：常规字号下各行的标签仍对齐，
             // 系统字体放大（简易模式）时标签可以撑开，不会把文字截断。
@@ -631,7 +648,8 @@ private fun DetailInfoRow(
         )
         Text(
             text = value,
-            fontSize = 14.sp,
+            // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+            style = MaterialTheme.typography.bodyMedium,
             color = TextPrimary,
             fontWeight = FontWeight.Medium,
             modifier = Modifier.weight(1f)
@@ -645,7 +663,8 @@ private fun StatusEditHint() {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(
             text = "修改",
-            fontSize = 13.sp,
+            // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+            style = MaterialTheme.typography.bodyMedium,
             color = OrangeStart,
             fontWeight = FontWeight.SemiBold
         )

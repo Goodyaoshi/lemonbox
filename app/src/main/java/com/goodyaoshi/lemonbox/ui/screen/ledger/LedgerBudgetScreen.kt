@@ -18,11 +18,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -35,7 +36,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
@@ -69,6 +69,8 @@ fun LedgerBudgetScreen(
     val budgetItems by viewModel.budgetItems.collectAsState()
     val categoriesWithoutBudget by viewModel.categoriesWithoutBudget.collectAsState()
     var editTarget by remember { mutableStateOf<BudgetEditTarget?>(null) }
+    // 删除预算二次确认（P2）：此前「删除预算」一键生效且不可逆，改为先确认再落库。
+    var deleteTarget by remember { mutableStateOf<BudgetEditTarget?>(null) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         AppDecorativeBackground()
@@ -93,7 +95,8 @@ fun LedgerBudgetScreen(
                 }
                 Text(
                     text = "预算",
-                    fontSize = 18.sp,
+                    // 字号走主题字阶（F6）：titleLarge 为 18sp。
+                    style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary
                 )
@@ -113,26 +116,30 @@ fun LedgerBudgetScreen(
                     val total = budgetItems.firstOrNull { it.categoryId == null }
                     if (total == null) {
                         AppSurfaceCard(
-                            shape = RoundedCornerShape(24.dp),
+                            // 圆角走形状令牌（F6）：extraLarge 为 24dp。
+                            shape = MaterialTheme.shapes.extraLarge,
                             contentPadding = PaddingValues(18.dp),
                             shadowElevation = 12.dp
                         ) {
                             Text(
                                 text = "还没有总预算",
-                                fontSize = 15.sp,
+                                // 字号走主题字阶（F6）：titleSmall 为 14sp。
+                                style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.SemiBold,
                                 color = TextPrimary
                             )
                             Text(
                                 text = "设一个每月总预算，超支时记账页会提醒你。",
-                                fontSize = 12.sp,
+                                // 字号走主题字阶（F6）：labelMedium 为 12sp。
+                                style = MaterialTheme.typography.labelMedium,
                                 color = TextSecondary,
                                 modifier = Modifier.padding(top = 4.dp)
                             )
                             Spacer(modifier = Modifier.height(12.dp))
                             Box(
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(999.dp))
+                                    // 胶囊走 CircleShape（F6）。
+                                    .clip(CircleShape)
                                     .background(OrangeStart.copy(alpha = 0.12f))
                                     .clickable {
                                         editTarget = BudgetEditTarget(null, "月度总预算", 0L)
@@ -141,7 +148,8 @@ fun LedgerBudgetScreen(
                             ) {
                                 Text(
                                     text = "设置预算",
-                                    fontSize = 13.sp,
+                                    // 字号走主题字阶（F6）：labelLarge 为 14sp。
+                                    style = MaterialTheme.typography.labelLarge,
                                     fontWeight = FontWeight.SemiBold,
                                     color = OrangeStart
                                 )
@@ -155,7 +163,9 @@ fun LedgerBudgetScreen(
                             over = total.over,
                             onClick = {
                                 editTarget = BudgetEditTarget(null, "月度总预算", total.budgetCents)
-                            }
+                            },
+                            // 超支补文字（P2）：除变红外，另给出「已超支 / 剩余」状态。
+                            statusText = budgetStatusText(total.spentCents, total.budgetCents)
                         )
                     }
                 }
@@ -176,7 +186,9 @@ fun LedgerBudgetScreen(
                                     title = item.categoryName.orEmpty(),
                                     existingCents = item.budgetCents
                                 )
-                            }
+                            },
+                            // 超支补文字（P2）：除变红外，另给出「已超支 / 剩余」状态。
+                            statusText = budgetStatusText(item.spentCents, item.budgetCents)
                         )
                     }
                 }
@@ -215,17 +227,45 @@ fun LedgerBudgetScreen(
             onConfirm = { text ->
                 viewModel.setBudget(target.categoryId, text)
                 editTarget = null
+            },
+            // 请求删除：先收起编辑弹窗，再弹二次确认，避免一键清空不可逆。
+            onRequestDelete = {
+                editTarget = null
+                deleteTarget = target
             }
         )
     }
+
+    deleteTarget?.let { target ->
+        AppDialog(
+            title = "删除${target.title}",
+            subtitle = "删除后该预算不再生效，之后仍可重新设置。",
+            onDismissRequest = { deleteTarget = null },
+            confirmText = "删除",
+            // 破坏性操作二次确认（I1）：删除按钮走危险样式。
+            destructiveConfirm = true,
+            onConfirm = {
+                viewModel.setBudget(target.categoryId, "")
+                deleteTarget = null
+            }
+        ) {
+            Text(
+                text = "确定要删除「${target.title}」吗？",
+                // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+                style = MaterialTheme.typography.bodyMedium,
+                color = TextSecondary
+            )
+        }
+    }
 }
 
-/** 预算编辑弹窗：输入元金额；已有预算可一键删除（存 0 即取消）。 */
+/** 预算编辑弹窗：输入元金额；已有预算可请求删除（走二次确认，不再一键清空）。 */
 @Composable
 private fun BudgetEditDialog(
     target: BudgetEditTarget,
     onDismissRequest: () -> Unit,
-    onConfirm: (String) -> Unit
+    onConfirm: (String) -> Unit,
+    onRequestDelete: () -> Unit
 ) {
     var amountText by remember(target) {
         mutableStateOf(LedgerMath.centsToInputText(target.existingCents))
@@ -233,16 +273,12 @@ private fun BudgetEditDialog(
     val hasExisting = target.existingCents > 0
     AppDialog(
         title = "设置${target.title}",
-        subtitle = "输入每月预算金额（元），留空表示取消该预算。",
+        subtitle = "输入每月预算金额（元）。",
         onDismissRequest = onDismissRequest,
         confirmText = "保存",
         onConfirm = { onConfirm(amountText) },
         secondaryText = if (hasExisting) "删除预算" else null,
-        onSecondary = if (hasExisting) {
-            { onConfirm("") }
-        } else {
-            null
-        }
+        onSecondary = if (hasExisting) onRequestDelete else null
     ) {
         EditorInputBox(
             value = amountText,
@@ -255,3 +291,9 @@ private fun BudgetEditDialog(
 /** 分 → 金额文本（带 ¥）。 */
 private fun formatCents(cents: Long): String =
     DateUtil.formatCurrency(LedgerMath.centsToYuan(cents))
+
+/** 预算状态文字（P2）：超支不再只靠变红，补「已超支 ¥X」/「剩余 ¥X」。 */
+private fun budgetStatusText(spentCents: Long, budgetCents: Long): String {
+    val delta = budgetCents - spentCents
+    return if (delta < 0) "已超支 ${formatCents(-delta)}" else "剩余 ${formatCents(delta)}"
+}

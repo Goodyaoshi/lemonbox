@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 桌面小组件用色（深色）：系统深色模式下改用深暖卡面 + 浅色文字，
+     解决此前字色写死、深色壁纸/深色主题下看不清的问题。 -->
+<resources>
+    <color name="widget_card_bg">#2A241C</color>
+    <color name="widget_card_stroke">#3D352A</color>
+    <color name="widget_title_text">#E8A05C</color>
+    <color name="widget_body_text">#EDE3D4</color>
+    <color name="widget_muted_text">#C7B9A6</color>
+</resources>

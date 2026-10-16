@@ -7,7 +7,8 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -21,12 +22,11 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.goodyaoshi.lemonbox.ui.theme.LemonEnd
 import com.goodyaoshi.lemonbox.ui.theme.LemonStart
 import com.goodyaoshi.lemonbox.ui.theme.OnLemon
 import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarmDeep
-import com.goodyaoshi.lemonbox.ui.theme.TextHint
+import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
 
 @Composable
 fun GradientButton(
@@ -44,11 +44,12 @@ fun GradientButton(
             .height(56.dp)
             .shadow(
                 elevation = if (enabled) 16.dp else 0.dp,
-                shape = RoundedCornerShape(28.dp),
+                // 圆角走形状令牌（F6）：56dp 高的主按钮用胶囊形状，替代 28dp 内联圆角。
+                shape = CircleShape,
                 ambientColor = LemonStart.copy(alpha = 0.20f),
                 spotColor = LemonEnd.copy(alpha = 0.24f)
             )
-            .clip(RoundedCornerShape(28.dp))
+            .clip(CircleShape)
             .background(
                 brush = Brush.horizontalGradient(
                     colors = if (enabled) listOf(LemonStart, LemonEnd)
@@ -71,8 +72,11 @@ fun GradientButton(
     ) {
         Text(
             text = text,
-            color = if (enabled) OnLemon else TextHint,
-            fontSize = 16.sp,
+            // 禁用态改用 TextSecondary（比 TextHint 深一档）：此前灰字压在浅暖底上对比度
+            // 不足，看起来像「字被抹掉了」；现在仍能读出按钮文案，只是不可点（P3）。
+            color = if (enabled) OnLemon else TextSecondary,
+            // 字号走主题字阶（F6）：titleMedium 为 16sp。
+            style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.SemiBold
         )
     }

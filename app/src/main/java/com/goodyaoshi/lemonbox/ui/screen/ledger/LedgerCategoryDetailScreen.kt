@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -24,7 +25,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.EmptyState
@@ -69,13 +69,15 @@ fun LedgerCategoryDetailScreen(
                 Column {
                     Text(
                         text = "${detail.categoryName} · ${viewModel.monthLabel}",
-                        fontSize = 18.sp,
+                        // 字号走主题字阶（F6）：titleLarge 为 18sp。
+                        style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = TextPrimary
                     )
                     Text(
                         text = "当月合计 ${DateUtil.formatCurrency(LedgerMath.centsToYuan(detail.totalCents))}",
-                        fontSize = 12.sp,
+                        // 字号走主题字阶（F6）：labelMedium 为 12sp。
+                        style = MaterialTheme.typography.labelMedium,
                         color = TextSecondary
                     )
                 }

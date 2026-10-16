@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -26,7 +25,9 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -41,9 +42,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.goodyaoshi.lemonbox.ui.components.AmountTnumStyle
+import com.goodyaoshi.lemonbox.ui.components.AMOUNT_TNUM
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.EmptyState
@@ -55,9 +55,9 @@ import com.goodyaoshi.lemonbox.ui.theme.LemonStart
 import com.goodyaoshi.lemonbox.ui.theme.OnLemon
 import com.goodyaoshi.lemonbox.ui.theme.OnLemonSoft
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
-import com.goodyaoshi.lemonbox.ui.theme.StatusExpired
-import com.goodyaoshi.lemonbox.ui.theme.StatusNormal
 import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarmDeep
+import com.goodyaoshi.lemonbox.ui.theme.TagBlueText
+import com.goodyaoshi.lemonbox.ui.theme.TagOrangeText
 import com.goodyaoshi.lemonbox.ui.theme.TextHint
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
 import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
@@ -101,7 +101,8 @@ fun LedgerAnnualReviewScreen(
                 }
                 Text(
                     text = "年度回顾",
-                    fontSize = 18.sp,
+                    // 字号走主题字阶（F6）：titleLarge 为 18sp。
+                    style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary
                 )
@@ -141,14 +142,15 @@ fun LedgerAnnualReviewScreen(
                             label = "全年支出",
                             value = yuanText(review.expenseCents),
                             modifier = Modifier.weight(1f),
-                            accent = StatusExpired
+                            // 收支统一「蓝橙」配色（P1）：不再用红绿对。
+                            accent = TagBlueText
                         )
                         Spacer(modifier = Modifier.width(12.dp))
                         StatTile(
                             label = "全年收入",
                             value = yuanText(review.incomeCents),
                             modifier = Modifier.weight(1f),
-                            accent = StatusNormal
+                            accent = TagOrangeText
                         )
                     }
 
@@ -171,7 +173,8 @@ fun LedgerAnnualReviewScreen(
 
                     Spacer(modifier = Modifier.height(14.dp))
                     AppSurfaceCard(
-                        shape = RoundedCornerShape(24.dp),
+                        // 圆角走形状令牌（F6）：extraLarge 为 24dp。
+                        shape = MaterialTheme.shapes.extraLarge,
                         contentPadding = PaddingValues(horizontal = 18.dp, vertical = 8.dp),
                         shadowElevation = 12.dp
                     ) {
@@ -192,14 +195,16 @@ fun LedgerAnnualReviewScreen(
 
                     Spacer(modifier = Modifier.height(14.dp))
                     AppSurfaceCard(
-                        shape = RoundedCornerShape(24.dp),
+                        // 圆角走形状令牌（F6）：extraLarge 为 24dp。
+                        shape = MaterialTheme.shapes.extraLarge,
                         contentPadding = PaddingValues(18.dp),
                         shadowElevation = 12.dp
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 text = "每月收支",
-                                fontSize = 13.sp,
+                                // 字号走主题字阶（F6）：titleSmall 为 14sp。
+                                style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
                                 color = TextSecondary,
                                 modifier = Modifier.weight(1f)
@@ -227,7 +232,8 @@ private fun AnnualHeroCard(review: LedgerAnnualReviewUi) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(28.dp))
+            // 圆角走形状令牌（F6）：extraLarge 为 24dp，收敛到统一档位。
+            .clip(MaterialTheme.shapes.extraLarge)
             .background(Brush.linearGradient(colors = listOf(LemonStart, LemonEnd)))
             .drawBehind {
                 // 装饰圆只画不占位，避免把卡片撑出下半截空白。
@@ -264,13 +270,15 @@ private fun AnnualHeroCard(review: LedgerAnnualReviewUi) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "${review.year} 年度回顾",
-                        fontSize = 22.sp,
+                        // 字号走主题字阶（F6）：headlineMedium 为 22sp。
+                        style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.Bold,
                         color = OnLemon
                     )
                     Text(
                         text = "这一年，每一笔都算数",
-                        fontSize = 12.sp,
+                        // 字号走主题字阶（F6）：labelMedium 为 12sp。
+                        style = MaterialTheme.typography.labelMedium,
                         color = OnLemonSoft
                     )
                 }
@@ -278,15 +286,16 @@ private fun AnnualHeroCard(review: LedgerAnnualReviewUi) {
             Spacer(modifier = Modifier.height(14.dp))
             Text(
                 text = "全年结余",
-                fontSize = 12.sp,
+                // 字号走主题字阶（F6）：labelMedium 为 12sp。
+                style = MaterialTheme.typography.labelMedium,
                 color = OnLemonSoft
             )
             Text(
                 text = yuanText(review.balanceCents),
-                fontSize = 28.sp,
+                // 字号走主题字阶（F6）：headlineSmall 为 24sp，并启用等宽数字（P2）。
+                style = MaterialTheme.typography.headlineSmall.copy(fontFeatureSettings = AMOUNT_TNUM),
                 fontWeight = FontWeight.Bold,
                 color = OnLemon,
-                style = AmountTnumStyle,
                 modifier = Modifier.padding(top = 2.dp)
             )
         }
@@ -304,17 +313,18 @@ private fun ReviewRow(label: String, value: String) {
     ) {
         Text(
             text = label,
-            fontSize = 13.sp,
+            // 字号走主题字阶（F6）：titleSmall 为 14sp。
+            style = MaterialTheme.typography.titleSmall,
             color = TextSecondary,
             modifier = Modifier.weight(1f)
         )
         Text(
             text = value,
-            fontSize = 13.sp,
+            // 字号走主题字阶（F6）：titleSmall 为 14sp，并启用等宽数字（P2）。
+            style = MaterialTheme.typography.titleSmall.copy(fontFeatureSettings = AMOUNT_TNUM),
             fontWeight = FontWeight.SemiBold,
             color = TextPrimary,
-            textAlign = TextAlign.End,
-            style = AmountTnumStyle
+            textAlign = TextAlign.End
         )
     }
 }
@@ -341,7 +351,8 @@ private fun YearBar(
         Text(
             text = "${year}年",
             color = TextPrimary,
-            fontSize = 16.sp,
+            // 字号走主题字阶（F6）：titleMedium 为 16sp。
+            style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
             textAlign = TextAlign.Center,
             modifier = Modifier.weight(1f)
@@ -364,6 +375,8 @@ private fun YearArrow(
 ) {
     Box(
         modifier = Modifier
+            // 触达面积达标（F7）：箭头视觉 34dp，撑出 48dp 最小可点区，视觉尺寸不变。
+            .minimumInteractiveComponentSize()
             .size(34.dp)
             .clip(CircleShape)
             .background(if (enabled) SurfaceWarmDeep else Color.Transparent)

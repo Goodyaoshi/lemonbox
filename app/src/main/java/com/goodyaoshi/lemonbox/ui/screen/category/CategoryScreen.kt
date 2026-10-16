@@ -26,7 +26,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.StickyNote2
@@ -78,11 +77,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.data.local.entity.Category
 import com.goodyaoshi.lemonbox.data.local.entity.ItemStatusCatalog
@@ -195,7 +191,8 @@ fun CategoryScreen(
                 }
                 Text(
                     text = "家当设置",
-                    style = MaterialTheme.typography.headlineMedium,
+                    // 页面主标题统一走主题字阶（F6）：headlineLarge 为 28sp。
+                    style = MaterialTheme.typography.headlineLarge,
                     color = TextPrimary
                 )
             }
@@ -235,7 +232,8 @@ fun CategoryScreen(
                         2 -> "状态选项"
                         else -> "有效期与提醒"
                     },
-                    fontSize = 15.sp,
+                    // 字号走主题字阶（F6）：titleSmall 为 14sp。
+                    style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
                     color = TextPrimary,
                     modifier = Modifier.weight(1f)
@@ -255,7 +253,8 @@ fun CategoryScreen(
                     if (selectedIsProtected) {
                         Text(
                             text = "内置保护",
-                            fontSize = 12.sp,
+                            // 字号走主题字阶（F6）：labelMedium 为 12sp。
+                            style = MaterialTheme.typography.labelMedium,
                             color = TextHint
                         )
                         Spacer(modifier = Modifier.width(8.dp))
@@ -467,9 +466,19 @@ fun CategoryScreen(
 
     if (showDeleteDialog) {
         val deleteName = if (selectedTab == 0) selectedCategory?.name else selectedLocation?.name
+        // 受影响物品数：分类 / 位置各自已经算好「自身 + 后代」的计数，直接取用。
+        val affectedCount = if (selectedTab == 0) {
+            categoryCounts[selectedCategoryId] ?: 0
+        } else {
+            locationCounts[selectedLocationId] ?: 0
+        }
+        val orphanLabel = if (selectedTab == 0) "未分类" else "未设置位置"
         AppDialog(
             title = if (selectedTab == 0) "删除分类" else "删除位置",
-            subtitle = "相关物品会保留，但关联关系可能会被清空。",
+            // 文案明确化（P2）：原「关联关系可能会被清空」含糊不清；
+            // 改为说清受影响数量、删除后归到哪个状态、以及可稍后重新归类。
+            subtitle = "「${deleteName.orEmpty()}」下有 $affectedCount 件物品，" +
+                "删除后会变成「$orphanLabel」，可稍后重新归类。",
             onDismissRequest = { showDeleteDialog = false },
             confirmText = "删除",
             destructiveConfirm = true,
@@ -484,7 +493,8 @@ fun CategoryScreen(
         ) {
             Text(
                 text = "确定要删除“${deleteName.orEmpty()}”吗？",
-                fontSize = 14.sp,
+                // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+                style = MaterialTheme.typography.bodyMedium,
                 color = TextSecondary
             )
         }
@@ -534,7 +544,8 @@ fun CategoryScreen(
             statusError?.let { message ->
                 Text(
                     text = message,
-                    fontSize = 12.sp,
+                    // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                    style = MaterialTheme.typography.bodySmall,
                     color = StatusExpired
                 )
             }

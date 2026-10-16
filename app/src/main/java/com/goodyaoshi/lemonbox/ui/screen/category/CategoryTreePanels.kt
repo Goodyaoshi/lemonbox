@@ -25,7 +25,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.StickyNote2
@@ -64,7 +63,7 @@ import androidx.compose.material.icons.filled.WaterDrop
 import androidx.compose.material.icons.filled.WineBar
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -82,7 +81,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.data.local.entity.Category
 import com.goodyaoshi.lemonbox.data.local.entity.ItemStatusCatalog
@@ -123,63 +121,14 @@ internal fun SegmentedTabs(
     onSelectTab: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Row(
+    // 复用通用分段控件（P2）：原先此处另写了一套硬编码 4 段实现，
+    // 与 ui/components 里的传参版并存，导致分段控件跨页样式/行为漂移；现统一委托组件版。
+    com.goodyaoshi.lemonbox.ui.components.SegmentedTabs(
+        labels = listOf("分类", "存放位置", "状态选项", "有效期与提醒"),
+        selectedIndex = selectedTab,
+        onSelect = onSelectTab,
         modifier = modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(22.dp))
-            .background(SurfaceWarmDeep)
-            .padding(4.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
-    ) {
-        SegmentItem(
-            text = "分类",
-            selected = selectedTab == 0,
-            modifier = Modifier.weight(1f),
-            onClick = { onSelectTab(0) }
-        )
-        SegmentItem(
-            text = "存放位置",
-            selected = selectedTab == 1,
-            modifier = Modifier.weight(1f),
-            onClick = { onSelectTab(1) }
-        )
-        SegmentItem(
-            text = "状态选项",
-            selected = selectedTab == 2,
-            modifier = Modifier.weight(1f),
-            onClick = { onSelectTab(2) }
-        )
-        SegmentItem(
-            text = "有效期与提醒",
-            selected = selectedTab == 3,
-            modifier = Modifier.weight(1f),
-            onClick = { onSelectTab(3) }
-        )
-    }
-}
-
-@Composable
-internal fun SegmentItem(
-    text: String,
-    selected: Boolean,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit
-) {
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(18.dp))
-            .background(if (selected) Color.White else Color.Transparent)
-            .clickable(onClick = onClick)
-            .padding(vertical = 10.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text = text,
-            fontSize = 14.sp,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-            color = if (selected) OrangeStart else TextHint
-        )
-    }
+    )
 }
 
 @Composable
@@ -192,18 +141,25 @@ internal fun MiniActionButton(
 ) {
     Box(
         modifier = Modifier
-            .size(36.dp)
-            .clip(CircleShape)
-            .background(if (enabled) CardWhite else SurfaceWarmDeep)
+            // 触达面积达标（F7）：原圆钮热区仅约 36dp，外层撑到 48dp，内层保留原 36dp 视觉圆。
+            .size(48.dp)
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = contentDescription,
-            tint = if (enabled) tint else TextHint,
-            modifier = Modifier.size(18.dp)
-        )
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(CircleShape)
+                .background(if (enabled) CardWhite else SurfaceWarmDeep),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = contentDescription,
+                tint = if (enabled) tint else TextHint,
+                modifier = Modifier.size(18.dp)
+            )
+        }
     }
 }
 
@@ -307,7 +263,8 @@ internal fun CategoryRow(
         modifier = Modifier
             .fillMaxWidth()
             .padding(start = (depth * 16).dp)
-            .clip(RoundedCornerShape(18.dp))
+            // 圆角走形状令牌（F6）：收敛到 medium（16dp）。
+            .clip(MaterialTheme.shapes.medium)
             .background(if (selected) OrangeStart.copy(alpha = 0.1f) else SurfaceWarm)
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 11.dp),
@@ -331,34 +288,43 @@ internal fun CategoryRow(
         Text(
             text = category.name,
             modifier = Modifier.weight(1f),
-            fontSize = if (depth == 0) 15.sp else 14.sp,
+            // 字号走主题字阶（F6）：titleSmall 为 14sp。
+            style = MaterialTheme.typography.titleSmall,
             fontWeight = if (depth == 0) FontWeight.Bold else FontWeight.Medium,
             color = TextPrimary
         )
         Text(
             text = "${count}件",
-            fontSize = 12.sp,
+            // 字号走主题字阶（F6）：labelMedium 为 12sp。
+            style = MaterialTheme.typography.labelMedium,
             color = if (selected) OrangeStart else TextSecondary
         )
         if (hasChildren) {
             Spacer(modifier = Modifier.width(6.dp))
-            Icon(
-                imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                // 展开箭头是独立的可点目标，需报出当前状态（F16）。
-                contentDescription = if (expanded) "收起子分类" else "展开子分类",
-                tint = TextHint,
+            Box(
+                // 触达面积达标（F7）：箭头视觉 20dp，热区撑到 48dp。
                 modifier = Modifier
-                    .size(20.dp)
+                    .size(48.dp)
                     .clip(CircleShape)
                     // 声明 Button 角色，读屏才会播报「按钮」（F16）。
-                    .clickable(role = Role.Button, onClick = onToggleExpand)
-            )
+                    .clickable(role = Role.Button, onClick = onToggleExpand),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    // 展开箭头是独立的可点目标，需报出当前状态（F16）。
+                    contentDescription = if (expanded) "收起子分类" else "展开子分类",
+                    tint = TextHint,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
         }
         Spacer(modifier = Modifier.width(4.dp))
         Box(
+            // 触达面积达标（F7）：加号视觉 16dp，热区撑到 48dp。
             modifier = Modifier
-                .size(26.dp)
-                .clip(RoundedCornerShape(999.dp))
+                .size(48.dp)
+                .clip(CircleShape)
                 .clickable(onClick = onAddSubCategory),
             contentAlignment = Alignment.Center
         ) {
@@ -421,7 +387,8 @@ internal fun LocationNode(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(start = (depth * 16).dp)
-                .clip(RoundedCornerShape(18.dp))
+                // 圆角走形状令牌（F6）：收敛到 medium（16dp）。
+                .clip(MaterialTheme.shapes.medium)
                 .background(
                     if (selectedLocationId == location.id) OrangeStart.copy(alpha = 0.1f)
                     else Color.Transparent
@@ -442,34 +409,43 @@ internal fun LocationNode(
             Text(
                 text = location.name,
                 modifier = Modifier.weight(1f),
-                fontSize = 14.sp,
+                // 字号走主题字阶（F6）：titleSmall 为 14sp。
+                style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold,
                 color = TextPrimary
             )
             Text(
                 text = "${counts[location.id] ?: 0}件",
-                fontSize = 12.sp,
+                // 字号走主题字阶（F6）：labelMedium 为 12sp。
+                style = MaterialTheme.typography.labelMedium,
                 color = TextSecondary
             )
             if (hasChildren) {
                 Spacer(modifier = Modifier.width(6.dp))
                 // I9：箭头是唯一负责「展开 / 收起」的热区，与分类树保持一致；
                 // 补上状态描述与 Button 角色，读屏可识别（F16）。
-                Icon(
-                    imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                    contentDescription = if (isExpanded) "收起子位置" else "展开子位置",
-                    tint = TextHint,
+                Box(
+                    // 触达面积达标（F7）：箭头视觉 20dp，热区撑到 48dp。
                     modifier = Modifier
-                        .size(20.dp)
+                        .size(48.dp)
                         .clip(CircleShape)
-                        .clickable(role = Role.Button) { onToggleExpand(location.id) }
-                )
+                        .clickable(role = Role.Button) { onToggleExpand(location.id) },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                        contentDescription = if (isExpanded) "收起子位置" else "展开子位置",
+                        tint = TextHint,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
             }
             Spacer(modifier = Modifier.width(4.dp))
             Box(
+                // 触达面积达标（F7）：加号视觉 16dp，热区撑到 48dp。
                 modifier = Modifier
-                    .size(26.dp)
-                    .clip(RoundedCornerShape(999.dp))
+                    .size(48.dp)
+                    .clip(CircleShape)
                     .clickable { onAddSubLocation(location) },
                 contentAlignment = Alignment.Center
             ) {

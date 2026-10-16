@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -25,7 +24,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -90,12 +88,13 @@ fun AppSplashScreen(darkTheme: Boolean = false) {
                     .size(132.dp)
                     .shadow(
                         elevation = 26.dp,
-                        shape = RoundedCornerShape(40.dp),
+                        shape = MaterialTheme.shapes.extraLarge,
                         ambientColor = glowColor,
                         spotColor = glowColor
                     )
-                    .clip(RoundedCornerShape(40.dp))
-                    .background(if (darkTheme) CardWhite else Color.White),
+                    .clip(MaterialTheme.shapes.extraLarge)
+                    // 底盘白走语义令牌（F5）：CardWhite 浅色即纯白、深色为深卡色，不再写 CardWhite。
+                    .background(CardWhite),
                 contentAlignment = Alignment.Center
             ) {
                 Image(
@@ -119,7 +118,8 @@ fun AppSplashScreen(darkTheme: Boolean = false) {
 
             Text(
                 text = "家里的每件东西，都有它的位置",
-                fontSize = 14.sp,
+                // 字号走主题字阶（F6）：titleSmall 为 14sp。
+                style = MaterialTheme.typography.titleSmall,
                 letterSpacing = 1.sp,
                 color = if (darkTheme) TextSecondary else WarmBrownSoft
             )
@@ -128,18 +128,19 @@ fun AppSplashScreen(darkTheme: Boolean = false) {
 
             Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(if (darkTheme) CardWhite.copy(alpha = 0.8f) else Color.White.copy(alpha = 0.72f))
+                    .clip(MaterialTheme.shapes.large)
+                    .background(if (darkTheme) CardWhite.copy(alpha = 0.8f) else CardWhite.copy(alpha = 0.72f))
                     .border(
                         width = 1.dp,
-                        color = if (darkTheme) DividerSoft else Color.White.copy(alpha = 0.9f),
-                        shape = RoundedCornerShape(20.dp)
+                        color = if (darkTheme) DividerSoft else CardWhite.copy(alpha = 0.9f),
+                        shape = MaterialTheme.shapes.large
                     )
                     .padding(horizontal = 24.dp, vertical = 14.dp)
             ) {
                 Text(
                     text = "你负责布置小窝，\n我负责记住东西在哪。",
-                    fontSize = 13.5.sp,
+                    // 字号走主题字阶（F6）：bodyMedium 为 14sp，接近原 13.5sp。
+                    style = MaterialTheme.typography.bodyMedium,
                     lineHeight = 22.sp,
                     color = if (darkTheme) TextPrimary else WarmBrownDeep,
                     textAlign = TextAlign.Center
@@ -175,8 +176,8 @@ fun AppSplashScreen(darkTheme: Boolean = false) {
 /** 中央柔光 + 两片若隐若现的柠檬叶，制造空间层次而不抢主体。 */
 @Composable
 private fun BoxScope.SplashBackdrop(darkTheme: Boolean) {
-    val glowCenter = if (darkTheme) OrangeGlow.copy(alpha = 0.45f) else Color.White.copy(alpha = 0.9f)
-    val glowEdge = if (darkTheme) OrangeGlow.copy(alpha = 0f) else Color.White.copy(alpha = 0f)
+    val glowCenter = if (darkTheme) OrangeGlow.copy(alpha = 0.45f) else CardWhite.copy(alpha = 0.9f)
+    val glowEdge = if (darkTheme) OrangeGlow.copy(alpha = 0f) else CardWhite.copy(alpha = 0f)
 
     Box(
         modifier = Modifier

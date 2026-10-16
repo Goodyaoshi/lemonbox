@@ -21,7 +21,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -43,6 +42,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -77,6 +77,7 @@ import com.goodyaoshi.lemonbox.data.sync.SyncPeer
 import com.goodyaoshi.lemonbox.data.sync.SyncReport
 import com.goodyaoshi.lemonbox.data.sync.SyncReportEntry
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
+import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.GradientButton
 import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
@@ -100,7 +101,7 @@ import com.goodyaoshi.lemonbox.ui.viewmodel.SyncTransferUi
 import com.goodyaoshi.lemonbox.util.DateUtil
 
 /**
- * 局域网同步：做成「像配对蓝牙一样」的界面 —— 顶部是本机（被连接方），
+ * 设备同步：做成「像配对蓝牙一样」的界面 —— 顶部是本机（被连接方），
  * 下面是附近设备列表（连接方点一下就连），手动输入地址与配对码折叠在最后兜底。
  */
 @Composable
@@ -122,6 +123,9 @@ fun LanSyncScreen(
     // GAP-1：点开某条历史看逐条明细（哪些采用、哪些跳过）；IA-7：可展开查看更早的全部历史。
     var historyTarget by remember { mutableStateOf<SyncReport?>(null) }
     var showAllReports by remember { mutableStateOf(false) }
+    // 停止共享二次确认（SET1）：停掉后对方/本机都搜不到，属于会影响连接状态的破坏性动作，
+    // 先弹确认再停，不一键生效且不可逆。
+    var showStopConfirm by remember { mutableStateOf(false) }
 
     // 作为被连接方：对方合并过来时提示一次，避免「对方连了但本机毫无反应」。
     // 全局提示通道（I10）：合并结果改走统一 Snackbar。
@@ -192,7 +196,7 @@ fun LanSyncScreen(
 
             Text(
                 text = "上次同步：${DateUtil.relativeSyncText(lastSyncAt)}",
-                fontSize = 12.sp,
+                style = MaterialTheme.typography.bodySmall,
                 fontWeight = FontWeight.SemiBold,
                 color = OrangeStart,
                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 6.dp)
@@ -201,7 +205,7 @@ fun LanSyncScreen(
             // 一、本机（被连接方）
             AppSurfaceCard(
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
-                shape = RoundedCornerShape(24.dp),
+                shape = MaterialTheme.shapes.extraLarge,
                 shadowElevation = 12.dp
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -217,18 +221,18 @@ fun LanSyncScreen(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "本机 · ${viewModel.localDeviceModel}",
-                            fontSize = 16.sp,
+                            style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = TextPrimary
                         )
                         Text(
                             text = when {
-                                uiState.hostChangesPrompt != null -> "对方数据已收到，请在下方勾选要同步的内容"
+                                uiState.hostChangesPrompt != null -> "对方数据已收到，请在下方勾选要合并的内容"
                                 uiState.hostAccepted -> "已接受，等待对方确认并传输…"
                                 hosting -> "正在等待对方连接…"
                                 else -> "开启后，这台设备会出现在对方的设备列表里"
                             },
-                            fontSize = 12.sp,
+                            style = MaterialTheme.typography.bodySmall,
                             color = TextSecondary
                         )
                     }
@@ -245,14 +249,14 @@ fun LanSyncScreen(
                     Spacer(modifier = Modifier.size(14.dp))
                     Text(
                         text = "配对码",
-                        fontSize = 12.sp,
+                        style = MaterialTheme.typography.bodySmall,
                         color = TextSecondary
                     )
                     AutoSizePairingCode(code = uiState.pairingCode)
                     Spacer(modifier = Modifier.size(4.dp))
                     Text(
                         text = "两边会弹出同一个配对码，核对一致再继续。",
-                        fontSize = 12.sp,
+                        style = MaterialTheme.typography.bodySmall,
                         color = TextHint
                     )
                     Text(
@@ -266,12 +270,12 @@ fun LanSyncScreen(
                         Spacer(modifier = Modifier.size(8.dp))
                         Text(
                             text = "刚合并对方数据：${summary.toUserMessage()}",
-                            fontSize = 12.sp,
+                            style = MaterialTheme.typography.bodySmall,
                             color = OrangeStart
                         )
                     }
                     Spacer(modifier = Modifier.size(14.dp))
-                    GradientButton(text = "停止共享", onClick = viewModel::stopHosting)
+                    GradientButton(text = "停止共享", onClick = { showStopConfirm = true })
                 } else {
                     Spacer(modifier = Modifier.size(14.dp))
                     GradientButton(text = "开启共享", onClick = viewModel::startHosting)
@@ -283,12 +287,12 @@ fun LanSyncScreen(
             if (uiState.syncSteps.isNotEmpty()) {
                 AppSurfaceCard(
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
-                    shape = RoundedCornerShape(24.dp),
+                    shape = MaterialTheme.shapes.extraLarge,
                     shadowElevation = 12.dp
                 ) {
                     Text(
                         text = if (uiState.isBusy) "同步进度" else "上次同步进度",
-                        fontSize = 16.sp,
+                        style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = TextPrimary
                     )
@@ -306,7 +310,8 @@ fun LanSyncScreen(
                     ) {
                         Spacer(modifier = Modifier.size(10.dp))
                         Text(
-                            text = "常见原因：对方熄屏、路由器 AP 隔离、防火墙拦截。",
+                            // 白话化（SET1）：不用「AP 隔离」这类词，说人话「路由器把两台设备隔开」。
+                            text = "常见原因：对方锁着屏、路由器把两台设备隔开、防火墙拦截。",
                             style = MaterialTheme.typography.bodySmall,
                             color = TextHint
                         )
@@ -319,13 +324,13 @@ fun LanSyncScreen(
             // 二、附近设备（连接方）
             AppSurfaceCard(
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
-                shape = RoundedCornerShape(24.dp),
+                shape = MaterialTheme.shapes.extraLarge,
                 shadowElevation = 12.dp
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = "附近设备",
-                        fontSize = 16.sp,
+                        style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = TextPrimary
                     )
@@ -335,7 +340,9 @@ fun LanSyncScreen(
                     // 图标 + 文字整体可点，并声明 Button 角色，读屏播报一次「刷新」。
                     Row(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(999.dp))
+                            // 触达面积达标（F7）：刷新胶囊约 30dp 高，先撑出 48dp 最小可点区再绘制。
+                            .minimumInteractiveComponentSize()
+                            .clip(CircleShape)
                             .clickable(role = Role.Button) { viewModel.refreshDiscovery() }
                             .padding(horizontal = 8.dp, vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -349,7 +356,7 @@ fun LanSyncScreen(
                         )
                         Text(
                             text = "刷新",
-                            fontSize = 12.sp,
+                            style = MaterialTheme.typography.bodySmall,
                             color = OrangeStart
                         )
                     }
@@ -367,7 +374,7 @@ fun LanSyncScreen(
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = "正在搜索同一 WiFi 下的设备…",
-                            fontSize = 13.sp,
+                            style = MaterialTheme.typography.bodyMedium,
                             color = TextHint
                         )
                     }
@@ -395,7 +402,9 @@ fun LanSyncScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(999.dp))
+                        // 触达面积达标（F7）：扫描按钮不足 48dp 高，先撑出最小可点区再绘制。
+                        .minimumInteractiveComponentSize()
+                        .clip(CircleShape)
                         .background(OrangeStart.copy(alpha = 0.14f))
                         .clickable(enabled = !scanning && !uiState.isBusy, role = Role.Button) {
                             viewModel.scanLan()
@@ -421,14 +430,15 @@ fun LanSyncScreen(
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = if (scanning) "扫描中… $scanProgress%" else "扫描整个局域网",
-                        fontSize = 13.sp,
+                        style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.SemiBold,
                         color = OrangeStart
                     )
                 }
                 Spacer(modifier = Modifier.size(4.dp))
                 Text(
-                    text = "不依赖组播，AP 隔离或热点下同样有效。",
+                    // 白话化（SET1）：把「组播 / AP 隔离」换成「自动发现 / 路由器隔开设备」。
+                    text = "不靠自动发现，路由器隔开设备或连热点时同样有效。",
                     style = MaterialTheme.typography.bodySmall,
                     color = TextHint
                 )
@@ -439,14 +449,16 @@ fun LanSyncScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 24.dp, vertical = 4.dp)
-                    .clip(RoundedCornerShape(12.dp))
+                    // 触达面积达标（F7）：手动连接折叠入口不足 48dp 高，先撑出最小可点区再绘制。
+                    .minimumInteractiveComponentSize()
+                    .clip(MaterialTheme.shapes.medium)
                     .clickable { showManual = !showManual }
                     .padding(vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
                     text = "搜索不到？手动输入地址",
-                    fontSize = 12.sp,
+                    style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary,
                     modifier = Modifier.weight(1f)
                 )
@@ -461,7 +473,7 @@ fun LanSyncScreen(
             AnimatedVisibility(visible = showManual) {
                 AppSurfaceCard(
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
-                    shape = RoundedCornerShape(24.dp),
+                    shape = MaterialTheme.shapes.extraLarge,
                     shadowElevation = 12.dp
                 ) {
                     OutlinedTextField(
@@ -491,12 +503,12 @@ fun LanSyncScreen(
             if (syncReports.isNotEmpty()) {
                 AppSurfaceCard(
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
-                    shape = RoundedCornerShape(24.dp),
+                    shape = MaterialTheme.shapes.extraLarge,
                     shadowElevation = 12.dp
                 ) {
                     Text(
                         text = "同步历史",
-                        fontSize = 16.sp,
+                        style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = TextPrimary
                     )
@@ -526,11 +538,13 @@ fun LanSyncScreen(
                             } else {
                                 "查看全部 ${syncReports.size} 条历史"
                             },
-                            fontSize = 11.sp,
+                            style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.SemiBold,
                             color = OrangeStart,
                             modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
+                                // 触达面积达标（F7）：一行小字不足 48dp 高，先撑出最小可点区再绘制。
+                                .minimumInteractiveComponentSize()
+                                .clip(MaterialTheme.shapes.small)
                                 .clickable { showAllReports = !showAllReports }
                                 .padding(horizontal = 6.dp, vertical = 4.dp)
                         )
@@ -543,14 +557,16 @@ fun LanSyncScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 20.dp, vertical = 8.dp)
-                        .clip(RoundedCornerShape(18.dp))
+                        // 触达面积达标（F7）：提示条不足 48dp 高，先撑出最小可点区再绘制。
+                        .minimumInteractiveComponentSize()
+                        .clip(MaterialTheme.shapes.large)
                         .background(OrangeTint)
                         .clickable { viewModel.consumeMessage() },
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
                         text = message,
-                        fontSize = 12.sp,
+                        style = MaterialTheme.typography.bodySmall,
                         color = TextPrimary,
                         textAlign = TextAlign.Start,
                         modifier = Modifier
@@ -579,8 +595,8 @@ fun LanSyncScreen(
             )
         }
 
-        // 配对/范围对话框统一浮在内容之上：发起方核对匹配码 → 选范围；
-        // 被连接方确认配对 → 选范围。双方都确认匹配码一致才会真正传输。
+        // 配对/范围对话框统一浮在内容之上：发起方核对配对码 → 选范围；
+        // 被连接方确认配对 → 选范围。双方都确认配对码一致才会真正传输。
         uiState.matchCodePrompt?.let { prompt ->
             MatchCodeDialog(
                 prompt = prompt,
@@ -598,9 +614,9 @@ fun LanSyncScreen(
         uiState.clientChangesPrompt?.let { prompt ->
             SyncChangeListSheet(
                 changes = prompt.changes,
-                title = "这次要同步什么？",
+                title = "这次要合并什么？",
                 sourceLabel = "与「${prompt.peerLabel}」的数据对比",
-                actionLabel = "同步所选",
+                actionLabel = "合并所选",
                 onDismiss = { viewModel.chooseChanges(null) },
                 onConfirm = { viewModel.chooseChanges(it) }
             )
@@ -608,11 +624,25 @@ fun LanSyncScreen(
         uiState.hostChangesPrompt?.let { prompt ->
             SyncChangeListSheet(
                 changes = prompt.changes,
-                title = "这次要同步什么？",
+                title = "这次要合并什么？",
                 sourceLabel = "「${prompt.peerLabel}」发来的数据将这样合并进本机",
-                actionLabel = "同步所选",
+                actionLabel = "合并所选",
                 onDismiss = viewModel::cancelHostChanges,
                 onConfirm = viewModel::applyHostChanges
+            )
+        }
+        // 停止共享二次确认（SET1）：确认后才真正停掉，避免误触打断正在进行的配对。
+        if (showStopConfirm) {
+            AppDialog(
+                title = "停止共享？",
+                subtitle = "停止后这台设备会从对方的设备列表里消失，正在进行的配对也会中断。",
+                confirmText = "停止共享",
+                destructiveConfirm = true,
+                onConfirm = {
+                    showStopConfirm = false
+                    viewModel.stopHosting()
+                },
+                onDismissRequest = { showStopConfirm = false }
             )
         }
         // GAP-1：历史明细 Sheet——回放那次到底动了哪几条、哪些被跳过（只读）。
@@ -623,7 +653,7 @@ fun LanSyncScreen(
 }
 
 /**
- * 发起方核对匹配码：把本端生成的码显示出来，让对方屏幕上的数字与之对照。
+ * 发起方核对配对码：把本端生成的码显示出来，让对方屏幕上的数字与之对照。
  * 只有双方都确认一致，配对才会继续，避免连到陌生设备。
  */
 @Composable
@@ -634,12 +664,12 @@ private fun MatchCodeDialog(
 ) {
     AlertDialog(
         onDismissRequest = onCancel,
-        title = { Text(text = "核对匹配码", fontWeight = FontWeight.Bold) },
+        title = { Text(text = "核对配对码", fontWeight = FontWeight.Bold) },
         text = {
             Column {
                 Text(
                     text = "请和「${prompt.peerLabel}」屏幕上的数字对照，确认是同一个再继续：",
-                    fontSize = 13.sp,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = TextSecondary
                 )
                 Spacer(modifier = Modifier.size(10.dp))
@@ -674,7 +704,7 @@ private fun MatchCodeDialog(
 }
 
 /**
- * 被连接方确认配对：对方是谁、匹配码是多少，核对后才接受，
+ * 被连接方确认配对：对方是谁、配对码是多少，核对后才接受，
  * 避免开着共享就被不认识的人直接同步走数据。
  */
 @Composable
@@ -690,13 +720,13 @@ private fun HostPairDialog(
             Column {
                 Text(
                     text = "「${prompt.deviceModel.ifBlank { prompt.peerLabel }}」想和你同步数据。",
-                    fontSize = 14.sp,
+                    style = MaterialTheme.typography.titleSmall,
                     color = TextPrimary
                 )
                 Spacer(modifier = Modifier.size(10.dp))
                 Text(
-                    text = "对方屏幕上的匹配码应该是：",
-                    fontSize = 13.sp,
+                    text = "对方屏幕上的配对码应该是：",
+                    style = MaterialTheme.typography.bodyMedium,
                     color = TextSecondary
                 )
                 Spacer(modifier = Modifier.size(6.dp))
@@ -784,7 +814,7 @@ private fun DeviceRow(
         modifier = Modifier
             .fillMaxWidth()
             .padding(top = 8.dp)
-            .clip(RoundedCornerShape(18.dp))
+            .clip(MaterialTheme.shapes.large)
             .background(SurfaceWarmDeep)
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 10.dp),
@@ -808,19 +838,19 @@ private fun DeviceRow(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = peer.model ?: peer.name,
-                fontSize = 14.sp,
+                style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
                 color = TextPrimary
             )
             Text(
                 text = peer.host,
-                fontSize = 11.sp,
+                style = MaterialTheme.typography.labelSmall,
                 color = TextHint
             )
         }
         Text(
             text = if (enabled) "点击同步" else "同步中…",
-            fontSize = 12.sp,
+            style = MaterialTheme.typography.bodySmall,
             color = if (enabled) OrangeStart else TextHint
         )
     }
@@ -892,7 +922,7 @@ private fun SyncStepRow(step: SyncStepUi) {
                 SyncStepStatus.FAILED -> "${step.label}（失败）"
                 else -> step.label
             },
-            fontSize = 13.sp,
+            style = MaterialTheme.typography.bodyMedium,
             color = when (step.status) {
                 SyncStepStatus.PENDING -> TextHint
                 SyncStepStatus.FAILED -> StatusExpired
@@ -914,7 +944,7 @@ private fun SyncTransferRow(transfer: SyncTransferUi) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = transfer.label,
-                fontSize = 13.sp,
+                style = MaterialTheme.typography.bodyMedium,
                 color = TextPrimary,
                 modifier = Modifier.weight(1f)
             )
@@ -924,7 +954,7 @@ private fun SyncTransferRow(transfer: SyncTransferUi) {
                 } else {
                     "已传 ${formatTransferSize(transfer.done)}"
                 },
-                fontSize = 12.sp,
+                style = MaterialTheme.typography.bodySmall,
                 color = TextHint
             )
         }
@@ -966,7 +996,9 @@ private fun SyncReportRow(report: SyncReport, onClick: (() -> Unit)? = null) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            // 触达面积达标（F7）：历史行不足 48dp 高，先撑出最小可点区再绘制。
+            .minimumInteractiveComponentSize()
+            .clip(MaterialTheme.shapes.medium)
             // 有逐条回执的历史行可点开看明细（GAP-1）；旧记录不可点，保持纯展示。
             .clickable(enabled = onClick != null) { onClick?.invoke() }
             .padding(vertical = 4.dp, horizontal = 4.dp),
@@ -976,17 +1008,17 @@ private fun SyncReportRow(report: SyncReport, onClick: (() -> Unit)? = null) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = DateUtil.formatDateTime(report.time),
-                    fontSize = 13.sp,
+                    style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.SemiBold,
                     color = TextPrimary
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
                     text = report.role.label,
-                    fontSize = 11.sp,
+                    style = MaterialTheme.typography.labelSmall,
                     color = TextHint,
                     modifier = Modifier
-                        .clip(RoundedCornerShape(999.dp))
+                        .clip(CircleShape)
                         .background(SurfaceWarmDeep)
                         .padding(horizontal = 6.dp, vertical = 2.dp)
                 )
@@ -1005,14 +1037,14 @@ private fun SyncReportRow(report: SyncReport, onClick: (() -> Unit)? = null) {
                         append(if (parts.isEmpty()) "数据已是最新" else parts.joinToString("、"))
                     }
                 },
-                fontSize = 12.sp,
+                style = MaterialTheme.typography.bodySmall,
                 color = TextSecondary,
                 maxLines = 2
             )
         }
         Text(
             text = report.outcome.label,
-            fontSize = 11.sp,
+            style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.SemiBold,
             color = when (report.outcome) {
                 SyncReport.Outcome.SUCCESS -> StatusNormal
@@ -1020,7 +1052,7 @@ private fun SyncReportRow(report: SyncReport, onClick: (() -> Unit)? = null) {
                 SyncReport.Outcome.CANCELLED -> TextHint
             },
             modifier = Modifier
-                .clip(RoundedCornerShape(999.dp))
+                .clip(CircleShape)
                 .background(
                     when (report.outcome) {
                         SyncReport.Outcome.SUCCESS -> StatusNormal.copy(alpha = 0.14f)
@@ -1060,7 +1092,7 @@ private fun SyncReportDetailSheet(report: SyncReport, onDismiss: () -> Unit) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
+                .clip(MaterialTheme.shapes.extraLarge)
                 .background(CardWhite)
                 .navigationBarsPadding()
                 .padding(horizontal = 20.dp)
@@ -1068,20 +1100,20 @@ private fun SyncReportDetailSheet(report: SyncReport, onDismiss: () -> Unit) {
             Spacer(Modifier.size(20.dp))
             Text(
                 text = "这次同步动了什么",
-                fontSize = 18.sp,
+                style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 color = TextPrimary
             )
             Text(
                 text = "${DateUtil.formatDateTime(report.time)} · ${report.role.label} · " +
                     "与「${report.peerLabel.ifBlank { "对方" }}」",
-                fontSize = 13.sp,
+                style = MaterialTheme.typography.bodyMedium,
                 color = TextSecondary,
                 modifier = Modifier.padding(top = 2.dp)
             )
             Text(
                 text = "本机采用 $adoptedCount 条 · 跳过 $skippedCount 条（跳过的不动本机，下次同步还会再问）",
-                fontSize = 12.sp,
+                style = MaterialTheme.typography.bodySmall,
                 color = TextHint,
                 modifier = Modifier.padding(top = 2.dp)
             )
@@ -1096,7 +1128,7 @@ private fun SyncReportDetailSheet(report: SyncReport, onDismiss: () -> Unit) {
                     item(key = "hdr_${entity.name}") {
                         Text(
                             text = "${entity.label} · ${rows.size} 条",
-                            fontSize = 13.sp,
+                            style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.SemiBold,
                             color = TextSecondary,
                             modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
@@ -1118,7 +1150,7 @@ private fun SyncReportEntryRow(entry: SyncReportEntry) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
+            .clip(MaterialTheme.shapes.medium)
             .background(SurfaceWarmDeep)
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -1126,24 +1158,24 @@ private fun SyncReportEntryRow(entry: SyncReportEntry) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = entry.title,
-                fontSize = 14.sp,
+                style = MaterialTheme.typography.titleSmall,
                 color = TextPrimary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
             Text(
                 text = if (entry.conflict) "冲突 · ${entry.kind.label}" else entry.kind.label,
-                fontSize = 11.sp,
+                style = MaterialTheme.typography.labelSmall,
                 color = if (entry.conflict) StatusExpired else TextHint
             )
         }
         Text(
             text = if (entry.adopted) "已采用" else "已跳过",
-            fontSize = 11.sp,
+            style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.SemiBold,
             color = if (entry.adopted) StatusNormal else TextHint,
             modifier = Modifier
-                .clip(RoundedCornerShape(999.dp))
+                .clip(CircleShape)
                 .background(if (entry.adopted) StatusNormal.copy(alpha = 0.14f) else SurfaceWarmDeep)
                 .padding(horizontal = 8.dp, vertical = 3.dp)
         )

@@ -16,11 +16,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TriStateCheckbox
@@ -38,7 +40,6 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.goodyaoshi.lemonbox.data.backup.BackupChanges
 import com.goodyaoshi.lemonbox.data.backup.SyncChange
 import com.goodyaoshi.lemonbox.data.backup.SyncChangeKind
@@ -129,20 +130,23 @@ fun SyncChangeListSheet(
             Spacer(Modifier.height(20.dp))
             Text(
                 text = title,
-                fontSize = 18.sp,
+                // 字号走主题字阶（F6）：titleLarge 为 18sp。
+                style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 color = TextPrimary
             )
             Text(
                 text = sourceLabel,
-                fontSize = 13.sp,
+                // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+                style = MaterialTheme.typography.bodyMedium,
                 color = TextSecondary,
                 modifier = Modifier.padding(top = 2.dp)
             )
             Text(
                 text = "新增和修改默认勾选；「删除」和「冲突」必须主动勾选才会采用对方。" +
                     "这次没勾的内容，下次同步还会再问一次。",
-                fontSize = 12.sp,
+                // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                style = MaterialTheme.typography.bodySmall,
                 color = TextHint,
                 modifier = Modifier.padding(top = 2.dp)
             )
@@ -180,14 +184,19 @@ fun SyncChangeListSheet(
             ) {
                 Text(
                     text = "快速档位",
-                    fontSize = 12.sp,
+                    // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                    style = MaterialTheme.typography.bodySmall,
                     color = TextHint
                 )
                 QuickScope.entries.forEach { quick ->
+                    val quickSelection = quick.resolve(changes.changes)
                     EditorSelectionChip(
                         text = quick.label,
-                        selected = false,
-                        onClick = { selected = quick.resolve(changes.changes) }
+                        // 审计修复：档位 chip 此前恒 selected = false，点了没有任何选中反馈，
+                        // 用户不知道档位到底生效没有。改为与当前勾选集合实时比对——
+                        // 勾选集合恰好等于该档位结果时点亮；随后手动增删条目会自动回落为「自定义」。
+                        selected = selected == quickSelection,
+                        onClick = { selected = quickSelection }
                     )
                 }
             }
@@ -204,7 +213,8 @@ fun SyncChangeListSheet(
                     item(key = "filter_empty_hint") {
                         Text(
                             text = "这个筛选下暂时没有条目，点「全部」看完整列表",
-                            fontSize = 12.sp,
+                            // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                            style = MaterialTheme.typography.bodySmall,
                             color = TextHint,
                             modifier = Modifier.padding(vertical = 16.dp)
                         )
@@ -251,7 +261,8 @@ fun SyncChangeListSheet(
                             "${changes.conflicts - selectedChanges.count { it.conflict }} 条保留本机")
                     }
                 },
-                fontSize = 12.sp,
+                // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                style = MaterialTheme.typography.bodySmall,
                 color = TextSecondary
             )
             Spacer(Modifier.height(8.dp))
@@ -298,7 +309,8 @@ fun SyncChangeListSheet(
             if (gateDeletedItems.isNotEmpty()) {
                 Text(
                     text = "以下内容将被删除：",
-                    fontSize = 13.sp,
+                    // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+                    style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.SemiBold,
                     color = TextPrimary
                 )
@@ -313,7 +325,8 @@ fun SyncChangeListSheet(
                     gateDeletedItems.forEach { deleted ->
                         Text(
                             text = "· ${deleted.title}",
-                            fontSize = 12.sp,
+                            // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                            style = MaterialTheme.typography.bodySmall,
                             color = StatusExpired
                         )
                     }
@@ -385,7 +398,8 @@ private fun GroupHeader(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            // 圆角走形状令牌（F6）：收敛到 medium（16dp）。
+            .clip(MaterialTheme.shapes.medium)
             .clickable(role = Role.Checkbox) { onToggleGroup(selectedCount != totalCount) }
             .padding(vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -396,7 +410,8 @@ private fun GroupHeader(
         )
         Text(
             text = "$label · $totalCount 条",
-            fontSize = 13.sp,
+            // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+            style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.SemiBold,
             color = TextSecondary,
             modifier = Modifier
@@ -404,7 +419,7 @@ private fun GroupHeader(
                 .padding(start = 4.dp)
         )
         if (selectedCount > 0) {
-            Text(text = "已选 $selectedCount", fontSize = 12.sp, color = TextHint)
+            Text(text = "已选 $selectedCount", style = MaterialTheme.typography.bodySmall, color = TextHint)
         }
     }
 }
@@ -424,7 +439,8 @@ private fun ChangeRow(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
+            // 圆角走形状令牌（F6）：收敛到 medium（16dp）。
+            .clip(MaterialTheme.shapes.medium)
             .background(SurfaceWarmDeep)
     ) {
         Row(
@@ -443,17 +459,19 @@ private fun ChangeRow(
             ) {
                 Text(
                     text = change.title,
-                    fontSize = 14.sp,
+                    // 字号走主题字阶（F6）：列表项标题优先 titleSmall（14sp）。
+                    style = MaterialTheme.typography.titleSmall,
                     color = TextPrimary,
                     maxLines = 1
                 )
                 change.subtitle?.let { subtitle ->
-                    Text(text = subtitle, fontSize = 12.sp, color = TextHint, maxLines = 1)
+                    Text(text = subtitle, style = MaterialTheme.typography.bodySmall, color = TextHint, maxLines = 1)
                 }
                 if (change.conflict) {
                     Text(
                         text = "两边都改过：勾选=用对方，不勾=保留本机",
-                        fontSize = 11.sp,
+                        // 字号走主题字阶（F6）：labelSmall 为 11sp。
+                        style = MaterialTheme.typography.labelSmall,
                         color = StatusExpired,
                         maxLines = 1
                     )
@@ -463,11 +481,13 @@ private fun ChangeRow(
             if (change.diffs.isNotEmpty() && !change.conflict) {
                 Text(
                     text = "改了啥",
-                    fontSize = 11.sp,
+                    // 字号走主题字阶（F6）：labelSmall 为 11sp。
+                    style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.SemiBold,
                     color = OrangeStart,
                     modifier = Modifier
-                        .clip(RoundedCornerShape(999.dp))
+                        // 圆角走形状令牌（F6）：胶囊收敛到 CircleShape。
+                        .clip(CircleShape)
                         .clickable { onShowDiff() }
                         .padding(horizontal = 8.dp, vertical = 6.dp)
                 )
@@ -502,11 +522,13 @@ private fun KindBadge(kind: SyncChangeKind, conflict: Boolean = false) {
     }
     Text(
         text = if (conflict) "冲突" else kind.label,
-        fontSize = 11.sp,
+        // 字号走主题字阶（F6）：labelSmall 为 11sp。
+        style = MaterialTheme.typography.labelSmall,
         fontWeight = FontWeight.SemiBold,
         color = color,
         modifier = Modifier
-            .clip(RoundedCornerShape(999.dp))
+            // 圆角走形状令牌（F6）：胶囊收敛到 CircleShape。
+            .clip(CircleShape)
             .background(color.copy(alpha = 0.14f))
             .padding(horizontal = 8.dp, vertical = 3.dp)
     )
@@ -524,13 +546,14 @@ private fun DiffDialog(change: SyncChange, onDismiss: () -> Unit) {
                 color = OrangeStart,
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier
-                    .clip(RoundedCornerShape(999.dp))
+                    // 圆角走形状令牌（F6）：胶囊收敛到 CircleShape。
+                    .clip(CircleShape)
                     .clickable { onDismiss() }
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             )
         },
         title = {
-            Text(text = change.title, fontSize = 16.sp, color = TextPrimary)
+            Text(text = change.title, style = MaterialTheme.typography.titleMedium, color = TextPrimary)
         },
         text = {
             LazyColumn(

@@ -4,28 +4,24 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
@@ -37,14 +33,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.OrangeTint
-import com.goodyaoshi.lemonbox.ui.theme.ScrimSoft
 import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarm
 import com.goodyaoshi.lemonbox.ui.theme.TextHint
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
@@ -86,15 +80,18 @@ fun EditorPickerField(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
+            // 圆角 / 热区走统一令牌（F6/F7）。
+            .clip(MaterialTheme.shapes.large)
             .background(OrangeTint)
+            .minimumInteractiveComponentSize()
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
             text = if (hasValue) value.orEmpty() else placeholder,
-            fontSize = 15.sp,
+            // 字号走主题字阶（F6）：titleSmall 为 14sp。
+            style = MaterialTheme.typography.titleSmall,
             color = if (hasValue) TextPrimary else TextHint,
             modifier = Modifier.weight(1f)
         )
@@ -135,97 +132,77 @@ fun HierarchicalPickerDialog(
     }
     val childrenByParent = nodes.groupBy { it.parentId }
 
-    Dialog(
-        onDismissRequest = onDismissRequest,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
-        BoxWithConstraints(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(ScrimSoft),
-            contentAlignment = Alignment.Center
-        ) {
-            // 卡片限高：不加的话，列表限高 + 标题 + 按钮的总高可能超过屏幕，
-            // 简易模式（系统字体放大）下底部按钮会被挤出可视区且无法滚到。
-            val maxCardHeight = maxHeight - 48.dp
-            AppSurfaceCard(
+    // 遮罩 + 卡片骨架统一走 AppModalPanel（P1）：此前这里自己复刻了一份 30dp 圆角 + 限高逻辑。
+    AppModalPanel(onDismissRequest = onDismissRequest) {
+        Text(
+            text = title,
+            // 字号走主题字阶（F6）：headlineMedium 为 22sp，与 AppDialog 标题同档。
+            style = MaterialTheme.typography.headlineMedium,
+            color = TextPrimary,
+            modifier = Modifier.semantics { heading() }
+        )
+        Text(
+            text = "可以逐层展开，选择任意层级的节点。",
+            // 字号走主题字阶（F6）：bodySmall 为 12sp（F7 下限）。
+            style = MaterialTheme.typography.bodySmall,
+            color = TextSecondary,
+            modifier = Modifier.padding(top = 6.dp)
+        )
+
+        if (nodes.isEmpty()) {
+            Text(
+                text = emptyHint,
+                // 字号走主题字阶（F6）：labelLarge 为 14sp。
+                style = MaterialTheme.typography.labelLarge,
+                color = TextHint,
+                modifier = Modifier.padding(top = 18.dp)
+            )
+        } else {
+            LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp)
-                    .widthIn(max = 420.dp)
-                    .heightIn(max = maxCardHeight),
-                shape = RoundedCornerShape(30.dp),
-                contentPadding = PaddingValues(22.dp),
-                shadowElevation = 26.dp
+                    .padding(top = 14.dp)
+                    // weight 而非固定高度：列表占用「标题与按钮之外」的剩余空间，
+                    // 这样字体放大挤压空间时是列表变矮（仍可滚），按钮始终留在可见位置。
+                    .weight(1f, fill = false),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
-                Text(
-                    text = title,
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextPrimary
-                )
-                Text(
-                    text = "可以逐层展开，选择任意层级的节点。",
-                    fontSize = 13.sp,
-                    color = TextSecondary,
-                    modifier = Modifier.padding(top = 6.dp)
-                )
-
-                if (nodes.isEmpty()) {
-                    Text(
-                        text = emptyHint,
-                        fontSize = 13.sp,
-                        color = TextHint,
-                        modifier = Modifier.padding(top = 18.dp)
-                    )
-                } else {
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 14.dp)
-                            // weight 而非固定高度：列表占用「标题与按钮之外」的剩余空间，
-                            // 这样字体放大挤压空间时是列表变矮（仍可滚），按钮始终留在可见位置。
-                            .weight(1f, fill = false),
-                        verticalArrangement = Arrangement.spacedBy(2.dp)
-                    ) {
-                        items(buildVisibleRows(childrenByParent, expandedIds), key = { it.node.id }) { row ->
-                            PickerTreeRow(
-                                row = row,
-                                selected = pendingSelection == row.node.id,
-                                onToggleExpand = {
-                                    expandedIds[row.node.id] = !(expandedIds[row.node.id] ?: false)
-                                },
-                                onSelect = { pendingSelection = row.node.id }
-                            )
-                        }
-                    }
-                }
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 22.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    PickerActionButton(
-                        text = "清除选择",
-                        modifier = Modifier.weight(1f),
-                        onClick = {
-                            onSelect(null)
-                            onDismissRequest()
-                        }
-                    )
-                    PickerActionButton(
-                        text = "确定",
-                        modifier = Modifier.weight(1f),
-                        highlight = true,
-                        onClick = {
-                            onSelect(pendingSelection)
-                            onDismissRequest()
-                        }
+                items(buildVisibleRows(childrenByParent, expandedIds), key = { it.node.id }) { row ->
+                    PickerTreeRow(
+                        row = row,
+                        selected = pendingSelection == row.node.id,
+                        onToggleExpand = {
+                            expandedIds[row.node.id] = !(expandedIds[row.node.id] ?: false)
+                        },
+                        onSelect = { pendingSelection = row.node.id }
                     )
                 }
             }
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 22.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            PickerActionButton(
+                text = "清除选择",
+                modifier = Modifier.weight(1f),
+                onClick = {
+                    onSelect(null)
+                    onDismissRequest()
+                }
+            )
+            PickerActionButton(
+                text = "确定",
+                modifier = Modifier.weight(1f),
+                highlight = true,
+                onClick = {
+                    onSelect(pendingSelection)
+                    onDismissRequest()
+                }
+            )
         }
     }
 }
@@ -271,10 +248,11 @@ private fun PickerTreeRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
+            // 圆角 / 热区走统一令牌（F6/F7）。
+            .clip(MaterialTheme.shapes.medium)
             .background(if (selected) OrangeStart.copy(alpha = 0.1f) else Color.Transparent)
             .clickable(onClick = onSelect)
-            .padding(start = (8 + row.depth * 16).dp, end = 8.dp, top = 10.dp, bottom = 10.dp),
+            .padding(start = (8 + row.depth * 16).dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (row.hasChildren) {
@@ -284,6 +262,8 @@ private fun PickerTreeRow(
                 contentDescription = if (row.expanded) "收起子分类" else "展开子分类",
                 tint = TextHint,
                 modifier = Modifier
+                    // 触达面积达标（F7）：箭头视觉仍是 20dp，但热区补足到 48dp。
+                    .minimumInteractiveComponentSize()
                     .size(20.dp)
                     .clip(CircleShape)
                     // 声明 Button 角色，读屏才会播报「按钮」（F16）。
@@ -295,7 +275,8 @@ private fun PickerTreeRow(
         Spacer(modifier = Modifier.width(8.dp))
         Text(
             text = row.node.name,
-            fontSize = 15.sp,
+            // 字号走主题字阶（F6）：titleSmall 为 14sp。
+            style = MaterialTheme.typography.titleSmall,
             fontWeight = if (row.depth == 0) FontWeight.SemiBold else FontWeight.Normal,
             color = if (selected) OrangeStart else TextPrimary,
             modifier = Modifier.weight(1f)
@@ -320,16 +301,19 @@ internal fun PickerActionButton(
 ) {
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(18.dp))
+            // 圆角 / 热区走统一令牌（F6/F7）：与 AppDialog 的动作按钮同档。
+            .clip(MaterialTheme.shapes.medium)
             .background(if (highlight) OrangeStart.copy(alpha = 0.12f) else SurfaceWarm)
-            .clickable(onClick = onClick)
+            .minimumInteractiveComponentSize()
+            .clickable(role = Role.Button, onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 14.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(
             text = text,
             color = if (highlight) OrangeStart else TextSecondary,
-            fontSize = 14.sp,
+            // 字号走主题字阶（F6）：labelLarge 为 14sp。
+            style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.SemiBold
         )
     }

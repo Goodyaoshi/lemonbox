@@ -23,7 +23,6 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -36,6 +35,8 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -44,6 +45,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -55,7 +57,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.goodyaoshi.lemonbox.data.ocr.OcrModelState
@@ -111,6 +112,8 @@ fun OcrScreen(
     var showDownloadDialog by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
     var pendingTier by remember { mutableStateOf(OcrModelTier.DEFAULT) }
+    // 移动数据流量提醒只记一次的标记（SET1）：用户确认过就记住，不再反复弹流量提醒。
+    var meteredConfirmed by rememberSaveable { mutableStateOf(false) }
 
     // 模型面板默认收起（IA-9）：模型装好之后，它是「已完成的一次性配置」，
     // 常驻展开会把「选一张图片识别」这件正事挤到屏幕外。只有尚未就绪时
@@ -182,7 +185,8 @@ fun OcrScreen(
                 }
                 Text(
                     text = "文字识别",
-                    fontSize = 20.sp,
+                    // 字号走主题字阶（F6）：页面标题统一到 headlineMedium（22sp）。
+                    style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary
                 )
@@ -193,7 +197,7 @@ fun OcrScreen(
                 modeLabel?.let { label ->
                     Text(
                         text = label,
-                        fontSize = 12.sp,
+                        style = MaterialTheme.typography.bodySmall,
                         color = TextHint,
                         modifier = Modifier.padding(bottom = 10.dp)
                     )
@@ -237,7 +241,7 @@ fun OcrScreen(
                 if (state.isRecognizing) {
                     Spacer(modifier = Modifier.height(20.dp))
                     AppSurfaceCard(
-                        shape = RoundedCornerShape(22.dp),
+                        shape = MaterialTheme.shapes.extraLarge,
                         shadowElevation = 12.dp
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -249,9 +253,18 @@ fun OcrScreen(
                             Spacer(modifier = Modifier.width(12.dp))
                             Text(
                                 text = "正在识别文字…",
-                                fontSize = 14.sp,
+                                style = MaterialTheme.typography.titleSmall,
                                 color = TextSecondary
                             )
+                            Spacer(modifier = Modifier.weight(1f))
+                            // 识别中可取消（SET1）：识别可能较慢，给一个出口，避免用户被卡在原地。
+                            TextButton(onClick = viewModel::cancelRecognize) {
+                                Text(
+                                    text = "取消",
+                                    color = StatusExpired,
+                                    style = MaterialTheme.typography.titleSmall
+                                )
+                            }
                         }
                     }
                 }
@@ -267,7 +280,7 @@ fun OcrScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(max = 300.dp)
-                            .clip(RoundedCornerShape(22.dp))
+                            .clip(MaterialTheme.shapes.extraLarge)
                     )
                 }
 
@@ -276,7 +289,7 @@ fun OcrScreen(
                     SectionHeader(title = "识别到的文字")
                     Spacer(modifier = Modifier.height(10.dp))
                     AppSurfaceCard(
-                        shape = RoundedCornerShape(22.dp),
+                        shape = MaterialTheme.shapes.extraLarge,
                         shadowElevation = 12.dp
                     ) {
                         state.lines.forEachIndexed { index, line ->
@@ -291,7 +304,7 @@ fun OcrScreen(
                             }
                             Text(
                                 text = line.text,
-                                fontSize = 15.sp,
+                                style = MaterialTheme.typography.titleSmall,
                                 color = TextPrimary
                             )
                         }
@@ -343,6 +356,8 @@ fun OcrScreen(
             confirmText = "开始下载",
             onConfirm = {
                 showDownloadDialog = false
+                // 记住用户已接受移动数据下载（SET1）：确认一次后不再重复提示流量。
+                if (metered) meteredConfirmed = true
                 viewModel.selectTier(pendingTier)
                 viewModel.startDownload()
             }
@@ -351,19 +366,20 @@ fun OcrScreen(
                 text = "模型约 ${formatBytes(pendingTier.totalBytes)}，建议在 WiFi 下下载。" +
                     "识别一直在手机本地完成，图片不会上传。",
                 color = TextSecondary,
-                fontSize = 14.sp
+                style = MaterialTheme.typography.titleSmall
             )
-            if (metered) {
+            // 流量提醒仅在用户尚未确认过时出现（SET1）：确认一次后不再重复打扰。
+            if (metered && !meteredConfirmed) {
                 Text(
                     text = "当前是移动数据，下载会消耗流量，确定要继续吗？",
                     color = StatusWarning,
-                    fontSize = 13.sp
+                    style = MaterialTheme.typography.bodyMedium
                 )
             }
             Text(
                 text = "下载过程中可以随时取消。",
                 color = TextHint,
-                fontSize = 12.sp
+                style = MaterialTheme.typography.bodySmall
             )
         }
     }
@@ -382,7 +398,7 @@ fun OcrScreen(
             Text(
                 text = "删除后需要重新下载才能继续识别文字。",
                 color = TextSecondary,
-                fontSize = 14.sp
+                style = MaterialTheme.typography.titleSmall
             )
         }
     }
@@ -405,7 +421,7 @@ fun OcrScreen(
             Text(
                 text = "从相册选图需要图片权限；也可以直接「拍照」，那条路不需要授权。",
                 color = TextSecondary,
-                fontSize = 14.sp
+                style = MaterialTheme.typography.titleSmall
             )
         }
     }
@@ -435,14 +451,16 @@ private fun ModelStatusSection(
     onSelectTier: (OcrModelTier) -> Unit
 ) {
     AppSurfaceCard(
-        shape = RoundedCornerShape(24.dp),
+        shape = MaterialTheme.shapes.extraLarge,
         shadowElevation = if (expanded) 14.dp else 8.dp
     ) {
         // ---- 摘要行：始终可见，点击切换展开 ----
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(16.dp))
+                // 触达面积达标（F7）：摘要行不足 48dp 高，先撑出最小可点区再绘制。
+                .minimumInteractiveComponentSize()
+                .clip(MaterialTheme.shapes.medium)
                 .clickable(onClick = onToggleExpand)
                 .padding(vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -450,13 +468,13 @@ private fun ModelStatusSection(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = "识别模型 · ${selectedTier.displayName}",
-                    fontSize = 15.sp,
+                    style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
                     color = TextPrimary
                 )
                 Text(
                     text = modelStateSummary(modelState),
-                    fontSize = 12.sp,
+                    style = MaterialTheme.typography.bodySmall,
                     color = when (modelState) {
                         is OcrModelState.Failed -> StatusExpired
                         is OcrModelState.Installed -> TextHint
@@ -502,7 +520,7 @@ private fun ModelStatusSection(
             is OcrModelState.NotInstalled -> {
                 Text(
                     text = "「${selectedTier.displayName}」未安装，首次使用需下载，之后无网也能识别。",
-                    fontSize = 13.sp,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = TextSecondary
                 )
                 Spacer(modifier = Modifier.height(12.dp))
@@ -512,7 +530,7 @@ private fun ModelStatusSection(
             is OcrModelState.Downloading -> {
                 Text(
                     text = "正在下载「${selectedTier.displayName}」",
-                    fontSize = 13.sp,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = TextSecondary
                 )
                 Spacer(modifier = Modifier.height(10.dp))
@@ -521,28 +539,28 @@ private fun ModelStatusSection(
                     onClick = onCancelDownload,
                     modifier = Modifier.padding(top = 6.dp)
                 ) {
-                    Text(text = "取消下载", color = StatusExpired, fontSize = 14.sp)
+                    Text(text = "取消下载", color = StatusExpired, style = MaterialTheme.typography.titleSmall)
                 }
             }
 
             is OcrModelState.Installed -> {
                 Text(
                     text = "「${selectedTier.displayName}」已就绪，识别全程离线，图片不离开手机。",
-                    fontSize = 13.sp,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = TextSecondary
                 )
                 TextButton(
                     onClick = onDeleteClick,
                     modifier = Modifier.padding(top = 6.dp)
                 ) {
-                    Text(text = "删除模型", color = TextHint, fontSize = 14.sp)
+                    Text(text = "删除模型", color = TextHint, style = MaterialTheme.typography.titleSmall)
                 }
             }
 
             is OcrModelState.Failed -> {
                 Text(
                     text = modelState.message,
-                    fontSize = 13.sp,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = StatusExpired
                 )
                 Spacer(modifier = Modifier.height(12.dp))
@@ -568,14 +586,14 @@ private fun DownloadProgress(state: OcrModelState.Downloading) {
         modifier = Modifier
             .fillMaxWidth()
             .height(8.dp)
-            .clip(RoundedCornerShape(4.dp)),
+            .clip(MaterialTheme.shapes.small),
         color = OrangeStart,
         trackColor = SurfaceWarmDeep
     )
     Text(
         text = "${formatBytes(state.downloadedBytes)} / ${formatBytes(state.totalBytes)}" +
             "  (${(state.fraction * 100).toInt()}%)",
-        fontSize = 12.sp,
+        style = MaterialTheme.typography.bodySmall,
         color = TextHint,
         modifier = Modifier.padding(top = 8.dp)
     )
@@ -590,7 +608,7 @@ private fun TierOptionRow(
     enabled: Boolean,
     onClick: () -> Unit
 ) {
-    val shape = RoundedCornerShape(16.dp)
+    val shape = MaterialTheme.shapes.medium
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -619,7 +637,7 @@ private fun TierOptionRow(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = tier.displayName,
-                    fontSize = 15.sp,
+                    style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
                     color = if (enabled) TextPrimary else TextHint
                 )
@@ -627,7 +645,7 @@ private fun TierOptionRow(
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = "已安装",
-                        fontSize = 11.sp,
+                        style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.SemiBold,
                         color = OrangeStart
                     )
@@ -635,14 +653,14 @@ private fun TierOptionRow(
             }
             Text(
                 text = tier.summary,
-                fontSize = 12.sp,
+                style = MaterialTheme.typography.bodySmall,
                 color = TextHint,
                 modifier = Modifier.padding(top = 2.dp)
             )
         }
         Text(
             text = "约 ${formatBytes(tier.totalBytes)}",
-            fontSize = 12.sp,
+            style = MaterialTheme.typography.bodySmall,
             color = TextHint
         )
     }
@@ -659,7 +677,7 @@ private fun CaptureTile(
 ) {
     AppSurfaceCard(
         modifier = modifier,
-        shape = RoundedCornerShape(22.dp),
+        shape = MaterialTheme.shapes.extraLarge,
         contentPadding = PaddingValues(vertical = 18.dp),
         shadowElevation = 12.dp,
         enabled = enabled,
@@ -678,7 +696,7 @@ private fun CaptureTile(
             Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = label,
-                fontSize = 14.sp,
+                style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
                 color = if (enabled) TextPrimary else TextHint
             )
@@ -698,7 +716,7 @@ private fun ActionTile(
 ) {
     AppSurfaceCard(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(22.dp),
+        shape = MaterialTheme.shapes.extraLarge,
         contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
         shadowElevation = 12.dp,
         enabled = enabled,
@@ -723,13 +741,13 @@ private fun ActionTile(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = title,
-                    fontSize = 15.sp,
+                    style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
                     color = if (enabled) TextPrimary else TextHint
                 )
                 Text(
                     text = subtitle,
-                    fontSize = 12.sp,
+                    style = MaterialTheme.typography.bodySmall,
                     color = TextHint
                 )
             }

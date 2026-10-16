@@ -4,24 +4,19 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -29,17 +24,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import com.goodyaoshi.lemonbox.data.local.entity.Item
 import com.goodyaoshi.lemonbox.data.local.entity.ItemStatusCatalog
 import com.goodyaoshi.lemonbox.data.local.entity.ItemStatusOption
 import com.goodyaoshi.lemonbox.data.local.entity.StatusDimension
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
-import com.goodyaoshi.lemonbox.ui.theme.ScrimSoft
 import com.goodyaoshi.lemonbox.ui.theme.TagBlue
 import com.goodyaoshi.lemonbox.ui.theme.TagBlueText
 import com.goodyaoshi.lemonbox.ui.theme.TagGreen
@@ -133,77 +125,56 @@ fun StatusPickerDialog(
     val options = statusOptionsFor(dimension)
     val title = statusDimensionTitle(dimension)
 
-    Dialog(
-        onDismissRequest = onDismissRequest,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
-        BoxWithConstraints(
+    // 遮罩 + 卡片骨架统一走 AppModalPanel（P1）。
+    AppModalPanel(onDismissRequest = onDismissRequest) {
+        Text(
+            text = "修改$title",
+            // 字号走主题字阶（F6）：headlineMedium 为 22sp，与 AppDialog 标题同档。
+            style = MaterialTheme.typography.headlineMedium,
+            color = TextPrimary,
+            modifier = Modifier.semantics { heading() }
+        )
+        Text(
+            text = "选中后立即保存。想调整更多选项，去「我的 - 分类与状态」里自定义。",
+            // 字号走主题字阶（F6）：bodySmall 为 12sp（F7 下限）。
+            style = MaterialTheme.typography.bodySmall,
+            color = TextSecondary,
+            modifier = Modifier.padding(top = 6.dp)
+        )
+
+        LazyColumn(
             modifier = Modifier
-                .fillMaxSize()
-                .background(ScrimSoft),
-            contentAlignment = Alignment.Center
+                .fillMaxWidth()
+                .padding(top = 14.dp)
+                // weight 而非固定高度：列表占用「标题与按钮之外」的剩余空间，
+                // 字体放大挤压空间时是列表变矮（仍可滚），按钮始终留在可见位置。
+                .weight(1f, fill = false),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
-            // 卡片限高：否则「标题 + 列表 + 按钮」总高可能超过屏幕，
-            // 简易模式（系统字体放大）下底部按钮会被挤出可视区且无法滚到。
-            val maxCardHeight = maxHeight - 48.dp
-            AppSurfaceCard(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp)
-                    .widthIn(max = 420.dp)
-                    .heightIn(max = maxCardHeight),
-                shape = RoundedCornerShape(30.dp),
-                contentPadding = PaddingValues(22.dp),
-                shadowElevation = 26.dp
-            ) {
-                Text(
-                    text = "修改$title",
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextPrimary
-                )
-                Text(
-                    text = "选中后立即保存。想调整更多选项，去「我的 - 分类与状态」里自定义。",
-                    fontSize = 13.sp,
-                    color = TextSecondary,
-                    modifier = Modifier.padding(top = 6.dp)
-                )
-
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 14.dp)
-                        // weight 而非固定高度：列表占用「标题与按钮之外」的剩余空间，
-                        // 字体放大挤压空间时是列表变矮（仍可滚），按钮始终留在可见位置。
-                        .weight(1f, fill = false),
-                    verticalArrangement = Arrangement.spacedBy(2.dp)
-                ) {
-                    items(options, key = { it.code }) { option ->
-                        StatusOptionRow(
-                            dimension = dimension,
-                            option = option,
-                            selected = option.code == selectedCode,
-                            onClick = {
-                                onSelect(option.code)
-                                onDismissRequest()
-                            }
-                        )
+            items(options, key = { it.code }) { option ->
+                StatusOptionRow(
+                    dimension = dimension,
+                    option = option,
+                    selected = option.code == selectedCode,
+                    onClick = {
+                        onSelect(option.code)
+                        onDismissRequest()
                     }
-                }
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 22.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    PickerActionButton(
-                        text = "取消",
-                        modifier = Modifier.weight(1f),
-                        onClick = onDismissRequest
-                    )
-                }
+                )
             }
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 22.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            PickerActionButton(
+                text = "取消",
+                modifier = Modifier.weight(1f),
+                onClick = onDismissRequest
+            )
         }
     }
 }
@@ -219,8 +190,10 @@ private fun StatusOptionRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
+            // 圆角 / 热区走统一令牌（F6/F7）。
+            .clip(MaterialTheme.shapes.medium)
             .background(if (selected) OrangeStart.copy(alpha = 0.1f) else Color.Transparent)
+            .minimumInteractiveComponentSize()
             .clickable(onClick = onClick)
             .padding(horizontal = 8.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically

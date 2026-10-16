@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Alarm
@@ -27,6 +26,7 @@ import androidx.compose.material.icons.filled.NightsStay
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -46,7 +46,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
@@ -100,7 +99,8 @@ fun ProfileScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp, vertical = 12.dp)
-                    .clip(RoundedCornerShape(28.dp))
+                    // 圆角走形状令牌（F6）：卡片统一收敛到 extraLarge（24dp）。
+                    .clip(MaterialTheme.shapes.extraLarge)
                     .background(
                         Brush.linearGradient(
                             colors = listOf(LemonStart, LemonEnd)
@@ -137,7 +137,8 @@ fun ProfileScreen(
                             Text(
                                 text = nickname.take(1),
                                 color = OnLemon,
-                                fontSize = 21.sp,
+                                // 字号走主题字阶（F6）：头像首字与昵称同为 headlineMedium。
+                                style = MaterialTheme.typography.headlineMedium,
                                 fontWeight = FontWeight.Bold
                             )
                         }
@@ -145,13 +146,13 @@ fun ProfileScreen(
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = nickname,
-                                fontSize = 22.sp,
+                                style = MaterialTheme.typography.headlineMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = OnLemon
                             )
                             Text(
                                 text = "你的小日子，交给我照顾",
-                                fontSize = 12.sp,
+                                style = MaterialTheme.typography.bodySmall,
                                 color = OnLemonSoft
                             )
                         }
@@ -171,7 +172,7 @@ fun ProfileScreen(
             )
             AppSurfaceCard(
                 modifier = Modifier.padding(horizontal = 20.dp),
-                shape = RoundedCornerShape(24.dp),
+                shape = MaterialTheme.shapes.extraLarge,
                 shadowElevation = 12.dp
             ) {
                 MenuRow(
@@ -197,7 +198,7 @@ fun ProfileScreen(
             )
             AppSurfaceCard(
                 modifier = Modifier.padding(horizontal = 20.dp),
-                shape = RoundedCornerShape(24.dp),
+                shape = MaterialTheme.shapes.extraLarge,
                 shadowElevation = 12.dp
             ) {
                 // IA-6：文字识别是「存物 / 记账」流程里的前置能力，入口已在 Save 与记一笔页，
@@ -230,7 +231,7 @@ fun ProfileScreen(
             )
             AppSurfaceCard(
                 modifier = Modifier.padding(horizontal = 20.dp),
-                shape = RoundedCornerShape(24.dp),
+                shape = MaterialTheme.shapes.extraLarge,
                 shadowElevation = 12.dp
             ) {
                 MenuRow(
@@ -250,7 +251,7 @@ fun ProfileScreen(
 
             Text(
                 text = "${BrandCopy.APP_NAME} · 为你而做",
-                fontSize = 12.sp,
+                style = MaterialTheme.typography.bodySmall,
                 color = TextSecondary,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -274,7 +275,7 @@ fun ProfileScreen(
             Text(
                 text = "这个称呼会用在首页问候、通知和这里。想叫什么就改什么。",
                 color = TextSecondary,
-                fontSize = 13.sp
+                style = MaterialTheme.typography.bodyMedium
             )
             OutlinedTextField(
                 value = nicknameInput,
@@ -299,13 +300,15 @@ private fun SectionTitle(
         Box(
             modifier = Modifier
                 .size(width = 4.dp, height = 14.dp)
-                .clip(RoundedCornerShape(2.dp))
+                // 装饰色条本就两端全圆，走 CircleShape（F6）：不再内联 RoundedCornerShape(2.dp)。
+                .clip(CircleShape)
                 .background(LemonEnd)
         )
         Spacer(modifier = Modifier.size(6.dp))
         Text(
             text = title,
-            fontSize = 13.sp,
+            // 字号走主题字阶（F6）：区块标题收敛到 titleSmall。
+            style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.Bold,
             color = TextSecondary
         )
@@ -323,7 +326,8 @@ private fun MenuRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
+            // 圆角走形状令牌（F6）：行选中高亮收敛到 medium（16dp）。
+            .clip(MaterialTheme.shapes.medium)
             .clickable(onClick = onClick)
             .padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -346,13 +350,14 @@ private fun MenuRow(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = title,
-                fontSize = 15.sp,
+                // 字号走主题字阶（F6）：行标题收敛到 titleMedium。
+                style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = TextPrimary
             )
             Text(
                 text = subtitle,
-                fontSize = 12.sp,
+                style = MaterialTheme.typography.bodySmall,
                 color = TextHint
             )
         }

@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
@@ -23,6 +22,7 @@ import androidx.compose.material.icons.filled.DocumentScanner
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableFloatStateOf
@@ -34,17 +34,19 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import coil.compose.AsyncImage
+import com.goodyaoshi.lemonbox.ui.theme.OnScrim
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.ScrimFaint
 import com.goodyaoshi.lemonbox.ui.theme.ScrimMedium
@@ -120,7 +122,8 @@ fun ItemImageGallery(
         Text(
             text = "长按图片拖动就能调整顺序，第一张默认为你的主图",
             color = TextHint,
-            fontSize = 12.sp
+            // 字号走主题字阶（F6）：bodySmall 为 12sp。
+            style = MaterialTheme.typography.bodySmall
         )
         LazyRow(
             modifier = Modifier.padding(top = 10.dp),
@@ -169,6 +172,15 @@ fun ItemImageGallery(
                         dragStartIndex = -1
                         dragTargetIndex = -1
                         dragOffsetX = 0f
+                    },
+                    // 读屏可达（F8）：把拖拽排序的等价动作接回同一套换位逻辑。
+                    canMoveLeft = sourceIndex > 0,
+                    canMoveRight = sourceIndex < imageHashes.lastIndex,
+                    onReorder = { delta ->
+                        val to = (sourceIndex + delta).coerceIn(0, imageHashes.lastIndex)
+                        if (to != sourceIndex) {
+                            onMoveImage(sourceIndex, to)
+                        }
                     },
                     isDragging = isDragging,
                     dragOffsetX = dragVisualOffset,
@@ -225,12 +237,37 @@ private fun DraggableImageCard(
     onDragCancel: () -> Unit,
     isDragging: Boolean,
     dragOffsetX: Float,
+    /** 读屏可达（F8）：长按拖拽对读屏用户不可用，这里补「前移 / 后移一位」等价动作。 */
+    canMoveLeft: Boolean,
+    canMoveRight: Boolean,
+    onReorder: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Box(
         modifier = modifier
             .size(width = 120.dp, height = 120.dp)
             .zIndex(if (isDragging) 1f else 0f)
+            // 读屏可达（F8）：把拖拽排序暴露为语义动作，读屏用户也能调序。
+            .semantics {
+                customActions = listOfNotNull(
+                    if (canMoveLeft) {
+                        CustomAccessibilityAction("前移一位") {
+                            onReorder(-1)
+                            true
+                        }
+                    } else {
+                        null
+                    },
+                    if (canMoveRight) {
+                        CustomAccessibilityAction("后移一位") {
+                            onReorder(1)
+                            true
+                        }
+                    } else {
+                        null
+                    }
+                )
+            }
             .graphicsLayer {
                 translationX = dragOffsetX
                 scaleX = if (isDragging) 1.03f else 1f
@@ -280,7 +317,7 @@ private fun ImagePreviewCard(
     Box(
         modifier = modifier
             .height(120.dp)
-            .clip(RoundedCornerShape(24.dp))
+            .clip(MaterialTheme.shapes.extraLarge)
     ) {
         AsyncImage(
             model = model,
@@ -293,35 +330,44 @@ private fun ImagePreviewCard(
                 .matchParentSize()
                 .background(ScrimFaint)
         )
+        // 触达面积达标（F7）：删图热区此前就是视觉上的 26dp，手指点不中易误删；
+        // 现在热区撑到 48dp，视觉圆点仍为 26dp，位置与观感基本不变。
         Box(
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .padding(8.dp)
-                .size(26.dp)
-                .clip(CircleShape)
-                .background(ScrimMedium)
+                .size(48.dp)
                 .clickable(onClick = onRemove),
             contentAlignment = Alignment.Center
         ) {
-            Icon(
-                imageVector = Icons.Default.Close,
-                contentDescription = "删除图片",
-                tint = Color.White,
-                modifier = Modifier.size(14.dp)
-            )
+            Box(
+                modifier = Modifier
+                    .size(26.dp)
+                    .clip(CircleShape)
+                    .background(ScrimMedium),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "删除图片",
+                    // 内容色走语义令牌（F6）：遮罩恒为深色，此处恒用浅色令牌。
+                    tint = OnScrim,
+                    modifier = Modifier.size(14.dp)
+                )
+            }
         }
         Box(
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .padding(10.dp)
-                .clip(RoundedCornerShape(999.dp))
-                .background(Color.White.copy(alpha = 0.18f))
+                .clip(CircleShape)
+                .background(OnScrim.copy(alpha = 0.18f))
                 .padding(horizontal = 10.dp, vertical = 6.dp)
         ) {
             Text(
                 text = title,
-                color = Color.White,
-                fontSize = 12.sp,
+                color = OnScrim,
+                // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                style = MaterialTheme.typography.bodySmall,
                 fontWeight = FontWeight.Medium
             )
         }
@@ -382,7 +428,7 @@ private fun ActionImageSlot(
     Box(
         modifier = modifier
             .height(164.dp)
-            .clip(RoundedCornerShape(24.dp))
+            .clip(MaterialTheme.shapes.extraLarge)
             .background(OrangeTint)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
@@ -404,14 +450,16 @@ private fun ActionImageSlot(
             }
             Text(
                 text = title,
-                fontSize = 14.sp,
+                // 字号走主题字阶（F6）：titleSmall 为 14sp。
+                style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold,
                 color = TextPrimary,
                 modifier = Modifier.padding(top = 10.dp)
             )
             Text(
                 text = subtitle,
-                fontSize = 12.sp,
+                // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                style = MaterialTheme.typography.bodySmall,
                 color = TextHint,
                 modifier = Modifier.padding(top = 4.dp)
             )
