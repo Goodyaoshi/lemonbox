@@ -27,9 +27,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.BookmarkAdd
 import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -446,6 +448,22 @@ fun RecordEditScreen(
                 Spacer(modifier = Modifier.height(12.dp))
             }
         }
+    }
+
+    if (state.conflict) {
+        AlertDialog(
+            onDismissRequest = viewModel::dismissConflict,
+            title = { Text("这笔账单在别处被修改过") },
+            text = {
+                Text("另一台设备（或本机其它操作）在你编辑期间改动了它。继续保存会用你当前的内容覆盖对方；也可以放弃你的改动、载入最新版本。")
+            },
+            confirmButton = {
+                TextButton(onClick = viewModel::confirmOverwrite) { Text("仍然覆盖") }
+            },
+            dismissButton = {
+                TextButton(onClick = viewModel::discardConflictAndReload) { Text("载入最新") }
+            }
+        )
     }
 
     if (showDatePicker) {

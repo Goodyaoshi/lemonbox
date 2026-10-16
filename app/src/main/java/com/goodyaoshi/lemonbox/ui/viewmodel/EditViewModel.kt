@@ -60,7 +60,11 @@ data class EditItemState(
     val syncId: String? = null,
     val isSaving: Boolean = false,
     val isSaved: Boolean = false,
-    val isLoaded: Boolean = false
+    val isLoaded: Boolean = false,
+    /** 载入编辑页时记录的 updatedAt，保存前据此做乐观并发检测。 */
+    val loadedUpdatedAt: Long? = null,
+    /** 保存时检测到这条已被别处改动（updatedAt 变了），界面据此弹「覆盖 / 载入最新」。 */
+    val conflict: Boolean = false
 )
 
 @HiltViewModel
@@ -120,6 +124,7 @@ class EditViewModel @Inject constructor(
                 disposition = item.disposition,
                 needRestock = item.needRestock,
                 syncId = item.syncId,
+                loadedUpdatedAt = item.updatedAt,
                 isLoaded = true
             )
         }
@@ -233,7 +238,24 @@ class EditViewModel @Inject constructor(
         _state.value = _state.value.copy(note = note)
     }
 
-    fun save() {
+    fun save() = performSave(force = false)
+
+    /** 用户在冲突提示里选择「仍然覆盖」：忽略 updatedAt 变化，按当前编辑内容保存。 */
+    fun confirmOverwrite() = performSave(force = true)
+
+    /** 关闭冲突提示，留在编辑页。 */
+    fun dismissConflict() {
+        _state.value = _state.value.copy(conflict = false)
+    }
+
+    /** 用户在冲突提示里选择「放弃并载入最新」：丢弃当前编辑，重新载入库里的最新记录。 */
+    fun discardConflictAndReload() {
+        val id = _state.value.itemId
+        _state.value = EditItemState()
+        loadItem(id)
+    }
+
+    private fun performSave(force: Boolean) {
         val current = _state.value
         // 校验前先 trim：全是空格的名字不算「填了」，也不会被当成长度有效存进库。
         val trimmedName = current.name.trim()
@@ -242,6 +264,11 @@ class EditViewModel @Inject constructor(
         _state.value = current.copy(isSaving = true)
         viewModelScope.launch {
             val original = itemRepository.getItemById(current.itemId)
+            // 乐观并发：载入后这条被别处改过 → 不静默覆盖，交给用户裁决。
+            if (!force && isStaleEdit(current.loadedUpdatedAt, original?.updatedAt)) {
+                _state.value = _state.value.copy(isSaving = false, conflict = true)
+                return@launch
+            }
             // 去重时同一张图（同一哈希）只留一次，顺序保持不变。
             val normalizedHashes = current.imageHashes.distinct()
             val item = Item(

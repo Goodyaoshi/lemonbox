@@ -52,7 +52,11 @@ data class RecordEditState(
     /** 保存成功标记，供界面做收尾（连续录入则清空留在本页）。 */
     val isSaved: Boolean = false,
     /** 编辑保存后的字段级变更摘要（GAP-5）：改前 → 改后，供保存回执逐行展示。 */
-    val savedDiff: List<FieldDiff> = emptyList()
+    val savedDiff: List<FieldDiff> = emptyList(),
+    /** 载入编辑页时记录的 updatedAt；保存前据此做乐观并发检测（仅编辑已有账单时非空）。 */
+    val loadedUpdatedAt: Long? = null,
+    /** 保存时检测到这条已被别处改动，界面据此弹「覆盖 / 载入最新」。 */
+    val conflict: Boolean = false
 ) {
     val amountCents: Long?
         get() = LedgerMath.parseCentsInput(amountText)
@@ -138,6 +142,7 @@ class RecordEditViewModel @Inject constructor(
             linkedItemId = record.itemId,
             linkedItemName = record.itemId?.let { itemDao.getItemById(it)?.name },
             recordId = record.id,
+            loadedUpdatedAt = record.updatedAt,
             initialized = true
         )
     }
@@ -246,7 +251,23 @@ class RecordEditViewModel @Inject constructor(
     }
 
     /** 保存账单；成功后置 [RecordEditState.isSaved]，由界面决定返回或连续录入。 */
-    fun save() {
+    fun save() = performSave(force = false)
+
+    /** 冲突提示里选择「仍然覆盖」：忽略 updatedAt 变化，按当前编辑内容保存。 */
+    fun confirmOverwrite() = performSave(force = true)
+
+    /** 关闭冲突提示，留在编辑页。 */
+    fun dismissConflict() {
+        _state.value = _state.value.copy(conflict = false)
+    }
+
+    /** 冲突提示里选择「放弃并载入最新」：丢弃当前编辑，重新载入最新账单。 */
+    fun discardConflictAndReload() {
+        val id = _state.value.recordId
+        if (id > 0) viewModelScope.launch { loadRecord(id) }
+    }
+
+    private fun performSave(force: Boolean) {
         val current = _state.value
         val cents = current.amountCents ?: return
         if (!current.canSave) return
@@ -281,6 +302,11 @@ class RecordEditViewModel @Inject constructor(
             } else {
                 // 编辑：保留原 createdAt，避免抹掉；并算出字段级变更摘要供保存回执（GAP-5）。
                 val origin = ledgerRepository.getRecord(current.recordId)
+                // 乐观并发：载入后这条被别处（同步合并 / 本机其它入口）改过 → 不静默覆盖。
+                if (!force && isStaleEdit(current.loadedUpdatedAt, origin?.updatedAt)) {
+                    _state.value = _state.value.copy(conflict = true)
+                    return@launch
+                }
                 ledgerRepository.saveRecord(record.copy(createdAt = origin?.createdAt ?: record.recordTime))
                 _state.value = _state.value.copy(
                     isSaved = true,
