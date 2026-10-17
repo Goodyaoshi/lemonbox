@@ -32,7 +32,8 @@ class PackingRepository @Inject constructor(
             id = 0,
             syncId = trip.syncId ?: UUID.randomUUID().toString(),
             createdAt = trip.createdAt.takeIf { it > 0 } ?: MonotonicClock.now(),
-            updatedAt = MonotonicClock.now()
+            updatedAt = MonotonicClock.now(),
+            dirty = true
         )
     )
 
@@ -55,14 +56,15 @@ class PackingRepository @Inject constructor(
             id = 0,
             syncId = item.syncId ?: UUID.randomUUID().toString(),
             createdAt = item.createdAt.takeIf { it > 0 } ?: MonotonicClock.now(),
-            updatedAt = MonotonicClock.now()
+            updatedAt = MonotonicClock.now(),
+            dirty = true
         )
     )
 
     /** 勾选 / 取消勾选。 */
     suspend fun setChecked(item: PackingItem, checked: Boolean) {
         if (item.checked == checked) return
-        itemDao.update(item.copy(checked = checked, updatedAt = MonotonicClock.now()))
+        itemDao.update(item.copy(checked = checked, updatedAt = MonotonicClock.now(), dirty = true))
     }
 
     suspend fun deleteItem(item: PackingItem) {
@@ -72,7 +74,7 @@ class PackingRepository @Inject constructor(
 
     /** 撤销删除（GAP-13）：清掉墓碑让条目复活，与待买/家当的删除撤销同范式。 */
     suspend fun restoreItem(item: PackingItem) {
-        itemDao.update(item.copy(deletedAt = null, updatedAt = MonotonicClock.now()))
+        itemDao.update(item.copy(deletedAt = null, updatedAt = MonotonicClock.now(), dirty = true))
     }
 
     suspend fun purgeDeletedOlderThan(cutoff: Long) {
@@ -86,11 +88,11 @@ class PackingRepository @Inject constructor(
 
     suspend fun getAllItemsSnapshot(): List<PackingItem> = itemDao.getAllSnapshot()
 
-    suspend fun insertSyncedTrip(trip: PackingTrip): Long = tripDao.insert(trip)
+    suspend fun insertSyncedTrip(trip: PackingTrip): Long = tripDao.insert(trip.copy(dirty = false))
 
-    suspend fun updateSyncedTrip(trip: PackingTrip) = tripDao.update(trip)
+    suspend fun updateSyncedTrip(trip: PackingTrip) = tripDao.update(trip.copy(dirty = false))
 
-    suspend fun insertSyncedItem(item: PackingItem): Long = itemDao.insert(item)
+    suspend fun insertSyncedItem(item: PackingItem): Long = itemDao.insert(item.copy(dirty = false))
 
-    suspend fun updateSyncedItem(item: PackingItem) = itemDao.update(item)
+    suspend fun updateSyncedItem(item: PackingItem) = itemDao.update(item.copy(dirty = false))
 }

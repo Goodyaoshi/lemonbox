@@ -9,6 +9,10 @@ import androidx.room.Update
 import com.goodyaoshi.lemonbox.data.local.entity.Category
 import kotlinx.coroutines.flow.Flow
 
+/**
+ * 写操作一律带 `dirty = 1`（P6）：本机改动要被增量同步捞出来，漏标就会静默不上传。
+ * [reassignItemsToCategory] 改的是 `items` 表，一并给那张表标脏——脏标记跟着被改的表走。
+ */
 @Dao
 interface CategoryDao {
 
@@ -44,14 +48,14 @@ interface CategoryDao {
     suspend fun deleteAll()
 
     /** 把重复分类的下级分类改挂到保留项，供去重清理使用。 */
-    @Query("UPDATE categories SET parentId = :toId WHERE parentId = :fromId AND id != :toId")
+    @Query("UPDATE categories SET parentId = :toId, dirty = 1 WHERE parentId = :fromId AND id != :toId")
     suspend fun reassignChildren(fromId: Long, toId: Long)
 
     /** 把挂在重复分类上的物品改挂到保留项，供去重清理使用。 */
-    @Query("UPDATE items SET categoryId = :toId WHERE categoryId = :fromId")
+    @Query("UPDATE items SET categoryId = :toId, dirty = 1 WHERE categoryId = :fromId")
     suspend fun reassignItemsToCategory(fromId: Long, toId: Long)
 
     /** 软删除（写墓碑），去重清理用；保留记录以便把删除同步给其他设备。 */
-    @Query("UPDATE categories SET deletedAt = :deletedAt, updatedAt = :deletedAt WHERE id = :id")
+    @Query("UPDATE categories SET deletedAt = :deletedAt, updatedAt = :deletedAt, dirty = 1 WHERE id = :id")
     suspend fun softDelete(id: Long, deletedAt: Long)
 }

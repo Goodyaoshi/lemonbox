@@ -58,7 +58,8 @@ class ReminderRepository @Inject constructor(
             reminder.copy(
                 nextFireAt = first,
                 syncId = reminder.syncId ?: UUID.randomUUID().toString(),
-                updatedAt = System.currentTimeMillis()
+                updatedAt = System.currentTimeMillis(),
+                dirty = true
             )
         )
         scheduler.reschedule()
@@ -75,7 +76,8 @@ class ReminderRepository @Inject constructor(
             reminder.copy(
                 nextFireAt = first,
                 notifiedAt = 0,
-                updatedAt = System.currentTimeMillis()
+                updatedAt = System.currentTimeMillis(),
+                dirty = true
             )
         )
         scheduler.reschedule()
@@ -92,7 +94,8 @@ class ReminderRepository @Inject constructor(
             reminder.copy(
                 nextFireAt = next,
                 notifiedAt = 0,
-                updatedAt = System.currentTimeMillis()
+                updatedAt = System.currentTimeMillis(),
+                dirty = true
             )
         )
         scheduler.reschedule()
@@ -105,7 +108,8 @@ class ReminderRepository @Inject constructor(
             reminderDao.update(
                 reminder.copy(
                     enabled = false,
-                    updatedAt = System.currentTimeMillis()
+                    updatedAt = System.currentTimeMillis(),
+                    dirty = true
                 )
             )
             scheduler.reschedule()
@@ -123,7 +127,8 @@ class ReminderRepository @Inject constructor(
                 enabled = true,
                 nextFireAt = next,
                 notifiedAt = 0,
-                updatedAt = System.currentTimeMillis()
+                updatedAt = System.currentTimeMillis(),
+                dirty = true
             )
         )
         scheduler.reschedule()
@@ -137,7 +142,8 @@ class ReminderRepository @Inject constructor(
                 reminder.copy(
                     enabled = false,
                     completedAt = System.currentTimeMillis(),
-                    updatedAt = System.currentTimeMillis()
+                    updatedAt = System.currentTimeMillis(),
+                    dirty = true
                 )
             )
         } else {
@@ -147,7 +153,8 @@ class ReminderRepository @Inject constructor(
                 reminder.copy(
                     nextFireAt = next,
                     notifiedAt = 0,
-                    updatedAt = System.currentTimeMillis()
+                    updatedAt = System.currentTimeMillis(),
+                    dirty = true
                 )
             )
         }
@@ -159,7 +166,9 @@ class ReminderRepository @Inject constructor(
      * 快照必须来自完成前的实体（首页「今天的事」勾掉时先捕获再落库）。
      */
     suspend fun restoreCompleted(reminder: Reminder) {
-        reminderDao.update(reminder.copy(updatedAt = System.currentTimeMillis()))
+        reminderDao.update(
+            reminder.copy(updatedAt = System.currentTimeMillis(), dirty = true)
+        )
         scheduler.reschedule()
     }
 
@@ -177,7 +186,7 @@ class ReminderRepository @Inject constructor(
     /** 撤销删除（R1）：清掉墓碑标记让提醒复活，并按原计划重排调度。 */
     suspend fun restore(reminder: Reminder) {
         reminderDao.update(
-            reminder.copy(deletedAt = null, updatedAt = System.currentTimeMillis())
+            reminder.copy(deletedAt = null, updatedAt = System.currentTimeMillis(), dirty = true)
         )
         scheduler.reschedule()
     }
@@ -187,11 +196,11 @@ class ReminderRepository @Inject constructor(
     suspend fun getAllSnapshot(): List<Reminder> = reminderDao.getAllSnapshot()
 
     suspend fun insertSynced(reminder: Reminder) {
-        reminderDao.insert(reminder)
+        reminderDao.insert(reminder.copy(dirty = false))
     }
 
     suspend fun updateSynced(reminder: Reminder) {
-        reminderDao.update(reminder)
+        reminderDao.update(reminder.copy(dirty = false))
     }
 
     /** 收到对方的永久删除墓碑：本地那份同样标成永久删除，以便继续向第三方传播。 */

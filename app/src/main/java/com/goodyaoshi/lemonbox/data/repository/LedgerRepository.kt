@@ -64,11 +64,12 @@ class LedgerRepository @Inject constructor(
         recordDao.insert(
             record.copy(
                 syncId = record.syncId ?: UUID.randomUUID().toString(),
-                updatedAt = MonotonicClock.now()
+                updatedAt = MonotonicClock.now(),
+                dirty = true
             )
         )
     } else {
-        recordDao.update(record.copy(updatedAt = MonotonicClock.now()))
+        recordDao.update(record.copy(updatedAt = MonotonicClock.now(), dirty = true))
         record.id
     }
 
@@ -108,13 +109,14 @@ class LedgerRepository @Inject constructor(
             return categoryDao.insert(
                 category.copy(
                     syncId = category.syncId ?: UUID.randomUUID().toString(),
-                    updatedAt = MonotonicClock.now()
+                    updatedAt = MonotonicClock.now(),
+                    dirty = true
                 )
             )
         }
         val origin = categoryDao.getById(category.id)
         if (origin?.isProtected == true) return category.id
-        categoryDao.update(category.copy(updatedAt = MonotonicClock.now()))
+        categoryDao.update(category.copy(updatedAt = MonotonicClock.now(), dirty = true))
         return category.id
     }
 
@@ -154,11 +156,12 @@ class LedgerRepository @Inject constructor(
             assetDao.insert(
                 target.copy(
                     syncId = target.syncId ?: UUID.randomUUID().toString(),
-                    updatedAt = MonotonicClock.now()
+                    updatedAt = MonotonicClock.now(),
+                    dirty = true
                 )
             )
         } else {
-            assetDao.update(target.copy(updatedAt = MonotonicClock.now()))
+            assetDao.update(target.copy(updatedAt = MonotonicClock.now(), dirty = true))
         }
         return AssetSaveResult.SAVED
     }
@@ -195,7 +198,8 @@ class LedgerRepository @Inject constructor(
                     categoryId = categoryId,
                     amount = amountCents,
                     syncId = UUID.randomUUID().toString(),
-                    updatedAt = MonotonicClock.now()
+                    updatedAt = MonotonicClock.now(),
+                    dirty = true
                 )
             )
         } else {
@@ -203,7 +207,8 @@ class LedgerRepository @Inject constructor(
                 existing.copy(
                     amount = amountCents,
                     deletedAt = null,
-                    updatedAt = MonotonicClock.now()
+                    updatedAt = MonotonicClock.now(),
+                    dirty = true
                 )
             )
         }
@@ -280,7 +285,9 @@ class LedgerRepository @Inject constructor(
             // 同样走软删（写墓碑）而非物理删：让这次「丢弃重复预算」也能同步出去。
             budgetDao.softDelete(dupBudget.id, now)
         } else {
-            budgetDao.update(dupBudget.copy(categoryId = toCategoryId, updatedAt = now))
+            budgetDao.update(
+                dupBudget.copy(categoryId = toCategoryId, updatedAt = now, dirty = true)
+            )
         }
     }
 
@@ -294,20 +301,28 @@ class LedgerRepository @Inject constructor(
 
     suspend fun getAllBudgetsSnapshot(): List<LedgerBudget> = budgetDao.getAllSnapshot()
 
-    /** 同步专用：原样插入（保留 syncId/updatedAt/墓碑），不刷新时间戳。 */
-    suspend fun insertSyncedRecord(record: LedgerRecord): Long = recordDao.insert(record)
+    /** 同步专用：原样插入（保留 syncId/updatedAt/墓碑），不刷新时间戳，落地即标 `dirty = false`（P6）。 */
+    suspend fun insertSyncedRecord(record: LedgerRecord): Long =
+        recordDao.insert(record.copy(dirty = false))
 
-    suspend fun updateSyncedRecord(record: LedgerRecord) = recordDao.update(record)
+    suspend fun updateSyncedRecord(record: LedgerRecord) =
+        recordDao.update(record.copy(dirty = false))
 
-    suspend fun insertSyncedCategory(category: LedgerCategory): Long = categoryDao.insert(category)
+    suspend fun insertSyncedCategory(category: LedgerCategory): Long =
+        categoryDao.insert(category.copy(dirty = false))
 
-    suspend fun updateSyncedCategory(category: LedgerCategory) = categoryDao.update(category)
+    suspend fun updateSyncedCategory(category: LedgerCategory) =
+        categoryDao.update(category.copy(dirty = false))
 
-    suspend fun insertSyncedAsset(asset: LedgerAsset): Long = assetDao.insert(asset)
+    suspend fun insertSyncedAsset(asset: LedgerAsset): Long =
+        assetDao.insert(asset.copy(dirty = false))
 
-    suspend fun updateSyncedAsset(asset: LedgerAsset) = assetDao.update(asset)
+    suspend fun updateSyncedAsset(asset: LedgerAsset) =
+        assetDao.update(asset.copy(dirty = false))
 
-    suspend fun insertSyncedBudget(budget: LedgerBudget): Long = budgetDao.insert(budget)
+    suspend fun insertSyncedBudget(budget: LedgerBudget): Long =
+        budgetDao.insert(budget.copy(dirty = false))
 
-    suspend fun updateSyncedBudget(budget: LedgerBudget) = budgetDao.update(budget)
+    suspend fun updateSyncedBudget(budget: LedgerBudget) =
+        budgetDao.update(budget.copy(dirty = false))
 }

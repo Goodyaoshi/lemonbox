@@ -2,6 +2,7 @@ package com.goodyaoshi.lemonbox.data.local.database
 
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.goodyaoshi.lemonbox.data.backup.SyncTables
 
 /**
  * 集中承载全部数据库迁移（F9）。
@@ -923,6 +924,36 @@ internal object Migrations {
         }
     }
 
+    /**
+     * v37（P6）：给 14 张同步表各加「本机脏标记」dirty 与「服务端序号」serverSeq 两列，
+     * 并新建 `sync_state` 键值表（拉取水位与「同步过一次」标记）。
+     *
+     * dirty 回填成 1（待推）而不是 0：升级前本机已有的数据服务端都还没有，
+     * 整体标脏正好让首次同步把家底推上去，无需再发一条 UPDATE 回填。极性也按
+     * 「漏一处置 1 = 多推一次（服务端幂等、无害）；漏一处置 0 = 改动静默不上传（真丢数据）」
+     * 权衡，故默认取 1。serverSeq 回填 0 = 服务端还没这条，推送时以此作 baseSeq 基准。
+     *
+     * 逐表加列走 [SyncTables.TABLES]，与实体清单、待推派发共用一个来源，
+     * 避免「新增同步表却漏了这条迁移」。
+     */
+    private val MIGRATION_36_37 = object : Migration(36, 37) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            SyncTables.TABLES.forEach { table ->
+                db.execSQL("ALTER TABLE `$table` ADD COLUMN `dirty` INTEGER NOT NULL DEFAULT 1")
+                db.execSQL("ALTER TABLE `$table` ADD COLUMN `serverSeq` INTEGER NOT NULL DEFAULT 0")
+            }
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `sync_state` (
+                    `key` TEXT NOT NULL,
+                    `value` INTEGER NOT NULL,
+                    PRIMARY KEY(`key`)
+                )
+                """.trimIndent()
+            )
+        }
+    }
+
 /**
  * 把 v34 的「本地路径行 + 对象键行」合并成 v35 的单列哈希（F22）。
  *
@@ -1009,6 +1040,7 @@ private const val SHA256_HEX_LENGTH = 64
         MIGRATION_32_33,
         MIGRATION_33_34,
         MIGRATION_34_35,
-        MIGRATION_35_36
+        MIGRATION_35_36,
+        MIGRATION_36_37
     )
 }

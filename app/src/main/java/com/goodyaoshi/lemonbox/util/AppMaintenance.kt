@@ -46,6 +46,8 @@ class AppMaintenance @Inject constructor(
 
     suspend fun run() {
         val cutoff = System.currentTimeMillis() - TOMBSTONE_TTL_MS
+        // 各表清理的 SQL 末尾都拼了「服务端已确认」前提（见 TOMBSTONE_CONFIRMED_SQL）：
+        // 没推上去 / 没拉回来过的墓碑会继续留着，等下次同步确认后再清，避免删除动作丢失。
         // 物理清除的墓碑：本地残留副本与云端对象一并收拾（云端可能已无本地副本，是唯一来源）。
         cloudPurger.purgeImagesOf(itemRepository.purgeDeletedItemsOlderThan(cutoff))
         // 纪念日与待办提醒的软删墓碑：30 天后物理清除，删除动作仍会先同步到对方。

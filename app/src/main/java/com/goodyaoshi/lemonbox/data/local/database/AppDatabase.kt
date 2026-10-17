@@ -18,6 +18,7 @@ import com.goodyaoshi.lemonbox.data.local.dao.LocationDao
 import com.goodyaoshi.lemonbox.data.local.dao.PackingItemDao
 import com.goodyaoshi.lemonbox.data.local.dao.PackingTripDao
 import com.goodyaoshi.lemonbox.data.local.dao.ReminderDao
+import com.goodyaoshi.lemonbox.data.local.dao.RemoteSyncDao
 import com.goodyaoshi.lemonbox.data.local.dao.TimeCapsuleDao
 import com.goodyaoshi.lemonbox.data.local.entity.Anniversary
 import com.goodyaoshi.lemonbox.data.local.entity.Category
@@ -32,6 +33,7 @@ import com.goodyaoshi.lemonbox.data.local.entity.Location
 import com.goodyaoshi.lemonbox.data.local.entity.PackingItem
 import com.goodyaoshi.lemonbox.data.local.entity.PackingTrip
 import com.goodyaoshi.lemonbox.data.local.entity.Reminder
+import com.goodyaoshi.lemonbox.data.local.entity.SyncStateRow
 import com.goodyaoshi.lemonbox.data.local.entity.TimeCapsule
 
 /**
@@ -56,9 +58,10 @@ import com.goodyaoshi.lemonbox.data.local.entity.TimeCapsule
         LedgerRecurringRule::class,
         TimeCapsule::class,
         PackingTrip::class,
-        PackingItem::class
+        PackingItem::class,
+        SyncStateRow::class
     ],
-    version = 36,
+    version = 37,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -77,6 +80,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun timeCapsuleDao(): TimeCapsuleDao
     abstract fun packingTripDao(): PackingTripDao
     abstract fun packingItemDao(): PackingItemDao
+    abstract fun remoteSyncDao(): RemoteSyncDao
 
     companion object {
         @Volatile

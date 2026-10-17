@@ -16,9 +16,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -30,20 +27,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
-import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
-import com.goodyaoshi.lemonbox.ui.components.EditorInputBox
 import com.goodyaoshi.lemonbox.ui.components.EditorSectionLabel
 import com.goodyaoshi.lemonbox.ui.components.GradientButton
 import com.goodyaoshi.lemonbox.ui.theme.DividerSoft
@@ -58,10 +49,9 @@ import com.goodyaoshi.lemonbox.ui.viewmodel.ImageCloudViewModel
 /**
  * 云存储与同步设置（F20 · 仅正式包）：图片上传 + 多设备数据同步。
  *
- * 存储连接参数与访问密钥整份**加密**后随包内置（CI Secrets 注入密文）、界面上**不展示也不可改**：
- * 所有客户端必须指向同一处存储才能互相看到数据，暴露给用户只会带来误改。用户唯一要做的是
- * 输入**解锁口令**——解开密文后配置由 [ImageCloudViewModel] 交给 Keystore 加密保存在本机，
- * 包内始终只有密文，没有任何明文密钥。
+ * 存储连接参数与访问密钥**都不在客户端**：它们只存在同步服务端（Cloudflare Worker），
+ * 手机每次只换取几分钟有效的预签名地址来传图。因此这一页不再有「口令解锁」，
+ * 取而代之的是**登录态**——未登录时云入口一律不动作，数据只留在本机。
  *
  * 存量图片迁移就是「上传本机图片」：对象键由图片内容哈希决定，
  * 已上传过的会被跳过，因此这个按钮**可以反复点**，不会产生重复对象。
@@ -69,14 +59,12 @@ import com.goodyaoshi.lemonbox.ui.viewmodel.ImageCloudViewModel
 @Composable
 fun ImageCloudScreen(
     onBack: () -> Unit,
+    onOpenSyncLogin: () -> Unit,
     viewModel: ImageCloudViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
     val sync by viewModel.syncState.collectAsState()
-    val cloud by viewModel.cloudSyncState.collectAsState()
-    // 「清除本机配置」的二次确认开关（SET1）：清掉后必须重输口令、且口令本机不留，
-    // 因此不能一键生效，走破坏性确认框。
-    var showClearConfirm by remember { mutableStateOf(false) }
+    val remoteSync by viewModel.remoteSyncState.collectAsState()
 
     // 同步跑完（running 由 true 落回 false）就重算未上传张数，让界面上的数字跟着更新。
     LaunchedEffect(sync.running) {
@@ -184,112 +172,14 @@ fun ImageCloudScreen(
                     NoticeLine(text = blocker, isError = state.enabled)
                 }
 
-                Spacer(modifier = Modifier.height(20.dp))
-                EditorSectionLabel(label = "解锁口令")
-                Spacer(modifier = Modifier.height(8.dp))
-                AppSurfaceCard(shape = MaterialTheme.shapes.extraLarge, shadowElevation = 12.dp) {
-                    Text(
-                        text = if (state.unlocked) {
-                            "已解锁。存储地址与密钥解密后只加密存在本机，既不进安装包，也不随备份外传。" +
-                                "要换一份配置就重新输入口令。"
-                        } else {
-                            "存储地址与访问密钥都以密文内置在安装包里，输入口令即可解开。" +
-                                "口令只在本机用于解密，不会上传，也不会被保存。"
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextHint
-                    )
-                    // 口令来源指引（SET1）：说清口令从哪来、本机不留、找不回，
-                    // 免得用户在这个只有一个输入框的卡片里猜「我该填什么」。
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "口令是当初配置这份存储时设的，由你或当初设置它的人保管；"
-                            + "本机不保存、也无法帮你找回，忘了只能去问设置的人。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextHint
-                    )
-                    // 安全提示：密文与 salt 都在包里，拿到包的人可以离线穷举口令，
-                    // 强度完全决定安全性。如实告知，而不是给一个「已加密」的错觉。
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Row(verticalAlignment = Alignment.Top) {
-                        Icon(
-                            imageVector = Icons.Default.Warning,
-                            contentDescription = null,
-                            tint = StatusExpired,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(modifier = Modifier.size(6.dp))
+                if (!state.loggedIn) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    TextButton(onClick = onOpenSyncLogin) {
                         Text(
-                            text = "口令是解开包内密文的唯一凭据，请用足够长的口令，" +
-                                "不要用生日、手机号这类好猜的组合——安装包谁都能拿到，" +
-                                    "口令太简单会被人拿去慢慢试出来。",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = StatusExpired
+                            text = "去登录云端账号",
+                            color = OrangeStart,
+                            style = MaterialTheme.typography.titleSmall
                         )
-                    }
-                    Spacer(modifier = Modifier.height(10.dp))
-                    EditorInputBox(
-                        value = state.passphrase,
-                        onValueChange = viewModel::updatePassphrase,
-                        placeholder = "解锁口令",
-                        // 打码显示，避免旁人一眼看到口令。
-                        visualTransformation = PasswordVisualTransformation()
-                    )
-                    if (state.unlocked) {
-                        // 破坏性动作走二次确认（SET1）：清掉本机配置后必须重输口令才能再用，
-                        // 口令本机不留、无法自动恢复，所以不能一键生效。
-                        TextButton(onClick = { showClearConfirm = true }) {
-                            Icon(
-                                imageVector = Icons.Default.Delete,
-                                contentDescription = null,
-                                tint = StatusExpired,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.size(6.dp))
-                            Text(text = "清除本机已保存的配置", color = StatusExpired, style = MaterialTheme.typography.bodyMedium)
-                        }
-                    }
-                }
-
-                // 清除本机配置的破坏性确认框（SET1）：说清影响范围，确认后才执行。
-                if (showClearConfirm) {
-                    AppDialog(
-                        title = "清除本机已保存的配置？",
-                        subtitle = "会清掉本机保存的存储配置与已确认的密钥，之后要重新输入口令才能再用；"
-                            + "云端已上传的图片不受影响。",
-                        confirmText = "清除",
-                        destructiveConfirm = true,
-                        onConfirm = {
-                            viewModel.lockCloud()
-                            showClearConfirm = false
-                        },
-                        onDismissRequest = { showClearConfirm = false }
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-                GradientButton(
-                    text = when {
-                        state.unlocking -> "正在解锁…"
-                        state.testing -> "正在测试…"
-                        else -> "解锁并测试连接"
-                    },
-                    enabled = !state.unlocking && !state.testing,
-                    onClick = viewModel::unlockAndTest
-                )
-
-                state.testMessage?.let { message ->
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (state.testing) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(14.dp),
-                                strokeWidth = 2.dp,
-                                color = OrangeStart
-                            )
-                            Spacer(modifier = Modifier.size(8.dp))
-                        }
-                        NoticeLine(text = message, isError = !state.testOk)
                     }
                 }
 
@@ -381,8 +271,8 @@ fun ImageCloudScreen(
                 Spacer(modifier = Modifier.height(8.dp))
                 AppSurfaceCard(shape = MaterialTheme.shapes.extraLarge, shadowElevation = 12.dp) {
                     Text(
-                        text = "把本机数据（物品、记账等）与同一存储上的其他设备合并：各设备各推自己的变更，"
-                            + "再各自合并，谁都不覆盖谁。不含图片——图片是否上传由上面的开关单独决定。",
+                        text = "把本机数据（物品、记账等）与其它设备对齐：每条变更都以服务端的先后序号为准，"
+                            + "谁都不覆盖谁。不含图片——图片是否上传由上面的开关单独决定。",
                         style = MaterialTheme.typography.bodySmall,
                         color = TextHint
                     )
@@ -396,46 +286,65 @@ fun ImageCloudScreen(
                         onCheckedChange = viewModel::setCloudSyncEnabled
                     )
                     DividerLine()
-                    Text(
-                        text = cloud.lastSyncedAt?.let { "上次同步：${formatSyncTime(it)}" } ?: "还没同步过",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = TextSecondary
-                    )
-                    // 冲突可见（S4 的云端版）：云端同步是后台自动的，没法像局域网那样
-                    // 弹窗逐条勾选，因此把「有几条被较新的一方覆盖」如实报出来，
-                    // 而不是让 LWW 静默吃掉。0 条时不出现，避免每次同步都挂一行噪声。
-                    if (cloud.lastConflicts > 0) {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        NoticeLine(
-                            text = "有 ${cloud.lastConflicts} 条两边都改过，已取较新的一方" +
-                                "（可在设备同步里逐条对比）",
-                            isError = false
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(12.dp))
-                    if (cloud.running) {
+                    // 登录态是这一段的唯一前提：未登录时下面的一切都不动作。
+                    if (!state.loggedIn) {
                         Text(
-                            text = "正在同步…",
-                            style = MaterialTheme.typography.titleSmall,
+                            text = "未登录，数据只留在本机",
+                            style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.SemiBold,
-                            color = TextPrimary
+                            color = TextSecondary
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        GradientButton(
+                            text = "登录云端账号",
+                            onClick = onOpenSyncLogin
                         )
                     } else {
-                        GradientButton(
-                            text = "立即同步",
-                            onClick = viewModel::syncNow,
-                            enabled = state.cloudSyncEnabled
+                        Text(
+                            text = state.username?.let { "已登录：$it" } ?: "已登录",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = TextSecondary
                         )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = remoteSync.lastSyncedAt?.let { "上次同步：${formatSyncTime(it)}" }
+                                ?: "还没同步过",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = TextSecondary
+                        )
+                        // 冲突可见（S4 的云端版）：云端同步是后台自动的，没法像局域网那样
+                        // 弹窗逐条勾选，因此把「有几条本机改动没能上去」如实报出来——
+                        // 服务端发现有人在这之后改过就不覆盖，由用户知道而不是静默丢弃。
+                        // 0 条时不出现，避免每次同步都挂一行噪声。
+                        if (remoteSync.lastConflicts > 0) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            NoticeLine(
+                                text = "有 ${remoteSync.lastConflicts} 条两边都改过，" +
+                                    "已保留服务端版本（可在设备同步里逐条对比）",
+                                isError = false
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
+                        if (remoteSync.running) {
+                            Text(
+                                text = "正在同步…",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = TextPrimary
+                            )
+                        } else {
+                            GradientButton(
+                                text = "立即同步",
+                                onClick = viewModel::syncNow,
+                                enabled = state.cloudSyncEnabled
+                            )
+                        }
                     }
-                    // 未就绪的原因直接说清（缺凭据 / 未开启），比只在按钮上变灰有用。
+                    // 未就绪的原因直接说清（未登录 / 未开启），比只在按钮上变灰有用。
                     state.cloudSyncBlocker?.let { blocker ->
                         Spacer(modifier = Modifier.height(8.dp))
                         NoticeLine(text = blocker, isError = state.cloudSyncEnabled)
-                    }
-                    cloud.lastError?.let { error ->
-                        Spacer(modifier = Modifier.height(8.dp))
-                        NoticeLine(text = error, isError = true)
                     }
                 }
 

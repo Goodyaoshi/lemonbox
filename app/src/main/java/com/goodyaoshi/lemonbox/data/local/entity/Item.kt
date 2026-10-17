@@ -109,6 +109,15 @@ data class Item(
     val createdAt: Long = System.currentTimeMillis(),
     /** 跨设备合并用的稳定标识：本地新建自动生成，历史数据由迁移回填。 */
     val syncId: String? = UUID.randomUUID().toString(),
+    /**
+     * 本机改动待推送标记（P6）：true = 这条有本机改动还没被服务端确认收到。
+     * 默认取 true 的取舍见 `Migrations.MIGRATION_36_37` 的说明。
+     */
+    @ColumnInfo(defaultValue = "1")
+    val dirty: Boolean = true,
+    /** 本机上次见到的该条服务端序号；0 表示服务端还没有这条（P6）。 */
+    @ColumnInfo(defaultValue = "0")
+    val serverSeq: Long = 0,
     /** 最近一次修改时间，导入时按“较新者胜”合并；历史数据回退到 createdAt。 */
     val updatedAt: Long? = System.currentTimeMillis()
 ) {

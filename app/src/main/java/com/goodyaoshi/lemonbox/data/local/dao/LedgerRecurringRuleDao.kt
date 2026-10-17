@@ -9,6 +9,9 @@ import androidx.room.Update
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerRecurringRule
 import kotlinx.coroutines.flow.Flow
 
+/**
+ * 写操作一律带 `dirty = 1`（P6）：本机改动要被增量同步捞出来，漏标就会静默不上传。
+ */
 @Dao
 interface LedgerRecurringRuleDao {
 
@@ -43,11 +46,11 @@ interface LedgerRecurringRuleDao {
     suspend fun delete(rule: LedgerRecurringRule)
 
     @Query(
-        "UPDATE ledger_recurring_rules SET deletedAt = :deletedAt, updatedAt = :updatedAt " +
-            "WHERE id = :id"
+        "UPDATE ledger_recurring_rules SET deletedAt = :deletedAt, updatedAt = :updatedAt, " +
+            "dirty = 1 WHERE id = :id"
     )
     suspend fun softDelete(id: Long, deletedAt: Long, updatedAt: Long)
 
-    @Query("DELETE FROM ledger_recurring_rules WHERE deletedAt IS NOT NULL AND deletedAt < :cutoff")
+    @Query("DELETE FROM ledger_recurring_rules WHERE deletedAt IS NOT NULL AND deletedAt < :cutoff" + TOMBSTONE_CONFIRMED_SQL)
     suspend fun purgeDeletedOlderThan(cutoff: Long)
 }

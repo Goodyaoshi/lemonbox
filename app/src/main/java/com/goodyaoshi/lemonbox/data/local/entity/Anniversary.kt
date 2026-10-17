@@ -1,5 +1,6 @@
 package com.goodyaoshi.lemonbox.data.local.entity
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
@@ -36,6 +37,15 @@ data class Anniversary(
     val lastNotifiedDate: String? = null,
     val enabled: Boolean = true,
     val syncId: String? = null,
+    /**
+     * 本机改动待推送标记（P6）：true = 这条有本机改动还没被服务端确认收到。
+     * 默认取 true 的取舍见 `Migrations.MIGRATION_36_37` 的说明。
+     */
+    @ColumnInfo(defaultValue = "1")
+    val dirty: Boolean = true,
+    /** 本机上次见到的该条服务端序号；0 表示服务端还没有这条（P6）。 */
+    @ColumnInfo(defaultValue = "0")
+    val serverSeq: Long = 0,
     val updatedAt: Long? = null,
     val deletedAt: Long? = null,
     val createdAt: Long = System.currentTimeMillis()

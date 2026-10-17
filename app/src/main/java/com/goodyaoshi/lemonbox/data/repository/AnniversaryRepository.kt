@@ -38,7 +38,8 @@ class AnniversaryRepository @Inject constructor(
                 id = 0,
                 syncId = anniversary.syncId ?: UUID.randomUUID().toString(),
                 createdAt = anniversary.createdAt.takeIf { it > 0 } ?: now,
-                updatedAt = now
+                updatedAt = now,
+                dirty = true
             )
         )
     }
@@ -67,7 +68,8 @@ class AnniversaryRepository @Inject constructor(
         anniversaryDao.update(
             anniversary.copy(
                 syncId = anniversary.syncId ?: UUID.randomUUID().toString(),
-                updatedAt = System.currentTimeMillis()
+                updatedAt = System.currentTimeMillis(),
+                dirty = true
             )
         )
     }
@@ -75,7 +77,11 @@ class AnniversaryRepository @Inject constructor(
     suspend fun setEnabled(anniversary: Anniversary, enabled: Boolean) {
         if (enabled == anniversary.enabled) return
         anniversaryDao.update(
-            anniversary.copy(enabled = enabled, updatedAt = System.currentTimeMillis())
+            anniversary.copy(
+                enabled = enabled,
+                updatedAt = System.currentTimeMillis(),
+                dirty = true
+            )
         )
     }
 
@@ -83,6 +89,7 @@ class AnniversaryRepository @Inject constructor(
     suspend fun markNotified(id: Long, dateKey: String) {
         val current = anniversaryDao.getById(id) ?: return
         if (current.lastNotifiedDate == dateKey) return
+        // 豁免（P6 白名单）：这是本机「今天已经提醒过了」的记分牌，不标脏、不上传。
         anniversaryDao.update(current.copy(lastNotifiedDate = dateKey))
     }
 
@@ -99,7 +106,11 @@ class AnniversaryRepository @Inject constructor(
      */
     suspend fun restore(anniversary: Anniversary) {
         anniversaryDao.update(
-            anniversary.copy(deletedAt = null, updatedAt = System.currentTimeMillis())
+            anniversary.copy(
+                deletedAt = null,
+                updatedAt = System.currentTimeMillis(),
+                dirty = true
+            )
         )
     }
 
@@ -140,7 +151,9 @@ class AnniversaryRepository @Inject constructor(
     /** 活跃快照（后台纪念日检查 Worker 用）。 */
     suspend fun getActiveSnapshot(): List<Anniversary> = anniversaryDao.getActiveSnapshot()
 
-    suspend fun insertSynced(anniversary: Anniversary): Long = anniversaryDao.insert(anniversary)
+    suspend fun insertSynced(anniversary: Anniversary): Long =
+        anniversaryDao.insert(anniversary.copy(dirty = false))
 
-    suspend fun updateSynced(anniversary: Anniversary) = anniversaryDao.update(anniversary)
+    suspend fun updateSynced(anniversary: Anniversary) =
+        anniversaryDao.update(anniversary.copy(dirty = false))
 }

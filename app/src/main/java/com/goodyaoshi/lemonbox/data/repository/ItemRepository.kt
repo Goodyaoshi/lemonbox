@@ -63,12 +63,13 @@ class ItemRepository @Inject constructor(
     suspend fun insert(item: Item): Long = itemDao.insert(
         item.copy(
             syncId = item.syncId ?: UUID.randomUUID().toString(),
-            updatedAt = MonotonicClock.now()
+            updatedAt = MonotonicClock.now(),
+            dirty = true
         )
     )
 
     suspend fun update(item: Item) = itemDao.update(
-        item.copy(updatedAt = MonotonicClock.now())
+        item.copy(updatedAt = MonotonicClock.now(), dirty = true)
     )
 
     /**
@@ -85,10 +86,10 @@ class ItemRepository @Inject constructor(
     suspend fun delete(item: Item) = itemDao.delete(item)
 
     /** 合并导入专用：保留备份中的 id 与 updatedAt，按原样落库。 */
-    suspend fun insertSynced(item: Item): Long = itemDao.insert(item)
+    suspend fun insertSynced(item: Item): Long = itemDao.insert(item.copy(dirty = false))
 
     /** 合并导入专用：原样覆盖本地记录，不刷新 updatedAt。 */
-    suspend fun updateSynced(item: Item) = itemDao.update(item)
+    suspend fun updateSynced(item: Item) = itemDao.update(item.copy(dirty = false))
 
     suspend fun moveToTrash(item: Item) = itemDao.moveToTrash(
         id = item.id,

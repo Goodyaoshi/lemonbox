@@ -8,6 +8,9 @@ import androidx.room.Update
 import com.goodyaoshi.lemonbox.data.local.entity.PackingItem
 import kotlinx.coroutines.flow.Flow
 
+/**
+ * 写操作一律带 `dirty = 1`（P6）：本机改动要被增量同步捞出来，漏标就会静默不上传。
+ */
 @Dao
 interface PackingItemDao {
 
@@ -35,16 +38,16 @@ interface PackingItemDao {
     @Update
     suspend fun update(item: PackingItem)
 
-    @Query("UPDATE packing_items SET deletedAt = :deletedAt, updatedAt = :updatedAt WHERE id = :id")
+    @Query("UPDATE packing_items SET deletedAt = :deletedAt, updatedAt = :updatedAt, dirty = 1 WHERE id = :id")
     suspend fun softDelete(id: Long, deletedAt: Long, updatedAt: Long)
 
     /** 随行程一起软删除，避免行程删了条目还挂在库里。 */
     @Query(
-        "UPDATE packing_items SET deletedAt = :deletedAt, updatedAt = :updatedAt " +
-            "WHERE tripId = :tripId AND deletedAt IS NULL"
+        "UPDATE packing_items SET deletedAt = :deletedAt, updatedAt = :updatedAt, " +
+            "dirty = 1 WHERE tripId = :tripId AND deletedAt IS NULL"
     )
     suspend fun softDeleteByTrip(tripId: Long, deletedAt: Long, updatedAt: Long)
 
-    @Query("DELETE FROM packing_items WHERE deletedAt IS NOT NULL AND deletedAt < :cutoff")
+    @Query("DELETE FROM packing_items WHERE deletedAt IS NOT NULL AND deletedAt < :cutoff" + TOMBSTONE_CONFIRMED_SQL)
     suspend fun purgeDeletedOlderThan(cutoff: Long)
 }

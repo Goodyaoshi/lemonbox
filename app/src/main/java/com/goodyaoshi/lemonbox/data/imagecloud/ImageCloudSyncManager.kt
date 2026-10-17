@@ -92,21 +92,6 @@ class ImageCloudSyncManager @Inject constructor(
     }
 
     /**
-     * 测试连通性，用的是本机已解锁的那份配置（口令解锁时就已经落盘，不必再传一份草稿）。
-     * 刻意不检查开关状态——用户往往先验证再开启。
-     */
-    suspend fun testConnection(): S3Outcome = withContext(Dispatchers.IO) {
-        val s3 = config.resolve()
-            ?: return@withContext S3Outcome.Error(
-                when {
-                    !config.hasBundledConfig() -> "此安装包未内置云存储配置"
-                    else -> "请先输入口令解锁云存储"
-                }
-            )
-        client.checkBucket(s3)
-    }
-
-    /**
      * 同步全部家当图片（存量迁移入口）。重复触发无副作用：已在云端的会被跳过。
      * 确认云端已有后即删除本地副本——图片以云端为唯一来源，本地不再长期保留。
      */

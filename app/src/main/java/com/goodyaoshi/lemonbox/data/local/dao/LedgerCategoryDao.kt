@@ -8,6 +8,9 @@ import androidx.room.Update
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerCategory
 import kotlinx.coroutines.flow.Flow
 
+/**
+ * 写操作一律带 `dirty = 1`（P6）：本机改动要被增量同步捞出来，漏标就会静默不上传。
+ */
 @Dao
 interface LedgerCategoryDao {
 
@@ -34,7 +37,7 @@ interface LedgerCategoryDao {
     suspend fun update(category: LedgerCategory)
 
     @Query(
-        "UPDATE ledger_categories SET deletedAt = :deletedAt, updatedAt = :deletedAt WHERE id = :id"
+        "UPDATE ledger_categories SET deletedAt = :deletedAt, updatedAt = :deletedAt, dirty = 1 WHERE id = :id"
     )
     suspend fun softDelete(id: Long, deletedAt: Long)
 

@@ -14,6 +14,15 @@ plugins {
 fun String.asBuildConfigLiteral(): String =
     "\"" + replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
+/**
+ * 同步服务端地址：Worker 的公开域名，**不是密钥**（对象存储的 AK/SK 只存在 Worker 里）。
+ * CI 可用 ORG_GRADLE_PROJECT_LEMON_SYNC_BASE_URL 覆盖（如换成绑定的自定义域），
+ * 本地自建 release 包则用默认域名，保证「直接分发 APK」这条路也能同步。
+ */
+val syncBaseUrl = (findProperty("LEMON_SYNC_BASE_URL") as String?)
+    ?.takeIf { it.isNotBlank() }
+    ?: "https://lemonbox.goodyaoshi.workers.dev"
+
 android {
     namespace = "com.goodyaoshi.lemonbox"
     compileSdk = 35
@@ -60,25 +69,17 @@ android {
         // 图片云端存储（S3 兼容）：debug 包一律不支持，避免开发期把测试图片传进真实存储桶。
         debug {
             buildConfigField("boolean", "IMAGE_CLOUD_SUPPORTED", "false")
-            buildConfigField("String", "S3_PAYLOAD_ENCRYPTED", "\"\"")
+            buildConfigField("String", "SYNC_BASE_URL", syncBaseUrl.asBuildConfigLiteral())
         }
 
         release {
             isMinifyEnabled = true
-            // 图片云端存储（仅正式包）——「配置密文进包、用户只输口令」：
-            // endpoint / region / bucket / prefix 与 AccessKey / SecretKey 整份由
-            // tools/encrypt-s3-config.mjs 用口令加密成一段密文，随包分发（CI Secret
-            // LEMON_S3_PAYLOAD_ENCRYPTED 注入）。BuildConfig 是明文字符串常量、反编译即可读出，
-            // 所以进包的**只能是密文**：没有口令谁也用不了其中的密钥，而用户只需记住一个口令，
-            // 不必在每台设备上各填一份 AccessKey / SecretKey。
-            // 口令绝不进 CI、不进包；本地未配该属性时（如开发者自己跑 assembleRelease）为空串，
-            // App 据此提示「此版本未内置云存储配置」，而不是崩溃。
+            // 图片云端存储与多设备同步（仅正式包）——「客户端不持任何长期密钥」：
+            // 对象存储的 endpoint / region / bucket / AK / SK 全部只存在服务端（Cloudflare Worker），
+            // 客户端登录后只拿**几分钟有效的预签名 URL**，包内因此没有任何可解的密文。
+            // 进包的只有 SYNC_BASE_URL 这个公开域名，以及用户登录换来的会话令牌（Keystore 加密存本机）。
             buildConfigField("boolean", "IMAGE_CLOUD_SUPPORTED", "true")
-            buildConfigField(
-                "String",
-                "S3_PAYLOAD_ENCRYPTED",
-                (findProperty("LEMON_S3_PAYLOAD_ENCRYPTED") as String? ?: "").asBuildConfigLiteral()
-            )
+            buildConfigField("String", "SYNC_BASE_URL", syncBaseUrl.asBuildConfigLiteral())
             isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -141,30 +142,6 @@ gradle.taskGraph.whenReady {
 ksp {
     // 导出 Room schema 到 app/schemas，便于审查迁移与后续做迁移测试。
     arg("room.schemaLocation", "$projectDir/schemas")
-}
-
-/**
- * 生成云存储配置密文的命令行工具：
- * ```
- * $env:S3_PAYLOAD_PASSPHRASE='…'; .\gradlew encryptS3Payload --args="--in s3cfg.json"
- * ```
- * 入口在 unit test 源码集（见 EncryptS3Payload.kt）：它不属于 App 运行时、不进 APK，
- * 却能直接复用 App 解密用的同一份 S3PayloadCipher，两端不可能算法漂移。
- * 因此这里用「主源码集 + 单测源码集」的 Kotlin 产物加测试变体 classpath 来运行它。
- */
-tasks.register<JavaExec>("encryptS3Payload") {
-    group = "tools"
-    description = "用口令加密云存储配置，生成 GitHub Secret LEMON_S3_PAYLOAD_ENCRYPTED"
-    dependsOn("compileDebugUnitTestKotlin")
-    mainClass.set("com.goodyaoshi.lemonbox.data.imagecloud.EncryptS3PayloadKt")
-    // classpath 在执行期才解析：AGP 的变体 configuration 到那时才一定存在。
-    doFirst {
-        classpath = files(
-            layout.buildDirectory.dir("tmp/kotlin-classes/debug"),
-            layout.buildDirectory.dir("tmp/kotlin-classes/debugUnitTest"),
-            configurations.getByName("debugUnitTestRuntimeClasspath")
-        )
-    }
 }
 
 // 分发副本：assembleRelease 完成后，把产物额外复制一份为「柠檬百宝箱.apk」到分发目录。

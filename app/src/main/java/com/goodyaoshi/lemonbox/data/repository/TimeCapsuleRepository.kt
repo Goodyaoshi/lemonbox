@@ -37,7 +37,8 @@ class TimeCapsuleRepository @Inject constructor(
             id = 0,
             syncId = capsule.syncId ?: UUID.randomUUID().toString(),
             createdAt = capsule.createdAt.takeIf { it > 0 } ?: MonotonicClock.now(),
-            updatedAt = MonotonicClock.now()
+            updatedAt = MonotonicClock.now(),
+            dirty = true
         )
         val id = dao.insert(saved)
         scheduleUnlockReminder(saved.copy(id = id))
@@ -48,7 +49,8 @@ class TimeCapsuleRepository @Inject constructor(
         dao.update(
             capsule.copy(
                 syncId = capsule.syncId ?: UUID.randomUUID().toString(),
-                updatedAt = MonotonicClock.now()
+                updatedAt = MonotonicClock.now(),
+                dirty = true
             )
         )
     }
@@ -56,7 +58,13 @@ class TimeCapsuleRepository @Inject constructor(
     /** 首次打开：记录打开时间（已打开过则不重复覆盖），并把待办的到期提醒标为完成。 */
     suspend fun open(capsule: TimeCapsule) {
         if (capsule.openedAt != null) return
-        dao.update(capsule.copy(openedAt = MonotonicClock.now(), updatedAt = MonotonicClock.now()))
+        dao.update(
+            capsule.copy(
+                openedAt = MonotonicClock.now(),
+                updatedAt = MonotonicClock.now(),
+                dirty = true
+            )
+        )
         reminderRepository.findActiveBySourceKey(capsuleSourceKey(capsule))?.let { reminder ->
             reminderRepository.complete(reminder)
         }
@@ -102,7 +110,7 @@ class TimeCapsuleRepository @Inject constructor(
 
     suspend fun getAllSnapshot(): List<TimeCapsule> = dao.getAllSnapshot()
 
-    suspend fun insertSynced(capsule: TimeCapsule): Long = dao.insert(capsule)
+    suspend fun insertSynced(capsule: TimeCapsule): Long = dao.insert(capsule.copy(dirty = false))
 
-    suspend fun updateSynced(capsule: TimeCapsule) = dao.update(capsule)
+    suspend fun updateSynced(capsule: TimeCapsule) = dao.update(capsule.copy(dirty = false))
 }

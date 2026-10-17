@@ -11,11 +11,10 @@ import javax.inject.Singleton
 /**
  * 云存储的用户偏好：图片上传开关、自动上传、后台补传，以及**独立**的多设备同步开关。
  *
- * 独立的 SharedPreferences 文件：与其他偏好零耦合，且不会被备份 / 导出流程
- * 顺带打包走（凭据同理，见 [ImageCredentialStore]）。
+ * 独立的 SharedPreferences 文件：与其他偏好零耦合，且不会被备份 / 导出流程顺带打包走。
  *
- * 存储连接参数与密钥不在这里——它们整份加密内置在包里，由用户口令解锁后
- * 经 [ImageCloudConfig] 读取，见 [S3PayloadCipher] 与 [ImageCredentialStore]。
+ * 存储连接参数与密钥不在这里、也不在本机任何地方——它们只存在服务端（Cloudflare Worker），
+ * 由 [ImageCloudConfig] 依据登录态判断可用性。
  */
 @Singleton
 class ImageCloudPreferences @Inject constructor(

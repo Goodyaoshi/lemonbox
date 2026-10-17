@@ -27,7 +27,7 @@ class LocationRepository @Inject constructor(
         return collectDescendantIds(rootId, all) + rootId
     }
 
-    suspend fun insert(location: Location): Long = locationDao.insert(location)
+    suspend fun insert(location: Location): Long = locationDao.insert(location.copy(dirty = true))
 
     /** 同一父级下是否已存在同名位置（忽略大小写），供新增去重。 */
     suspend fun existsWithName(name: String, parentId: Long?): Boolean =
@@ -92,7 +92,7 @@ class LocationRepository @Inject constructor(
     suspend fun update(location: Location) {
         // 内置保护位置（冰箱）是「今天吃什么」取材规则的基础，不允许改写。
         if (location.isProtected) return
-        locationDao.update(location.copy(updatedAt = MonotonicClock.now()))
+        locationDao.update(location.copy(updatedAt = MonotonicClock.now(), dirty = true))
     }
 
     /**
@@ -106,7 +106,7 @@ class LocationRepository @Inject constructor(
         val targets = collectDescendantIds(location.id, all) + location.id
         targets.forEach { id ->
             all.firstOrNull { it.id == id }?.let { entity ->
-                locationDao.update(entity.copy(deletedAt = now, updatedAt = now))
+                locationDao.update(entity.copy(deletedAt = now, updatedAt = now, dirty = true))
             }
         }
     }
@@ -126,7 +126,7 @@ class LocationRepository @Inject constructor(
     }
 
     /** 合并导入专用：保留备份中的 id 与 updatedAt。 */
-    suspend fun insertSynced(location: Location): Long = locationDao.insert(location)
+    suspend fun insertSynced(location: Location): Long = locationDao.insert(location.copy(dirty = false))
 
-    suspend fun updateSynced(location: Location) = locationDao.update(location)
+    suspend fun updateSynced(location: Location) = locationDao.update(location.copy(dirty = false))
 }

@@ -8,6 +8,9 @@ import androidx.room.Update
 import com.goodyaoshi.lemonbox.data.local.entity.TimeCapsule
 import kotlinx.coroutines.flow.Flow
 
+/**
+ * 写操作一律带 `dirty = 1`（P6）：本机改动要被增量同步捞出来，漏标就会静默不上传。
+ */
 @Dao
 interface TimeCapsuleDao {
 
@@ -31,9 +34,9 @@ interface TimeCapsuleDao {
     @Update
     suspend fun update(capsule: TimeCapsule)
 
-    @Query("UPDATE time_capsules SET deletedAt = :deletedAt, updatedAt = :updatedAt WHERE id = :id")
+    @Query("UPDATE time_capsules SET deletedAt = :deletedAt, updatedAt = :updatedAt, dirty = 1 WHERE id = :id")
     suspend fun softDelete(id: Long, deletedAt: Long, updatedAt: Long)
 
-    @Query("DELETE FROM time_capsules WHERE deletedAt IS NOT NULL AND deletedAt < :cutoff")
+    @Query("DELETE FROM time_capsules WHERE deletedAt IS NOT NULL AND deletedAt < :cutoff" + TOMBSTONE_CONFIRMED_SQL)
     suspend fun purgeDeletedOlderThan(cutoff: Long)
 }

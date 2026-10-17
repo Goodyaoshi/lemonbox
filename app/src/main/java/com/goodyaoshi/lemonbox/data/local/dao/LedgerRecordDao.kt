@@ -27,6 +27,9 @@ data class LedgerMonthTypeSum(
     val total: Long?
 )
 
+/**
+ * 写操作一律带 `dirty = 1`（P6）：本机改动要被增量同步捞出来，漏标就会静默不上传。
+ */
 @Dao
 interface LedgerRecordDao {
 
@@ -121,11 +124,11 @@ interface LedgerRecordDao {
     @Update
     suspend fun update(record: LedgerRecord)
 
-    @Query("UPDATE ledger_records SET deletedAt = :deletedAt, updatedAt = :deletedAt WHERE id = :id")
+    @Query("UPDATE ledger_records SET deletedAt = :deletedAt, updatedAt = :deletedAt, dirty = 1 WHERE id = :id")
     suspend fun softDelete(id: Long, deletedAt: Long)
 
     /** 从回收站恢复一条账单（清空 deletedAt），配合删除后的「撤销」使用。 */
-    @Query("UPDATE ledger_records SET deletedAt = NULL, updatedAt = :updatedAt WHERE id = :id")
+    @Query("UPDATE ledger_records SET deletedAt = NULL, updatedAt = :updatedAt, dirty = 1 WHERE id = :id")
     suspend fun restoreFromTrash(id: Long, updatedAt: Long)
 
     /** 全量快照（含墓碑），供备份/同步合并使用。 */
@@ -143,14 +146,14 @@ interface LedgerRecordDao {
     suspend fun countRecordsByAsset(assetId: Long): Int
 
     /** 把挂到重复分类上的账单改挂到保留项，供去重清理使用。 */
-    @Query("UPDATE ledger_records SET categoryId = :toId WHERE categoryId = :fromId")
+    @Query("UPDATE ledger_records SET categoryId = :toId, dirty = 1 WHERE categoryId = :fromId")
     suspend fun reassignCategory(fromId: Long, toId: Long)
 
     /** 把挂到重复账户上的账单改挂到保留项（支出/收入端），供去重清理使用。 */
-    @Query("UPDATE ledger_records SET assetId = :toId WHERE assetId = :fromId")
+    @Query("UPDATE ledger_records SET assetId = :toId, dirty = 1 WHERE assetId = :fromId")
     suspend fun reassignAsset(fromId: Long, toId: Long)
 
     /** 转账账单的转入端账户改挂到保留项，供去重清理使用。 */
-    @Query("UPDATE ledger_records SET targetAssetId = :toId WHERE targetAssetId = :fromId")
+    @Query("UPDATE ledger_records SET targetAssetId = :toId, dirty = 1 WHERE targetAssetId = :fromId")
     suspend fun reassignTargetAsset(fromId: Long, toId: Long)
 }

@@ -139,6 +139,8 @@ class ReminderFirer @Inject constructor(
                 detail = medicationDetail(reminder, now),
                 reminderId = reminder.id
             )
+            // 豁免（P6 白名单）：下面只推进本机的调度状态（notifiedAt/nextFireAt/enabled），
+            // 属于设备本地演算副产品，不标脏，避免把「我这边发过通知了」推给对端。
             when (reminder.repeat) {
                 // 待办语义：只标记已提醒，保持进行中，等用户手动点完成。
                 ReminderRepeatType.ONCE -> reminderDao.update(

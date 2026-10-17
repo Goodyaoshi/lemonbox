@@ -31,6 +31,10 @@ LEFT JOIN categories ON items.categoryId = categories.id
 LEFT JOIN locations ON items.locationId = locations.id
 """
 
+/**
+ * 写操作一律带 `dirty = 1`（P6）：本机改动要被增量同步捞出来，漏标就会静默不上传。
+ * 唯一例外是 [updateImageHashes]——它只是传图副产品，见其说明。
+ */
 @Dao
 interface ItemDao {
 
@@ -152,13 +156,13 @@ interface ItemDao {
     )
     suspend fun getLatestItemByBarcode(barcode: String): Item?
 
-    @Query("UPDATE items SET quantity = quantity + :delta, updatedAt = :updatedAt WHERE id = :id")
+    @Query("UPDATE items SET quantity = quantity + :delta, updatedAt = :updatedAt, dirty = 1 WHERE id = :id")
     suspend fun incrementQuantity(id: Long, delta: Int, updatedAt: Long)
 
     /** 「用1件」：剩余数量减 1、已消耗数量加 1，用于按件消耗物品的用量统计。 */
     @Query(
         "UPDATE items SET quantity = quantity - 1, consumedQuantity = consumedQuantity + 1, " +
-            "updatedAt = :updatedAt WHERE id = :id"
+            "updatedAt = :updatedAt, dirty = 1 WHERE id = :id"
     )
     suspend fun consumeOnePiece(id: Long, updatedAt: Long)
 
@@ -178,6 +182,9 @@ interface ItemDao {
      * 只更新图片槽位哈希列（F22）。刻意不改 updatedAt：
      * 这是「图片刚传上去」的副产品，不是用户对物品内容的编辑；
      * 若刷新时间戳，本机会被当成「更新」，跨设备合并时按较新者胜会覆盖对方真实的修改。
+     *
+     * 同样地**不标 dirty**（P6 白名单）：它不代表用户改了物品内容，
+     * 标脏只会把它当成一次内容改动推给对端，与上面要避免的事一致。
      */
     @Query("UPDATE items SET imageHashes = :encodedHashes WHERE id = :id")
     suspend fun updateImageHashes(id: Long, encodedHashes: String?)
@@ -185,28 +192,28 @@ interface ItemDao {
     @Delete
     suspend fun delete(item: Item)
 
-    @Query("UPDATE items SET deletedAt = :deletedAt, updatedAt = :deletedAt WHERE id = :id")
+    @Query("UPDATE items SET deletedAt = :deletedAt, updatedAt = :deletedAt, dirty = 1 WHERE id = :id")
     suspend fun moveToTrash(id: Long, deletedAt: Long)
 
-    @Query("UPDATE items SET deletedAt = NULL, updatedAt = :updatedAt WHERE id = :id")
+    @Query("UPDATE items SET deletedAt = NULL, updatedAt = :updatedAt, dirty = 1 WHERE id = :id")
     suspend fun restoreFromTrash(id: Long, updatedAt: Long)
 
-    @Query("UPDATE items SET deletedAt = NULL, updatedAt = :updatedAt WHERE id IN (:ids)")
+    @Query("UPDATE items SET deletedAt = NULL, updatedAt = :updatedAt, dirty = 1 WHERE id IN (:ids)")
     suspend fun restoreItemsFromTrash(ids: List<Long>, updatedAt: Long)
 
-    @Query("UPDATE items SET usageStatus = :usageStatus, updatedAt = :updatedAt WHERE id = :id")
+    @Query("UPDATE items SET usageStatus = :usageStatus, updatedAt = :updatedAt, dirty = 1 WHERE id = :id")
     suspend fun updateUsageStatus(id: Long, usageStatus: Int, updatedAt: Long)
 
-    @Query("UPDATE items SET disposition = :disposition, updatedAt = :updatedAt WHERE id = :id")
+    @Query("UPDATE items SET disposition = :disposition, updatedAt = :updatedAt, dirty = 1 WHERE id = :id")
     suspend fun updateDisposition(id: Long, disposition: Int, updatedAt: Long)
 
-    @Query("UPDATE items SET needRestock = :needRestock, updatedAt = :updatedAt WHERE id = :id")
+    @Query("UPDATE items SET needRestock = :needRestock, updatedAt = :updatedAt, dirty = 1 WHERE id = :id")
     suspend fun updateNeedRestock(id: Long, needRestock: Boolean, updatedAt: Long)
 
     /** 使用周期窗口：开始使用 / 使用结束两个时间点，随状态流转由仓库层写入。 */
     @Query(
         "UPDATE items SET startUseTime = :startUseTime, usageEndedAt = :usageEndedAt, " +
-            "updatedAt = :updatedAt WHERE id = :id"
+            "updatedAt = :updatedAt, dirty = 1 WHERE id = :id"
     )
     suspend fun updateUsageWindow(
         id: Long,
@@ -216,7 +223,7 @@ interface ItemDao {
     )
 
     /** 购买日期单独写入（如待买清单点「已买到」时自动记今天）。 */
-    @Query("UPDATE items SET purchaseDate = :purchaseDate, updatedAt = :updatedAt WHERE id = :id")
+    @Query("UPDATE items SET purchaseDate = :purchaseDate, updatedAt = :updatedAt, dirty = 1 WHERE id = :id")
     suspend fun updatePurchaseDate(id: Long, purchaseDate: Long?, updatedAt: Long)
 
     @Query(
@@ -302,7 +309,7 @@ interface ItemDao {
      * 删除时间早于 [cutoffTime] 的物品（含软删与永久删两种墓碑）。
      * 故意不按 purgedAt 过滤：清图片要靠它拿到物品行（见 `ItemRepository.purgeDeletedItemsOlderThan`）。
      */
-    @Query("SELECT * FROM items WHERE deletedAt IS NOT NULL AND deletedAt < :cutoffTime")
+    @Query("SELECT * FROM items WHERE deletedAt IS NOT NULL AND deletedAt < :cutoffTime" + TOMBSTONE_CONFIRMED_SQL)
     suspend fun getDeletedItemsBefore(cutoffTime: Long): List<Item>
 
     @Query("SELECT * FROM items WHERE id IN (:ids) AND deletedAt IS NOT NULL")
@@ -314,16 +321,16 @@ interface ItemDao {
      * 物理删行会让删除无法同步出去，故这里不再用 DELETE。
      */
     @Query(
-        "UPDATE items SET deletedAt = :timestamp, purgedAt = :timestamp, updatedAt = :timestamp " +
-            "WHERE id IN (:ids)"
+        "UPDATE items SET deletedAt = :timestamp, purgedAt = :timestamp, updatedAt = :timestamp, " +
+            "dirty = 1 WHERE id IN (:ids)"
     )
     suspend fun markPurged(ids: List<Long>, timestamp: Long)
 
-    @Query("DELETE FROM items WHERE deletedAt IS NOT NULL AND purgedAt IS NULL AND deletedAt < :cutoffTime")
+    @Query("DELETE FROM items WHERE deletedAt IS NOT NULL AND purgedAt IS NULL AND deletedAt < :cutoffTime" + TOMBSTONE_CONFIRMED_SQL)
     suspend fun purgeDeletedBefore(cutoffTime: Long)
 
     /** 清到期的永久删除墓碑，保留期更长：墓碑要活到其他设备都拉到过它为止。 */
-    @Query("DELETE FROM items WHERE purgedAt IS NOT NULL AND purgedAt < :cutoff")
+    @Query("DELETE FROM items WHERE purgedAt IS NOT NULL AND purgedAt < :cutoff" + TOMBSTONE_CONFIRMED_SQL)
     suspend fun purgePurgedBefore(cutoff: Long)
 
     @Query("DELETE FROM items WHERE id IN (:ids) AND deletedAt IS NOT NULL")

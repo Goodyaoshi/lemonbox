@@ -34,11 +34,12 @@ class LedgerPlanningRepository @Inject constructor(
         templateDao.insert(
             template.copy(
                 syncId = template.syncId ?: UUID.randomUUID().toString(),
-                updatedAt = MonotonicClock.now()
+                updatedAt = MonotonicClock.now(),
+                dirty = true
             )
         )
     } else {
-        templateDao.update(template.copy(updatedAt = MonotonicClock.now()))
+        templateDao.update(template.copy(updatedAt = MonotonicClock.now(), dirty = true))
         template.id
     }
 
@@ -54,17 +55,18 @@ class LedgerPlanningRepository @Inject constructor(
         ruleDao.insert(
             rule.copy(
                 syncId = rule.syncId ?: UUID.randomUUID().toString(),
-                updatedAt = MonotonicClock.now()
+                updatedAt = MonotonicClock.now(),
+                dirty = true
             )
         )
     } else {
-        ruleDao.update(rule.copy(updatedAt = MonotonicClock.now()))
+        ruleDao.update(rule.copy(updatedAt = MonotonicClock.now(), dirty = true))
         rule.id
     }
 
     suspend fun setRuleEnabled(id: Long, enabled: Boolean) {
         val rule = ruleDao.getById(id) ?: return
-        ruleDao.update(rule.copy(enabled = enabled, updatedAt = MonotonicClock.now()))
+        ruleDao.update(rule.copy(enabled = enabled, updatedAt = MonotonicClock.now(), dirty = true))
     }
 
     suspend fun deleteRule(id: Long) =
@@ -117,6 +119,8 @@ class LedgerPlanningRepository @Inject constructor(
                 guard++
                 fireAt = RecurringClock.advance(fireAt, rule.unit, rule.repeatInterval)
             }
+            // 豁免（P6 白名单）：这里推进的是本机调度游标（nextFireAt/lastFiredAt），
+            // 属于设备本地演算副产品，不标脏，避免把「我这边跑到第几期」当成内容改动推给对端。
             ruleDao.update(
                 rule.copy(
                     nextFireAt = fireAt,
@@ -134,13 +138,18 @@ class LedgerPlanningRepository @Inject constructor(
 
     suspend fun getAllRulesSnapshot(): List<LedgerRecurringRule> = ruleDao.getAllSnapshot()
 
-    suspend fun insertSyncedTemplate(template: LedgerTemplate): Long = templateDao.insert(template)
+    // ---- 同步专用：原样落库（保留 syncId/updatedAt/墓碑），落地即标 `dirty = false`（P6）。 ----
+    suspend fun insertSyncedTemplate(template: LedgerTemplate): Long =
+        templateDao.insert(template.copy(dirty = false))
 
-    suspend fun updateSyncedTemplate(template: LedgerTemplate) = templateDao.update(template)
+    suspend fun updateSyncedTemplate(template: LedgerTemplate) =
+        templateDao.update(template.copy(dirty = false))
 
-    suspend fun insertSyncedRule(rule: LedgerRecurringRule): Long = ruleDao.insert(rule)
+    suspend fun insertSyncedRule(rule: LedgerRecurringRule): Long =
+        ruleDao.insert(rule.copy(dirty = false))
 
-    suspend fun updateSyncedRule(rule: LedgerRecurringRule) = ruleDao.update(rule)
+    suspend fun updateSyncedRule(rule: LedgerRecurringRule) =
+        ruleDao.update(rule.copy(dirty = false))
 
     private companion object {
         /** 单条规则一次最多补生成的账单数，防止长期未打开应用时瞬间写入过多记录。 */

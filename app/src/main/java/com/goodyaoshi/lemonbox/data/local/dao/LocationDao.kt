@@ -9,6 +9,10 @@ import androidx.room.Update
 import com.goodyaoshi.lemonbox.data.local.entity.Location
 import kotlinx.coroutines.flow.Flow
 
+/**
+ * 写操作一律带 `dirty = 1`（P6）：本机改动要被增量同步捞出来，漏标就会静默不上传。
+ * [reassignItemsToLocation] 改的是 `items` 表，一并给那张表标脏——脏标记跟着被改的表走。
+ */
 @Dao
 interface LocationDao {
 
@@ -51,14 +55,14 @@ interface LocationDao {
     suspend fun countByNameAndParent(name: String, parentId: Long?): Int
 
     /** 把重复位置的下级位置改挂到保留项，供去重清理使用。 */
-    @Query("UPDATE locations SET parentId = :toId WHERE parentId = :fromId AND id != :toId")
+    @Query("UPDATE locations SET parentId = :toId, dirty = 1 WHERE parentId = :fromId AND id != :toId")
     suspend fun reassignChildren(fromId: Long, toId: Long)
 
     /** 把挂在重复位置上的物品改挂到保留项，供去重清理使用。 */
-    @Query("UPDATE items SET locationId = :toId WHERE locationId = :fromId")
+    @Query("UPDATE items SET locationId = :toId, dirty = 1 WHERE locationId = :fromId")
     suspend fun reassignItemsToLocation(fromId: Long, toId: Long)
 
     /** 软删除（写墓碑），去重清理用；保留记录以便把删除同步给其他设备。 */
-    @Query("UPDATE locations SET deletedAt = :deletedAt, updatedAt = :deletedAt WHERE id = :id")
+    @Query("UPDATE locations SET deletedAt = :deletedAt, updatedAt = :deletedAt, dirty = 1 WHERE id = :id")
     suspend fun softDeleteById(id: Long, deletedAt: Long)
 }

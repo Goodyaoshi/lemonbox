@@ -9,6 +9,7 @@ import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import com.goodyaoshi.lemonbox.data.remote.RemoteSyncManager
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -23,13 +24,13 @@ import javax.inject.Singleton
  * 周期任务让「对方上次改的东西」在我下次拿起手机前就到位。
  *
  * 三重收敛避免变成耗电/耗流量的后台活动：仅不计费网络（UNMETERED）；
- * 未就绪（没配凭据 / debug 包）直接成功退出；全程幂等，无变更时连上传都不发。
+ * 未登录 / 未开启多设备同步时直接成功退出；全程幂等，无变更时不上传。
  */
 @HiltWorker
 class CloudSyncWorker @AssistedInject constructor(
     @Assisted context: Context,
     @Assisted workerParams: WorkerParameters,
-    private val syncManager: CloudSyncManager
+    private val syncManager: RemoteSyncManager
 ) : CoroutineWorker(context, workerParams) {
 
     override suspend fun doWork(): Result {

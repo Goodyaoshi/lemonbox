@@ -87,10 +87,10 @@ jobs:
           ORG_GRADLE_PROJECT_LEMON_KEYSTORE_PASSWORD: ${{ secrets.LEMON_KEYSTORE_PASSWORD }}
           ORG_GRADLE_PROJECT_LEMON_KEY_ALIAS: ${{ secrets.LEMON_KEY_ALIAS }}
           ORG_GRADLE_PROJECT_LEMON_KEY_PASSWORD: ${{ secrets.LEMON_KEY_PASSWORD }}
-          # 云存储配置：整段**密文**（endpoint / region / bucket / prefix + AccessKey / SecretKey），
-          # 由 tools/encrypt-s3-config.mjs 用口令加密生成；口令只在 App 内由用户输入，绝不进 CI。
-          # 早先 endpoint 等以明文 Secret 注入、密钥由用户手填；现在包内只有密文。
-          ORG_GRADLE_PROJECT_LEMON_S3_PAYLOAD_ENCRYPTED: ${{ secrets.LEMON_S3_PAYLOAD_ENCRYPTED }}
+          # 同步服务端地址（P4）：只注入**公开域名**，不含任何密钥。
+          # 对象存储的 AccessKey/SecretKey 只存在服务端（Cloudflare Worker secret），
+          # 客户端登录后由 Worker 下发几分钟有效的预签名 URL，包里不再有密文配置。
+          ORG_GRADLE_PROJECT_LEMON_SYNC_BASE_URL: ${{ secrets.LEMON_SYNC_BASE_URL }}
         run: |
           chmod +x ./gradlew
           ./gradlew assembleRelease --no-daemon --console=plain \

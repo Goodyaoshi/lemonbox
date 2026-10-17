@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.RewriteQueriesToDropUnusedColumns
 import androidx.room.Update
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerAsset
 import kotlinx.coroutines.flow.Flow
@@ -22,13 +23,20 @@ data class LedgerAssetWithBalance(
     val balance: Long
 )
 
+/**
+ * 写操作一律带 `dirty = 1`（P6）：本机改动要被增量同步捞出来，漏标就会静默不上传。
+ */
 @Dao
 interface LedgerAssetDao {
 
     /**
      * 全部有效账户 + 实时聚合余额：支出扣减、收入增加；转账从转出方扣、向转入方加。
      * 必须过滤软删墓碑（去重合并后的副本仍留在表中），否则记账页的账户胶囊会重复显示。
+     *
+     * 投影只取展示需要的列，`a.*` 里的同步记账列（dirty/serverSeq）用不上，
+     * 交给 Room 重写查询裁掉，免得 KSP 报「列未被投影使用」的告警。
      */
+    @RewriteQueriesToDropUnusedColumns
     @Query(
         """
         SELECT a.*, a.initialBalance + COALESCE(SUM(CASE
@@ -69,7 +77,7 @@ interface LedgerAssetDao {
     @Update
     suspend fun update(asset: LedgerAsset)
 
-    @Query("UPDATE ledger_assets SET deletedAt = :deletedAt, updatedAt = :deletedAt WHERE id = :id")
+    @Query("UPDATE ledger_assets SET deletedAt = :deletedAt, updatedAt = :deletedAt, dirty = 1 WHERE id = :id")
     suspend fun softDelete(id: Long, deletedAt: Long)
 
     @Query("SELECT COUNT(*) FROM ledger_assets")

@@ -9,6 +9,7 @@ import coil.disk.DiskCache
 import com.goodyaoshi.lemonbox.data.imagecloud.ImageCloudConfig
 import com.goodyaoshi.lemonbox.data.imagecloud.ImageCloudPreferences
 import com.goodyaoshi.lemonbox.data.imagecloud.ImageCloudSyncScheduler
+import com.goodyaoshi.lemonbox.data.remote.SyncSessionStore
 import com.goodyaoshi.lemonbox.data.repository.LedgerPlanningRepository
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import com.goodyaoshi.lemonbox.data.sync.CloudSyncScheduler
@@ -67,6 +68,9 @@ class LemonApplication : Application(), Configuration.Provider, ImageLoaderFacto
     lateinit var cloudSyncScheduler: CloudSyncScheduler
 
     @Inject
+    lateinit var syncSessionStore: SyncSessionStore
+
+    @Inject
     lateinit var cloudSyncTrigger: CloudSyncTrigger
 
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -93,11 +97,11 @@ class LemonApplication : Application(), Configuration.Provider, ImageLoaderFacto
             enabled = imageCloudPreferences.enabled.value,
             backgroundSync = imageCloudPreferences.backgroundSync.value
         )
-        // 多设备同步：按「正式包 + 用户已开启」排期；未开启则撤掉。
+        // 多设备同步：按「正式包 + 已登录 + 用户已开启」排期；未登录视为纯本地，不注册后台唤醒。
         // 用云同步自己的开关，不看图片上传开关——两者取舍不同。
         cloudSyncScheduler.syncSchedule(
             supported = imageCloudConfig.supported,
-            enabled = imageCloudPreferences.cloudSyncEnabled.value
+            enabled = imageCloudPreferences.cloudSyncEnabled.value && syncSessionStore.isLoggedIn
         )
         // 即时触发：回到前台 / 本地写入后同步。冷启动的首次 onStart 也在其覆盖内，
         // 故不再单独在此处启动一次同步。

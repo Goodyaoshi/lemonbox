@@ -14,6 +14,7 @@ import com.goodyaoshi.lemonbox.data.local.dao.LocationDao
 import com.goodyaoshi.lemonbox.data.local.dao.PackingItemDao
 import com.goodyaoshi.lemonbox.data.local.dao.PackingTripDao
 import com.goodyaoshi.lemonbox.data.local.dao.ReminderDao
+import com.goodyaoshi.lemonbox.data.local.dao.RemoteSyncDao
 import com.goodyaoshi.lemonbox.data.local.dao.TimeCapsuleDao
 import com.goodyaoshi.lemonbox.data.local.database.AppDatabase
 import dagger.Module
@@ -78,4 +79,7 @@ object DatabaseModule {
 
     @Provides
     fun providePackingItemDao(database: AppDatabase): PackingItemDao = database.packingItemDao()
+
+    @Provides
+    fun provideRemoteSyncDao(database: AppDatabase): RemoteSyncDao = database.remoteSyncDao()
 }

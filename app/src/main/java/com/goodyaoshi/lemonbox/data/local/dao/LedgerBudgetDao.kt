@@ -8,6 +8,9 @@ import androidx.room.Update
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerBudget
 import kotlinx.coroutines.flow.Flow
 
+/**
+ * 写操作一律带 `dirty = 1`（P6）：本机改动要被增量同步捞出来，漏标就会静默不上传。
+ */
 @Dao
 interface LedgerBudgetDao {
 
@@ -32,7 +35,7 @@ interface LedgerBudgetDao {
     suspend fun update(budget: LedgerBudget)
 
     /** 软删除（写墓碑），取消预算时用；保留记录以便把「取消」同步给其他设备。 */
-    @Query("UPDATE ledger_budgets SET deletedAt = :deletedAt, updatedAt = :deletedAt WHERE id = :id")
+    @Query("UPDATE ledger_budgets SET deletedAt = :deletedAt, updatedAt = :deletedAt, dirty = 1 WHERE id = :id")
     suspend fun softDelete(id: Long, deletedAt: Long)
 
     @Query("SELECT COUNT(*) FROM ledger_budgets")

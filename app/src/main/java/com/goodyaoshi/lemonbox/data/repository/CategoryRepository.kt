@@ -27,12 +27,12 @@ class CategoryRepository @Inject constructor(
         return collectDescendantIds(rootId, all) + rootId
     }
 
-    suspend fun insert(category: Category): Long = categoryDao.insert(category)
+    suspend fun insert(category: Category): Long = categoryDao.insert(category.copy(dirty = true))
 
     suspend fun update(category: Category) {
         // 内置保护分类（食品及其食材子树）是菜谱匹配与默认规则的基础，不允许改写。
         if (category.isProtected) return
-        categoryDao.update(category.copy(updatedAt = MonotonicClock.now()))
+        categoryDao.update(category.copy(updatedAt = MonotonicClock.now(), dirty = true))
     }
 
     /**
@@ -46,7 +46,7 @@ class CategoryRepository @Inject constructor(
         val targets = collectDescendantIds(category.id, all) + category.id
         targets.forEach { id ->
             all.firstOrNull { it.id == id }?.let { entity ->
-                categoryDao.update(entity.copy(deletedAt = now, updatedAt = now))
+                categoryDao.update(entity.copy(deletedAt = now, updatedAt = now, dirty = true))
             }
         }
     }
@@ -121,7 +121,7 @@ class CategoryRepository @Inject constructor(
     }
 
     /** 合并导入专用：保留备份中的 id 与 updatedAt。 */
-    suspend fun insertSynced(category: Category): Long = categoryDao.insert(category)
+    suspend fun insertSynced(category: Category): Long = categoryDao.insert(category.copy(dirty = false))
 
-    suspend fun updateSynced(category: Category) = categoryDao.update(category)
+    suspend fun updateSynced(category: Category) = categoryDao.update(category.copy(dirty = false))
 }

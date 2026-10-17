@@ -6,6 +6,7 @@ import android.content.Context
 import android.os.Bundle
 import androidx.room.invalidationTrackerFlow
 import com.goodyaoshi.lemonbox.data.local.database.AppDatabase
+import com.goodyaoshi.lemonbox.data.remote.RemoteSyncManager
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -29,8 +30,8 @@ import javax.inject.Singleton
  * 2. **本地写入后**：任意同步表发生变化，等一小段静默（[WRITE_DEBOUNCE_MS]）再同步一次，
  *    把「改完立即推上去」变成常态，而不必等下一次前台切换或后台任务。
  *
- * 与周期性任务的关系：三者并存、互为兜底。未就绪（没配凭据 / debug 包）时
- * [CloudSyncManager.syncNow] 内部会直接返回，故这里不必再判开关。
+ * 与周期性任务的关系：三者并存、互为兜底。未登录 / 未开启多设备同步时
+ * [RemoteSyncManager.syncNow] 内部会直接返回，故这里不必再判开关。
  *
  * **不会自我循环**：同步自身写库（拉取合并）也会触发本层，但合并对「无变化的记录」
  * 不落库（见 `BackupMergeStrategy` 的 `isRemoteNewer` 判断），于是一轮空同步后不再产生
@@ -40,7 +41,7 @@ import javax.inject.Singleton
 class CloudSyncTrigger @Inject constructor(
     @ApplicationContext private val context: Context,
     private val database: AppDatabase,
-    private val cloudSyncManager: CloudSyncManager
+    private val syncManager: RemoteSyncManager
 ) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -100,7 +101,7 @@ class CloudSyncTrigger @Inject constructor(
         val now = System.currentTimeMillis()
         if (now - lastTriggerAt.get() < minIntervalMs) return
         lastTriggerAt.set(now)
-        scope.launch { cloudSyncManager.syncNow() }
+        scope.launch { syncManager.syncNow() }
     }
 
     private companion object {

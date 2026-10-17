@@ -1140,6 +1140,43 @@ class AppBackupManager @Inject constructor(
      * 父级/所属分类不在包内，导入端会解析不到而丢失关联。
      */
     suspend fun createBackupZip(since: Long? = null): BackupArchive {
+        val built = buildPayload(since)
+        val workingFile = File(context.cacheDir, "lemonbox-backup-${System.currentTimeMillis()}.zip")
+        writePayloadZipTo(built.payload, workingFile)
+        return BackupArchive(file = workingFile, exportedAt = built.exportedAt, isEmpty = built.isEmpty)
+    }
+
+    /**
+     * 逐条列出本机全部记录（**不打包**），供服务端按记录同步推送。
+     *
+     * 与 [createBackupZip] 同一套读库与映射：载荷仍是 `BackupSnapshots` 的 DTO，
+     * 只是从「一个 ZIP」改成「一批 (集合, syncId, 载荷)」，让服务端能按条合并。
+     */
+    suspend fun snapshotRecords(): List<SyncRecord> =
+        buildPayload(since = null).payload.toSyncRecords()
+
+    /**
+     * 把一份清单写成备份 ZIP（清单 + 完整性校验条目），供服务端拉取重组后走既有导入通道。
+     */
+    fun writePayloadZipTo(payload: AppBackupPayload, target: File) {
+        val manifestBytes = json.encodeToString(payload).toByteArray()
+        ZipOutputStream(FileOutputStream(target)).use { zip ->
+            zip.putNextEntry(ZipEntry(BACKUP_MANIFEST_NAME))
+            zip.write(manifestBytes)
+            zip.closeEntry()
+
+            // 完整性校验（F21）：把清单的 SHA-256 单独存一条，导入/预览时比对，
+            // 便于发现文件损坏或被外部改动。旧备份没有该条目，校验时按缺失跳过。
+            zip.putNextEntry(ZipEntry(BACKUP_CHECKSUM_NAME))
+            zip.write(sha256Hex(manifestBytes).toByteArray())
+            zip.closeEntry()
+        }
+    }
+
+    /**
+     * 读全库并组装成一份清单；[since] 的过滤语义见 [createBackupZip]。
+     */
+    private suspend fun buildPayload(since: Long?): BuiltPayload {
         val exportedAt = System.currentTimeMillis()
 
         val allCategories = categoryRepository.getAllCategoriesSnapshot()
@@ -1235,7 +1272,6 @@ class AppBackupManager @Inject constructor(
             allLedgerRules.filter { (it.updatedAt ?: it.createdAt) > since }
         }
 
-        val workingFile = File(context.cacheDir, "lemonbox-backup-${System.currentTimeMillis()}.zip")
         // 增量导出且过滤后一条不剩，说明自上次水位线以来本机没改过任何东西。
         // 全量导出恒为 false：即便库是空的，那份包也是「完整状态」的代表，不是"无变更"。
         val isEmpty = since != null &&
@@ -1340,21 +1376,7 @@ class AppBackupManager @Inject constructor(
             )
         )
 
-        val manifestBytes = json.encodeToString(backup).toByteArray()
-
-        ZipOutputStream(FileOutputStream(workingFile)).use { zip ->
-            zip.putNextEntry(ZipEntry(BACKUP_MANIFEST_NAME))
-            zip.write(manifestBytes)
-            zip.closeEntry()
-
-            // 完整性校验（F21）：把清单的 SHA-256 单独存一条，导入/预览时比对，
-            // 便于发现文件损坏或被外部改动。旧备份没有该条目，校验时按缺失跳过。
-            zip.putNextEntry(ZipEntry(BACKUP_CHECKSUM_NAME))
-            zip.write(sha256Hex(manifestBytes).toByteArray())
-            zip.closeEntry()
-        }
-
-        return BackupArchive(file = workingFile, exportedAt = exportedAt, isEmpty = isEmpty)
+        return BuiltPayload(payload = backup, exportedAt = exportedAt, isEmpty = isEmpty)
     }
 
     private fun unzip(zipFile: File, targetDir: File) {
@@ -1412,6 +1434,13 @@ class AppBackupManager @Inject constructor(
         // 合并用的对齐键与新旧比较已随合并策略拆分到 BackupMergeStrategy.kt（F9）。
     }
 }
+
+/** [AppBackupManager.buildPayload] 的产物：清单本体 + 导出时刻 + 「过滤后是否一条不剩」。 */
+private data class BuiltPayload(
+    val payload: AppBackupPayload,
+    val exportedAt: Long,
+    val isEmpty: Boolean
+)
 
 /** diff 里不展示的字段：设备本地行 id、对齐键、图片槽位（哈希），旧版单值状态。 */
 private val DIFF_EXCLUDED_FIELDS = setOf("id", "syncId", "imageHashes", "status")

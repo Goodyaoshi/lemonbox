@@ -96,6 +96,12 @@ sealed class Screen(val route: String) {
     /** 云存储（F20）：把家当图片上传到 S3 兼容对象存储，仅正式包支持。 */
     data object ImageCloud : Screen("image-cloud")
 
+    /**
+     * 云端账号：登录后才启用多设备同步；未登录视为纯本地，云入口一律不动作。
+     * 账号由服务端预先配置，客户端不内置账号密码。
+     */
+    data object SyncLogin : Screen("sync-login")
+
     data object ToBuy : Screen("to-buy")
     data object Trash : Screen("trash")
     data object Expiry : Screen("expiry")
