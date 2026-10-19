@@ -16,12 +16,13 @@ fun String.asBuildConfigLiteral(): String =
 
 /**
  * 同步服务端地址：Worker 的公开域名，**不是密钥**（对象存储的 AK/SK 只存在 Worker 里）。
- * CI 可用 ORG_GRADLE_PROJECT_LEMON_SYNC_BASE_URL 覆盖（如换成绑定的自定义域），
- * 本地自建 release 包则用默认域名，保证「直接分发 APK」这条路也能同步。
+ * 默认值即绑定的自定义域（workers.dev 在国内被 DNS 污染 + SNI 阻断，不可作为默认）。
+ * CI 可用 ORG_GRADLE_PROJECT_LEMON_SYNC_BASE_URL 覆盖，
+ * 保证「直接分发 APK」这条路也能同步。
  */
 val syncBaseUrl = (findProperty("LEMON_SYNC_BASE_URL") as String?)
     ?.takeIf { it.isNotBlank() }
-    ?: "https://lemonbox.goodyaoshi.workers.dev"
+    ?: "https://lemonbox.goodyaoshi.eu.cc"
 
 android {
     namespace = "com.goodyaoshi.lemonbox"
@@ -35,8 +36,8 @@ android {
         // （major*1000000 + minor*10000 + patch*100），与 CI 从 tag 推导的规则一致
         // （见 .github/workflows/release.yml），保证只增不减。
         // 版本号只在用户明确要求时调整，不自动变更。
-        versionCode = (findProperty("lemonVersionCode") as String?)?.toIntOrNull() ?: 1400
-        versionName = (findProperty("lemonVersionName") as String?) ?: "0.0.14"
+        versionCode = (findProperty("lemonVersionCode") as String?)?.toIntOrNull() ?: 1500
+        versionName = (findProperty("lemonVersionName") as String?) ?: "0.0.15"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         // 原生库 ABI 收敛（F17）：本应用以「直接分发 APK」为主（见文件末尾的 copyReleaseApkForDistribution），
