@@ -59,7 +59,7 @@ class ImageObjectKeysTest {
     @Test
     fun key_needsNoPercentEncodingForHexHash() {
         val key = ImageObjectKeys.forContentHash("lemonbox", hashA)
-        assertEquals(key, S3Signer.uriEncode(key, encodeSlash = false))
+        assertTrue(key.all { it in "0123456789abcdefghijklmnopqrstuvwxyz/._" })
     }
 
     @Test

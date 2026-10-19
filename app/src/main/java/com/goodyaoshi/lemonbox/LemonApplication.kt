@@ -5,7 +5,8 @@ import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
 import coil.ImageLoader
 import coil.ImageLoaderFactory
-import coil.disk.DiskCache
+import com.goodyaoshi.lemonbox.data.imagecloud.CloudImageFetcherFactory
+import com.goodyaoshi.lemonbox.data.imagecloud.CloudImageModelKeyer
 import com.goodyaoshi.lemonbox.data.imagecloud.ImageCloudConfig
 import com.goodyaoshi.lemonbox.data.imagecloud.ImageCloudPreferences
 import com.goodyaoshi.lemonbox.data.imagecloud.ImageCloudSyncScheduler
@@ -57,6 +58,9 @@ class LemonApplication : Application(), Configuration.Provider, ImageLoaderFacto
 
     @Inject
     lateinit var imageCloudSyncScheduler: ImageCloudSyncScheduler
+
+    @Inject
+    lateinit var cloudImageFetcherFactory: CloudImageFetcherFactory
 
     @Inject
     lateinit var imageCloudPreferences: ImageCloudPreferences
@@ -133,28 +137,18 @@ class LemonApplication : Application(), Configuration.Provider, ImageLoaderFacto
             .build()
 
     /**
-     * 图片加载器的磁盘缓存（F20）。
+     * 应用级图片加载器（F22 / P8）。
      *
-     * 为什么必须显式配置：云端图片的预签名 URL 每次都不同，若沿用「以 URL 为缓存键」的默认行为，
-     * 缓存永远不命中、每帧都可能重新下载，离线更是一张都看不到。配合
-     * [com.goodyaoshi.lemonbox.data.imagecloud.ImageUrlResolver] 把缓存键固定为对象键
-     * （内容哈希），同一张图无论取回多少次都命中同一份磁盘缓存。
-     *
-     * 容量取 256MB：家当图片以缩略浏览为主，这个量级足以覆盖常用图；超出后 Coil 按 LRU 淘汰。
-     * 沿用 Coil 的其他默认行为（不额外开 crossfade 等），避免顺带改变现有本地图片的观感。
+     * 云端图片由自定义取图器 [CloudImageFetcherFactory] 加载（预签名 URL 需网络往返，
+     * 挪进取图器的挂起阶段），其下载直接落进 ImageRestoreStore，持久缓存由它负责，
+     * 因此不再配置 Coil 的磁盘缓存。内存缓存键经 [CloudImageModelKeyer] 固定为对象键
+     * （内容哈希），同一张图无论取回多少次都命中同一份。
      */
     override fun newImageLoader(): ImageLoader =
         ImageLoader.Builder(this)
-            .diskCache {
-                DiskCache.Builder()
-                    .directory(cacheDir.resolve(IMAGE_DISK_CACHE_DIR))
-                    .maxSizeBytes(IMAGE_DISK_CACHE_MAX_BYTES)
-                    .build()
+            .components {
+                add(CloudImageModelKeyer())
+                add(cloudImageFetcherFactory)
             }
             .build()
-
-    private companion object {
-        const val IMAGE_DISK_CACHE_DIR = "image_cache"
-        const val IMAGE_DISK_CACHE_MAX_BYTES = 256L * 1024 * 1024
-    }
 }

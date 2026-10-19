@@ -80,12 +80,4 @@ class ImageCloudConfig @Inject constructor(
      * 对象键前缀：由服务端配置（Worker secret），**不下发到客户端**，故此处恒为空串。
      */
     fun prefix(): String = ""
-
-    /**
-     * 过渡保留：客户端已不再持有对象存储凭据，此处恒为 null。
-     *
-     * 旧的 S3 直连链路（[ImageCloudSyncManager]、[ImageUrlResolver]）拿到 null 即不动作，
-     * 待其切换到 Worker 预签名 URL 后连同本方法一并删除。
-     */
-    fun resolve(): S3Config? = null
 }

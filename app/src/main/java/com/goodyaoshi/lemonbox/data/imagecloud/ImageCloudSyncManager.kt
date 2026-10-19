@@ -60,7 +60,7 @@ private data class ImageToSync(
  * 图片云端同步编排（F22）。
  *
  * 幂等来自「对象键 = 图片内容的 SHA-256」（见 [ImageObjectKeys]）：重复同步、多台设备
- * 同时同步同一张图，算出的键都相同，于是先 HEAD 探在、命中即跳过，不会重传或产生副本。
+ * 同时同步同一张图，算出的键都相同，于是先探在、命中即跳过，不会重传或产生副本。
  *
  * **不需要回写**：物品的图片槽位只存内容哈希（见 [Item.imageHashes]），对象键由哈希
  * 与服务端前缀推导。早先「上传成功后把对象键写回数据库」这一步因此整个消失——
@@ -74,7 +74,7 @@ class ImageCloudSyncManager @Inject constructor(
     @ApplicationContext private val context: Context,
     private val config: ImageCloudConfig,
     private val preferences: ImageCloudPreferences,
-    private val client: S3ImageClient,
+    private val gateway: BlobGateway,
     private val itemRepository: ItemRepository,
     private val ledger: ImageCloudUploadLedger,
     private val restoreStore: ImageRestoreStore
@@ -125,8 +125,7 @@ class ImageCloudSyncManager @Inject constructor(
         if (job?.isActive == true) return
         job = scope.launch {
             val readiness = config.readiness()
-            val s3 = config.resolve()
-            if (!readiness.ready || s3 == null) {
+            if (!readiness.ready) {
                 _state.value = ImageCloudSyncState(
                     running = false,
                     lastError = readiness.firstBlocker ?: "图片上传尚未就绪"
@@ -135,7 +134,7 @@ class ImageCloudSyncManager @Inject constructor(
                 return@launch
             }
             try {
-                performSync(s3, loader())
+                performSync(loader())
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -155,7 +154,6 @@ class ImageCloudSyncManager @Inject constructor(
      * 本地不再长期保留。删除受三道闸门保护，任一不过就保留，因此不会丢图。
      */
     private suspend fun performSync(
-        s3: S3Config,
         images: List<ImageToSync>
     ): SyncRunResult {
         _state.value = ImageCloudSyncState(running = true, total = images.size)
@@ -169,7 +167,7 @@ class ImageCloudSyncManager @Inject constructor(
         for (image in images) {
             _state.value = _state.value.copy(currentFile = image.file.name)
             var confirmedOnCloud = false
-            when (val result = uploadIfNeeded(s3, image.objectKey, image.hash, image.file)) {
+            when (val result = uploadIfNeeded(image.objectKey, image.file)) {
                 UploadResult.Uploaded -> {
                     uploaded++
                     confirmedOnCloud = true
@@ -189,7 +187,7 @@ class ImageCloudSyncManager @Inject constructor(
             // 只有云端确实拿到了这张图，才有资格动本地副本。
             // 不再需要回写对象键：键由哈希推导，库里那个哈希本来就够用。
             if (confirmedOnCloud) {
-                deleteLocalIfSafe(s3, image, hashRefCounts)
+                deleteLocalIfSafe(image, hashRefCounts)
             }
             _state.value = _state.value.copy(
                 uploaded = uploaded,
@@ -224,22 +222,19 @@ class ImageCloudSyncManager @Inject constructor(
      * 三道闸门，任一不过就保留本地副本（宁可多占一点空间，也不能丢图）：
      *  1. 该路径若被多个图片槽位引用（同一张图可能被选给多件物品），删掉会让别的图一起消失；
      *  2. 路径不在引用统计里（数据异常），保守不删；
-     *  3. **云端真的读得回来**——见 [S3ImageClient.verifyPresignedReadable]。
-     *     上传与读取是两条不同的签名路径，不先验证就删等于拿用户的照片赌一个未验证的假设。
+     *  3. **云端真的读得回来**——见 [BlobGateway.verifyReadable]。
+     *     上传与读取是两条不同的链路，不先验证就删等于拿用户的照片赌一个未验证的假设。
      *
      * 删除后物品的图片槽位（哈希）原样保留，因此主图与顺序都不会变；
      * 读取时发现本地文件不在，自动改用云端取图。
      */
     private suspend fun deleteLocalIfSafe(
-        s3: S3Config,
         image: ImageToSync,
         hashRefCounts: Map<String, Int>
     ) {
         val refCount = hashRefCounts[image.hash] ?: return
         if (refCount > 1) return
-        val readable = withContext(Dispatchers.IO) {
-            client.verifyPresignedReadable(s3, image.objectKey)
-        }
+        val readable = gateway.verifyReadable(image.objectKey)
         if (!readable) return
         ImageUtil.deleteImage(image.file.absolutePath)
     }
@@ -283,20 +278,21 @@ class ImageCloudSyncManager @Inject constructor(
 
     /** 探在 + 按需上传。已在云端时直接返回 [UploadResult.AlreadyExists]，不重传。 */
     private suspend fun uploadIfNeeded(
-        s3: S3Config,
         key: String,
-        hash: String,
         file: File
     ): UploadResult {
         if (knownRemoteKeys.contains(key)) return UploadResult.AlreadyExists
 
-        return when (val head = client.headObject(s3, key)) {
-            S3Outcome.Success -> {
+        val probe = gateway.probe(key)
+        return when {
+            probe.exists -> {
                 markKnown(key)
                 UploadResult.AlreadyExists
             }
 
-            S3Outcome.NotFound -> when (val put = client.putObject(s3, key, hash, file)) {
+            // 404 才是「云端确实没有」；其余状态（含 0 = 请求没走通）一律按失败处理，
+            // 绝不把「探测不了」当成「没有」去覆盖——那可能误传，更可能误删本地副本。
+            probe.status == HTTP_NOT_FOUND -> when (val put = gateway.upload(key, file)) {
                 S3Outcome.Success -> {
                     markKnown(key)
                     UploadResult.Uploaded
@@ -306,7 +302,7 @@ class ImageCloudSyncManager @Inject constructor(
                 S3Outcome.NotFound -> UploadResult.Failed("上传被拒绝")
             }
 
-            is S3Outcome.Error -> UploadResult.Failed(head.message)
+            else -> UploadResult.Failed(probe.message ?: "探测云端失败（${probe.status}）")
         }
     }
 
@@ -413,7 +409,7 @@ class ImageCloudSyncManager @Inject constructor(
     private suspend fun purgeCloudObjectsInternal(candidateKeys: Collection<String>) {
         val keys = candidateKeys.filter { it.isNotBlank() }.distinct()
         if (keys.isEmpty()) return
-        val s3 = config.resolve() ?: return
+        if (!config.isLoggedIn()) return
         withContext(Dispatchers.IO) {
             // 用**含软删物品**的全量快照统计引用：回收站里的物品随时可能被恢复，
             // 若把它们排除在外，就会出现「删掉回收站里另一个物品还在用的图」——
@@ -435,9 +431,9 @@ class ImageCloudSyncManager @Inject constructor(
             }
 
             for (key in purgeableCloudKeys(keys, stillReferenced)) {
-                when (client.deleteObject(s3, key)) {
-                    // S3 对不存在的键也返回成功，NotFound 同样算已达成删除意图。
-                    is S3Outcome.Success, S3Outcome.NotFound -> {
+                when {
+                    // 对不存在的键也算删除意图已达成。
+                    gateway.deleteObject(key) -> {
                         knownRemoteKeys.remove(key)
                         ledger.removeAll(listOf(key))
                         // 云端对象已删，本地回填副本随之作废，一并清掉免得白占空间。
@@ -455,9 +451,9 @@ class ImageCloudSyncManager @Inject constructor(
      * 未就绪时返回 [SyncRunResult.NotReady] 而不抛异常——配置缺失不该让后台任务反复重试。
      */
     suspend fun syncPendingNow(): SyncRunResult {
-        val s3 = config.resolve() ?: return SyncRunResult.NotReady
+        if (!config.readiness().ready) return SyncRunResult.NotReady
         return try {
-            performSync(s3, loadAllImages())
+            performSync(loadAllImages())
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -477,6 +473,10 @@ class ImageCloudSyncManager @Inject constructor(
     suspend fun countPendingUploads(): Int? = withContext(Dispatchers.IO) {
         if (!config.readiness().ready) return@withContext null
         loadAllImages().count { image -> image.objectKey !in knownRemoteKeys }
+    }
+
+    private companion object {
+        const val HTTP_NOT_FOUND = 404
     }
 }
 

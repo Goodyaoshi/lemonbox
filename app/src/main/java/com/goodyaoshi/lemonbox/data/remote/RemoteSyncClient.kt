@@ -126,6 +126,13 @@ class RemoteSyncClient @Inject constructor(
         return request(method, path, body, session.token, DATA_TIMEOUT_MS)
     }
 
+    /**
+     * 鉴权 JSON 请求，供对象存储网关（[com.goodyaoshi.lemonbox.data.imagecloud.BlobGateway]）
+     * 复用同一套会话令牌、超时与错误翻译；非 2xx 抛 [RemoteApiException]。
+     */
+    suspend fun authedJsonRequest(method: String, path: String, body: String?): String =
+        withContext(Dispatchers.IO) { authedRequest(method, path, body) }
+
     /** 发一个请求并读回响应体；非 2xx 抛 [RemoteApiException]。 */
     private fun request(
         method: String,
