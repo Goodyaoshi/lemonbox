@@ -146,14 +146,20 @@ interface LedgerRecordDao {
     suspend fun countRecordsByAsset(assetId: Long): Int
 
     /** 把挂到重复分类上的账单改挂到保留项，供去重清理使用。 */
-    @Query("UPDATE ledger_records SET categoryId = :toId, dirty = 1 WHERE categoryId = :fromId")
-    suspend fun reassignCategory(fromId: Long, toId: Long)
+    @Query(
+        "UPDATE ledger_records SET categoryId = :toId, updatedAt = :updatedAt, dirty = 1 WHERE categoryId = :fromId"
+    )
+    suspend fun reassignCategory(fromId: Long, toId: Long, updatedAt: Long)
 
     /** 把挂到重复账户上的账单改挂到保留项（支出/收入端），供去重清理使用。 */
-    @Query("UPDATE ledger_records SET assetId = :toId, dirty = 1 WHERE assetId = :fromId")
-    suspend fun reassignAsset(fromId: Long, toId: Long)
+    @Query(
+        "UPDATE ledger_records SET assetId = :toId, updatedAt = :updatedAt, dirty = 1 WHERE assetId = :fromId"
+    )
+    suspend fun reassignAsset(fromId: Long, toId: Long, updatedAt: Long)
 
     /** 转账账单的转入端账户改挂到保留项，供去重清理使用。 */
-    @Query("UPDATE ledger_records SET targetAssetId = :toId, dirty = 1 WHERE targetAssetId = :fromId")
-    suspend fun reassignTargetAsset(fromId: Long, toId: Long)
+    @Query(
+        "UPDATE ledger_records SET targetAssetId = :toId, updatedAt = :updatedAt, dirty = 1 WHERE targetAssetId = :fromId"
+    )
+    suspend fun reassignTargetAsset(fromId: Long, toId: Long, updatedAt: Long)
 }

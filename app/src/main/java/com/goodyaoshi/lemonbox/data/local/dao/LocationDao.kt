@@ -59,8 +59,10 @@ interface LocationDao {
     suspend fun reassignChildren(fromId: Long, toId: Long)
 
     /** 把挂在重复位置上的物品改挂到保留项，供去重清理使用。 */
-    @Query("UPDATE items SET locationId = :toId, dirty = 1 WHERE locationId = :fromId")
-    suspend fun reassignItemsToLocation(fromId: Long, toId: Long)
+    @Query(
+        "UPDATE items SET locationId = :toId, updatedAt = :updatedAt, dirty = 1 WHERE locationId = :fromId"
+    )
+    suspend fun reassignItemsToLocation(fromId: Long, toId: Long, updatedAt: Long)
 
     /** 软删除（写墓碑），去重清理用；保留记录以便把删除同步给其他设备。 */
     @Query("UPDATE locations SET deletedAt = :deletedAt, updatedAt = :deletedAt, dirty = 1 WHERE id = :id")

@@ -101,15 +101,15 @@ class FakeLedgerRecordDao(
     override suspend fun countRecordsByAsset(assetId: Long): Int =
         records.count { it.deletedAt == null && (it.assetId == assetId || it.targetAssetId == assetId) }
 
-    override suspend fun reassignCategory(fromId: Long, toId: Long) {
+    override suspend fun reassignCategory(fromId: Long, toId: Long, updatedAt: Long) {
         records.replaceAll { if (it.categoryId == fromId) it.copy(categoryId = toId) else it }
     }
 
-    override suspend fun reassignAsset(fromId: Long, toId: Long) {
+    override suspend fun reassignAsset(fromId: Long, toId: Long, updatedAt: Long) {
         records.replaceAll { if (it.assetId == fromId) it.copy(assetId = toId) else it }
     }
 
-    override suspend fun reassignTargetAsset(fromId: Long, toId: Long) {
+    override suspend fun reassignTargetAsset(fromId: Long, toId: Long, updatedAt: Long) {
         records.replaceAll { if (it.targetAssetId == fromId) it.copy(targetAssetId = toId) else it }
     }
 }

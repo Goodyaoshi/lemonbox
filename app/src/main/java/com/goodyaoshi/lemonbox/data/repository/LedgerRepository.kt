@@ -244,7 +244,7 @@ class LedgerRepository @Inject constructor(
             )!!
             group.forEach { dup ->
                 if (dup.id == keeper.id) return@forEach
-                recordDao.reassignCategory(dup.id, keeper.id)
+                recordDao.reassignCategory(dup.id, keeper.id, now)
                 mergeBudgetIntoKeeper(dup.id, keeper.id, now)
                 categoryDao.softDelete(dup.id, now)
                 removed++
@@ -269,8 +269,8 @@ class LedgerRepository @Inject constructor(
             val keeper = group.minByOrNull { it.syncId ?: "id:${it.id}" }!!
             group.forEach { dup ->
                 if (dup.id == keeper.id) return@forEach
-                recordDao.reassignAsset(dup.id, keeper.id)
-                recordDao.reassignTargetAsset(dup.id, keeper.id)
+                recordDao.reassignAsset(dup.id, keeper.id, now)
+                recordDao.reassignTargetAsset(dup.id, keeper.id, now)
                 assetDao.softDelete(dup.id, now)
                 removed++
             }

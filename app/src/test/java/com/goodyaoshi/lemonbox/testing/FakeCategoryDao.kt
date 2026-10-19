@@ -60,7 +60,7 @@ class FakeCategoryDao(
         }
     }
 
-    override suspend fun reassignItemsToCategory(fromId: Long, toId: Long) {
+    override suspend fun reassignItemsToCategory(fromId: Long, toId: Long, updatedAt: Long) {
         // 物品改挂由 FakeItemDao 负责，这里无需处理。
     }
 

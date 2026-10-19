@@ -99,7 +99,7 @@ class CategoryRepository @Inject constructor(
                     if (dup.id == keeper.id) return@forEach
                     // 必须先改挂子级与物品，再软删除：parentId 外键为 CASCADE，硬删会连带删掉子级。
                     categoryDao.reassignChildren(fromId = dup.id, toId = keeper.id)
-                    categoryDao.reassignItemsToCategory(fromId = dup.id, toId = keeper.id)
+                    categoryDao.reassignItemsToCategory(fromId = dup.id, toId = keeper.id, updatedAt = now)
                     categoryDao.softDelete(dup.id, now)
                     removed++
                 }
