@@ -12,10 +12,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -74,9 +76,12 @@ fun SelectionTopBar(
                 fontWeight = FontWeight.SemiBold,
                 color = OrangeStart,
                 modifier = Modifier
+                    // 触达面积达标（F7/P2-6）：热区对齐 48dp（视觉尺寸不变）。
+                    .minimumInteractiveComponentSize()
                     // 圆角走形状令牌（F6）：胶囊收敛到 CircleShape。
                     .clip(CircleShape)
-                    .clickable(onClick = onToggleSelectAll)
+                    // 切换选择声明 Button 角色（F8）。
+                    .clickable(role = Role.Button, onClick = onToggleSelectAll)
                     .padding(horizontal = 12.dp, vertical = 8.dp)
             )
         }
@@ -122,10 +127,12 @@ fun SelectionActionButton(
         color = content,
         textAlign = TextAlign.Center,
         modifier = modifier
+            // 触达面积达标（F7/P2-13）：批量按钮补 48dp 最小热区（视觉尺寸不变）。
+            .minimumInteractiveComponentSize()
             // 圆角走形状令牌（F6）：胶囊收敛到 CircleShape。
             .clip(CircleShape)
             .background(container)
-            .clickable(enabled = enabled, onClick = onClick)
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 9.dp)
     )
 }

@@ -9,6 +9,10 @@
  *
  * secrets（S3_* / ADMIN_TOKEN / MCP_TOKEN）只保存在 Cloudflare dashboard，
  * deploy 不会读取也不会覆盖它们；本地调试需要时手工创建 .dev.vars（已被 gitignore）。
+ *
+ * assets：把 web/ 目录作为静态资源随 Worker 一起发布（网页版，给没有安卓包
+ * 的设备用）。not_found_handling = "none" 表示只有命中真实静态文件才直接返回，
+ * 其余路径（/v1/*、/v1/blob/*、/mcp、/health）一律交给 worker.js 处理。
  */
 {
   "$schema": "https://unpkg.com/wrangler/config-schema.json",
@@ -16,6 +20,10 @@
   "main": "worker.js",
   "compatibility_date": "2025-10-01",
   "account_id": "5bc8fa89dce31312030f18dd77187b8a",
+  "assets": {
+    "directory": "./web",
+    "not_found_handling": "none"
+  },
   "d1_databases": [
     {
       "binding": "DB",

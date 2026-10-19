@@ -82,25 +82,28 @@ sealed class Screen(val route: String) {
 
     data object Meal : Screen("meal")
     data object RecipeLibrary : Screen("recipe-library")
-    data object Category : Screen("category")
+    data object Category : Screen("category") {
+        /**
+         * 深链到指定 Tab（P2-24）：tab=0 时返回的串与 [route] 完全一致，
+         * 保证设置页入口与家当页入口能命中同一目的地，不会并存两份家当设置页。
+         */
+        fun createRoute(tab: Int = 0): String = if (tab == 0) route else "category?tab=$tab"
+    }
     data object Profile : Screen("profile")
     data object Settings : Screen("settings")
     data object LanSync : Screen("lan-sync")
 
-    /** 数据中心（IA-1）：设备同步与数据导出的统一二级页，从「我的」拆出减轻过载。 */
+    /** 数据中心（IA-1）：设备同步与云端同步的统一二级页，从「我的」拆出减轻过载。 */
     data object DataCenter : Screen("data-center")
 
     /** 通知可靠性（SET1）：电池白名单、自启动与常驻保活的独立二级页。 */
     data object NotificationReliability : Screen("notification-reliability")
 
-    /** 云存储（F20）：把家当图片上传到 S3 兼容对象存储，仅正式包支持。 */
-    data object ImageCloud : Screen("image-cloud")
-
     /**
-     * 云端账号：登录后才启用多设备同步；未登录视为纯本地，云入口一律不动作。
-     * 账号由服务端预先配置，客户端不内置账号密码。
+     * 云存储与同步（F20 · IA 合并）：图片上传 + 多设备数据同步 + 云端账号登录/退出，
+     * 三项同一页完成。登录后才启用多设备同步；未登录视为纯本地，云入口一律不动作。
      */
-    data object SyncLogin : Screen("sync-login")
+    data object ImageCloud : Screen("image-cloud")
 
     /** 同步诊断（P9）：逐表对账、冲突留痕、设备列表与「以服务端为准重建」。 */
     data object SyncDiagnostics : Screen("sync-diagnostics")

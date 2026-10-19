@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
@@ -43,9 +44,11 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
+import com.goodyaoshi.lemonbox.ui.components.DeleteCopy
 import com.goodyaoshi.lemonbox.ui.components.EmptyState
 import com.goodyaoshi.lemonbox.ui.components.ExpiryPickerDialog
 import com.goodyaoshi.lemonbox.ui.components.LemonFab
+import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
 import com.goodyaoshi.lemonbox.ui.components.SwipeActionSpec
 import com.goodyaoshi.lemonbox.ui.components.SwipeRevealItem
 import com.goodyaoshi.lemonbox.ui.theme.LemonEnd
@@ -73,6 +76,10 @@ fun PackingListScreen(
     val rows by viewModel.rows.collectAsState()
     var showCreate by remember { mutableStateOf(false) }
     var openedKey by remember { mutableStateOf<Any?>(null) }
+    // 删除前先确认（P1）：滑动删除行程原先划一下就没了，还连带删掉整个清单；
+    // 现在补二次确认，确认后仍可在提示条里撤销。
+    var pendingDelete by remember { mutableStateOf<PackingTripRow?>(null) }
+    val appSnackbar = LocalAppSnackbar.current
 
     Box(modifier = Modifier.fillMaxSize()) {
         AppDecorativeBackground()
@@ -109,14 +116,20 @@ fun PackingListScreen(
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState())
             ) {
-                TripContent(
-                    rows = rows,
-                    openedKey = openedKey,
-                    onOpenedChange = { openedKey = it },
-                    onOpen = onOpenTrip,
-                    onDelete = viewModel::deleteTrip,
-                    onAdd = { showCreate = true }
-                )
+                // 最大内容宽度约束并居中（P3-24）：宽屏下不再左右铺满，行宽与其它页一致。
+                Box(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentAlignment = Alignment.TopCenter
+                ) {
+                    TripContent(
+                        rows = rows,
+                        openedKey = openedKey,
+                        onOpenedChange = { openedKey = it },
+                        onOpen = onOpenTrip,
+                        onRequestDelete = { pendingDelete = it },
+                        onAdd = { showCreate = true }
+                    )
+                }
                 Spacer(modifier = Modifier.height(120.dp))
             }
         }
@@ -140,6 +153,36 @@ fun PackingListScreen(
             }
         )
     }
+
+    pendingDelete?.let { target ->
+        AppDialog(
+            title = "删除行程",
+            onDismissRequest = { pendingDelete = null },
+            confirmText = "删除",
+            destructiveConfirm = true,
+            onConfirm = {
+                pendingDelete = null
+                viewModel.deleteTrip(target.trip.id) { undo ->
+                    // 删除完成后再挂提示条：撤销要拿到「删之前」的快照才能把条目一起救回来。
+                    if (undo != null) {
+                        appSnackbar?.showUndo("已删除「${target.trip.name}」", DeleteCopy.UNDO_ACTION) {
+                            viewModel.restoreTrip(undo)
+                        }
+                    }
+                }
+            }
+        ) {
+            Text(
+                text = if (target.totalCount > 0) {
+                    "这个行程连同里面的 ${target.totalCount} 件打包条目会一起删掉，删错了可以撤销。"
+                } else {
+                    "确定删除这个行程吗？删错了可以撤销。"
+                },
+                color = TextSecondary,
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+    }
 }
 
 @Composable
@@ -148,11 +191,13 @@ private fun TripContent(
     openedKey: Any?,
     onOpenedChange: (Any?) -> Unit,
     onOpen: (Long) -> Unit,
-    onDelete: (Long) -> Unit,
+    onRequestDelete: (PackingTripRow) -> Unit,
     onAdd: () -> Unit
 ) {
     Column(
         modifier = Modifier
+            // 最大内容宽度（P3-24）：配合外层的居中 Box 生效，最大 600dp。
+            .widthIn(max = 600.dp)
             .fillMaxWidth()
             .padding(horizontal = 20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -175,7 +220,7 @@ private fun TripContent(
                             label = "删除",
                             icon = Icons.Default.Delete,
                             backgroundColor = StatusExpired
-                        ) { onDelete(row.trip.id) }
+                        ) { onRequestDelete(row) }
                     )
                 ) { closeActions, _ ->
                     TripCard(row = row, onClick = {

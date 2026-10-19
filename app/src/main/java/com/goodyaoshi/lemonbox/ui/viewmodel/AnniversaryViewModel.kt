@@ -217,4 +217,9 @@ class AnniversaryEditViewModel @Inject constructor(
             onDone()
         }
     }
+
+    /** 撤销编辑页删除（P3-18）：按删除前快照清墓碑复活，与列表页撤销同一语义。 */
+    fun restore(snapshot: Anniversary) {
+        viewModelScope.launch { anniversaryRepository.restore(snapshot) }
+    }
 }

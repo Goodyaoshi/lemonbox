@@ -9,6 +9,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContract
@@ -104,6 +105,14 @@ fun rememberGalleryPickerLauncher(
             .onFailure { contentFallback.launch("image/*") }
     }
 
+    // 旧设备回落路径：ACTION_PICK 只支持单选，[allowMultiple] 会被静默降级。
+    // 降级对用户是「以为能多选、结果只回来一张」，因此进入回落后先明确提示一次（P3-7）。
+    fun notifySingleOnly() {
+        if (allowMultiple) {
+            Toast.makeText(context, "此设备一次只能选一张图片", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     // 旧设备路径：先要权限，拿到后再进图库。
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -113,10 +122,14 @@ fun rememberGalleryPickerLauncher(
         if (usePhotoPicker) {
             val request = PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
             if (allowMultiple) multiplePicker.launch(request) else singlePicker.launch(request)
-        } else if (context.hasGalleryReadPermission()) {
-            openGallery()
         } else {
-            permissionLauncher.launch(context.galleryReadPermission)
+            // 无系统 Photo Picker：走 ACTION_PICK 回落，多选会被降级，先提示再进入（P3-7）。
+            notifySingleOnly()
+            if (context.hasGalleryReadPermission()) {
+                openGallery()
+            } else {
+                permissionLauncher.launch(context.galleryReadPermission)
+            }
         }
     }
 }

@@ -67,6 +67,9 @@ import java.util.Locale
 @Composable
 fun SyncDiagnosticsScreen(
     onBack: () -> Unit,
+    // 空态直达「云端同步」页（P2-23）：诊断只对已登录并开启多设备同步的设备有意义，
+    // 未连接时给一条去登录/开开关的路，别让用户停在纯说明文案前。
+    onOpenCloudSync: () -> Unit = {},
     viewModel: SyncDiagnosticsViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -114,10 +117,16 @@ fun SyncDiagnosticsScreen(
                         )
                         Text(
                             text = "诊断只对「已登录并开启多设备同步」的设备有意义。"
-                                + "请先在云存储与同步页登录并打开同步开关。",
+                                + "请先在「云端同步」页登录并打开同步开关。",
                             style = MaterialTheme.typography.bodyMedium,
                             color = TextSecondary,
                             modifier = Modifier.padding(top = 6.dp)
+                        )
+                        // 空态给出去处（P2-23）：直接跳到「云端同步」完成登录与开关。
+                        Spacer(modifier = Modifier.height(12.dp))
+                        GradientButton(
+                            text = "去云端同步",
+                            onClick = onOpenCloudSync
                         )
                     }
                     return@Column

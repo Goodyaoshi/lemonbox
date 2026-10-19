@@ -1,0 +1,1475 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#FDFBF7" media="(prefers-color-scheme: light)" />
+<meta name="theme-color" content="#17150F" media="(prefers-color-scheme: dark)" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<title>柠檬百宝箱</title>
+<style>
+:root{
+  --bg:#FDFBF7; --card:#FFFFFF; --card-2:#F6F1E9; --line:#EDE6DC;
+  --text:#2B2622; --sub:#7C736A; --hint:#AFA69C;
+  --brand:#EE9420; --brand-soft:#FBEFDD; --lemon:#F7D046; --danger:#D9534F;
+  --shadow:0 6px 20px rgba(120,95,60,.10);
+  --r-lg:20px; --r-md:14px; --r-sm:10px;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#17150F; --card:#231F19; --card-2:#2C2720; --line:#332D25;
+    --text:#F3EEE7; --sub:#A79C92; --hint:#7E746A;
+    --brand:#F0A23C; --brand-soft:#3A2E1C; --lemon:#E7C33F; --danger:#E4786F;
+    --shadow:0 6px 20px rgba(0,0,0,.35);
+  }
+}
+*{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+html,body{margin:0; padding:0}
+body{
+  background:var(--bg); color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif;
+  font-size:15px; line-height:1.5;
+  padding-bottom:calc(72px + env(safe-area-inset-bottom));
+}
+.shell{max-width:600px; margin:0 auto; padding:0 16px}
+.topbar{
+  position:sticky; top:0; z-index:20;
+  background:color-mix(in srgb, var(--bg) 86%, transparent);
+  backdrop-filter:saturate(180%) blur(14px);
+  border-bottom:1px solid var(--line);
+  padding-top:env(safe-area-inset-top);
+}
+.topbar-in{max-width:600px; margin:0 auto; padding:10px 16px; display:flex; align-items:center; gap:10px}
+.logo{
+  width:34px;height:34px;border-radius:12px; flex:none;
+  background:linear-gradient(140deg,var(--lemon),var(--brand));
+  display:grid;place-items:center;font-size:19px;
+}
+.topbar h1{font-size:17px; margin:0; font-weight:700; letter-spacing:.2px}
+.topbar .who{font-size:12px; color:var(--sub); margin-top:1px}
+.top-actions{margin-left:auto; display:flex; gap:6px}
+.iconbtn{
+  border:1px solid var(--line); background:var(--card); color:var(--text);
+  min-width:40px;min-height:40px; border-radius:12px; font-size:16px; cursor:pointer;
+  display:grid; place-items:center;
+}
+.iconbtn:disabled{opacity:.45}
+
+h2.sect{
+  font-size:13px; color:var(--sub); font-weight:600; letter-spacing:.3px;
+  margin:22px 0 8px; display:flex; align-items:center; gap:8px;
+}
+h2.sect::before{content:""; width:4px;height:13px;border-radius:2px;background:var(--brand)}
+.card{
+  background:var(--card); border-radius:var(--r-lg);
+  box-shadow:var(--shadow); overflow:hidden;
+}
+.card.pad{padding:14px}
+.row{
+  display:flex; align-items:center; gap:10px;
+  padding:12px 14px; min-height:56px; cursor:pointer;
+  border-bottom:1px solid var(--line);
+}
+.row:last-child{border-bottom:0}
+.row .grow{flex:1; min-width:0}
+.row .t{font-weight:600; font-size:15px}
+.row .s{font-size:12.5px; color:var(--hint); margin-top:2px;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.row .chev{color:var(--hint); flex:none; font-size:15px}
+.ico{
+  width:36px;height:36px;border-radius:12px;flex:none;
+  background:var(--brand-soft); display:grid; place-items:center; font-size:18px;
+}
+.pill{
+  display:inline-flex; align-items:center; gap:4px;
+  background:var(--card-2); color:var(--sub);
+  border-radius:999px; padding:2px 9px; font-size:12px; white-space:nowrap;
+}
+.pill.warn{background:color-mix(in srgb,var(--danger) 14%, transparent); color:var(--danger)}
+.pill.brand{background:var(--brand-soft); color:var(--brand)}
+.muted{color:var(--sub)}
+.small{font-size:12.5px}
+.tiny{font-size:11.5px}
+.center{text-align:center}
+.empty{padding:34px 18px; text-align:center; color:var(--hint)}
+.empty .big{font-size:30px; margin-bottom:8px}
+
+.btn{
+  appearance:none; border:0; cursor:pointer; font:inherit; font-weight:600;
+  min-height:46px; border-radius:var(--r-md); padding:0 16px;
+  display:inline-flex; align-items:center; justify-content:center; gap:6px;
+  background:var(--card-2); color:var(--text);
+}
+.btn.primary{background:linear-gradient(135deg,var(--lemon),var(--brand)); color:#3A2A06}
+.btn.ghost{background:transparent; color:var(--brand); border:1px solid var(--line)}
+.btn.danger{background:transparent; color:var(--danger)}
+.btn.block{width:100%}
+.btn:disabled{opacity:.5; cursor:not-allowed}
+.btn.sm{min-height:38px; padding:0 12px; font-size:13.5px; border-radius:var(--r-sm)}
+
+input,select,textarea{
+  font:inherit; width:100%; color:var(--text);
+  background:var(--card-2); border:1px solid var(--line);
+  border-radius:var(--r-md); padding:11px 12px; min-height:46px;
+}
+textarea{min-height:78px; resize:vertical}
+input[type=date]{min-height:46px}
+label.f{display:block; margin-bottom:10px}
+label.f > span{display:block; font-size:12.5px; color:var(--sub); margin-bottom:5px}
+.seg{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px}
+.seg .chip{
+  border:1px solid var(--line); background:var(--card-2); color:var(--sub);
+  border-radius:999px; padding:8px 14px; font-size:13.5px; cursor:pointer; min-height:38px;
+  display:inline-flex; align-items:center;
+}
+.seg .chip.on{background:var(--brand); border-color:var(--brand); color:#fff}
+.seg .chip.on.plain{background:var(--brand-soft); color:var(--brand); border-color:transparent}
+
+/* 底部导航 */
+.tabbar{
+  position:fixed; left:0; right:0; bottom:0; z-index:30;
+  background:color-mix(in srgb, var(--card) 94%, transparent);
+  backdrop-filter:saturate(180%) blur(16px);
+  border-top:1px solid var(--line);
+  padding-bottom:env(safe-area-inset-bottom);
+}
+.tabbar-in{max-width:600px; margin:0 auto; display:flex}
+.tab{
+  flex:1; border:0; background:transparent; cursor:pointer; font:inherit;
+  color:var(--hint); padding:8px 0 9px; min-height:60px;
+  display:flex; flex-direction:column; align-items:center; gap:2px; font-size:11px;
+}
+.tab .b{font-size:19px; line-height:1}
+.tab.on{color:var(--brand); font-weight:700}
+
+/* 浮层 */
+.scrim{position:fixed; inset:0; background:rgba(30,24,16,.42); z-index:40;
+  display:flex; align-items:flex-end; justify-content:center}
+@media (min-width:520px){ .scrim{align-items:center} }
+.sheet{
+  background:var(--card); width:100%; max-width:600px;
+  border-radius:22px 22px 0 0; max-height:88vh; overflow:auto;
+  padding:18px 16px calc(20px + env(safe-area-inset-bottom));
+}
+@media (min-width:520px){ .sheet{border-radius:22px; max-width:520px} }
+.sheet h3{margin:0 0 4px; font-size:17px}
+.sheet .desc{color:var(--sub); font-size:13px; margin-bottom:14px}
+.sheet-actions{display:flex; gap:10px; margin-top:16px}
+.sheet-actions .btn{flex:1}
+
+/* 底部提示条 */
+.snack{
+  position:fixed; left:12px; right:12px; bottom:calc(74px + env(safe-area-inset-bottom));
+  max-width:576px; margin:0 auto; z-index:50;
+  background:var(--text); color:var(--bg);
+  border-radius:14px; padding:12px 14px; box-shadow:var(--shadow);
+  display:flex; align-items:center; gap:10px; font-size:13.5px;
+}
+.snack button{
+  margin-left:auto; background:transparent; border:0; font:inherit; font-weight:700;
+  color:var(--lemon); cursor:pointer; min-height:34px; padding:0 6px;
+}
+.bar{height:6px;border-radius:999px;background:var(--card-2);overflow:hidden;margin-top:10px}
+.bar > i{display:block;height:100%;background:var(--brand);width:0;transition:width .18s}
+.list-img{width:100%; border-radius:var(--r-md); margin-top:8px; display:block}
+.kv{display:flex; gap:8px; padding:7px 0; border-bottom:1px solid var(--line); font-size:14px}
+.kv:last-child{border-bottom:0}
+.kv .k{color:var(--sub); flex:none; min-width:76px}
+.kv .v{flex:1; word-break:break-word}
+a{color:var(--brand)}
+</style>
+</head>
+<body>
+<div class="topbar" id="topbar"></div>
+<div class="shell" id="view"></div>
+<div class="tabbar" id="tabbar"></div>
+<div id="overlay"></div>
+<script>
+"use strict";
+/* =========================================================================
+ * 柠檬百宝箱 · 网页版（iOS Safari 可用，无需 Apple 开发者证书）
+ *
+ * 与安卓端共用同一个 Cloudflare Worker 同步中枢与同一套记录契约：
+ *   POST /v1/login   登录换令牌
+ *   GET  /v1/pull    增量拉取（includeSelf=1 拉全量）
+ *   POST /v1/push    按 baseSeq 推变更，服务端发现被人改过就报冲突
+ *   POST /v1/blob/url 取图片临时地址
+ *
+ * 写入策略：**只打补丁、整条回写**——从服务端拉到的载荷原样保留其余字段，
+ * 只改用户编辑的那几项，再整条 push。这样安卓端 decode 时字段一个不缺。
+ * 不做离线：所有写操作都需要联网。
+ * ========================================================================= */
+
+/* ----------------------------------------------------------- 集合与常量 */
+
+const COLL = {
+  CATEGORIES: "categories",
+  LOCATIONS: "locations",
+  ITEMS: "items",
+  ASSETS: "ledger_assets",
+  LEDGER_CATS: "ledger_categories",
+  LEDGER: "ledger_records",
+  BUDGETS: "ledger_budgets",
+  ANNIVERSARIES: "anniversaries",
+  REMINDERS: "reminders",
+  CAPSULES: "time_capsules",
+  TRIPS: "packing_trips",
+  PACK_ITEMS: "packing_items",
+  TEMPLATES: "ledger_templates",
+  RULES: "ledger_recurring_rules",
+  PREFERENCES: "preferences"
+};
+const PREF_KEY = "preferences";
+/** 对象键约定与服务端一致：images/<sha256>.jpg（见 ImageObjectKeys）。 */
+const imageKey = (hash) => `images/${String(hash).split("|")[0]}.jpg`;
+
+const USAGE = { UNUSED: 0, IN_USE: 1, USED_UP: 2 };
+const DISPO = { IN_STOCK: 0, LENT: 1, GIVEN: 2, DISCARDED: 3 };
+const USAGE_LABEL = { 0: "未使用", 1: "使用中", 2: "已用完" };
+const DISPO_LABEL = { 0: "在库", 1: "借出", 2: "已送人", 3: "已丢弃" };
+const LEDGER_TYPE = { 0: "支出", 1: "收入", 2: "转账" };
+const ANNIV_TYPE = { 0: "倒数日", 1: "正数日", 2: "生日" };
+const REPEAT_LABEL = { ONCE: "一次性", DAILY: "每天", INTERVAL: "隔几天", WEEKLY: "每周几" };
+const FOR_WHOM = { self: "给自己", partner: "给她/他", shared: "一起用" };
+
+/* --------------------------------------------------------------- 小工具 */
+
+const $ = (id) => document.getElementById(id);
+const uuid = () => (crypto.randomUUID ? crypto.randomUUID()
+  : "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+      const r = (Math.random() * 16) | 0;
+      return (c === "x" ? r : (r & 0x3) | 0x8).toString(16);
+    }));
+
+/** 极简 DOM 构造器：字符串一律走 textContent，杜绝把用户数据当 HTML 注入。 */
+function h(tag, attrs, ...kids) {
+  const node = document.createElement(tag);
+  if (attrs) {
+    for (const [k, v] of Object.entries(attrs)) {
+      if (v === null || v === undefined || v === false) continue;
+      if (k === "class") node.className = v;
+      else if (k === "text") node.textContent = v;
+      else if (k === "html") node.innerHTML = v;             // 仅用于本地常量图标
+      else if (k === "style") node.style.cssText = v;
+      else if (k.startsWith("on") && typeof v === "function") node.addEventListener(k.slice(2), v);
+      else if (k === "value") node.value = v;
+      else if (k === "checked" || k === "disabled" || k === "selected") node[k] = !!v;
+      else node.setAttribute(k, v);
+    }
+  }
+  for (const kid of kids.flat()) {
+    if (kid === null || kid === undefined || kid === false) continue;
+    node.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
+  }
+  return node;
+}
+const pad2 = (n) => String(n).padStart(2, "0");
+const dayKey = (ms) => { const d = new Date(ms); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; };
+const fmtDay = (ms) => { const d = new Date(ms); return `${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; };
+const fmtTime = (ms) => {
+  const d = new Date(ms), n = new Date();
+  const same = d.getFullYear() === n.getFullYear() && d.getMonth() === n.getMonth() && d.getDate() === n.getDate();
+  return (same ? "" : `${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} `) + `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+};
+const dayStart = (str) => { const [y, m, d] = str.split("-").map(Number); return new Date(y, m - 1, d).getTime(); };
+const yuan = (cents) => (Number(cents || 0) / 100).toFixed(2).replace(/\.00$/, "");
+const toCents = (text) => Math.round(Number(String(text).replace(/[^\d.]/g, "")) * 100) || 0;
+const daysUntil = (ms) => Math.ceil((ms - Date.now()) / 86400000);
+const esc = (s) => String(s ?? "");
+
+/* ------------------------------------------------------------ 会话与状态 */
+
+const LS_KEY = "lemonbox.web.session.v1";
+const LS_DEV = "lemonbox.web.device.v1";
+
+const S = {
+  token: null, username: null, expiresAt: 0,
+  deviceId: null, deviceName: "网页版",
+  /** "collection\u0000key" -> { collection, key, data, seq, deleted } */
+  records: new Map(),
+  tab: "items",
+  busy: false, syncing: false, lastSyncAt: null, conflictCount: 0,
+  pendingRefresh: false
+};
+const rk = (c, k) => c + "\u0000" + k;
+const allOf = (c) => [...S.records.values()].filter((r) => r.collection === c);
+/** 「活」记录：载荷里的 deletedAt / purgedAt 才是权威墓碑标记。 */
+const liveOf = (c) => allOf(c).filter((r) => !r.deleted && !recordDeleted(r.data));
+
+function recordDeleted(d) { return !!d && (d.deletedAt != null || d.purgedAt != null); }
+
+function loadSession() {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return;
+    const v = JSON.parse(raw);
+    if (v && v.token && (!v.expiresAt || v.expiresAt > Date.now())) {
+      S.token = v.token; S.username = v.username; S.expiresAt = v.expiresAt || 0;
+    }
+  } catch (_) { /* 损坏的本地会话忽略即可 */ }
+  let dev = null;
+  try { dev = localStorage.getItem(LS_DEV); } catch (_) {}
+  if (!dev) { dev = uuid(); try { localStorage.setItem(LS_DEV, dev); } catch (_) {} }
+  S.deviceId = dev;
+  const ua = navigator.userAgent || "";
+  const os = /iPhone/.test(ua) ? "iPhone" : /iPad/.test(ua) ? "iPad" : /Mac/.test(ua) ? "Mac" : /Android/.test(ua) ? "Android" : "浏览器";
+  S.deviceName = "网页版 · " + os;
+}
+function saveSession(token, username, expiresAt) {
+  S.token = token; S.username = username; S.expiresAt = expiresAt || 0;
+  try { localStorage.setItem(LS_KEY, JSON.stringify({ token, username, expiresAt })); } catch (_) {}
+}
+function clearSession() {
+  S.token = null; S.username = null; S.expiresAt = 0;
+  S.records.clear(); S.lastSyncAt = null;
+  try { localStorage.removeItem(LS_KEY); } catch (_) {}
+}
+
+/* -------------------------------------------------------------- 网络层 */
+
+async function api(path, opts = {}) {
+  const headers = { "content-type": "application/json" };
+  if (opts.auth !== false && S.token) headers.Authorization = "Bearer " + S.token;
+  const res = await fetch(path, {
+    method: opts.method || "GET",
+    headers,
+    body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
+    cache: "no-store",
+  });
+  const text = await res.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch (_) { data = null; }
+  if (!res.ok) {
+    if (res.status === 401) { clearSession(); render(); }
+    throw new Error((data && data.error) || `请求失败（${res.status}）`);
+  }
+  return data;
+}
+
+/* ------------------------------------------------------------ 同步逻辑 */
+
+/** 全量拉取：从 0 号开始，逐页循环直到服务端说没有更多。 */
+async function pullAll() {
+  let since = 0, guard = 0;
+  const out = [];
+  for (;;) {
+    const r = await api(`/v1/pull?since=${since}&limit=500&includeSelf=1`);
+    for (const ch of (r && r.changes) || []) out.push(ch);
+    if (!r || !r.hasMore || !r.changes || !r.changes.length) break;
+    since = r.lastSeq;
+    if (++guard > 60) break;
+  }
+  return out;
+}
+
+function adopt(ch) {
+  let data = null;
+  try { data = JSON.parse(ch.payload); } catch (_) { return; }
+  S.records.set(rk(ch.collection, ch.key), {
+    collection: ch.collection, key: ch.key, data, seq: Number(ch.seq || 0), deleted: !!ch.deleted,
+  });
+}
+
+async function syncNow(quiet) {
+  if (S.syncing || !S.token) return;
+  S.syncing = true; render();
+  try {
+    const changes = await pullAll();
+    for (const ch of changes) adopt(ch);
+    S.lastSyncAt = Date.now();
+    const st = await api("/v1/stats").catch(() => null);
+    S.conflictCount = st ? Number(st.conflictCount || 0) : 0;
+    if (!quiet) snack(`同步完成 · 拉取 ${changes.length} 条变更`);
+  } catch (e) {
+    if (!quiet) snack("同步失败：" + e.message);
+  } finally {
+    S.syncing = false; render();
+  }
+}
+
+/**
+ * 整条回写：把改动合并进原载荷后推上去。
+ * baseSeq 取自本机见到这条时的服务端序号；服务端发现有人在这之后改过会报冲突，
+ * 此时把服务端那一版采纳到本机并提示用户重新编辑（绝不静默覆盖）。
+ */
+async function commit(collection, key, mutate, options = {}) {
+  const existing = S.records.get(rk(collection, key));
+  const base = existing ? JSON.parse(JSON.stringify(existing.data)) : {};
+  const payload = mutate(base) || base;
+  payload.updatedAt = Date.now();
+  if (!payload.syncId) payload.syncId = key;
+  const deleted = options.deleted !== undefined ? !!options.deleted : recordDeleted(payload);
+  const baseSeq = existing ? existing.seq : 0;
+
+  const r = await api("/v1/push", {
+    method: "POST",
+    body: { changes: [{ collection, key, payload: JSON.stringify(payload), baseSeq, deleted }] },
+  });
+  const conflicts = (r && r.conflicts) || [];
+  if (conflicts.length) {
+    const c = conflicts[0];
+    adopt({ collection: c.collection, key: c.key, payload: c.payload, seq: c.seq, deleted: c.deleted });
+    render();
+    throw new Error("这条记录刚在别的设备上改过，已换成最新版本，请重新修改一次");
+  }
+  const applied = (r && r.applied && r.applied[0]) || null;
+  S.records.set(rk(collection, key), {
+    collection, key, data: payload, seq: applied ? Number(applied.seq) : baseSeq + 1, deleted,
+  });
+  render();
+  return payload;
+}
+
+/** 软删除：写墓碑而不是物理删，另一台设备据此同步删除。 */
+const softDelete = (collection, key) =>
+  commit(collection, key, (d) => { d.deletedAt = Date.now(); d.purgedAt = null; return d; }, { deleted: true });
+
+/** 撤销软删除：把墓碑清掉，同一条记录复活。 */
+const unDelete = (collection, key) =>
+  commit(collection, key, (d) => { d.deletedAt = null; d.purgedAt = null; return d; }, { deleted: false });
+
+/* ------------------------------------------------------- 新记录构造器 */
+
+function nextId(collection) {
+  let max = 0;
+  for (const r of allOf(collection)) max = Math.max(max, Number(r.data.id || 0));
+  return max + 1;
+}
+const stamp = () => ({ id: 0, syncId: uuid(), updatedAt: Date.now(), deletedAt: null });
+
+/** 新载荷一律带齐「无默认值」的必填字段，安卓端 decode 才不会整条失败。 */
+function blank(collection, fields) {
+  const now = Date.now();
+  let d;
+  switch (collection) {
+    case COLL.CATEGORIES:
+      d = { id: 0, name: "", icon: "📦", parentId: null, parentSyncId: null, isProtected: false, ...stamp() };
+      break;
+    case COLL.LOCATIONS:
+      d = { id: 0, name: "", parentId: null, parentSyncId: null, isProtected: false, ...stamp() };
+      break;
+    case COLL.ITEMS:
+      d = {
+        id: 0, name: "", barcode: null, categoryId: null, locationId: null,
+        quantity: 1, consumedQuantity: 0, unit: "件", price: null, expireTime: null,
+        status: null, usageStatus: USAGE.IN_USE, disposition: DISPO.IN_STOCK, needRestock: false,
+        purchaseDate: null, productionDate: null, startUseTime: null, usageEndedAt: null,
+        trackMode: 0, forWhom: null, reminderDays: null, rating: null, ratedAt: null,
+        purgedAt: null, note: "", imageHashes: null,
+        createdAt: now, syncId: null, categorySyncId: null, locationSyncId: null, updatedAt: now,
+      };
+      break;
+    case COLL.ASSETS:
+      d = { id: 0, name: "", icon: "💳", sort: 0, initialBalance: 0, type: 0, syncId: null, updatedAt: now, deletedAt: null };
+      break;
+    case COLL.LEDGER_CATS:
+      d = { id: 0, name: "", icon: "🧾", kind: 0, sort: 0, parentId: null, isProtected: false, syncId: null, updatedAt: now, deletedAt: null };
+      break;
+    case COLL.LEDGER:
+      d = {
+        id: 0, type: 0, amount: 0, categoryId: null, assetId: null, targetAssetId: null,
+        recordTime: now, remark: "", itemId: null, createdAt: now, syncId: null,
+        categorySyncId: null, assetSyncId: null, targetAssetSyncId: null, itemSyncId: null,
+        updatedAt: now, deletedAt: null,
+      };
+      break;
+    case COLL.BUDGETS:
+      d = { id: 0, categoryId: null, categorySyncId: null, amount: 0, period: "monthly", syncId: null, updatedAt: now, deletedAt: null };
+      break;
+    case COLL.ANNIVERSARIES:
+      d = {
+        id: 0, name: "", note: "", type: 0, date: dayKey(now), isLunar: false, lunarMonth: 0, lunarDay: 0,
+        repeatUnit: "YEAR", repeatInterval: 1, remindDays: "", enabled: true, createdAt: now,
+        syncId: null, updatedAt: now, deletedAt: null,
+      };
+      break;
+    case COLL.REMINDERS:
+      d = {
+        id: 0, title: "", note: "", repeatType: "ONCE", intervalDays: 1, weekdays: "", fireTime: "19:00",
+        targetDate: dayKey(now), nextFireAt: 0, enabled: true, completedAt: null, source: "MANUAL",
+        sourceKey: null, doseTimes: "", courseStartDate: null, courseDays: 0, linkedItemId: null,
+        itemSyncId: null, purgedAt: null, createdAt: now, syncId: null, updatedAt: now, deletedAt: null,
+      };
+      break;
+    case COLL.CAPSULES:
+      d = { id: 0, title: "", content: "", unlockAt: now + 86400000, openedAt: null, forWhom: null, createdAt: now, syncId: null, updatedAt: now, deletedAt: null };
+      break;
+    case COLL.TRIPS:
+      d = { id: 0, name: "", destination: "", startDate: null, endDate: null, createdAt: now, syncId: null, updatedAt: now, deletedAt: null };
+      break;
+    case COLL.PACK_ITEMS:
+      d = { id: 0, tripId: 0, name: "", quantity: 1, category: "", checked: false, sort: 0, createdAt: now, syncId: null, updatedAt: now, deletedAt: null, tripSyncId: null };
+      break;
+    case COLL.TEMPLATES:
+      d = { id: 0, name: "", type: 0, amount: 0, categoryId: null, assetId: null, targetAssetId: null, remark: "", sort: 0, createdAt: now, syncId: null, categorySyncId: null, assetSyncId: null, targetAssetSyncId: null, updatedAt: now, deletedAt: null };
+      break;
+    case COLL.RULES:
+      d = { id: 0, name: "", type: 0, amount: 0, categoryId: null, assetId: null, targetAssetId: null, remark: "", repeatUnit: "MONTH", repeatInterval: 1, nextFireAt: now, lastFiredAt: null, enabled: true, createdAt: now, syncId: null, categorySyncId: null, assetSyncId: null, targetAssetSyncId: null, updatedAt: now, deletedAt: null };
+      break;
+    default:
+      d = { ...stamp() };
+  }
+  d.id = nextId(collection);
+  d.syncId = uuid();
+  Object.assign(d, fields || {});
+  return d;
+}
+
+/**
+ * 新建一条记录并推上服务端。
+ * 只在服务端确实收下之后才登记进本机视图——否则推送失败会在列表里留下
+ * 一条只存在于浏览器、云端根本没有的「幽灵记录」。
+ */
+async function create(collection, fields, keyOf) {
+  const data = blank(collection, fields);
+  const key = keyOf ? keyOf(data) : data.syncId;
+  data.syncId = key;
+  const r = await api("/v1/push", {
+    method: "POST",
+    body: { changes: [{ collection, key, payload: JSON.stringify(data), baseSeq: 0, deleted: false }] },
+  });
+  const conflicts = (r && r.conflicts) || [];
+  if (conflicts.length) {
+    const c = conflicts[0];
+    // 极罕见（同一条刚被别的设备建过）：采纳服务端版本并如实告知，不静默丢弃。
+    adopt({ collection: c.collection, key: c.key, payload: c.payload, seq: c.seq, deleted: c.deleted });
+    render();
+    throw new Error("这条记录刚在别的设备上建过，已换成最新版本");
+  }
+  const applied = (r && r.applied && r.applied[0]) || null;
+  S.records.set(rk(collection, key), {
+    collection, key, data, seq: applied ? Number(applied.seq) : 0, deleted: false,
+  });
+  render();
+  return data;
+}
+
+/* ------------------------------------------------------------------ 提示 */
+
+let snackTimer = null;
+function snack(text, undo) {
+  const box = h("div", { class: "snack" }, h("span", { text }));
+  if (undo) box.append(h("button", { text: "撤销", onClick: async () => { box.remove(); await undo(); } }));
+  else box.append(h("button", { text: "知道了", onClick: () => box.remove() }));
+  document.body.append(box);
+  clearTimeout(snackTimer);
+  snackTimer = setTimeout(() => box.remove(), undo ? 7000 : 3200);
+}
+
+function busyRun(fn) {
+  return async (...args) => {
+    if (S.busy) return;
+    S.busy = true; render();
+    const done = (msg, undo) => { if (msg) snack(msg, undo); };
+    try { const r = await fn(...args); done(r && r.msg, r && r.undo); }
+    catch (e) { snack(e && e.message ? e.message : "操作没成功，请再试一次"); }
+    finally { S.busy = false; render(); }
+  };
+}
+
+/* -------------------------------------------------------------- 浮层 UI */
+
+function sheet(title, desc, bodyBuilder, actions) {
+  const host = $("overlay");
+  const close = () => { host.innerHTML = ""; };
+  const panel = h("div", { class: "sheet" }, h("h3", { text: title }));
+  if (desc) panel.append(h("div", { class: "desc", text: desc }));
+  const body = h("div");
+  panel.append(body);
+  bodyBuilder(body, close);
+  if (actions) {
+    const bar = h("div", { class: "sheet-actions" });
+    for (const a of actions) bar.append(a(close));
+    panel.append(bar);
+  }
+  const scrim = h("div", { class: "scrim", onClick: (e) => { if (e.target === scrim) close(); } }, panel);
+  host.innerHTML = "";
+  host.append(scrim);
+  return close;
+}
+
+function field(label, input) {
+  return h("label", { class: "f" }, h("span", { text: label }), input);
+}
+function textInput(value, placeholder, type) {
+  return h("input", { type: type || "text", value: value ?? "", placeholder: placeholder || "", inputmode: type === "number" ? "decimal" : null });
+}
+function selectInput(options, value) {
+  const sel = h("select");
+  for (const [v, label] of options) {
+    const o = h("option", { value: v, text: label });
+    if (String(v) === String(value)) o.selected = true;
+    sel.append(o);
+  }
+  return sel;
+}
+function chipGroup(entries, value, onPick, plain) {
+  const wrap = h("div", { class: "seg" });
+  let current = value;
+  const paint = () => {
+    [...wrap.children].forEach((c) => c.classList.toggle("on", c.dataset.v === String(current)));
+  };
+  for (const [v, label] of entries) {
+    wrap.append(h("button", {
+      class: "chip" + (plain ? " plain" : ""), "data-v": v, text: label,
+      onClick: () => { current = v; paint(); onPick(v); },
+    }));
+  }
+  paint();
+  return { node: wrap, get: () => current };
+}
+
+/* --------------------------------------------------------------- 视图层 */
+
+function categoriesOf() {
+  return liveOf(COLL.CATEGORIES).sort((a, b) => String(a.data.name).localeCompare(String(b.data.name), "zh"));
+}
+function locationsOf() {
+  return liveOf(COLL.LOCATIONS).sort((a, b) => String(a.data.name).localeCompare(String(b.data.name), "zh"));
+}
+function assetsOf() { return liveOf(COLL.ASSETS).sort((a, b) => (a.data.sort || 0) - (b.data.sort || 0)); }
+function ledgerCatsOf(kind) {
+  return liveOf(COLL.LEDGER_CATS)
+    .filter((r) => Number(r.data.kind || 0) === kind)
+    .sort((a, b) => (a.data.sort || 0) - (b.data.sort || 0));
+}
+function nameOf(collection, syncId) {
+  if (!syncId) return "";
+  for (const r of allOf(collection)) if (r.data.syncId === syncId && !recordDeleted(r.data)) return r.data.name || "";
+  return "";
+}
+function itemsOf() {
+  return liveOf(COLL.ITEMS).sort((a, b) => {
+    const ea = a.data.expireTime, eb = b.data.expireTime;
+    if (ea && eb) return ea - eb;
+    if (ea) return -1;
+    if (eb) return 1;
+    return (b.data.createdAt || 0) - (a.data.createdAt || 0);
+  });
+}
+
+/* ---- 家当 ---- */
+function viewItems(root) {
+  root.append(h("h2", { class: "sect", text: "家当" }));
+  const items = itemsOf();
+  if (!items.length) {
+    root.append(emptyCard("🧺", "还没有家当", "点右下角「＋」录入第一件东西；录入后两台设备都会看到。"));
+  }
+  const card = h("div", { class: "card" });
+  for (const r of items) {
+    const d = r.data;
+    const cat = nameOf(COLL.CATEGORIES, d.categorySyncId);
+    const loc = nameOf(COLL.LOCATIONS, d.locationSyncId);
+    const bits = [];
+    if (cat) bits.push(cat);
+    if (loc) bits.push(loc);
+    if (d.trackMode === 0) bits.push(`${d.quantity}${d.unit || ""}`);
+    const days = d.expireTime ? daysUntil(d.expireTime) : null;
+    const badges = [];
+    if (d.needRestock) badges.push(["brand", "要补货"]);
+    if (days !== null) badges.push([days < 0 ? "warn" : "", days < 0 ? `过期 ${-days} 天` : days === 0 ? "今天到期" : `${days} 天后到期`]);
+    if (d.usageStatus === USAGE.USED_UP) badges.push(["", "已用完"]);
+    card.append(h("div", { class: "row", onClick: () => itemSheet(r) },
+      h("div", { class: "ico", text: "🧺" }),
+      h("div", { class: "grow" },
+        h("div", { class: "t", text: d.name || "未命名" }),
+        h("div", { class: "s", text: bits.join(" · ") || "未归类" }),
+        badges.length ? h("div", { style: "margin-top:5px;display:flex;gap:6px;flex-wrap:wrap" },
+          badges.map(([k, t]) => h("span", { class: "pill " + k, text: t }))) : null),
+      h("div", { class: "chev", text: "›" })));
+  }
+  root.append(card);
+}
+
+function itemSheet(r) {
+  const d = r.data;
+  sheet(d.name || "家当详情", null, (body, close) => {
+    const form = h("div");
+    const name = textInput(d.name, "例如：牛奶");
+    const qty = textInput(d.quantity, "1", "number");
+    const unit = textInput(d.unit || "件", "件");
+    const price = textInput(d.price == null ? "" : d.price, "单价（元）", "number");
+    const expire = h("input", { type: "date", value: d.expireTime ? dayKey(d.expireTime) : "" });
+
+    const cats = categoriesOf();
+    const locs = locationsOf();
+    const catSel = selectInput([["", "未分类"], ...cats.map((x) => [x.data.syncId, x.data.name])], d.categorySyncId || "");
+    const locSel = selectInput([["", "未分类"], ...locs.map((x) => [x.data.syncId, x.data.name])], d.locationSyncId || "");
+    const usage = chipGroup([[USAGE.UNUSED, USAGE_LABEL[0]], [USAGE.IN_USE, USAGE_LABEL[1]], [USAGE.USED_UP, USAGE_LABEL[2]]], d.usageStatus ?? USAGE.IN_USE, () => {});
+    const dispo = chipGroup([[0, "在库"], [1, "借出"], [2, "已送人"], [3, "已丢弃"]], d.disposition ?? 0, () => {}, true);
+    const restock = chipGroup([[false, "不用补货"], [true, "需要补货"]], !!d.needRestock, () => {}, true);
+    const note = h("textarea", { text: d.note || "", placeholder: "备注" });
+
+    form.append(
+      field("名称", name),
+      h("div", { style: "display:flex;gap:10px" },
+        h("div", { style: "flex:1" }, field("数量", qty)),
+        h("div", { style: "flex:1" }, field("单位", unit))),
+      h("div", { style: "display:flex;gap:10px" },
+        h("div", { style: "flex:1" }, field("单价（元）", price)),
+        h("div", { style: "flex:1" }, field("到期日", expire))),
+      field("分类", catSel),
+      field("位置", locSel),
+      h("div", { style: "font-size:12.5px;color:var(--sub);margin:2px 0 5px", text: "使用进度" }), usage.node,
+      h("div", { style: "font-size:12.5px;color:var(--sub);margin:8px 0 5px", text: "物品去向" }), dispo.node,
+      h("div", { style: "font-size:12.5px;color:var(--sub);margin:8px 0 5px", text: "补货" }), restock.node,
+      field("备注", note)
+    );
+    body.append(form);
+
+    // 图片：按内容哈希换临时地址，只在点开时请求。
+    const hashes = Array.isArray(d.imageHashes) ? d.imageHashes : [];
+    if (hashes.length) {
+      const box = h("div", { style: "margin-top:6px" });
+      box.append(h("div", { class: "small muted", text: `图片 ${hashes.length} 张（来自云端存储）` }));
+      box.append(h("button", { class: "btn sm ghost", text: "查看图片", onClick: busyRun(async () => {
+        box.querySelectorAll("img").forEach((n) => n.remove());
+        for (const hash of hashes) {
+          const signed = await api("/v1/blob/url", { method: "POST", body: { key: imageKey(hash), op: "get" } });
+          box.append(h("img", { class: "list-img", src: signed.url, alt: "家当图片", loading: "lazy" }));
+        }
+      }) }));
+      body.append(box);
+    }
+
+    const save = h("button", { class: "btn primary", text: S.busy ? "保存中…" : "保存", disabled: S.busy, onClick: busyRun(async () => {
+      if (!name.value.trim()) throw new Error("名称不能为空");
+      await commit(COLL.ITEMS, r.key, (payload) => {
+        payload.name = name.value.trim();
+        payload.quantity = Math.max(0, Number(qty.value) || 0);
+        payload.unit = unit.value.trim() || "件";
+        payload.price = price.value === "" ? null : Number(price.value);
+        payload.expireTime = expire.value ? dayStart(expire.value) : null;
+        payload.categorySyncId = catSel.value || null;
+        payload.locationSyncId = locSel.value || null;
+        payload.categoryId = null; payload.locationId = null;
+        payload.usageStatus = Number(usage.get());
+        payload.disposition = Number(dispo.get());
+        payload.needRestock = restock.get() === true || restock.get() === "true";
+        payload.note = note.value;
+        return payload;
+      });
+      close();
+      return { msg: "已保存，其它设备下次同步就能看到" };
+    }) });
+    const del = h("button", { class: "btn danger", text: "删除", onClick: busyRun(async () => {
+      close();
+      await softDelete(COLL.ITEMS, r.key);
+      return { msg: "已删除这条家当", undo: () => unDelete(COLL.ITEMS, r.key).then(() => snack("已恢复")) };
+    }) });
+    body.append(h("div", { class: "sheet-actions" }, save, del));
+  });
+}
+
+function newItemSheet() {
+  // 不预先往本地塞占位记录：保存成功后才由 create() 登记，避免取消或失败时残留空条目。
+  sheet("新增家当", "保存后会立刻同步到云端，安卓端下次打开就能看到。", (body, close) => {
+    const name = textInput("", "例如：牛奶");
+    const qty = textInput(1, "1", "number");
+    const unit = textInput("件", "件");
+    const expire = h("input", { type: "date", value: "" });
+    const cats = categoriesOf(), locs = locationsOf();
+    const catSel = selectInput([["", "未分类"], ...cats.map((x) => [x.data.syncId, x.data.name])], "");
+    const locSel = selectInput([["", "未分类"], ...locs.map((x) => [x.data.syncId, x.data.name])], "");
+    body.append(
+      field("名称", name),
+      h("div", { style: "display:flex;gap:10px" },
+        h("div", { style: "flex:1" }, field("数量", qty)),
+        h("div", { style: "flex:1" }, field("单位", unit))),
+      field("到期日（可空）", expire),
+      field("分类", catSel),
+      field("位置", locSel)
+    );
+    body.append(h("div", { class: "sheet-actions" },
+      h("button", { class: "btn primary", text: S.busy ? "保存中…" : "保存", disabled: S.busy, onClick: busyRun(async () => {
+        if (!name.value.trim()) throw new Error("名称不能为空");
+        const data = blank(COLL.ITEMS, {
+          name: name.value.trim(), quantity: Math.max(0, Number(qty.value) || 0), unit: unit.value.trim() || "件",
+          expireTime: expire.value ? dayStart(expire.value) : null,
+          categorySyncId: catSel.value || null, locationSyncId: locSel.value || null,
+        });
+        await create(COLL.ITEMS, data, () => data.syncId);
+        close();
+        return { msg: "已新增，云端已收到" };
+      }) }),
+      h("button", { class: "btn", text: "取消", onClick: () => { close(); render(); } })));
+  });
+}
+
+/* ---- 记账 ---- */
+function viewLedger(root) {
+  const recs = liveOf(COLL.LEDGER).sort((a, b) => (b.data.recordTime || 0) - (a.data.recordTime || 0));
+  const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0);
+  let income = 0, expense = 0;
+  for (const r of recs) {
+    if ((r.data.recordTime || 0) < monthStart.getTime()) continue;
+    if (Number(r.data.type) === 0) expense += Number(r.data.amount || 0);
+    if (Number(r.data.type) === 1) income += Number(r.data.amount || 0);
+  }
+  root.append(h("h2", { class: "sect", text: "记账 · 本月" }));
+  root.append(h("div", { class: "card pad" },
+    h("div", { style: "display:flex;gap:18px" },
+      h("div", {}, h("div", { class: "small muted", text: "支出" }), h("div", { style: "font-size:20px;font-weight:700", text: "¥" + yuan(expense) })),
+      h("div", {}, h("div", { class: "small muted", text: "收入" }), h("div", { style: "font-size:20px;font-weight:700;color:var(--brand)", text: "¥" + yuan(income) })),
+      h("div", {}, h("div", { class: "small muted", text: "结余" }), h("div", { style: "font-size:20px;font-weight:700", text: "¥" + yuan(income - expense) })))));
+
+  root.append(h("h2", { class: "sect", text: "最近记录" }));
+  if (!recs.length) {
+    root.append(emptyCard("🧾", "还没有记账", "点右下角「＋」记一笔；金额按分存储，两端算出来的一致。"));
+    return;
+  }
+  const card = h("div", { class: "card" });
+  for (const r of recs.slice(0, 60)) {
+    const d = r.data;
+    const t = Number(d.type);
+    const cat = nameOf(COLL.LEDGER_CATS, d.categorySyncId);
+    const asset = nameOf(COLL.ASSETS, d.assetSyncId);
+    const sub = [t === 2 ? `转账 → ${nameOf(COLL.ASSETS, d.targetAssetSyncId) || "?"}` : cat, asset, d.remark].filter(Boolean).join(" · ");
+    card.append(h("div", { class: "row", onClick: () => ledgerSheet(r) },
+      h("div", { class: "ico", text: t === 0 ? "💸" : t === 1 ? "💰" : "🔄" }),
+      h("div", { class: "grow" },
+        h("div", { class: "t", text: (t === 1 ? "+" : t === 0 ? "−" : "") + "¥" + yuan(d.amount) }),
+        h("div", { class: "s", text: `${LEDGER_TYPE[t] || "记账"} · ${fmtTime(d.recordTime)}  ${sub}` })),
+      h("div", { class: "chev", text: "›" })));
+  }
+  root.append(card);
+}
+
+function ledgerSheet(r) {
+  const d = r ? r.data : blank(COLL.LEDGER);
+  sheet(r ? "编辑这一笔" : "记一笔", null, (body, close) => {
+    let type = Number(d.type || 0);
+    const amount = textInput(d.amount ? yuan(d.amount) : "", "0.00", "number");
+    const when = h("input", { type: "date", value: dayKey(d.recordTime || Date.now()) });
+    const remark = textInput(d.remark || "", "备注（可空）");
+    const helper = h("div");
+    body.append(
+      chipGroup([[0, "支出"], [1, "收入"], [2, "转账"]], type, (v) => { type = Number(v); paintFields(); }).node,
+      field("金额（元）", amount),
+      helper,
+      field("日期", when),
+      field("备注", remark)
+    );
+    const catSel = { value: d.categorySyncId || "" };
+    const assetSel = { value: d.assetSyncId || "" };
+    const targetSel = { value: d.targetAssetSyncId || "" };
+    function paintFields() {
+      helper.innerHTML = "";
+      const assets = assetsOf();
+      const assetOptions = [["", "不指定账户"], ...assets.map((x) => [x.data.syncId, x.data.name])];
+      if (type === 2) {
+        helper.append(
+          field("从（转出账户）", (() => { const s = selectInput(assetOptions, assetSel.value); s.onchange = () => (assetSel.value = s.value); return s; })()),
+          field("到（转入账户）", (() => { const s = selectInput(assetOptions, targetSel.value); s.onchange = () => (targetSel.value = s.value); return s; })()));
+      } else {
+        helper.append(
+          field("分类", (() => { const s = selectInput([["", "未分类"], ...ledgerCatsOf(type).map((x) => [x.data.syncId, x.data.name])], catSel.value); s.onchange = () => (catSel.value = s.value); return s; })()),
+          field("账户", (() => { const s = selectInput(assetOptions, assetSel.value); s.onchange = () => (assetSel.value = s.value); return s; })()));
+      }
+    }
+    paintFields();
+    body.append(h("div", { class: "sheet-actions" },
+      h("button", { class: "btn primary", text: S.busy ? "保存中…" : "保存", disabled: S.busy, onClick: busyRun(async () => {
+        const cents = toCents(amount.value);
+        if (cents <= 0) throw new Error("金额要大于 0");
+        const fields = {
+          type, amount: cents, recordTime: when.value ? dayStart(when.value) : Date.now(),
+          remark: remark.value, categorySyncId: type === 2 ? null : (catSel.value || null),
+          assetSyncId: assetSel.value || null, targetAssetSyncId: type === 2 ? (targetSel.value || null) : null,
+        };
+        if (r) {
+          await commit(COLL.LEDGER, r.key, (p) => { Object.assign(p, fields); return p; });
+        } else {
+          const data = blank(COLL.LEDGER, fields);
+          await create(COLL.LEDGER, data, () => data.syncId);
+        }
+        close();
+        return { msg: "已记账" };
+      }) }),
+      r ? h("button", { class: "btn danger", text: "删除", onClick: busyRun(async () => {
+        close(); await softDelete(COLL.LEDGER, r.key);
+        return { msg: "已删除这一笔", undo: () => unDelete(COLL.LEDGER, r.key).then(() => snack("已恢复")) };
+      }) }) : h("button", { class: "btn", text: "取消", onClick: close })));
+  });
+}
+
+/* ---- 待买 ---- */
+function viewToBuy(root) {
+  const items = itemsOf();
+  const need = items.filter((r) => r.data.needRestock === true);
+  const ranOut = items.filter((r) => r.data.needRestock !== true && r.data.usageStatus === USAGE.USED_UP);
+  root.append(h("h2", { class: "sect", text: "要买的" }));
+  if (!need.length) root.append(emptyCard("🛒", "没有标记要补货的", "回家当页把「需要补货」打开，就会出现在这里。"));
+  const c1 = h("div", { class: "card" });
+  for (const r of need) {
+    const cat = nameOf(COLL.CATEGORIES, r.data.categorySyncId);
+    c1.append(h("div", { class: "row", onClick: () => itemSheet(r) },
+      h("div", { class: "ico", text: "🛒" }),
+      h("div", { class: "grow" },
+        h("div", { class: "t", text: r.data.name || "未命名" }),
+        h("div", { class: "s", text: [cat, r.data.forWhom ? FOR_WHOM[r.data.forWhom] : ""].filter(Boolean).join(" · ") || "待补货" })),
+      h("button", { class: "btn sm ghost", text: "已买到", onClick: (e) => { e.stopPropagation(); bought(r); } })));
+  }
+  root.append(c1);
+
+  if (ranOut.length) {
+    root.append(h("h2", { class: "sect", text: "已用完，建议补货" }));
+    const c2 = h("div", { class: "card" });
+    for (const r of ranOut) {
+      c2.append(h("div", { class: "row", onClick: () => itemSheet(r) },
+        h("div", { class: "ico", text: "🫙" }),
+        h("div", { class: "grow" }, h("div", { class: "t", text: r.data.name || "未命名" }),
+          h("div", { class: "s", text: "已用完，还没标记补货" })),
+        h("button", { class: "btn sm ghost", text: "标为要买", onClick: (e) => { e.stopPropagation(); markNeed(r); } })));
+    }
+    root.append(c2);
+  }
+}
+
+function bought(r) {
+  const prev = { needRestock: r.data.needRestock, quantity: r.data.quantity };
+  busyRun(async () => {
+    await commit(COLL.ITEMS, r.key, (p) => { p.needRestock = false; p.quantity = Math.max(1, Number(p.quantity) || 1); return p; });
+    return {
+      msg: `「${r.data.name}」已标记买到`,
+      // 硬规则：已买到必须可撤销。
+      undo: () => commit(COLL.ITEMS, r.key, (p) => { p.needRestock = prev.needRestock; p.quantity = prev.quantity; return p; })
+        .then(() => snack("已撤销")),
+    };
+  })();
+}
+function markNeed(r) {
+  busyRun(async () => {
+    await commit(COLL.ITEMS, r.key, (p) => { p.needRestock = true; return p; });
+    return {
+      msg: `「${r.data.name}」已加入要买的`,
+      undo: () => commit(COLL.ITEMS, r.key, (p) => { p.needRestock = false; return p; }).then(() => snack("已撤销")),
+    };
+  })();
+}
+
+/* ---- 提醒 ---- */
+function viewReminders(root) {
+  const list = liveOf(COLL.REMINDERS).sort((a, b) => (a.data.nextFireAt || 0) - (b.data.nextFireAt || 0));
+  root.append(h("h2", { class: "sect", text: "提醒" }));
+  if (!list.length) root.append(emptyCard("⏰", "还没有提醒", "「今晚解冻肉」这类一次性的事，记下来到点会响（通知仍由手机端发出）。"));
+  const card = h("div", { class: "card" });
+  for (const r of list) {
+    const d = r.data;
+    const done = d.completedAt != null;
+    card.append(h("div", { class: "row", onClick: () => reminderSheet(r) },
+      h("div", { class: "ico", text: done ? "✅" : d.enabled ? "⏰" : "🔕" }),
+      h("div", { class: "grow" },
+        h("div", { class: "t", text: d.title || "未命名" }),
+        h("div", { class: "s", text: `${REPEAT_LABEL[d.repeatType] || d.repeatType} · ${d.fireTime || ""}${d.targetDate ? " · " + d.targetDate : ""}${done ? " · 已完成" : ""}` })),
+      h("span", { class: "pill", text: d.enabled ? "开启" : "关闭" })));
+  }
+  root.append(card);
+}
+
+function reminderSheet(r) {
+  const d = r ? r.data : blank(COLL.REMINDERS);
+  sheet(r ? "编辑提醒" : "新增提醒", null, (body, close) => {
+    const title = textInput(d.title || "", "例如：今晚解冻肉");
+    const date = h("input", { type: "date", value: d.targetDate || dayKey(Date.now()) });
+    const time = textInput(d.fireTime || "19:00", "19:00");
+    const note = textInput(d.note || "", "备注（可空）");
+    body.append(field("事情", title), field("日期", date), field("时间（HH:mm）", time), field("备注", note));
+    body.append(h("div", { class: "sheet-actions" },
+      h("button", { class: "btn primary", text: S.busy ? "保存中…" : "保存", disabled: S.busy, onClick: busyRun(async () => {
+        if (!title.value.trim()) throw new Error("先写下要提醒的事");
+        if (!/^\d{1,2}:\d{2}$/.test(time.value.trim())) throw new Error("时间格式要像 19:00");
+        const fields = {
+          title: title.value.trim(), targetDate: date.value || dayKey(Date.now()),
+          fireTime: time.value.trim(), note: note.value, repeatType: "ONCE",
+          nextFireAt: dayStart(date.value || dayKey(Date.now())) + hhmm(time.value.trim()),
+        };
+        if (r) await commit(COLL.REMINDERS, r.key, (p) => { Object.assign(p, fields); return p; });
+        else { const data = blank(COLL.REMINDERS, fields); await create(COLL.REMINDERS, data, () => data.syncId); }
+        close();
+        return { msg: "已保存（通知由手机端发出）" };
+      }) }),
+      r ? h("button", { class: "btn danger", text: "删除", onClick: busyRun(async () => {
+        close(); await softDelete(COLL.REMINDERS, r.key);
+        return { msg: "已删除提醒", undo: () => unDelete(COLL.REMINDERS, r.key).then(() => snack("已恢复")) };
+      }) }) : h("button", { class: "btn", text: "取消", onClick: close })));
+  });
+}
+const hhmm = (s) => { const [hh, mm] = s.split(":").map(Number); return ((hh || 0) * 3600 + (mm || 0) * 60) * 1000; };
+
+/* ---- 纪念日 ---- */
+function viewAnniversaries(root) {
+  const list = liveOf(COLL.ANNIVERSARIES).sort((a, b) => String(a.data.date).localeCompare(String(b.data.date)));
+  root.append(h("h2", { class: "sect", text: "纪念日" }));
+  if (!list.length) root.append(emptyCard("🎂", "还没有纪念日", "记下生日与重要的日子，倒数的天数两端一致。"));
+  const card = h("div", { class: "card" });
+  for (const r of list) {
+    const d = r.data;
+    const kind = ANNIV_TYPE[Number(d.type)] || "纪念日";
+    card.append(h("div", { class: "row", onClick: () => anniversarySheet(r) },
+      h("div", { class: "ico", text: Number(d.type) === 2 ? "🎂" : Number(d.type) === 1 ? "📈" : "⏳" }),
+      h("div", { class: "grow" },
+        h("div", { class: "t", text: d.name || "未命名" }),
+        h("div", { class: "s", text: `${kind} · ${d.date}${d.isLunar ? " · 农历" : ""}` })),
+      h("span", { class: "pill", text: d.enabled ? "开启" : "关闭" })));
+  }
+  root.append(card);
+}
+
+function anniversarySheet(r) {
+  const d = r ? r.data : blank(COLL.ANNIVERSARIES);
+  sheet(r ? "编辑纪念日" : "新增纪念日", null, (body, close) => {
+    const name = textInput(d.name || "", "例如：她的生日");
+    const date = h("input", { type: "date", value: d.date || dayKey(Date.now()) });
+    let type = Number(d.type || 0);
+    const lunar = chipGroup([[false, "公历"], [true, "农历"]], !!d.isLunar, () => {}, true);
+    body.append(field("名称", name),
+      chipGroup([[0, "倒数日"], [1, "正数日"], [2, "生日"]], type, (v) => { type = Number(v); }).node,
+      field("日期", date), h("div", { class: "small muted", text: "历法" }), lunar.node);
+    body.append(h("div", { class: "sheet-actions" },
+      h("button", { class: "btn primary", text: S.busy ? "保存中…" : "保存", disabled: S.busy, onClick: busyRun(async () => {
+        if (!name.value.trim()) throw new Error("名称不能为空");
+        const fields = { name: name.value.trim(), date: date.value || dayKey(Date.now()), type, isLunar: lunar.get() === true };
+        if (r) await commit(COLL.ANNIVERSARIES, r.key, (p) => { Object.assign(p, fields); return p; });
+        else { const data = blank(COLL.ANNIVERSARIES, fields); await create(COLL.ANNIVERSARIES, data, () => data.syncId); }
+        close();
+        return { msg: "已保存" };
+      }) }),
+      r ? h("button", { class: "btn danger", text: "删除", onClick: busyRun(async () => {
+        close(); await softDelete(COLL.ANNIVERSARIES, r.key);
+        return { msg: "已删除", undo: () => unDelete(COLL.ANNIVERSARIES, r.key).then(() => snack("已恢复")) };
+      }) }) : h("button", { class: "btn", text: "取消", onClick: close })));
+  });
+}
+
+/* ---- 时间胶囊 ---- */
+function viewCapsules(root) {
+  const list = liveOf(COLL.CAPSULES).sort((a, b) => (a.data.unlockAt || 0) - (b.data.unlockAt || 0));
+  root.append(h("h2", { class: "sect", text: "时间胶囊" }));
+  if (!list.length) root.append(emptyCard("💌", "还没有胶囊", "写段话给未来的自己，到解锁日才打开。"));
+  const card = h("div", { class: "card" });
+  for (const r of list) {
+    const d = r.data;
+    const left = daysUntil(d.unlockAt || 0);
+    card.append(h("div", { class: "row", onClick: () => capsuleSheet(r) },
+      h("div", { class: "ico", text: "💌" }),
+      h("div", { class: "grow" },
+        h("div", { class: "t", text: d.title || "未命名" }),
+        h("div", { class: "s", text: `解锁日 ${dayKey(d.unlockAt || 0)}` })),
+      h("span", { class: "pill " + (left <= 0 ? "brand" : ""), text: left <= 0 ? "可打开" : `还有 ${left} 天` })));
+  }
+  root.append(card);
+}
+
+function capsuleSheet(r) {
+  const d = r ? r.data : blank(COLL.CAPSULES);
+  sheet(r ? "胶囊" : "写一封给未来", null, (body, close) => {
+    const title = textInput(d.title || "", "标题");
+    const unlock = h("input", { type: "date", value: d.unlockAt ? dayKey(d.unlockAt) : dayKey(Date.now() + 30 * 86400000) });
+    const content = h("textarea", { text: d.content || "", placeholder: "想说的话" });
+    const opened = (d.unlockAt || 0) <= Date.now();
+    body.append(field("标题", title), field("解锁日", unlock), field("内容", content));
+    if (!opened && r) body.append(h("div", { class: "small muted", text: "还没到解锁日，内容先藏着——想看可以看，但自觉一点 🙂" }));
+    body.append(h("div", { class: "sheet-actions" },
+      h("button", { class: "btn primary", text: S.busy ? "保存中…" : "保存", disabled: S.busy, onClick: busyRun(async () => {
+        if (!title.value.trim()) throw new Error("标题不能为空");
+        const fields = { title: title.value.trim(), content: content.value, unlockAt: unlock.value ? dayStart(unlock.value) : Date.now() };
+        if (r) await commit(COLL.CAPSULES, r.key, (p) => { Object.assign(p, fields); return p; });
+        else { const data = blank(COLL.CAPSULES, fields); await create(COLL.CAPSULES, data, () => data.syncId); }
+        close();
+        return { msg: "已封存" };
+      }) }),
+      r ? h("button", { class: "btn danger", text: "删除", onClick: busyRun(async () => {
+        close(); await softDelete(COLL.CAPSULES, r.key);
+        return { msg: "已删除", undo: () => unDelete(COLL.CAPSULES, r.key).then(() => snack("已恢复")) };
+      }) }) : h("button", { class: "btn", text: "取消", onClick: close })));
+  });
+}
+
+/* ---- 打包 ---- */
+function viewPacking(root) {
+  const trips = liveOf(COLL.TRIPS).sort((a, b) => String(b.data.startDate || "").localeCompare(String(a.data.startDate || "")));
+  root.append(h("h2", { class: "sect", text: "打包清单" }));
+  if (!trips.length) root.append(emptyCard("🧳", "还没有行程", "出行前列好要带的东西，勾选状态两端同步。"));
+  for (const trip of trips) {
+    const d = trip.data;
+    const kids = liveOf(COLL.PACK_ITEMS).filter((x) => x.data.tripSyncId === d.syncId)
+      .sort((a, b) => (a.data.sort || 0) - (b.data.sort || 0));
+    const doneCount = kids.filter((x) => x.data.checked).length;
+    const card = h("div", { class: "card" });
+    card.append(h("div", { class: "row", onClick: () => tripSheet(trip) },
+      h("div", { class: "ico", text: "🧳" }),
+      h("div", { class: "grow" },
+        h("div", { class: "t", text: d.name || "未命名行程" }),
+        h("div", { class: "s", text: [d.destination, d.startDate, `${doneCount}/${kids.length} 已备`].filter(Boolean).join(" · ") })),
+      h("div", { class: "chev", text: "›" })));
+    for (const k of kids) {
+      card.append(h("div", { class: "row", onClick: busyRun(async () => {
+        await commit(COLL.PACK_ITEMS, k.key, (p) => { p.checked = !p.checked; return p; });
+      }) },
+        h("div", { class: "ico", text: k.data.checked ? "☑️" : "⬜" }),
+        h("div", { class: "grow" },
+          h("div", { class: "t", text: k.data.name, style: k.data.checked ? "opacity:.5;text-decoration:line-through" : "" }),
+          h("div", { class: "s", text: [k.data.category, `×${k.data.quantity}`].filter(Boolean).join(" · ") }))));
+    }
+    card.append(h("div", { class: "row", onClick: () => packItemSheet(d.syncId, null) },
+      h("div", { class: "ico", text: "＋" }), h("div", { class: "grow" }, h("div", { class: "t", text: "加一件要带的" }))));
+    root.append(card);
+  }
+}
+
+function tripSheet(r) {
+  const d = r ? r.data : blank(COLL.TRIPS);
+  sheet(r ? "行程" : "新增行程", null, (body, close) => {
+    const name = textInput(d.name || "", "例如：清明回老家");
+    const dest = textInput(d.destination || "", "目的地");
+    const start = h("input", { type: "date", value: d.startDate || "" });
+    const end = h("input", { type: "date", value: d.endDate || "" });
+    body.append(field("名称", name), field("目的地", dest), field("出发日", start), field("返回日", end));
+    body.append(h("div", { class: "sheet-actions" },
+      h("button", { class: "btn primary", text: S.busy ? "保存中…" : "保存", disabled: S.busy, onClick: busyRun(async () => {
+        if (!name.value.trim()) throw new Error("名称不能为空");
+        const fields = { name: name.value.trim(), destination: dest.value, startDate: start.value || null, endDate: end.value || null };
+        if (r) await commit(COLL.TRIPS, r.key, (p) => { Object.assign(p, fields); return p; });
+        else { const data = blank(COLL.TRIPS, fields); await create(COLL.TRIPS, data, () => data.syncId); }
+        close();
+        return { msg: "已保存" };
+      }) }),
+      r ? h("button", { class: "btn danger", text: "删除行程", onClick: busyRun(async () => {
+        close(); await softDelete(COLL.TRIPS, r.key);
+        return { msg: "已删除行程", undo: () => unDelete(COLL.TRIPS, r.key).then(() => snack("已恢复")) };
+      }) }) : h("button", { class: "btn", text: "取消", onClick: close })));
+  });
+}
+
+function packItemSheet(tripSyncId, r) {
+  const d = r ? r.data : blank(COLL.PACK_ITEMS);
+  sheet(r ? "要带的东西" : "加一件要带的", null, (body, close) => {
+    const name = textInput(d.name || "", "例如：充电器");
+    const qty = textInput(d.quantity || 1, "1", "number");
+    const cat = textInput(d.category || "", "分类（可空）");
+    body.append(field("名称", name), field("数量", qty), field("分类", cat));
+    body.append(h("div", { class: "sheet-actions" },
+      h("button", { class: "btn primary", text: S.busy ? "保存中…" : "保存", disabled: S.busy, onClick: busyRun(async () => {
+        if (!name.value.trim()) throw new Error("名称不能为空");
+        const fields = { name: name.value.trim(), quantity: Math.max(1, Number(qty.value) || 1), category: cat.value };
+        if (r) await commit(COLL.PACK_ITEMS, r.key, (p) => { Object.assign(p, fields); return p; });
+        else {
+          const data = blank(COLL.PACK_ITEMS, { ...fields, tripSyncId, sort: liveOf(COLL.PACK_ITEMS).length });
+          await create(COLL.PACK_ITEMS, data, () => data.syncId);
+        }
+        close();
+        return { msg: "已加入" };
+      }) }),
+      r ? h("button", { class: "btn danger", text: "删除", onClick: busyRun(async () => {
+        close(); await softDelete(COLL.PACK_ITEMS, r.key);
+        return { msg: "已删除", undo: () => unDelete(COLL.PACK_ITEMS, r.key).then(() => snack("已恢复")) };
+      }) }) : h("button", { class: "btn", text: "取消", onClick: close })));
+  });
+}
+
+/* ---- 更多（含账号与同步） ---- */
+function viewMore(root) {
+  root.append(h("h2", { class: "sect", text: "更多" }));
+  const nav = h("div", { class: "card" });
+  const entry = (icon, title, sub, fn) => nav.append(h("div", { class: "row", onClick: fn },
+    h("div", { class: "ico", text: icon }),
+    h("div", { class: "grow" }, h("div", { class: "t", text: title }), h("div", { class: "s", text: sub })),
+    h("div", { class: "chev", text: "›" })));
+  entry("🎂", "纪念日", `${liveOf(COLL.ANNIVERSARIES).length} 个`, () => go("anniversaries"));
+  entry("⏰", "提醒", `${liveOf(COLL.REMINDERS).length} 条`, () => go("reminders"));
+  entry("💌", "时间胶囊", `${liveOf(COLL.CAPSULES).length} 封`, () => go("capsules"));
+  entry("🧳", "打包清单", `${liveOf(COLL.TRIPS).length} 个行程`, () => go("packing"));
+  entry("📒", "账户与分类", `${liveOf(COLL.ASSETS).length} 个账户 · ${liveOf(COLL.LEDGER_CATS).length} 个记账分类 · ${liveOf(COLL.CATEGORIES).length} 个家当分类`, () => go("taxonomy"));
+  root.append(nav);
+
+  root.append(h("h2", { class: "sect", text: "云端与同步" }));
+  const st = h("div", { class: "card pad" });
+  st.append(
+    h("div", { class: "kv" }, h("span", { class: "k", text: "账号" }), h("span", { class: "v", text: S.username || "未登录" })),
+    h("div", { class: "kv" }, h("span", { class: "k", text: "服务器" }), h("span", { class: "v", text: location.host })),
+    h("div", { class: "kv" }, h("span", { class: "k", text: "记录总数" }), h("span", { class: "v", text: String(S.records.size) })),
+    h("div", { class: "kv" }, h("span", { class: "k", text: "冲突条数" }), h("span", { class: "v", text: String(S.conflictCount) })),
+    h("div", { class: "kv" }, h("span", { class: "k", text: "上次同步" }), h("span", { class: "v", text: S.lastSyncAt ? fmtTime(S.lastSyncAt) : "还没同步过" })),
+    h("div", { class: "kv" }, h("span", { class: "k", text: "这台设备" }), h("span", { class: "v", text: S.deviceName }))
+  );
+  st.append(h("div", { class: "sheet-actions" },
+    h("button", { class: "btn primary", text: S.syncing ? "同步中…" : "立即同步", disabled: S.syncing || S.busy, onClick: () => syncNow(false) }),
+    h("button", { class: "btn", text: "退出登录", onClick: () => {
+      sheet("退出登录？", "退出后本网页不再读写你的数据，云端与本机数据都不会被删除；下次登录继续。", (body, close) => {
+        body.append(h("div", { class: "sheet-actions" },
+          h("button", { class: "btn primary", text: "退出", onClick: busyRun(async () => {
+            await api("/v1/logout", { method: "POST" }).catch(() => {});
+            clearSession(); close(); go("items");
+            return { msg: "已退出登录" };
+          }) }),
+          h("button", { class: "btn", text: "取消", onClick: close })));
+      });
+    } })));
+  root.append(st);
+  root.append(h("div", { class: "small muted", style: "margin:14px 4px 0", html:
+    "网页版与安卓端共用同一份云端数据：同一条记录两端都能改，服务端按「谁先谁后」的序号判定，<b>改不动就报冲突、绝不静默覆盖</b>。图片上传与本地通知仍在手机端完成。" }));
+}
+
+function viewTaxonomy(root) {
+  root.append(h("h2", { class: "sect", text: "账户" }));
+  const a = h("div", { class: "card" });
+  for (const r of assetsOf()) a.append(h("div", { class: "row", onClick: () => assetSheet(r) },
+    h("div", { class: "ico", text: r.data.icon || "💳" }),
+    h("div", { class: "grow" }, h("div", { class: "t", text: r.data.name || "未命名" }),
+      h("div", { class: "s", text: `初始余额 ¥${yuan(r.data.initialBalance)}` })),
+    h("div", { class: "chev", text: "›" })));
+  a.append(h("div", { class: "row", onClick: () => assetSheet(null) },
+    h("div", { class: "ico", text: "＋" }), h("div", { class: "grow" }, h("div", { class: "t", text: "新增账户" }))));
+  root.append(a);
+
+  const cats = h("div", { class: "card" });
+  for (const r of ledgerCatsOf(0)) cats.append(h("div", { class: "row", onClick: () => ledgerCatSheet(r) },
+    h("div", { class: "ico", text: r.data.icon || "🧾" }),
+    h("div", { class: "grow" }, h("div", { class: "t", text: r.data.name }), h("div", { class: "s", text: "支出分类" })),
+    h("div", { class: "chev", text: "›" })));
+  for (const r of ledgerCatsOf(1)) cats.append(h("div", { class: "row", onClick: () => ledgerCatSheet(r) },
+    h("div", { class: "ico", text: r.data.icon || "🧾" }),
+    h("div", { class: "grow" }, h("div", { class: "t", text: r.data.name }), h("div", { class: "s", text: "收入分类" })),
+    h("div", { class: "chev", text: "›" })));
+  cats.append(h("div", { class: "row", onClick: () => ledgerCatSheet(null) },
+    h("div", { class: "ico", text: "＋" }), h("div", { class: "grow" }, h("div", { class: "t", text: "新增记账分类" }))));
+  root.append(h("h2", { class: "sect", text: "记账分类" }), cats);
+
+  const hc = h("div", { class: "card" });
+  for (const r of categoriesOf()) hc.append(h("div", { class: "row", onClick: () => categorySheet(r) },
+    h("div", { class: "ico", text: r.data.icon || "📦" }),
+    h("div", { class: "grow" }, h("div", { class: "t", text: r.data.name }),
+      h("div", { class: "s", text: r.data.isProtected ? "内置保护分类" : "自定义分类" })),
+    h("div", { class: "chev", text: "›" })));
+  for (const r of locationsOf()) hc.append(h("div", { class: "row", onClick: () => locationSheet(r) },
+    h("div", { class: "ico", text: "📍" }),
+    h("div", { class: "grow" }, h("div", { class: "t", text: r.data.name }),
+      h("div", { class: "s", text: r.data.isProtected ? "内置保护位置" : "自定义位置" })),
+    h("div", { class: "chev", text: "›" })));
+  root.append(h("h2", { class: "sect", text: "家当分类与位置" }), hc);
+}
+
+function assetSheet(r) {
+  const d = r ? r.data : blank(COLL.ASSETS);
+  sheet(r ? "账户" : "新增账户", null, (body, close) => {
+    const name = textInput(d.name || "", "例如：招行储蓄卡");
+    const icon = textInput(d.icon || "💳", "图标（一个 emoji）");
+    const balance = textInput(d.initialBalance ? yuan(d.initialBalance) : "0", "0", "number");
+    body.append(field("名称", name), field("图标", icon), field("初始余额（元）", balance));
+    body.append(h("div", { class: "sheet-actions" },
+      h("button", { class: "btn primary", text: S.busy ? "保存中…" : "保存", disabled: S.busy, onClick: busyRun(async () => {
+        if (!name.value.trim()) throw new Error("名称不能为空");
+        const fields = { name: name.value.trim(), icon: icon.value.trim() || "💳", initialBalance: toCents(balance.value) };
+        if (r) await commit(COLL.ASSETS, r.key, (p) => { Object.assign(p, fields); return p; });
+        else { const data = blank(COLL.ASSETS, fields); await create(COLL.ASSETS, data, () => data.syncId); }
+        close(); return { msg: "已保存" };
+      }) }),
+      r ? h("button", { class: "btn danger", text: "删除", onClick: busyRun(async () => {
+        close(); await softDelete(COLL.ASSETS, r.key);
+        return { msg: "已删除账户", undo: () => unDelete(COLL.ASSETS, r.key).then(() => snack("已恢复")) };
+      }) }) : h("button", { class: "btn", text: "取消", onClick: close })));
+  });
+}
+function ledgerCatSheet(r) {
+  const d = r ? r.data : blank(COLL.LEDGER_CATS);
+  sheet(r ? "记账分类" : "新增记账分类", null, (body, close) => {
+    const name = textInput(d.name || "", "例如：餐饮");
+    const icon = textInput(d.icon || "🧾", "图标");
+    let kind = Number(d.kind || 0);
+    body.append(field("名称", name), field("图标", icon),
+      chipGroup([[0, "支出"], [1, "收入"]], kind, (v) => { kind = Number(v); }).node);
+    body.append(h("div", { class: "sheet-actions" },
+      h("button", { class: "btn primary", text: S.busy ? "保存中…" : "保存", disabled: S.busy, onClick: busyRun(async () => {
+        if (!name.value.trim()) throw new Error("名称不能为空");
+        const fields = { name: name.value.trim(), icon: icon.value.trim() || "🧾", kind };
+        if (r) await commit(COLL.LEDGER_CATS, r.key, (p) => { Object.assign(p, fields); return p; });
+        else { const data = blank(COLL.LEDGER_CATS, fields); await create(COLL.LEDGER_CATS, data, () => data.syncId); }
+        close(); return { msg: "已保存" };
+      }) }),
+      r ? h("button", { class: "btn danger", text: "删除", onClick: busyRun(async () => {
+        if (r.data.isProtected) throw new Error("内置保护分类不能删");
+        close(); await softDelete(COLL.LEDGER_CATS, r.key);
+        return { msg: "已删除", undo: () => unDelete(COLL.LEDGER_CATS, r.key).then(() => snack("已恢复")) };
+      }) }) : h("button", { class: "btn", text: "取消", onClick: close })));
+  });
+}
+function categorySheet(r) {
+  const d = r.data;
+  sheet("分类", null, (body, close) => {
+    const name = textInput(d.name, "分类名");
+    const icon = textInput(d.icon || "📦", "图标");
+    body.append(field("名称", name), field("图标", icon));
+    body.append(h("div", { class: "sheet-actions" },
+      h("button", { class: "btn primary", text: S.busy ? "保存中…" : "保存", disabled: S.busy, onClick: busyRun(async () => {
+        if (!name.value.trim()) throw new Error("名称不能为空");
+        await commit(COLL.CATEGORIES, r.key, (p) => { p.name = name.value.trim(); p.icon = icon.value.trim() || "📦"; return p; });
+        close(); return { msg: "已保存" };
+      }) }),
+      h("button", { class: "btn danger", text: "删除", onClick: busyRun(async () => {
+        if (d.isProtected) throw new Error("内置保护分类不能删");
+        close(); await softDelete(COLL.CATEGORIES, r.key);
+        return { msg: "已删除", undo: () => unDelete(COLL.CATEGORIES, r.key).then(() => snack("已恢复")) };
+      }) })));
+  });
+}
+function locationSheet(r) {
+  const d = r.data;
+  sheet("位置", null, (body, close) => {
+    const name = textInput(d.name, "位置名");
+    body.append(field("名称", name));
+    body.append(h("div", { class: "sheet-actions" },
+      h("button", { class: "btn primary", text: S.busy ? "保存中…" : "保存", disabled: S.busy, onClick: busyRun(async () => {
+        if (!name.value.trim()) throw new Error("名称不能为空");
+        await commit(COLL.LOCATIONS, r.key, (p) => { p.name = name.value.trim(); return p; });
+        close(); return { msg: "已保存" };
+      }) }),
+      h("button", { class: "btn danger", text: "删除", onClick: busyRun(async () => {
+        if (d.isProtected) throw new Error("内置保护位置不能删");
+        close(); await softDelete(COLL.LOCATIONS, r.key);
+        return { msg: "已删除", undo: () => unDelete(COLL.LOCATIONS, r.key).then(() => snack("已恢复")) };
+      }) })));
+  });
+}
+
+function emptyCard(icon, title, sub) {
+  return h("div", { class: "card empty" },
+    h("div", { class: "big", text: icon }),
+    h("div", { style: "font-weight:600;color:var(--text)", text: title }),
+    h("div", { class: "small", style: "margin-top:4px", text: sub }));
+}
+
+/* ------------------------------------------------------------- 登录视图 */
+
+function viewLogin(root) {
+  const card = h("div", { class: "card pad", style: "margin-top:40px" });
+  card.append(
+    h("div", { style: "font-size:22px;font-weight:700;margin-bottom:4px", text: "柠檬百宝箱 · 网页版" }),
+    h("div", { class: "small muted", style: "margin-bottom:16px", html:
+      "不用装 App、不用证书：用云端账号登录后，在浏览器里看与改家当、记账、待买、提醒、纪念日、胶囊、打包。" }));
+  const user = textInput("", "账号");
+  const pass = h("input", { type: "password", placeholder: "密码" });
+  card.append(field("账号", user), field("密码", pass));
+  const submit = h("button", { class: "btn primary block", text: "登录", style: "margin-top:6px",
+    onClick: async () => {
+      if (S.busy) return;
+      if (!user.value.trim() || !pass.value) { snack("请输入账号和密码"); return; }
+      S.busy = true; render();
+      try {
+        const r = await api("/v1/login", { auth: false, method: "POST", body: {
+          username: user.value.trim(), password: pass.value, deviceId: S.deviceId, deviceName: S.deviceName } });
+        saveSession(r.token, (r.user && r.user.name) || user.value.trim(), r.expiresAt);
+        pass.value = "";
+        render();
+        await syncNow(true);
+        snack("登录成功，数据已在两端对齐");
+      } catch (e) {
+        snack(e && e.message ? e.message : "登录失败，请再试一次");
+      } finally { S.busy = false; render(); }
+    } });
+  card.append(submit);
+  card.append(h("div", { class: "tiny muted", style: "margin-top:12px", html:
+    "账号与云端由你自己搭建的同步服务管理；登录只换取一个会话令牌，密码不会留在浏览器里。" }));
+  root.append(card);
+}
+
+/* --------------------------------------------------------------- 渲染 */
+
+const TABS = [
+  ["items", "🧺", "家当"],
+  ["ledger", "🧾", "记账"],
+  ["tobuy", "🛒", "待买"],
+  ["reminders", "⏰", "提醒"],
+  ["more", "⋯", "更多"],
+];
+const EXTRA_VIEWS = { anniversaries: "纪念日", capsules: "时间胶囊", packing: "打包清单", taxonomy: "账户与分类" };
+
+function go(tab) {
+  S.tab = tab;
+  window.scrollTo({ top: 0 });
+  render();
+}
+
+function renderTopbar() {
+  const bar = $("topbar");
+  bar.innerHTML = "";
+  const inner = h("div", { class: "topbar-in" },
+    h("div", { class: "logo", text: "🍋" }),
+    h("div", null,
+      h("h1", { text: "柠檬百宝箱" }),
+      h("div", { class: "who", text: S.username ? `已登录 · ${S.username}` : "网页版" })));
+  const actions = h("div", { class: "top-actions" });
+  if (S.token) {
+    actions.append(h("button", { class: "iconbtn", title: "同步", text: S.syncing ? "…" : "⟳",
+      disabled: S.syncing || S.busy, onClick: () => syncNow(false) }));
+  }
+  inner.append(actions);
+  bar.append(inner);
+}
+
+function renderTabbar() {
+  const bar = $("tabbar");
+  bar.innerHTML = "";
+  if (!S.token) return;
+  const inner = h("div", { class: "tabbar-in" });
+  for (const [id, icon, label] of TABS) {
+    const on = S.tab === id || (EXTRA_VIEWS[S.tab] && id === "more");
+    inner.append(h("button", { class: "tab" + (on ? " on" : ""), onClick: () => go(id) },
+      h("span", { class: "b", text: icon }), h("span", { text: label })));
+  }
+  bar.append(inner);
+}
+
+function render() {
+  renderTopbar();
+  renderTabbar();
+  const root = $("view");
+  root.innerHTML = "";
+  if (!S.token) { viewLogin(root); return; }
+  if (S.syncing && !S.records.size) {
+    root.append(h("div", { class: "card pad center muted", style: "margin-top:40px" },
+      h("div", { text: "正在同步云端数据…" }), h("div", { class: "bar" }, h("i", { style: "width:60%" }))));
+    return;
+  }
+  switch (S.tab) {
+    case "items": viewItems(root); break;
+    case "ledger": viewLedger(root); break;
+    case "tobuy": viewToBuy(root); break;
+    case "reminders": viewReminders(root); break;
+    case "anniversaries": viewAnniversaries(root); break;
+    case "capsules": viewCapsules(root); break;
+    case "packing": viewPacking(root); break;
+    case "taxonomy": viewTaxonomy(root); break;
+    default: viewMore(root);
+  }
+  if (["items", "ledger", "more", "tobuy"].includes(S.tab)) addFab(root);
+}
+
+/** 悬浮「＋」：按当前栏目给对应的新建动作。 */
+function addFab(root) {
+  const fabFor = { items: newItemSheet, ledger: () => ledgerSheet(null), tobuy: newItemSheet };
+  const fn = fabFor[S.tab];
+  if (!fn) return;
+  const fab = h("button", {
+    class: "fab", title: "新增",
+    style: "position:fixed;right:16px;bottom:calc(84px + env(safe-area-inset-bottom));z-index:35;" +
+      "width:54px;height:54px;border-radius:18px;border:0;cursor:pointer;font-size:26px;color:#3A2A06;" +
+      "background:linear-gradient(135deg,var(--lemon),var(--brand));box-shadow:var(--shadow)",
+    text: "＋", onClick: fn,
+  });
+  document.body.append(fab);
+}
+
+/* ------------------------------------------------------------------ 启动 */
+
+loadSession();
+render();
+if (S.token) syncNow(true);
+window.addEventListener("focus", () => { if (S.token && !S.syncing && Date.now() - (S.lastSyncAt || 0) > 60000) syncNow(true); });
+// 每次重渲染先清掉上一帧遗留的悬浮按钮。
+const _render = render;
+render = function () { document.querySelectorAll(".fab").forEach((n) => n.remove()); _render(); };
+</script>
+</body>
+</html>

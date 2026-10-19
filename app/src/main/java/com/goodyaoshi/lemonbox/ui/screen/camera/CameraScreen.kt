@@ -60,6 +60,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
@@ -362,7 +365,11 @@ fun CameraScreen(
                             .clip(CircleShape)
                             .background(Color.White.copy(alpha = 0.2f))
                             .border(2.dp, Color.White.copy(alpha = 0.78f), CircleShape)
-                            .clickable {
+                            // 快门是取景页的核心动作（P2-22）：补读屏语义，让辅助功能能识别「拍照」按钮。
+                            .semantics {
+                                contentDescription = "拍照"
+                            }
+                            .clickable(role = Role.Button) {
                                 takePhoto(
                                     context = context,
                                     imageCapture = imageCapture,

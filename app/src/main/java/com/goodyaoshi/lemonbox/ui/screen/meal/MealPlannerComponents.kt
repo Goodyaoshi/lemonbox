@@ -30,6 +30,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TimePicker
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
@@ -42,6 +43,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -62,6 +64,7 @@ import com.goodyaoshi.lemonbox.ui.components.InlineNotice
 import com.goodyaoshi.lemonbox.ui.components.PillTag
 import com.goodyaoshi.lemonbox.ui.components.SegmentedTabs
 import com.goodyaoshi.lemonbox.ui.theme.CardWhite
+import com.goodyaoshi.lemonbox.ui.theme.OnScrim
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarmDeep
 import com.goodyaoshi.lemonbox.ui.theme.TagBlue
@@ -311,12 +314,15 @@ internal fun DayMealActionRow(
                 PillTag(text = "已做", backgroundColor = TagGreen, contentColor = TagGreenText)
             } else {
                 // 备菜提醒（如提前一晚解冻肉）：一天一条，生成后显示「已提醒」。
+                // 已提醒不再是禁用态（P2-21）：点开仍可改时间/取消，不再只能退出去找提醒页。
+                // 触达面积达标（P3-21）：原 chip 约 28dp 高，先撑出 48dp 最小可点区再画胶囊。
                 Box(
                     modifier = Modifier
+                        .minimumInteractiveComponentSize()
                         // 胶囊用 CircleShape（F6）：形状令牌化，替换内联 999dp 圆角。
                         .clip(CircleShape)
                         .background(if (hasPrepReminder) TagGreen else SurfaceWarmDeep)
-                        .clickable(enabled = !hasPrepReminder, onClick = onPrepReminder)
+                        .clickable(role = Role.Button, onClick = onPrepReminder)
                         .padding(horizontal = 12.dp, vertical = 6.dp)
                 ) {
                     Text(
@@ -486,7 +492,9 @@ internal fun MealEditorSheet(
     day: WeeklyMealDay,
     recipes: List<Recipe>,
     onDismiss: () -> Unit,
-    onSave: (MealSpec) -> Unit
+    onSave: (MealSpec) -> Unit,
+    // 编辑弹层的「去菜谱库」直达入口（P3-15）：默认空实现，未接线时点了不动作。
+    onNavigateToRecipeLibrary: () -> Unit = {}
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var selection by remember(day.dateKey) {
@@ -595,12 +603,22 @@ internal fun MealEditorSheet(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 if (options.isEmpty()) {
-                    Text(
-                        text = "菜谱库里还没有「${MealPickTab.entries[tabIndex].label}」菜谱，去「菜谱库」添加一道吧。",
-                        // 字号走主题字阶（F6）：bodySmall 为 12sp。
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextHint
-                    )
+                    // 补就地入口（P3-15）：不再只写「去菜谱库添加」，弹层内给可点按钮。
+                    Column {
+                        Text(
+                            text = "菜谱库里还没有「${MealPickTab.entries[tabIndex].label}」菜谱。",
+                            // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextHint
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        PillTag(
+                            text = "去菜谱库添加",
+                            backgroundColor = OrangeStart,
+                            contentColor = OnScrim,
+                            onClick = onNavigateToRecipeLibrary
+                        )
+                    }
                 } else {
                     options.forEach { option ->
                         val selected = selection.any { it.matches(option) }
@@ -736,7 +754,10 @@ internal fun MealPrepDialog(
     onDismiss: () -> Unit,
     onSuggestTitle: (dayShift: Int) -> String,
     onConfirm: (dayShift: Int, fireTime: String) -> Unit,
-    errorMessage: String? = null
+    errorMessage: String? = null,
+    // 「取消这条提醒」出口（P2-21）：仅在那天已生成提醒、再次点开弹窗时由调用方传入；
+    // 不传则不渲染该按钮，行为与改造前一致。
+    onCancelReminder: (() -> Unit)? = null
 ) {
     var title by remember(dateKey) { mutableStateOf(suggestedTitle) }
     var titleEdited by remember(dateKey) { mutableStateOf(false) }
@@ -844,6 +865,16 @@ internal fun MealPrepDialog(
                 text = fireTime,
                 selected = true,
                 onClick = { showTimePicker = true }
+            )
+        }
+        // 取消既有提醒（P2-21）：已提醒的那天也能在本页直接撤掉，不必退出去找提醒页。
+        if (onCancelReminder != null) {
+            Spacer(modifier = Modifier.height(4.dp))
+            PillTag(
+                text = "取消这条提醒",
+                backgroundColor = TagRed,
+                contentColor = TagRedText,
+                onClick = onCancelReminder
             )
         }
     }

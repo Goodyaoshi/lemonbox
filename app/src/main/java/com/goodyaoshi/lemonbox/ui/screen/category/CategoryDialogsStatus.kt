@@ -233,12 +233,15 @@ internal fun ExpiryReminderPanel(
 /** 有效期快捷档位自定义：输入数值 + 选单位（天/周/月/年），追加到现有档位并去重。 */
 @Composable
 internal fun ExpiryQuickDialog(
+    current: List<String>,
     onDismiss: () -> Unit,
     onConfirm: (List<String>) -> Unit
 ) {
     var amountText by remember { mutableStateOf("") }
     var unit by remember { mutableStateOf("d") }
-    var added by remember { mutableStateOf(DateUtil.DEFAULT_EXPIRY_QUICK_CODES) }
+    // 从「当前已保存的档位」起算，而不是从默认值起算：否则用户点开这个弹窗、
+    // 什么都没加就按保存，会把自定义过的档位整个重置回默认，等于白改。
+    var added by remember { mutableStateOf(DateUtil.normalizeExpiryQuickCodes(current)) }
     val unitOptions = listOf("d" to "天", "w" to "周", "m" to "月", "y" to "年")
 
     AppDialog(

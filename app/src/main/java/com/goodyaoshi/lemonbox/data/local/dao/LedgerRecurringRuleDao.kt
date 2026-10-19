@@ -51,6 +51,10 @@ interface LedgerRecurringRuleDao {
     )
     suspend fun softDelete(id: Long, deletedAt: Long, updatedAt: Long)
 
+    /** 从回收站恢复一条周期规则（清空 deletedAt），配合删除后的「撤销」使用。 */
+    @Query("UPDATE ledger_recurring_rules SET deletedAt = NULL, updatedAt = :updatedAt, dirty = 1 WHERE id = :id")
+    suspend fun restoreFromTrash(id: Long, updatedAt: Long)
+
     @Query("DELETE FROM ledger_recurring_rules WHERE deletedAt IS NOT NULL AND deletedAt < :cutoff" + TOMBSTONE_CONFIRMED_SQL)
     suspend fun purgeDeletedOlderThan(cutoff: Long)
 }

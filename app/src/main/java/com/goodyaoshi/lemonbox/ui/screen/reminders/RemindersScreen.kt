@@ -360,6 +360,9 @@ private fun ReminderRow(
     // 行内操作收敛（P2）：原先「完成 + 稍后 + 编辑」三个热区并排，小屏容易误触；
     // 现在主操作只留「完成」，其余收进「更多」菜单（触达面积达标 F7：IconButton 默认 48dp）。
     var menuOpen by remember { mutableStateOf(false) }
+    // 已完成的一次性提醒（P1-5）：开关对它无效（见下方说明），据此决定是否露出开关。
+    val enableSwitchUnavailable =
+        reminder.completedAt != null && reminder.repeat == ReminderRepeatType.ONCE
     AppSurfaceCard(
         modifier = modifier,
         // 圆角走形状令牌（F6）：与全 App 卡片收敛到 large（20dp）。
@@ -512,16 +515,19 @@ private fun ReminderRow(
                 }
                 Spacer(modifier = Modifier.width(4.dp))
             }
-            // 开关始终可见并绑定真实启用状态（I4）：此前写死 checked = true，
-            // 用户既无法从界面判断提醒是否启用，点击时开关也不会翻转（"点了没用"的错觉）。
-            // 不写死尺寸，交给 M3 默认的 48dp 最小交互热区，同时读屏能播报开关对应的提醒名。
-            Switch(
-                checked = reminder.enabled,
-                onCheckedChange = { onToggle() },
-                modifier = Modifier.semantics {
-                    contentDescription = "启用提醒：${reminder.title}"
-                }
-            )
+            // 开关只对「还能被重新打开」的提醒露出（P1-5）：已完成的一次性提醒重新打开时，
+            // nextAfter 对 ONCE 恒返回 null，setEnabled 会静默 return —— 开关自己弹回且毫无提示。
+            // 与其留一个人点了没用、还静默弹回的开关，这类行只留删除。
+            // 其余行开关始终可见并绑定真实启用状态（I4），读屏能播报开关对应的提醒名。
+            if (!enableSwitchUnavailable) {
+                Switch(
+                    checked = reminder.enabled,
+                    onCheckedChange = { onToggle() },
+                    modifier = Modifier.semantics {
+                        contentDescription = "启用提醒：${reminder.title}"
+                    }
+                )
+            }
         }
     }
 }

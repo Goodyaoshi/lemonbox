@@ -86,7 +86,6 @@ import com.goodyaoshi.lemonbox.ui.components.buildTreePathLabel
 import com.goodyaoshi.lemonbox.ui.scan.EXTRA_BARCODE
 import com.goodyaoshi.lemonbox.ui.scan.ScanActivity
 import com.goodyaoshi.lemonbox.ui.theme.CardWhite
-import com.goodyaoshi.lemonbox.ui.theme.DividerSoft
 import com.goodyaoshi.lemonbox.ui.theme.GlassWhite
 import com.goodyaoshi.lemonbox.ui.theme.OnScrim
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
@@ -346,13 +345,8 @@ fun SaveScreen(
                             .imePadding()
                             .padding(bottom = 120.dp)
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.CenterHorizontally)
-                                .size(width = 42.dp, height = 4.dp)
-                                // 胶囊走 CircleShape（F6）。
-                                .background(DividerSoft, CircleShape)
-                        )
+                        // 去掉顶部 42×4 装饰胶囊（P3-2）：它与底部弹层的拖拽把手外形一致，
+                        // 却没有任何拖拽/收起行为，纯装饰会误导用户去拖，故移除。只留正常上间距。
                         Spacer(modifier = Modifier.height(14.dp))
 
                         ItemImageGallery(
@@ -632,7 +626,7 @@ fun SaveScreen(
                 selectedId = state.categoryId,
                 onSelect = viewModel::updateCategory,
                 onDismissRequest = { showCategoryPicker = false },
-                emptyHint = "还没有分类，可到「分类」页添加。"
+                emptyHint = "还没有分类，可到「家当设置 → 分类」里添加。"
             )
         }
 
@@ -643,7 +637,7 @@ fun SaveScreen(
                 selectedId = state.locationId,
                 onSelect = viewModel::updateLocation,
                 onDismissRequest = { showLocationPicker = false },
-                emptyHint = "还没有存放位置，可到「分类 → 管理位置」里添加。"
+                emptyHint = "还没有存放位置，可到「家当设置 → 存放位置」里添加。"
             )
         }
 

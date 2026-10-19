@@ -144,6 +144,16 @@ class FakeLedgerCategoryDao(
         if (index >= 0) categories[index] = categories[index].copy(deletedAt = deletedAt, updatedAt = deletedAt)
     }
 
+    override suspend fun restoreFromTrash(id: Long, updatedAt: Long) {
+        val index = categories.indexOfFirst { it.id == id }
+        if (index >= 0) categories[index] = categories[index].copy(deletedAt = null, updatedAt = updatedAt)
+    }
+
+    override suspend fun countActiveByName(name: String, kind: Int, excludeId: Long): Int =
+        categories.count {
+            it.deletedAt == null && it.kind == kind && it.id != excludeId && it.name.equals(name, true)
+        }
+
     override suspend fun getCount(): Int = categories.size
 }
 
@@ -177,6 +187,11 @@ class FakeLedgerAssetDao(
     override suspend fun softDelete(id: Long, deletedAt: Long) {
         val index = assets.indexOfFirst { it.id == id }
         if (index >= 0) assets[index] = assets[index].copy(deletedAt = deletedAt, updatedAt = deletedAt)
+    }
+
+    override suspend fun restoreFromTrash(id: Long, updatedAt: Long) {
+        val index = assets.indexOfFirst { it.id == id }
+        if (index >= 0) assets[index] = assets[index].copy(deletedAt = null, updatedAt = updatedAt)
     }
 
     override suspend fun getCount(): Int = assets.size

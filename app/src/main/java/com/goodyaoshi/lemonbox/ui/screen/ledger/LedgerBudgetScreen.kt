@@ -25,6 +25,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -34,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -103,7 +105,10 @@ fun LedgerBudgetScreen(
             }
 
             LazyColumn(
-                modifier = Modifier.weight(1f),
+                // 底部避开系统导航栏（P2-11）：edge-to-edge 下最后一项不被遮挡。
+                modifier = Modifier
+                    .weight(1f)
+                    .navigationBarsPadding(),
                 contentPadding = PaddingValues(
                     start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp
                 ),
@@ -141,7 +146,9 @@ fun LedgerBudgetScreen(
                                     // 胶囊走 CircleShape（F6）。
                                     .clip(CircleShape)
                                     .background(OrangeStart.copy(alpha = 0.12f))
-                                    .clickable {
+                                    // 热区补足（P2-12）：视觉不变，撑出 48dp 最小点按区并声明 Button 角色。
+                                    .minimumInteractiveComponentSize()
+                                    .clickable(role = Role.Button) {
                                         editTarget = BudgetEditTarget(null, "月度总预算", 0L)
                                     }
                                     .padding(horizontal = 16.dp, vertical = 9.dp)

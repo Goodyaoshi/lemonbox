@@ -44,10 +44,12 @@ import com.goodyaoshi.lemonbox.data.local.dao.LedgerAssetWithBalance
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
+import com.goodyaoshi.lemonbox.ui.components.DeleteCopy
 import com.goodyaoshi.lemonbox.ui.components.EditorInputBox
 import com.goodyaoshi.lemonbox.ui.components.EditorSectionLabel
 import com.goodyaoshi.lemonbox.ui.components.EmptyState
 import com.goodyaoshi.lemonbox.ui.components.GradientButton
+import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
 import com.goodyaoshi.lemonbox.ui.components.SegmentedTabs
 import com.goodyaoshi.lemonbox.ui.components.SwipeActionSpec
 import com.goodyaoshi.lemonbox.ui.components.SwipeRevealItem
@@ -66,6 +68,7 @@ import com.goodyaoshi.lemonbox.ui.viewmodel.LEDGER_ASSET_TYPE_CREDIT
 import com.goodyaoshi.lemonbox.ui.viewmodel.LEDGER_ASSET_TYPE_NORMAL
 import com.goodyaoshi.lemonbox.util.DateUtil
 import com.goodyaoshi.lemonbox.util.LedgerMath
+import kotlin.math.abs
 
 /** 分 → 金额文本（带 ¥）。 */
 private fun formatCents(cents: Long): String =
@@ -79,16 +82,20 @@ private fun formatCents(cents: Long): String =
 @Composable
 fun LedgerAssetsScreen(
     onBack: () -> Unit,
+    // 账户被账单占用时的出逃通道（P2-15）：直达在用账单，导航接线由 AppNavGraph 完成。
+    onViewRelatedRecords: (Long) -> Unit = {},
     viewModel: LedgerAssetsViewModel = hiltViewModel()
 ) {
     val assets by viewModel.assetsWithBalance.collectAsState()
     val summary by viewModel.summary.collectAsState()
+    val appSnackbar = LocalAppSnackbar.current
     var tabIndex by remember { mutableIntStateOf(0) }
     var editingAsset by remember { mutableStateOf<LedgerAssetWithBalance?>(null) }
     var showAddDialog by remember { mutableStateOf(false) }
     var openedAssetId by remember { mutableStateOf<Long?>(null) }
     var pendingDelete by remember { mutableStateOf<LedgerAssetWithBalance?>(null) }
-    var deleteBlockedName by remember { mutableStateOf<String?>(null) }
+    // 被阻断的账户（P2-15）：保留整条记录，弹窗里要拿 id 跳账单、拿名称做文案。
+    var deleteBlockedAsset by remember { mutableStateOf<LedgerAssetWithBalance?>(null) }
     var showDuplicateName by remember { mutableStateOf(false) }
 
     val currentType = if (tabIndex == 1) LEDGER_ASSET_TYPE_CREDIT else LEDGER_ASSET_TYPE_NORMAL
@@ -281,13 +288,20 @@ fun LedgerAssetsScreen(
             destructiveConfirm = true,
             onConfirm = {
                 viewModel.deleteAsset(asset.id) { success ->
-                    if (!success) deleteBlockedName = asset.name
+                    if (success) {
+                        // 撤销删除（P3-11）：与流水删除一致，删后给可撤销提示条。
+                        appSnackbar?.showUndo("已删除「${asset.name}」", DeleteCopy.UNDO_ACTION) {
+                            viewModel.restoreAsset(asset.id)
+                        }
+                    } else {
+                        deleteBlockedAsset = asset
+                    }
                 }
                 pendingDelete = null
             }
         ) {
             Text(
-                text = "确定要删除「${asset.name}」吗？",
+                text = "确定要删除「${asset.name}」吗？删错了可以撤销。",
                 color = TextSecondary,
                 // 字号走主题字阶（F6）：bodyMedium 为 14sp。
                 style = MaterialTheme.typography.bodyMedium
@@ -295,12 +309,18 @@ fun LedgerAssetsScreen(
         }
     }
 
-    deleteBlockedName?.let { name ->
+    deleteBlockedAsset?.let { asset ->
         AppDialog(
             title = "暂时不能删除",
-            subtitle = "「$name」还有账单在用，删掉会让历史账单对不上号。",
-            onDismissRequest = { deleteBlockedName = null },
+            subtitle = "「${asset.name}」还有账单在用，删掉会让历史账单对不上号。",
+            onDismissRequest = { deleteBlockedAsset = null },
             confirmText = "知道了",
+            // 出逃通道（P2-15）：不再只给「知道了」，补一条直达在用账单的路。
+            secondaryText = "查看在用账单",
+            onSecondary = {
+                deleteBlockedAsset = null
+                onViewRelatedRecords(asset.id)
+            },
             dismissText = null
         ) {
             Text(
@@ -330,12 +350,14 @@ fun LedgerAssetsScreen(
     }
 }
 
-/** 账户行：图标 + 名称 + 当前余额，点击进入编辑。 */
+/** 账户行：图标 + 名称 + 当前余额，点击进入编辑。负债账户按「欠款」正数展示（P2-8）。 */
 @Composable
 private fun LedgerAssetRow(
     asset: LedgerAssetWithBalance,
     onClick: () -> Unit
 ) {
+    // 负债口径统一（P2-8）：汇总卡的「总负债」是取负后的正数，行内也显示绝对值并标注「欠款」。
+    val isLiability = asset.type == LEDGER_ASSET_TYPE_CREDIT
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -370,8 +392,17 @@ private fun LedgerAssetRow(
                 .weight(1f)
                 .padding(start = 10.dp)
         )
+        if (isLiability) {
+            Text(
+                text = "欠款",
+                // 标签走主题字阶（F6）：labelMedium 为 12sp。
+                style = MaterialTheme.typography.labelMedium,
+                color = TextHint,
+                modifier = Modifier.padding(end = 6.dp)
+            )
+        }
         Text(
-            text = formatCents(asset.balance),
+            text = formatCents(if (isLiability) abs(asset.balance) else asset.balance),
             // 字号走主题字阶（F6）：titleSmall 为 14sp。
             style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.SemiBold,

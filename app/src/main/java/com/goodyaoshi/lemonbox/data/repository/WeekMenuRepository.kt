@@ -216,6 +216,19 @@ class WeekMenuRepository @Inject constructor(
         }.getOrNull()
         val title = mealPrepTitle(dateKey, targetDate ?: dateKey) ?: return false
         val note = latestDays.firstOrNull { it.dateKey == dateKey }?.title.orEmpty()
+        val sourceKey = MEAL_PREP_KEY_PREFIX + dateKey
+        // 已提醒的那天再次点开弹窗（P2-21）：改为更新既有那条，避免同一天叠出第二条提醒。
+        val existing = reminderRepository.findActiveBySourceKey(sourceKey)
+        if (existing != null) {
+            return reminderRepository.update(
+                existing.copy(
+                    title = title,
+                    note = note,
+                    targetDate = targetDate,
+                    fireTime = fireTime
+                )
+            )
+        }
         return reminderRepository.create(
             Reminder(
                 title = title,
@@ -224,9 +237,21 @@ class WeekMenuRepository @Inject constructor(
                 fireTime = fireTime,
                 targetDate = targetDate,
                 source = ReminderSource.MEAL_PREP.name,
-                sourceKey = MEAL_PREP_KEY_PREFIX + dateKey
+                sourceKey = sourceKey
             )
         )
+    }
+
+    /**
+     * 取消某天的备菜提醒（P2-21）：按 sourceKey 找到当前有效的那条并软删，
+     * 让「已提醒」的那天也能在吃饭页直接撤掉，不必退出去找提醒页。
+     * 没有对应提醒时返回 false。
+     */
+    suspend fun cancelMealPrepReminder(dateKey: String): Boolean {
+        val existing = reminderRepository.findActiveBySourceKey(MEAL_PREP_KEY_PREFIX + dateKey)
+            ?: return false
+        reminderRepository.delete(existing)
+        return true
     }
 
     /** 把一餐里还缺的主料写入待买清单，已经在待买里的不重复添加（采购闭环第一环）。 */

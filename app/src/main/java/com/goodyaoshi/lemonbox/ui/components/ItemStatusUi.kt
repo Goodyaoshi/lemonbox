@@ -135,7 +135,8 @@ fun StatusPickerDialog(
             modifier = Modifier.semantics { heading() }
         )
         Text(
-            text = "选中后立即保存。想调整更多选项，去「我的 - 分类与状态」里自定义。",
+            // 路径修正（P2-1）：原「我的 - 分类与状态」已不存在，实际入口是家当 Tab 里的「家当设置」。
+            text = "选中后立即保存。想调整更多选项，去「家当 → 家当设置」里自定义。",
             // 字号走主题字阶（F6）：bodySmall 为 12sp（F7 下限）。
             style = MaterialTheme.typography.bodySmall,
             color = TextSecondary,

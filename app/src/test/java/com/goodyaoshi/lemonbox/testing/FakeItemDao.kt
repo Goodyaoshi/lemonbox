@@ -158,6 +158,32 @@ class FakeItemDao(
         }
     }
 
+    override suspend fun countItemsByUsageStatus(code: Int): Int =
+        items.count { it.usageStatus == code && it.deletedAt == null }
+
+    override suspend fun countItemsByDisposition(code: Int): Int =
+        items.count { it.disposition == code && it.deletedAt == null }
+
+    override suspend fun getItemIdsByUsageStatus(code: Int): List<Long> =
+        items.filter { it.usageStatus == code && it.deletedAt == null }.map { it.id }
+
+    override suspend fun getItemIdsByDisposition(code: Int): List<Long> =
+        items.filter { it.disposition == code && it.deletedAt == null }.map { it.id }
+
+    override suspend fun updateUsageStatusForIds(ids: List<Long>, code: Int, updatedAt: Long) {
+        val idSet = ids.toSet()
+        items.replaceAll { item ->
+            if (item.id in idSet) item.copy(usageStatus = code, updatedAt = updatedAt) else item
+        }
+    }
+
+    override suspend fun updateDispositionForIds(ids: List<Long>, code: Int, updatedAt: Long) {
+        val idSet = ids.toSet()
+        items.replaceAll { item ->
+            if (item.id in idSet) item.copy(disposition = code, updatedAt = updatedAt) else item
+        }
+    }
+
     override suspend fun updateUsageStatus(id: Long, usageStatus: Int, updatedAt: Long) {
         items.replaceAll { item ->
             if (item.id == id) item.copy(usageStatus = usageStatus, updatedAt = updatedAt) else item

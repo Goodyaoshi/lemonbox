@@ -34,6 +34,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -46,6 +47,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -282,8 +284,10 @@ private fun SettingRow(
             style = MaterialTheme.typography.labelLarge,
             color = OrangeStart,
             modifier = Modifier
+                // 热区补足 48dp（P3-17）：此前纯文本热区仅约 32dp，手指点不中；并声明按钮角色。
+                .minimumInteractiveComponentSize()
                 .clip(CircleShape)
-                .clickable(onClick = onAction)
+                .clickable(role = Role.Button, onClick = onAction)
                 .padding(horizontal = 10.dp, vertical = 6.dp)
         )
     }

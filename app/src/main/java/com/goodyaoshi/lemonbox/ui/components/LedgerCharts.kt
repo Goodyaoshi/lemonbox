@@ -22,6 +22,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
@@ -31,6 +33,8 @@ import com.goodyaoshi.lemonbox.ui.theme.TagBlueText
 import com.goodyaoshi.lemonbox.ui.theme.TagOrangeText
 import com.goodyaoshi.lemonbox.ui.theme.TextHint
 import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
+import com.goodyaoshi.lemonbox.util.DateUtil
+import com.goodyaoshi.lemonbox.util.LedgerMath
 import java.util.Locale
 
 /**
@@ -65,13 +69,28 @@ fun LedgerTrendLineChart(
     val expenseColor = TagBlueText
     val incomeColor = TagOrangeText
 
-    Canvas(modifier = modifier) {
+    // 右侧预留（P3-9）：末点的月份标签与数值标注都以数据点为圆心绘制，
+    // 原先只留 8dp，最靠右那个标签的后半会被画布右缘裁掉。
+    // 这里按「最宽尾部文案」预留其一半宽度，保证完整可见。
+    val tailWidthPx = points.maxOfOrNull { point ->
+        val labelWidth = measurer.measure(AnnotatedString(point.label), labelStyle).size.width
+        val valueWidth = if (point.expenseCents > 0L) {
+            measurer.measure(AnnotatedString(yAxisAmount(point.expenseCents)), valueStyle).size.width
+        } else {
+            0
+        }
+        maxOf(labelWidth, valueWidth)
+    } ?: 0
+    // 读屏等价文本（P2-14）：Canvas 自绘图没有语义，读屏用户此前完全拿不到趋势数据。
+    val description = trendContentDescription(points)
+
+    Canvas(modifier = modifier.semantics { contentDescription = description }) {
         if (points.isEmpty()) return@Canvas
 
         val labelGap = 4.dp.toPx()
         val bottomReserve = 18.dp.toPx()
         val topReserve = 16.dp.toPx()
-        val rightReserve = 8.dp.toPx()
+        val rightReserve = tailWidthPx / 2f + labelGap
         // 全 0 时按 1 处理，避免除零；此时折线贴基线展示，不产生 NaN。
         val maxValue = points.maxOf { maxOf(it.expenseCents, it.incomeCents) }.coerceAtLeast(1L)
         // Y 轴刻度（P1）：按最大刻度文案宽度预留左侧空间，0 与最大值两端标注、带 ¥ 单位。
@@ -187,8 +206,10 @@ fun LedgerTrendBarChart(
     // 第二区分手段（文字）与颜色并存，色觉障碍用户也能分辨。
     val expenseColor = TagBlueText
     val incomeColor = TagOrangeText
+    // 读屏等价文本（P2-14）：Canvas 自绘图没有语义，读屏用户此前完全拿不到趋势数据。
+    val description = trendContentDescription(points)
 
-    Canvas(modifier = modifier) {
+    Canvas(modifier = modifier.semantics { contentDescription = description }) {
         if (points.isEmpty()) return@Canvas
 
         val labelGap = 4.dp.toPx()
@@ -291,6 +312,22 @@ private fun LegendDot(color: Color, label: String) {
             color = TextSecondary
         )
     }
+}
+
+/**
+ * 图表的读屏等价文本（P2-14）：Canvas 自绘的折线/柱状图没有任何 semantics，
+ * 趋势页正文里也没有可读的数值清单，读屏用户此前完全拿不到各月收支数据。
+ * 这里把每个账期的月份 + 收入 + 支出汇总成一句可播报的文本，挂在 Canvas 上。
+ */
+private fun trendContentDescription(points: List<LedgerTrendPoint>): String {
+    if (points.isEmpty()) return "暂无收支趋势数据"
+    val detail = points.joinToString("；") { point ->
+        "${point.label} 支出" +
+            DateUtil.formatCurrency(LedgerMath.centsToYuan(point.expenseCents)) +
+            "，收入" +
+            DateUtil.formatCurrency(LedgerMath.centsToYuan(point.incomeCents))
+    }
+    return "近 ${points.size} 个月收支：$detail"
 }
 
 /** 图表标注的紧凑金额：≥ 1 万元显示「N.N万」，否则取整到元，避免标注压盖。 */

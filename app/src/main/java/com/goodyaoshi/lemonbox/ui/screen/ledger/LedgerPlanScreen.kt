@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -35,6 +36,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -44,6 +47,7 @@ import com.goodyaoshi.lemonbox.data.local.entity.LedgerRecurringRule
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerTemplate
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
+import com.goodyaoshi.lemonbox.ui.components.DeleteCopy
 import com.goodyaoshi.lemonbox.ui.components.EmptyState
 import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
 import com.goodyaoshi.lemonbox.ui.components.SegmentedTabs
@@ -122,7 +126,10 @@ fun LedgerPlanScreen(
 
             if (tabIndex == 0) {
                 LazyColumn(
-                    modifier = Modifier.weight(1f),
+                    // 底部避开系统导航栏（P2-11）。
+                    modifier = Modifier
+                        .weight(1f)
+                        .navigationBarsPadding(),
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
@@ -138,6 +145,7 @@ fun LedgerPlanScreen(
                             )
                         }
                     } else {
+                        item(key = "template-swipe-hint") { SwipeDeleteHint() }
                         items(templates, key = { it.id }) { template ->
                             SwipeRevealItem(
                                 itemKey = template.id,
@@ -160,7 +168,9 @@ fun LedgerPlanScreen(
                                             append(" · ")
                                             append(ledgerSignedAmountText(template.type, template.amount))
                                         }
-                                    }
+                                    },
+                                    // 可见删除入口（P2-9）：补行内垃圾桶，不再只靠左滑发现。
+                                    onDelete = { pendingDeleteTemplate = template }
                                 )
                             }
                         }
@@ -168,7 +178,10 @@ fun LedgerPlanScreen(
                 }
             } else {
                 LazyColumn(
-                    modifier = Modifier.weight(1f),
+                    // 底部避开系统导航栏（P2-11）。
+                    modifier = Modifier
+                        .weight(1f)
+                        .navigationBarsPadding(),
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
@@ -209,10 +222,14 @@ fun LedgerPlanScreen(
                             EmptyState(
                                 title = "还没有周期记账",
                                 message = "记一笔时点「设为周期」，房租、水电这类账单就能自动生成。",
+                                // 空态补直达按钮（P1-3）：「设为周期」藏在记一笔的「更多」里，这里给出口。
+                                actionLabel = "去记一笔",
+                                onAction = { onNavigateToRecordEdit(null) },
                                 modifier = Modifier.padding(top = 6.dp)
                             )
                         }
                     } else {
+                        item(key = "rule-swipe-hint") { SwipeDeleteHint() }
                         items(rules, key = { it.id }) { rule ->
                             SwipeRevealItem(
                                 itemKey = rule.id,
@@ -272,8 +289,20 @@ fun LedgerPlanScreen(
                                     Switch(
                                         checked = rule.enabled,
                                         onCheckedChange = { viewModel.setRuleEnabled(rule.id, it) },
-                                        modifier = Modifier.padding(start = 4.dp)
+                                        modifier = Modifier
+                                            .padding(start = 4.dp)
+                                            // 读屏可达（P3-13）：开关关联规则名，不再只播报「开 / 关」。
+                                            .semantics { contentDescription = rule.name }
                                     )
+                                    // 可见删除入口（P2-9）：补行内垃圾桶，不再只靠左滑发现。
+                                    IconButton(onClick = { pendingDeleteRule = rule }) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Delete,
+                                            contentDescription = "删除${rule.name}",
+                                            tint = TextHint,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -286,11 +315,16 @@ fun LedgerPlanScreen(
     pendingDeleteTemplate?.let { template ->
         AppDialog(
             title = "删除模板",
+            subtitle = "删除后模板不再出现在列表里，删错了可以撤销。",
             onDismissRequest = { pendingDeleteTemplate = null },
             confirmText = "删除",
             destructiveConfirm = true,
             onConfirm = {
                 viewModel.deleteTemplate(template.id)
+                // 撤销删除（P3-11）：模板删除补可撤销提示条。
+                appSnackbar?.showUndo("已删除「${template.name}」", DeleteCopy.UNDO_ACTION) {
+                    viewModel.restoreTemplate(template.id)
+                }
                 pendingDeleteTemplate = null
             }
         ) {
@@ -306,12 +340,16 @@ fun LedgerPlanScreen(
     pendingDeleteRule?.let { rule ->
         AppDialog(
             title = "删除周期记账",
-            subtitle = "删除后不再自动生成，已生成的账单会保留。",
+            subtitle = "删除后不再自动生成，已生成的账单会保留，删错了可以撤销。",
             onDismissRequest = { pendingDeleteRule = null },
             confirmText = "删除",
             destructiveConfirm = true,
             onConfirm = {
                 viewModel.deleteRule(rule.id)
+                // 撤销删除（P3-11）：周期规则删除补可撤销提示条。
+                appSnackbar?.showUndo("已删除「${rule.name}」", DeleteCopy.UNDO_ACTION) {
+                    viewModel.restoreRule(rule.id)
+                }
                 pendingDeleteRule = null
             }
         ) {
@@ -325,11 +363,12 @@ fun LedgerPlanScreen(
     }
 }
 
-/** 计划行：名称 + 说明副标题（模板列表使用）。 */
+/** 计划行：名称 + 说明副标题（模板列表使用），可选行内删除入口。 */
 @Composable
 private fun PlanRow(
     title: String,
-    subtitle: String
+    subtitle: String,
+    onDelete: (() -> Unit)? = null
 ) {
     Row(
         modifier = Modifier
@@ -357,7 +396,28 @@ private fun PlanRow(
                 )
             }
         }
+        // 可见删除入口（P2-9）：与分类页同款，点垃圾桶即可删除。
+        if (onDelete != null) {
+            IconButton(onClick = onDelete) {
+                Icon(
+                    imageVector = Icons.Filled.Delete,
+                    contentDescription = "删除$title",
+                    tint = TextHint,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
     }
+}
+
+/** 删除方式提示（P2-9）：模板 / 周期规则此前删除完全不可发现，这里给一行「左滑可删除」。 */
+@Composable
+private fun SwipeDeleteHint() {
+    Text(
+        text = "左滑可删除",
+        style = MaterialTheme.typography.bodySmall,
+        color = TextHint
+    )
 }
 
 private fun planTypeLabel(type: Int): String = when (type) {

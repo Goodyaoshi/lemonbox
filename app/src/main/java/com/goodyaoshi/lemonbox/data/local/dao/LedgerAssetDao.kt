@@ -80,6 +80,10 @@ interface LedgerAssetDao {
     @Query("UPDATE ledger_assets SET deletedAt = :deletedAt, updatedAt = :deletedAt, dirty = 1 WHERE id = :id")
     suspend fun softDelete(id: Long, deletedAt: Long)
 
+    /** 从回收站恢复一个账户（清空 deletedAt），配合删除后的「撤销」使用。 */
+    @Query("UPDATE ledger_assets SET deletedAt = NULL, updatedAt = :updatedAt, dirty = 1 WHERE id = :id")
+    suspend fun restoreFromTrash(id: Long, updatedAt: Long)
+
     @Query("SELECT COUNT(*) FROM ledger_assets")
     suspend fun getCount(): Int
 }

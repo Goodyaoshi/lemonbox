@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -160,7 +162,11 @@ fun LedgerScreen(
 
         Column(
             modifier = Modifier
-                .fillMaxSize()
+                // 宽屏限宽（P3-14）：600dp 以上平板不再把内容拉成整屏宽，居中留出阅读边距。
+                .align(Alignment.TopCenter)
+                .fillMaxHeight()
+                .widthIn(max = 600.dp)
+                .fillMaxWidth()
                 .statusBarsPadding()
         ) {
             Column(
@@ -181,9 +187,9 @@ fun LedgerScreen(
                 )
             }
 
-            // 页头胶囊行（IA-4）：高频入口「预算 / 统计 / 分类」保持外露直达，低频入口（资产负债 /
-            // 计划 / 趋势 / 年度）收进「更多」菜单——七枚平铺时低频功能事实不可发现，视觉噪音也
-            // 挤压流水主体。收纳后常规屏四枚放得下即不滚动，极窄屏兜底仍可横滚。
+            // 页头胶囊行（IA-4）：高频入口「预算 / 统计 / 分类」保持外露直达，低频入口
+            // 「资产负债 / 记账计划 / 收支趋势 / 年度回顾」收进「更多」菜单——七枚平铺时低频
+            // 功能事实不可发现，视觉噪音也挤压流水主体。收纳后常规屏四枚放得下即不滚动，极窄屏兜底仍可横滚。
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -197,7 +203,7 @@ fun LedgerScreen(
                 HeaderActionPill(icon = Icons.Filled.PieChart, label = "统计", onClick = onNavigateToStats)
                 HeaderActionPill(icon = Icons.Filled.Category, label = "分类", onClick = onNavigateToCategories)
                 // 「更多」胶囊：锚点 Box 同时包住胶囊与 DropdownMenu，菜单展开时贴着胶囊下方弹出；
-                // 四项文案与图标沿用原七枚胶囊的定义，点选即执行对应跳转并收起菜单。
+                // 四项文案与落地页标题统一（P3-10），点选即执行对应跳转并收起菜单。
                 Box {
                     HeaderActionPill(
                         icon = Icons.Filled.MoreHoriz,
@@ -217,7 +223,7 @@ fun LedgerScreen(
                             }
                         )
                         DropdownMenuItem(
-                            text = { Text("计划") },
+                            text = { Text("记账计划") },
                             leadingIcon = { Icon(Icons.Filled.Repeat, contentDescription = null) },
                             onClick = {
                                 moreMenuExpanded = false
@@ -225,7 +231,7 @@ fun LedgerScreen(
                             }
                         )
                         DropdownMenuItem(
-                            text = { Text("趋势") },
+                            text = { Text("收支趋势") },
                             leadingIcon = { Icon(Icons.AutoMirrored.Filled.ShowChart, contentDescription = null) },
                             onClick = {
                                 moreMenuExpanded = false
@@ -233,7 +239,7 @@ fun LedgerScreen(
                             }
                         )
                         DropdownMenuItem(
-                            text = { Text("年度") },
+                            text = { Text("年度回顾") },
                             leadingIcon = { Icon(Icons.Filled.CalendarMonth, contentDescription = null) },
                             onClick = {
                                 moreMenuExpanded = false

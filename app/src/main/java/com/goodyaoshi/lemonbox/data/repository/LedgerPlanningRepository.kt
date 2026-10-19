@@ -46,6 +46,10 @@ class LedgerPlanningRepository @Inject constructor(
     suspend fun deleteTemplate(id: Long) =
         templateDao.softDelete(id, MonotonicClock.now(), MonotonicClock.now())
 
+    /** 撤销删除：把模板从回收站恢复（清空 deletedAt），供删除后的「撤销」使用。 */
+    suspend fun restoreTemplate(id: Long) =
+        templateDao.restoreFromTrash(id, MonotonicClock.now())
+
     // ---------- 周期规则 ----------
 
     fun observeRules(): Flow<List<LedgerRecurringRule>> = ruleDao.observeAll()
@@ -71,6 +75,10 @@ class LedgerPlanningRepository @Inject constructor(
 
     suspend fun deleteRule(id: Long) =
         ruleDao.softDelete(id, MonotonicClock.now(), MonotonicClock.now())
+
+    /** 撤销删除：把周期规则从回收站恢复（清空 deletedAt），供删除后的「撤销」使用。 */
+    suspend fun restoreRule(id: Long) =
+        ruleDao.restoreFromTrash(id, MonotonicClock.now())
 
     /** 物理清除超过保留期的软删墓碑（模板与周期规则共用同一套 30 天窗口）。 */
     suspend fun purgeDeletedOlderThan(cutoff: Long) {

@@ -26,6 +26,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -58,6 +59,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -109,6 +111,8 @@ fun ToBuyScreen(
     // 结账无账户时的「去添加账户」直达入口（P2）：此前只有一段文字，用户走到末步无路可走；
     // 默认空实现以免调用方（如预览）必须提供。
     onNavigateToLedger: () -> Unit = {},
+    // 分类为空时「去家当设置」的直达入口（P3-25）：此前只有一句指向旧「分类」页的文字。
+    onNavigateToCategory: () -> Unit = {},
     viewModel: ToBuyViewModel = hiltViewModel()
 ) {
     val items by viewModel.items.collectAsState()
@@ -283,7 +287,8 @@ fun ToBuyScreen(
                     if (!isSelectionMode && restockSuggestions.isNotEmpty()) {
                         item(key = "restock_header") {
                             SectionHeader(
-                                title = "建议补货",
+                                // 术语统一（P3-23）：入口与落地页共用「补货预测」，不再叫「建议补货」。
+                                title = "补货预测",
                                 subtitle = "按消耗速度算的，点一下加入待买",
                                 action = "全部 ›",
                                 onActionClick = onOpenRestockForecast,
@@ -447,6 +452,7 @@ fun ToBuyScreen(
             categoryNodes = categoryNodes,
             existing = null,
             nickname = nickname,
+            onNavigateToCategory = onNavigateToCategory,
             onDismiss = { showAddDialog = false },
             onConfirm = { name, quantity, unit, categoryId, forWhom ->
                 viewModel.addToBuy(name, quantity, unit, categoryId, forWhom)
@@ -460,6 +466,7 @@ fun ToBuyScreen(
             categoryNodes = categoryNodes,
             existing = editing,
             nickname = nickname,
+            onNavigateToCategory = onNavigateToCategory,
             onDismiss = { editingItem = null },
             onConfirm = { name, quantity, unit, categoryId, forWhom ->
                 viewModel.updateToBuy(editing, name, quantity, unit, categoryId, forWhom)
@@ -691,6 +698,7 @@ private fun ToBuyEditorDialog(
     categoryNodes: List<TreeNode>,
     existing: Item?,
     nickname: String,
+    onNavigateToCategory: () -> Unit,
     onDismiss: () -> Unit,
     onConfirm: (name: String, quantity: Int, unit: String, categoryId: Long?, forWhom: String?) -> Unit
 ) {
@@ -772,7 +780,13 @@ private fun ToBuyEditorDialog(
             selectedId = categoryId,
             onSelect = { categoryId = it },
             onDismissRequest = { showCategoryPicker = false },
-            emptyHint = "还没有分类，可到「分类」页添加。"
+            // 页面名已改叫「家当设置」（P3-25）：空提示同步改名，并就地给直达按钮。
+            emptyHint = "还没有分类，先去家当设置添加一个吧。",
+            emptyActionLabel = "去家当设置",
+            onEmptyAction = {
+                showCategoryPicker = false
+                onNavigateToCategory()
+            }
         )
     }
 }
@@ -923,7 +937,7 @@ private fun BatchCheckoutSheet(
                         Spacer(modifier = Modifier.size(8.dp))
                         // 输入框走全 App 统一的 EditorInputBox（P2）：替换原 Material
                         // OutlinedTextField，避免输入框样式在结账层突变。
-                        // 注：EditorInputBox 无 keyboardOptions，金额键盘由 Decimal 退化为默认键盘；
+                        // 键盘（P2-19）：传 Decimal，金额输入弹数字键盘，不再退化为默认键盘。
                         // 其内部 fillMaxWidth，故用固定宽 Box 约束为 120dp。
                         Box(modifier = Modifier.width(120.dp)) {
                             EditorInputBox(
@@ -932,7 +946,8 @@ private fun BatchCheckoutSheet(
                                     drafts = drafts.toMutableList()
                                         .also { it[index] = draft.copy(priceText = text) }
                                 },
-                                placeholder = "金额"
+                                placeholder = "金额",
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
                             )
                         }
                     }

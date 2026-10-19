@@ -1,7 +1,6 @@
 package com.goodyaoshi.lemonbox
 
 import android.Manifest
-import android.app.KeyguardManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
@@ -34,7 +33,6 @@ import com.goodyaoshi.lemonbox.data.repository.ItemRepository
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import com.goodyaoshi.lemonbox.data.settings.ThemeMode
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
-import com.goodyaoshi.lemonbox.ui.components.AppLockOverlay
 import com.goodyaoshi.lemonbox.ui.components.AppSnackbarState
 import com.goodyaoshi.lemonbox.ui.components.ItemStatusCatalogState
 import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
@@ -44,7 +42,6 @@ import com.goodyaoshi.lemonbox.ui.navigation.AppNavGraph
 import com.goodyaoshi.lemonbox.ui.navigation.Screen
 import com.goodyaoshi.lemonbox.ui.screen.splash.AppSplashScreen
 import com.goodyaoshi.lemonbox.ui.theme.LemonTheme
-import com.goodyaoshi.lemonbox.util.BrandCopy
 import com.goodyaoshi.lemonbox.util.TodoKeepAliveService
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.delay
@@ -78,25 +75,9 @@ class MainActivity : ComponentActivity() {
     /** 桌面快捷方式发起的导航请求（F13）：冷启动落在起始页，热启动触发一次导航。 */
     private val navRequest = MutableStateFlow(ShortcutNavRequest(route = null, requestId = 0L))
 
-    /** 应用锁状态（F19）：true 表示当前锁定，需要验证后才展示内容。 */
-    private val locked = MutableStateFlow(false)
-
-    /** 正在走系统凭据验证：期间退到后台不应重新上锁，避免验证弹窗被门禁挡住。 */
-    private var authenticating = false
-
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { _ -> }
-
-    /** 系统密码 / 指纹验证结果（F19）。 */
-    private val credentialLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        authenticating = false
-        if (result.resultCode == RESULT_OK) {
-            locked.value = false
-        }
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         // 在 super.onCreate 之前按偏好切换启动主题，避免手动固定深色时开屏闪白。
@@ -108,8 +89,6 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         handleShortcutIntent(intent)
         startKeepAliveIfEnabled()
-        // 应用锁（F19）：冷启动若已开启则先上锁。
-        locked.value = appPreferences.appLockEnabled.value
         setContent {
             val themeMode by appPreferences.themeMode.collectAsState()
             val systemDark = isSystemInDarkTheme()
@@ -127,9 +106,6 @@ class MainActivity : ComponentActivity() {
                 val appSnackbarScope = rememberCoroutineScope()
                 val appSnackbar = remember { AppSnackbarState(SnackbarHostState(), appSnackbarScope) }
                 val customStatuses by appPreferences.customStatuses.collectAsState()
-                val appLockEnabled by appPreferences.appLockEnabled.collectAsState()
-                val appLockPinHash by appPreferences.appLockPinHash.collectAsState()
-                val lockedState by locked.collectAsState()
                 val statusCatalog = remember(customStatuses) {
                     ItemStatusCatalogState(
                         usage = ItemStatusCatalog.builtInUsage +
@@ -174,16 +150,6 @@ class MainActivity : ComponentActivity() {
                             AppNavGraph(
                                 startRoute = navRequestState.route,
                                 navRequestId = navRequestState.requestId
-                            )
-                        }
-                        // 应用锁门禁（F19）：闪屏结束后、已开启且有 PIN 时遮住内容。
-                        val pinHash = appLockPinHash
-                        if (!showSplash && lockedState && appLockEnabled && pinHash != null) {
-                            AppLockOverlay(
-                                pinHash = pinHash,
-                                credentialAvailable = hasDeviceCredential(),
-                                onUnlocked = { locked.value = false },
-                                onUseDeviceCredential = { startCredentialAuth() }
                             )
                         }
                         // 通知权限前置说明（SET1）：闪屏结束后、尚未授权时，先在应用内
@@ -233,33 +199,6 @@ class MainActivity : ComponentActivity() {
         ACTION_SHORTCUT_TO_BUY -> Screen.ToBuy.route
         ACTION_SHORTCUT_CAMERA -> Screen.Camera.route
         else -> null
-    }
-
-    override fun onStop() {
-        super.onStop()
-        // 应用锁（F19）：退到后台后重新上锁（走系统凭据验证期间除外）。
-        if (!authenticating && !isChangingConfigurations && appPreferences.appLockEnabled.value) {
-            locked.value = true
-        }
-    }
-
-    /** 设备是否设置了系统锁屏密码（可用作应用锁的后备验证手段）。 */
-    private fun hasDeviceCredential(): Boolean =
-        getSystemService(KeyguardManager::class.java)?.isKeyguardSecure == true
-
-    /** 拉起系统密码 / 指纹验证（F19）。 */
-    // API 29+ 建议改走 androidx.biometric，但那要求把基类换成 FragmentActivity；
-    // minSdk 26 下 createConfirmDeviceCredentialIntent 仍是全版本可用的系统凭据入口，保留。
-    @Suppress("DEPRECATION")
-    private fun startCredentialAuth() {
-        val keyguard = getSystemService(KeyguardManager::class.java) ?: return
-        if (!keyguard.isKeyguardSecure) return
-        val intent = keyguard.createConfirmDeviceCredentialIntent(
-            "${BrandCopy.APP_NAME}已锁定",
-            "验证以继续使用"
-        ) ?: return
-        authenticating = true
-        credentialLauncher.launch(intent)
     }
 
     /**

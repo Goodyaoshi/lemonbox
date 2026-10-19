@@ -28,6 +28,13 @@ interface PackingItemDao {
     @Query("SELECT * FROM packing_items WHERE id = :id LIMIT 1")
     suspend fun getById(id: Long): PackingItem?
 
+    /** 某行程下全部未删除条目（一次性读取：删除行程前留撤销快照用）。 */
+    @Query(
+        "SELECT * FROM packing_items WHERE tripId = :tripId AND deletedAt IS NULL " +
+            "ORDER BY sort ASC, createdAt ASC"
+    )
+    suspend fun getActiveByTrip(tripId: Long): List<PackingItem>
+
     /** 全量快照（含软删除墓碑，备份导出/合并导入用）。 */
     @Query("SELECT * FROM packing_items")
     suspend fun getAllSnapshot(): List<PackingItem>

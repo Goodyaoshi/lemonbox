@@ -44,10 +44,12 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerCategory
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
+import com.goodyaoshi.lemonbox.ui.components.DeleteCopy
 import com.goodyaoshi.lemonbox.ui.components.EditorInputBox
 import com.goodyaoshi.lemonbox.ui.components.EditorSectionLabel
 import com.goodyaoshi.lemonbox.ui.components.GradientButton
 import com.goodyaoshi.lemonbox.ui.components.LedgerIconOption
+import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
 import com.goodyaoshi.lemonbox.ui.components.PillTag
 import com.goodyaoshi.lemonbox.ui.components.SegmentedTabs
 import com.goodyaoshi.lemonbox.ui.components.SwipeActionSpec
@@ -65,6 +67,7 @@ import com.goodyaoshi.lemonbox.ui.theme.TextHint
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
 import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
 import com.goodyaoshi.lemonbox.ui.viewmodel.LedgerCategoryManageViewModel
+import com.goodyaoshi.lemonbox.ui.viewmodel.LedgerCategorySaveResult
 
 /**
  * 记账分类管理：支出 / 收入两套分类的增删改。
@@ -77,10 +80,13 @@ fun LedgerCategoryManageScreen(
 ) {
     val kind by viewModel.kind.collectAsState()
     val categories by viewModel.categories.collectAsState()
+    val appSnackbar = LocalAppSnackbar.current
     var editingCategory by remember { mutableStateOf<LedgerCategory?>(null) }
     var showAddDialog by remember { mutableStateOf(false) }
     var openedCategoryId by remember { mutableStateOf<Long?>(null) }
     var pendingDelete by remember { mutableStateOf<LedgerCategory?>(null) }
+    // 重名提示（P2-16）：与资产页同款「名称重复了」弹窗。
+    var showDuplicateName by remember { mutableStateOf(false) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         AppDecorativeBackground()
@@ -179,7 +185,13 @@ fun LedgerCategoryManageScreen(
             existing = null,
             onDismissRequest = { showAddDialog = false },
             onConfirm = { name, iconKey ->
-                viewModel.saveCategory(null, name, iconKey) { showAddDialog = false }
+                viewModel.saveCategory(null, name, iconKey) { result ->
+                    if (result == LedgerCategorySaveResult.SAVED) {
+                        showAddDialog = false
+                    } else {
+                        showDuplicateName = true
+                    }
+                }
             }
         )
     }
@@ -189,7 +201,13 @@ fun LedgerCategoryManageScreen(
             existing = category,
             onDismissRequest = { editingCategory = null },
             onConfirm = { name, iconKey ->
-                viewModel.saveCategory(category.id, name, iconKey) { editingCategory = null }
+                viewModel.saveCategory(category.id, name, iconKey) { result ->
+                    if (result == LedgerCategorySaveResult.SAVED) {
+                        editingCategory = null
+                    } else {
+                        showDuplicateName = true
+                    }
+                }
             }
         )
     }
@@ -202,12 +220,36 @@ fun LedgerCategoryManageScreen(
             confirmText = "删除",
             destructiveConfirm = true,
             onConfirm = {
-                viewModel.deleteCategory(category.id) { }
+                viewModel.deleteCategory(category.id) { success ->
+                    if (success) {
+                        // 撤销删除（P3-11）：分类删除补可撤销提示条，与流水删除口径一致。
+                        appSnackbar?.showUndo("已删除「${category.name}」", DeleteCopy.UNDO_ACTION) {
+                            viewModel.restoreCategory(category.id)
+                        }
+                    }
+                }
                 pendingDelete = null
             }
         ) {
             Text(
-                text = "确定要删除「${category.name}」吗？",
+                text = "确定要删除「${category.name}」吗？删错了可以撤销。",
+                color = TextSecondary,
+                // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+    }
+
+    if (showDuplicateName) {
+        AppDialog(
+            title = "名称重复了",
+            subtitle = "已经有同名分类了，换个名字再保存吧。",
+            onDismissRequest = { showDuplicateName = false },
+            confirmText = "知道了",
+            dismissText = null
+        ) {
+            Text(
+                text = "分类名称不区分大小写，且不能有前后空格差异的同名项。",
                 color = TextSecondary,
                 // 字号走主题字阶（F6）：bodyMedium 为 14sp。
                 style = MaterialTheme.typography.bodyMedium

@@ -134,6 +134,11 @@ class MealViewModel @Inject constructor(
             onResult(weekMenuRepository.createMealPrepReminder(dateKey, dayShift, fireTime))
         }
     }
+
+    /** 取消某天的备菜提醒（P2-21）：已提醒的那天也能在本页直接撤掉。 */
+    fun cancelMealPrepReminder(dateKey: String) {
+        viewModelScope.launch { weekMenuRepository.cancelMealPrepReminder(dateKey) }
+    }
 }
 
 /**
@@ -301,6 +306,8 @@ fun MealScreen(
         MealEditorSheet(
             day = editingDay,
             recipes = recipes,
+            // 某分类无菜谱时的「去菜谱库添加」入口（P3-15）。
+            onNavigateToRecipeLibrary = onNavigateToRecipeLibrary,
             onDismiss = { editingMealDateKey = null },
             onSave = { spec ->
                 viewModel.saveDayMeal(editingDay.dateKey, spec)
@@ -347,6 +354,15 @@ fun MealScreen(
                         prepError = "这个时间已经过了，换个时间吧"
                     }
                 }
+            },
+            // 已提醒的那天再次点开（P2-21）：给「取消这条提醒」出口，不必退出去找提醒页。
+            onCancelReminder = if (dateKey in mealPrepDays) {
+                {
+                    viewModel.cancelMealPrepReminder(dateKey)
+                    prepReminderDateKey = null
+                }
+            } else {
+                null
             }
         )
     }

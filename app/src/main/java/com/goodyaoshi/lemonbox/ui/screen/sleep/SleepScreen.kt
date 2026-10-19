@@ -27,6 +27,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -34,6 +35,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.data.widget.WidgetSnapshot
@@ -165,6 +169,11 @@ fun SleepScreen(
                             Switch(
                                 checked = enabled,
                                 onCheckedChange = viewModel::setBedtimeEnabled,
+                                // 读屏可达（P3-19）：此前开关无标签，读屏只播报「开关 已选中/未选中」，
+                                // 补上「就寝提醒」让它在开关前播报这个开关属于哪一项。
+                                modifier = Modifier.semantics {
+                                    contentDescription = "就寝提醒"
+                                },
                                 colors = SwitchDefaults.colors(
                                     checkedTrackColor = OrangeStart,
                                     checkedThumbColor = Color.White
@@ -233,19 +242,28 @@ private fun SnapshotLine(label: String, value: String) {
 @Composable
 private fun TimeChip(label: String, selected: Boolean, onClick: () -> Unit) {
     Box(
+        // 热区补足 48dp（P3-20）：视觉胶囊约 34dp，外圈扩到 48dp 便于点按，视觉尺寸不变；
+        // 文本型可点元素统一补 Modifier.minimumInteractiveComponentSize() 并声明按钮角色。
         modifier = Modifier
-            // 圆角走形状令牌（F6）：999dp 胶囊收敛到 CircleShape。
+            .minimumInteractiveComponentSize()
             .clip(CircleShape)
-            .background(if (selected) OrangeStart else SurfaceWarmDeep)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 8.dp)
+            .clickable(role = Role.Button, onClick = onClick),
+        contentAlignment = Alignment.Center
     ) {
-        Text(
-            text = label,
-            // 字号走主题字阶（F6）：labelLarge 承载 13sp。
-            style = MaterialTheme.typography.labelLarge,
-            color = if (selected) Color.White else TextSecondary
-        )
+        Box(
+            modifier = Modifier
+                // 圆角走形状令牌（F6）：999dp 胶囊收敛到 CircleShape。
+                .clip(CircleShape)
+                .background(if (selected) OrangeStart else SurfaceWarmDeep)
+                .padding(horizontal = 14.dp, vertical = 8.dp)
+        ) {
+            Text(
+                text = label,
+                // 字号走主题字阶（F6）：labelLarge 承载 13sp。
+                style = MaterialTheme.typography.labelLarge,
+                color = if (selected) Color.White else TextSecondary
+            )
+        }
     }
 }
 

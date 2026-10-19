@@ -16,6 +16,9 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+/** 分类保存结果：成功，或与同性质下的已有分类重名被拦截（P2-16）。 */
+enum class LedgerCategorySaveResult { SAVED, DUPLICATE_NAME }
+
 /** 记账分类管理：支出 / 收入两套分类的增删改。 */
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
@@ -44,24 +47,35 @@ class LedgerCategoryManageViewModel @Inject constructor(
         _kind.value = kind
     }
 
-    /** 新增或更新记账分类；名称为空时忽略。 */
-    fun saveCategory(id: Long?, name: String, iconKey: String, onDone: () -> Unit) {
+    /** 新增或更新记账分类；名称为空时忽略，重名时回传 [LedgerCategorySaveResult.DUPLICATE_NAME]。 */
+    fun saveCategory(
+        id: Long?,
+        name: String,
+        iconKey: String,
+        onResult: (LedgerCategorySaveResult) -> Unit
+    ) {
         val normalizedName = name.trim()
         if (normalizedName.isEmpty()) return
+        val kind = _kind.value
         viewModelScope.launch {
+            // 重名守卫（P2-16）：同名（忽略大小写）会被统计图例显示成同名不同色，保存前先拦截。
+            if (ledgerRepository.isCategoryNameTaken(kind, normalizedName, id ?: 0L)) {
+                onResult(LedgerCategorySaveResult.DUPLICATE_NAME)
+                return@launch
+            }
             val origin = id?.let { ledgerRepository.getCategory(it) }
             ledgerRepository.saveCategory(
                 LedgerCategory(
                     id = id ?: 0L,
                     name = normalizedName,
                     icon = iconKey,
-                    kind = _kind.value,
+                    kind = kind,
                     sort = origin?.sort ?: ((categories.value.maxOfOrNull { it.sort } ?: 0) + 1),
                     isProtected = origin?.isProtected ?: false,
                     syncId = origin?.syncId
                 )
             )
-            onDone()
+            onResult(LedgerCategorySaveResult.SAVED)
         }
     }
 
@@ -70,5 +84,10 @@ class LedgerCategoryManageViewModel @Inject constructor(
         viewModelScope.launch {
             onResult(ledgerRepository.deleteCategory(id))
         }
+    }
+
+    /** 撤销删除：把已软删的分类恢复（清空 deletedAt）。 */
+    fun restoreCategory(id: Long) {
+        viewModelScope.launch { ledgerRepository.restoreCategory(id) }
     }
 }

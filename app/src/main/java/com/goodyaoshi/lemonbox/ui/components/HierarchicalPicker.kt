@@ -115,7 +115,11 @@ fun HierarchicalPickerDialog(
     selectedId: Long?,
     onSelect: (Long?) -> Unit,
     onDismissRequest: () -> Unit,
-    emptyHint: String = "这里还没有可选项。"
+    emptyHint: String = "这里还没有可选项。",
+    // 空态直达入口（P3-25）：节点为空时在空提示旁给一个可点按钮（如「去家当设置」）；
+    // 两个参数都传齐才渲染，缺省时行为与改造前完全一致（纯文案，无入口）。
+    emptyActionLabel: String? = null,
+    onEmptyAction: (() -> Unit)? = null
 ) {
     var pendingSelection by remember { mutableStateOf(selectedId) }
     // 默认展开选中项所在的整条路径，打开弹窗就能看到当前层级。
@@ -157,6 +161,15 @@ fun HierarchicalPickerDialog(
                 color = TextHint,
                 modifier = Modifier.padding(top = 18.dp)
             )
+            // 空态直达入口（P3-25）：给空提示补一个可点按钮，避免「有提示但无路可走」。
+            if (emptyActionLabel != null && onEmptyAction != null) {
+                PickerActionButton(
+                    text = emptyActionLabel,
+                    highlight = true,
+                    modifier = Modifier.padding(top = 12.dp),
+                    onClick = onEmptyAction
+                )
+            }
         } else {
             LazyColumn(
                 modifier = Modifier

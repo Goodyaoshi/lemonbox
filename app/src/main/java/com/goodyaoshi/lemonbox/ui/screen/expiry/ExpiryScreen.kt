@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -48,8 +49,10 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
+import com.goodyaoshi.lemonbox.ui.components.DeleteCopy
 import com.goodyaoshi.lemonbox.ui.components.EmptyState
 import com.goodyaoshi.lemonbox.ui.components.ItemCard
+import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
 import com.goodyaoshi.lemonbox.ui.components.SectionHeader
 import com.goodyaoshi.lemonbox.ui.components.SegmentedTabs
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
@@ -63,7 +66,9 @@ private data class ExpiryTab(val label: String, val days: Int?)
 
 private val expiryTabs = listOf(
     ExpiryTab("全部", null),
-    ExpiryTab("3天内", 3),
+    // 标签字面含义对齐结果（P3-22）：该档用 days <= 3，已过期项（days < 0）也会落入其中，
+    // 故标签明说「含已过期」，避免「3天内」混进早已过期的物品却看不出。
+    ExpiryTab("3天内（含已过期）", 3),
     ExpiryTab("7天内", 7),
     ExpiryTab("30天内", 30)
 )
@@ -82,6 +87,7 @@ fun ExpiryScreen(
     var actionTargetId by remember { mutableStateOf<Long?>(null) }
     // 待确认「标记为已丢弃」的物品 id（null 表示确认弹窗关闭）。
     var discardTargetId by remember { mutableStateOf<Long?>(null) }
+    val appSnackbar = LocalAppSnackbar.current
 
     val filteredItems = expirableItems
         .sortedBy { it.item.expireTime ?: Long.MAX_VALUE }
@@ -152,7 +158,12 @@ fun ExpiryScreen(
                 )
             } else {
                 LazyColumn(
-                    modifier = Modifier.weight(1f),
+                    // 大屏收敛（P3-24）：清单是单列卡片，平板/横屏下拉满整屏太宽，
+                    // 限宽 600dp 并居中，阅读行长更舒适（视觉不变，仅约束上限）。
+                    modifier = Modifier
+                        .weight(1f)
+                        .widthIn(max = 600.dp)
+                        .align(Alignment.CenterHorizontally),
                     contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 18.dp)
                 ) {
                     item {
@@ -209,8 +220,13 @@ fun ExpiryScreen(
             ExpiryActionRow(
                 icon = Icons.Default.Check,
                 label = "标记为已用完",
+                // 写操作也给后悔药（P2-18）：先留动作前快照，撤销时按快照写回使用状态与补货标记。
                 onClick = {
-                    viewModel.markAsUsed(actionTarget.item.id)
+                    val snapshot = actionTarget.item
+                    viewModel.markAsUsed(snapshot.id)
+                    appSnackbar?.showUndo("已标记「${snapshot.name}」为用完", DeleteCopy.UNDO_ACTION) {
+                        viewModel.undoMarkAsUsed(snapshot)
+                    }
                     actionTargetId = null
                 }
             )
@@ -226,8 +242,13 @@ fun ExpiryScreen(
             ExpiryActionRow(
                 icon = Icons.Default.ShoppingCart,
                 label = "加入待买清单",
+                // 与「已用完」同一标准（P2-18）：加入后给带「撤销」的提示条，误点可退回原补货标记。
                 onClick = {
-                    viewModel.addToBuy(actionTarget.item.id)
+                    val snapshot = actionTarget.item
+                    viewModel.addToBuy(snapshot.id)
+                    appSnackbar?.showUndo("「${snapshot.name}」已加入待买清单", DeleteCopy.UNDO_ACTION) {
+                        viewModel.undoAddToBuy(snapshot)
+                    }
                     actionTargetId = null
                 }
             )

@@ -210,6 +210,34 @@ interface ItemDao {
     @Query("UPDATE items SET needRestock = :needRestock, updatedAt = :updatedAt, dirty = 1 WHERE id = :id")
     suspend fun updateNeedRestock(id: Long, needRestock: Boolean, updatedAt: Long)
 
+    /** 仍在使用某自定义「使用进度」编号的物品数（P1-2：删除前告知影响面）。 */
+    @Query("SELECT COUNT(*) FROM items WHERE usageStatus = :code AND deletedAt IS NULL")
+    suspend fun countItemsByUsageStatus(code: Int): Int
+
+    /** 仍在使用某自定义「物品去向」编号的物品数（P1-2）。 */
+    @Query("SELECT COUNT(*) FROM items WHERE disposition = :code AND deletedAt IS NULL")
+    suspend fun countItemsByDisposition(code: Int): Int
+
+    /** 使用某自定义「使用进度」编号的物品 id（P1-2：撤销时回挂）。 */
+    @Query("SELECT id FROM items WHERE usageStatus = :code AND deletedAt IS NULL")
+    suspend fun getItemIdsByUsageStatus(code: Int): List<Long>
+
+    /** 使用某自定义「物品去向」编号的物品 id（P1-2）。 */
+    @Query("SELECT id FROM items WHERE disposition = :code AND deletedAt IS NULL")
+    suspend fun getItemIdsByDisposition(code: Int): List<Long>
+
+    /**
+     * 批量回挂「使用进度」编号（P1-2 撤销用）。只改状态列，
+     * 与 [updateUsageStatus] 不同：刻意不动使用周期窗口——这是把历史编号改回，
+     * 不是一次新的状态流转，重算窗口会把「已用完」的物品误判为重新开始使用。
+     */
+    @Query("UPDATE items SET usageStatus = :code, updatedAt = :updatedAt, dirty = 1 WHERE id IN (:ids)")
+    suspend fun updateUsageStatusForIds(ids: List<Long>, code: Int, updatedAt: Long)
+
+    /** 批量回挂「物品去向」编号（P1-2 撤销用），同样不触碰使用周期窗口。 */
+    @Query("UPDATE items SET disposition = :code, updatedAt = :updatedAt, dirty = 1 WHERE id IN (:ids)")
+    suspend fun updateDispositionForIds(ids: List<Long>, code: Int, updatedAt: Long)
+
     /** 使用周期窗口：开始使用 / 使用结束两个时间点，随状态流转由仓库层写入。 */
     @Query(
         "UPDATE items SET startUseTime = :startUseTime, usageEndedAt = :usageEndedAt, " +

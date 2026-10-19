@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -29,7 +28,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.minimumInteractiveComponentSize
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -48,8 +46,6 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.BuildConfig
@@ -59,7 +55,6 @@ import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
-import com.goodyaoshi.lemonbox.ui.theme.StatusExpired
 import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarmDeep
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
 import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
@@ -144,6 +139,12 @@ fun SettingsScreen(
     onOpenNotificationReliability: () -> Unit = {},
     /** 跳「家当设置」：提醒阶梯（提前几天）在那里配，设置页只放时间点。 */
     onOpenHouseholdSettings: () -> Unit = {},
+    /**
+     * 跳「家当设置 › 有效期与提醒」Tab（P2-24）。
+     * 「提前几天提醒」链接改走这个入口，导航层据此带上初始 Tab 直达阶梯；
+     * 不传时退回 [onOpenHouseholdSettings]，保证旧调用方仍照常工作。
+     */
+    onOpenExpiryReminderSettings: (() -> Unit)? = null,
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val reminderTimes by viewModel.reminderTimes.collectAsState()
@@ -153,11 +154,9 @@ fun SettingsScreen(
     val mealPrepFireTime by viewModel.mealPrepFireTime.collectAsState()
     val budgetReminderEnabled by viewModel.budgetReminderEnabled.collectAsState()
     val updateState by viewModel.updateState.collectAsState()
-    val appLockEnabled by viewModel.appLockEnabled.collectAsState()
 
     var showTimePicker by remember { mutableStateOf(false) }
     var showMealPrepTimePicker by remember { mutableStateOf(false) }
-    var showAppLockDialog by remember { mutableStateOf(false) }
     // 「关于与更新」整块默认折叠（IA-5）：GitHub 检查更新 / 下载 / 安装引导是低频操作，
     // 平铺会把外观、提醒时间等高频设置淹掉；折叠后只留一行标题。
     var aboutExpanded by remember { mutableStateOf(false) }
@@ -231,54 +230,6 @@ fun SettingsScreen(
                 }
             }
 
-            AppSurfaceCard(
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
-                shape = MaterialTheme.shapes.extraLarge,
-                shadowElevation = 12.dp
-            ) {
-                Text(
-                    text = "安全",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = TextPrimary
-                )
-                Spacer(modifier = Modifier.size(6.dp))
-                Text(
-                    text = "应用锁已从「我的」迁到这里：开启后进入 App 都要先验证。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TextSecondary
-                )
-                Spacer(modifier = Modifier.size(12.dp))
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "应用锁",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold,
-                            color = TextPrimary
-                        )
-                        Text(
-                            text = if (appLockEnabled) {
-                                "已开启，进入需要 PIN 或系统密码 / 指纹"
-                            } else {
-                                "给私人内容加一道锁（PIN + 系统密码 / 指纹）"
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = TextSecondary
-                        )
-                    }
-                    ActionPillButton(
-                        label = if (appLockEnabled) "管理" else "开启",
-                        onClick = { showAppLockDialog = true }
-                    )
-                }
-            }
-
             // 「在一起」起始日与计数前缀已下沉到纪念日页页头（IA-6），
             // 全局设置只保留真正全局的项，单域配置不再混排。
 
@@ -322,7 +273,11 @@ fun SettingsScreen(
                         // 触达面积达标（F7）：行内链接本不足 48dp，先撑出最小可点区。
                         .minimumInteractiveComponentSize()
                         .clip(MaterialTheme.shapes.small)
-                        .clickable(onClick = onOpenHouseholdSettings)
+                        .clickable {
+                            // 直达「有效期与提醒」Tab（P2-24）：阶梯就在那个 Tab 里，
+                            // 不再落到默认的「管理分类」让人再找一遍。
+                            (onOpenExpiryReminderSettings ?: onOpenHouseholdSettings)()
+                        }
                         .padding(vertical = 2.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -652,21 +607,6 @@ fun SettingsScreen(
                     }
                 )
             }
-            if (showAppLockDialog) {
-                AppLockSettingsDialog(
-                    enabled = appLockEnabled,
-                    onDismiss = { showAppLockDialog = false },
-                    onEnable = { pin ->
-                        viewModel.enableAppLock(pin)
-                        showAppLockDialog = false
-                    },
-                    verifyPin = viewModel::verifyAppLockPin,
-                    onDisable = {
-                        viewModel.disableAppLock()
-                        showAppLockDialog = false
-                    }
-                )
-            }
 
             updateState.available?.let { info ->
                 AppDialog(
@@ -768,85 +708,6 @@ private fun TimePickerCardDialog(
         TimePicker(state = pickerState)
     }
 }
-
-/** 应用锁设置弹窗（F19）：未开启时设 PIN 开启；已开启时输 PIN 关闭。 */
-@Composable
-private fun AppLockSettingsDialog(
-    enabled: Boolean,
-    onDismiss: () -> Unit,
-    onEnable: (String) -> Unit,
-    verifyPin: (String) -> Boolean,
-    onDisable: () -> Unit
-) {
-    var pin by remember { mutableStateOf("") }
-    var error by remember { mutableStateOf(false) }
-
-    if (enabled) {
-        AppDialog(
-            title = "关闭应用锁",
-            onDismissRequest = onDismiss,
-            confirmText = "关闭",
-            destructiveConfirm = true,
-            confirmEnabled = pin.length >= MIN_PIN_LENGTH,
-            onConfirm = {
-                if (verifyPin(pin)) onDisable() else error = true
-            }
-        ) {
-            Text(
-                text = "输入当前 PIN 以关闭应用锁。",
-                color = TextSecondary,
-                style = MaterialTheme.typography.bodyMedium
-            )
-            PinField(value = pin, onValueChange = { pin = it; error = false }, isError = error)
-        }
-    } else {
-        AppDialog(
-            title = "开启应用锁",
-            onDismissRequest = onDismiss,
-            confirmText = "开启",
-            confirmEnabled = pin.length >= MIN_PIN_LENGTH,
-            onConfirm = { onEnable(pin) }
-        ) {
-            Text(
-                text = "设一个 4-12 位数字 PIN。之后进入 App 需要验证，也可以用系统密码 / 指纹。",
-                color = TextSecondary,
-                style = MaterialTheme.typography.bodyMedium
-            )
-            PinField(value = pin, onValueChange = { pin = it }, isError = false)
-        }
-    }
-}
-
-@Composable
-private fun PinField(
-    value: String,
-    onValueChange: (String) -> Unit,
-    isError: Boolean
-) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        OutlinedTextField(
-            value = value,
-            onValueChange = { onValueChange(it.filter { ch -> ch.isDigit() }.take(MAX_PIN_LENGTH)) },
-            singleLine = true,
-            label = { Text("PIN") },
-            isError = isError,
-            visualTransformation = PasswordVisualTransformation(),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-            modifier = Modifier.fillMaxWidth()
-        )
-        if (isError) {
-            Text(
-                text = "PIN 不对，再试一次",
-                color = StatusExpired,
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(top = 4.dp)
-            )
-        }
-    }
-}
-
-private const val MIN_PIN_LENGTH = 4
-private const val MAX_PIN_LENGTH = 12
 
 /** 把字节数按 KB/MB 友好展示；未知大小时给出「未知」占位。 */
 private fun formatSize(bytes: Long): String {

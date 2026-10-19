@@ -21,6 +21,15 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+/**
+ * 删除自定义状态前的快照（P1-2）：状态本体 + 仍在使用它的物品 id。
+ * 撤销时据此重新登记状态并把物品回挂，避免它们退化成「状态 N」。
+ */
+data class RemovedStatusSnapshot(
+    val option: ItemStatusOption,
+    val affectedItemIds: List<Long>
+)
+
 @HiltViewModel
 class CategoryViewModel @Inject constructor(
     private val categoryRepository: CategoryRepository,
@@ -98,16 +107,20 @@ class CategoryViewModel @Inject constructor(
         }
     }
 
-    fun deleteCategory(categoryId: Long?) {
-        val id = categoryId ?: return
-        viewModelScope.launch {
-            categories.value.firstOrNull { it.id == id }?.let { category ->
-                categoryRepository.delete(category)
-                if (_selectedCategoryId.value == id) {
-                    _selectedCategoryId.value = null
-                }
-            }
+    /** 删除分类，返回被软删（含下级）的分类 id，供撤销恢复（P2-4）。 */
+    suspend fun deleteCategory(categoryId: Long?): List<Long> {
+        val id = categoryId ?: return emptyList()
+        val category = categories.value.firstOrNull { it.id == id } ?: return emptyList()
+        val removedIds = categoryRepository.delete(category)
+        if (_selectedCategoryId.value == id) {
+            _selectedCategoryId.value = null
         }
+        return removedIds
+    }
+
+    /** 撤销删除分类：清掉墓碑，恢复到原归属（P2-4）。 */
+    suspend fun restoreCategory(ids: List<Long>) {
+        categoryRepository.restoreDeleted(ids)
     }
 
     fun addLocation(name: String, parentId: Long? = null) {
@@ -120,16 +133,20 @@ class CategoryViewModel @Inject constructor(
         }
     }
 
-    fun deleteLocation(locationId: Long?) {
-        val id = locationId ?: return
-        viewModelScope.launch {
-            allLocations.value.firstOrNull { it.id == id }?.let { location ->
-                locationRepository.delete(location)
-                if (_selectedLocationId.value == id) {
-                    _selectedLocationId.value = null
-                }
-            }
+    /** 删除位置，返回被软删（含下级）的位置 id，供撤销恢复（P2-4）。 */
+    suspend fun deleteLocation(locationId: Long?): List<Long> {
+        val id = locationId ?: return emptyList()
+        val location = allLocations.value.firstOrNull { it.id == id } ?: return emptyList()
+        val removedIds = locationRepository.delete(location)
+        if (_selectedLocationId.value == id) {
+            _selectedLocationId.value = null
         }
+        return removedIds
+    }
+
+    /** 撤销删除位置：清掉墓碑，恢复到原归属（P2-4）。 */
+    suspend fun restoreLocation(ids: List<Long>) {
+        locationRepository.restoreDeleted(ids)
     }
 
     fun updateLocation(locationId: Long?, name: String) {
@@ -151,8 +168,40 @@ class CategoryViewModel @Inject constructor(
     fun updateCustomStatus(code: Int, label: String): Boolean =
         appPreferences.updateCustomStatus(code, label)
 
-    fun removeCustomStatus(code: Int) {
+    /** 统计仍在使用某自定义状态的物品数（P1-2：删除前告知影响面）。 */
+    suspend fun countItemsUsingStatus(option: ItemStatusOption): Int = when (option.dimension) {
+        StatusDimension.USAGE -> itemRepository.countItemsByUsageStatus(option.code)
+        StatusDimension.DISPOSITION -> itemRepository.countItemsByDisposition(option.code)
+    }
+
+    /** 删除自定义状态并返回快照（状态本体 + 受影响物品 id），供撤销恢复（P1-2）。 */
+    suspend fun removeCustomStatusWithSnapshot(code: Int): RemovedStatusSnapshot? {
+        val option = customStatuses.value.firstOrNull { it.code == code } ?: return null
+        val affectedItemIds = when (option.dimension) {
+            StatusDimension.USAGE -> itemRepository.getItemIdsByUsageStatus(code)
+            StatusDimension.DISPOSITION -> itemRepository.getItemIdsByDisposition(code)
+        }
         appPreferences.removeCustomStatus(code)
+        return RemovedStatusSnapshot(option, affectedItemIds)
+    }
+
+    /**
+     * 撤销删除状态（P1-2）：重新登记该状态，并把仍在使用它的物品回挂到新编号。
+     * 重新登记会分配一个新的编号，故必须同步回挂物品，否则它们仍显示成「状态 N」。
+     */
+    suspend fun restoreCustomStatus(snapshot: RemovedStatusSnapshot) {
+        val option = snapshot.option
+        if (!appPreferences.addCustomStatus(option.label, option.dimension)) return
+        val restoredCode = customStatuses.value.lastOrNull {
+            it.dimension == option.dimension && it.label == option.label
+        }?.code ?: return
+        when (option.dimension) {
+            StatusDimension.USAGE ->
+                itemRepository.setUsageStatusForIds(snapshot.affectedItemIds, restoredCode)
+
+            StatusDimension.DISPOSITION ->
+                itemRepository.setDispositionForIds(snapshot.affectedItemIds, restoredCode)
+        }
     }
 
     fun getSubLocations(parentId: Long): Flow<List<Location>> {

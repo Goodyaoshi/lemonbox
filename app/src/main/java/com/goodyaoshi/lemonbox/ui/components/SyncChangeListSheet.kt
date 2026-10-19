@@ -17,7 +17,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
@@ -26,6 +25,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TriStateCheckbox
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -39,6 +39,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.goodyaoshi.lemonbox.data.backup.BackupChanges
 import com.goodyaoshi.lemonbox.data.backup.SyncChange
@@ -122,7 +123,8 @@ fun SyncChangeListSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
+                // 圆角走形状令牌（P3-28）：与其它底部弹层统一到 extraLarge。
+                .clip(MaterialTheme.shapes.extraLarge)
                 .background(CardWhite)
                 .navigationBarsPadding()
                 .padding(horizontal = 20.dp)
@@ -462,10 +464,19 @@ private fun ChangeRow(
                     // 字号走主题字阶（F6）：列表项标题优先 titleSmall（14sp）。
                     style = MaterialTheme.typography.titleSmall,
                     color = TextPrimary,
-                    maxLines = 1
+                    maxLines = 1,
+                    // 超长文本省略号（P3-30）：此前只裁断不提示，看不出还有内容。
+                    overflow = TextOverflow.Ellipsis
                 )
                 change.subtitle?.let { subtitle ->
-                    Text(text = subtitle, style = MaterialTheme.typography.bodySmall, color = TextHint, maxLines = 1)
+                    Text(
+                        text = subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextHint,
+                        maxLines = 1,
+                        // 超长文本省略号（P3-30）。
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
                 if (change.conflict) {
                     Text(
@@ -486,9 +497,12 @@ private fun ChangeRow(
                     fontWeight = FontWeight.SemiBold,
                     color = OrangeStart,
                     modifier = Modifier
+                        // 触控热区补足（P2-25）：11sp 文本胶囊可视高度约 28dp，
+                        // 用 minimumInteractiveComponentSize 撑到 48dp，并声明按钮语义。
+                        .minimumInteractiveComponentSize()
                         // 圆角走形状令牌（F6）：胶囊收敛到 CircleShape。
                         .clip(CircleShape)
-                        .clickable { onShowDiff() }
+                        .clickable(role = Role.Button) { onShowDiff() }
                         .padding(horizontal = 8.dp, vertical = 6.dp)
                 )
             }
@@ -546,9 +560,11 @@ private fun DiffDialog(change: SyncChange, onDismiss: () -> Unit) {
                 color = OrangeStart,
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier
+                    // 触控热区补足（P2-25）：16/8 内边距下可视高度约 36dp，补足到 48dp。
+                    .minimumInteractiveComponentSize()
                     // 圆角走形状令牌（F6）：胶囊收敛到 CircleShape。
                     .clip(CircleShape)
-                    .clickable { onDismiss() }
+                    .clickable(role = Role.Button) { onDismiss() }
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             )
         },

@@ -82,6 +82,7 @@ import com.goodyaoshi.lemonbox.ui.screen.anniversary.AnniversaryEditScreen
 import com.goodyaoshi.lemonbox.ui.screen.anniversary.AnniversaryScreen
 import com.goodyaoshi.lemonbox.ui.screen.camera.CameraScreen
 import com.goodyaoshi.lemonbox.ui.screen.category.CategoryScreen
+import com.goodyaoshi.lemonbox.ui.screen.category.CategoryTab
 import com.goodyaoshi.lemonbox.ui.screen.detail.DetailScreen
 import com.goodyaoshi.lemonbox.ui.screen.edit.EditScreen
 import com.goodyaoshi.lemonbox.ui.screen.expiry.ExpiryScreen
@@ -115,7 +116,6 @@ import com.goodyaoshi.lemonbox.ui.screen.settings.SettingsScreen
 import com.goodyaoshi.lemonbox.ui.screen.sleep.SleepScreen
 import com.goodyaoshi.lemonbox.ui.screen.sync.LanSyncScreen
 import com.goodyaoshi.lemonbox.ui.screen.sync.SyncDiagnosticsScreen
-import com.goodyaoshi.lemonbox.ui.screen.sync.SyncLoginScreen
 import com.goodyaoshi.lemonbox.ui.screen.timecapsule.TimeCapsuleScreen
 import com.goodyaoshi.lemonbox.ui.screen.tobuy.ToBuyScreen
 import com.goodyaoshi.lemonbox.ui.screen.trash.TrashScreen
@@ -619,7 +619,11 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
                 }
 
                 composable(Screen.LedgerAssets.route) {
-                    LedgerAssetsScreen(onBack = { navController.popBackStack() })
+                    LedgerAssetsScreen(
+                        onBack = { navController.popBackStack() },
+                        // 账户被账单占用时的「查看在用账单」（P2-15）：先进记账主页看流水。
+                        onViewRelatedRecords = { navController.navigateSingleTop(Screen.Ledger.route) }
+                    )
                 }
 
                 composable(
@@ -701,8 +705,22 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
                     RecipeLibraryScreen(onBack = { navController.popBackStack() })
                 }
 
-                composable(Screen.Category.route) {
-                    CategoryScreen(onBack = { navController.popBackStack() })
+                // 深链可指定初始 Tab（P2-24）：缺省「管理分类」，设置页的「提前几天提醒」
+                // 直接落到「有效期与提醒」；不带参的 "category" 仍匹配本目的地。
+                composable(
+                    route = "category?tab={tab}",
+                    arguments = listOf(
+                        navArgument("tab") {
+                            type = NavType.IntType
+                            defaultValue = CategoryTab.CATEGORY
+                        }
+                    )
+                ) {
+                    val initialTab = navBackStackEntry?.arguments?.getInt("tab") ?: CategoryTab.CATEGORY
+                    CategoryScreen(
+                        onBack = { navController.popBackStack() },
+                        initialTab = initialTab
+                    )
                 }
 
                 composable(Screen.Expiry.route) {
@@ -876,7 +894,11 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
                 }
 
                 composable(Screen.RestockForecast.route) {
-                    RestockForecastScreen(onBack = { navController.popBackStack() })
+                    RestockForecastScreen(
+                        onBack = { navController.popBackStack() },
+                        // 空态「去家当用掉 1 件」（P2-20）：切回家当 Tab 根，动线最短。
+                        onOpenHousehold = { navigateToTopLevel(Screen.Household.route) }
+                    )
                 }
 
                 composable(Screen.TimeCapsule.route) {
@@ -926,9 +948,6 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
                         onOpenLanSync = { navController.navigateSingleTop(Screen.LanSync.route) },
                         onOpenImageCloud = {
                             navController.navigateSingleTop(Screen.ImageCloud.route)
-                        },
-                        onOpenSyncLogin = {
-                            navController.navigateSingleTop(Screen.SyncLogin.route)
                         }
                     )
                 }
@@ -936,21 +955,18 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
                 composable(Screen.ImageCloud.route) {
                     ImageCloudScreen(
                         onBack = { navController.popBackStack() },
-                        onOpenSyncLogin = {
-                            navController.navigateSingleTop(Screen.SyncLogin.route)
-                        },
                         onOpenSyncDiagnostics = {
                             navController.navigateSingleTop(Screen.SyncDiagnostics.route)
                         }
                     )
                 }
 
-                composable(Screen.SyncLogin.route) {
-                    SyncLoginScreen(onBack = { navController.popBackStack() })
-                }
-
                 composable(Screen.SyncDiagnostics.route) {
-                    SyncDiagnosticsScreen(onBack = { navController.popBackStack() })
+                    SyncDiagnosticsScreen(
+                        onBack = { navController.popBackStack() },
+                        // 空态直达「云端同步」（P2-23）：未连接时给一条去登录/开开关的路。
+                        onOpenCloudSync = { navController.navigateSingleTop(Screen.ImageCloud.route) }
+                    )
                 }
 
                 composable(Screen.ToBuy.route) {
@@ -967,7 +983,9 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
                         },
                         onOpenRestockForecast = { navController.navigateSingleTop(Screen.RestockForecast.route) },
                         // 结账无账户时的「去添加账户」直达记账页（P2）。
-                        onNavigateToLedger = { navController.navigateSingleTop(Screen.Ledger.route) }
+                        onNavigateToLedger = { navController.navigateSingleTop(Screen.Ledger.route) },
+                        // 分类为空时的「去家当设置」直达入口（P3-25）。
+                        onNavigateToCategory = { navController.navigateSingleTop(Screen.Category.route) }
                     )
                 }
 
@@ -986,6 +1004,10 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
                         // 提醒阶梯（提前几天）在家当设置里配，设置页只放时间点。
                         onOpenHouseholdSettings = {
                             navController.navigateSingleTop(Screen.Category.route)
+                        },
+                        // 「提前几天提醒」直达「家当设置 › 有效期与提醒」Tab（P2-24）。
+                        onOpenExpiryReminderSettings = {
+                            navController.navigateSingleTop(Screen.Category.createRoute(CategoryTab.EXPIRY_REMINDER))
                         }
                     )
                 }

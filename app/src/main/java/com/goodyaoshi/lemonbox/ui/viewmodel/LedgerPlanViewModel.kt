@@ -34,6 +34,16 @@ class LedgerPlanViewModel @Inject constructor(
         viewModelScope.launch { planningRepository.deleteRule(id) }
     }
 
+    /** 撤销删除：把已软删的模板恢复（清空 deletedAt）。 */
+    fun restoreTemplate(id: Long) {
+        viewModelScope.launch { planningRepository.restoreTemplate(id) }
+    }
+
+    /** 撤销删除：把已软删的周期规则恢复（清空 deletedAt）。 */
+    fun restoreRule(id: Long) {
+        viewModelScope.launch { planningRepository.restoreRule(id) }
+    }
+
     fun setRuleEnabled(id: Long, enabled: Boolean) {
         viewModelScope.launch { planningRepository.setRuleEnabled(id, enabled) }
     }

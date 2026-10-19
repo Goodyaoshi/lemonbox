@@ -373,6 +373,16 @@ class LedgerRepositoryTest {
             update(categories.single { it.id == id }.copy(deletedAt = deletedAt, updatedAt = deletedAt))
         }
 
+        override suspend fun restoreFromTrash(id: Long, updatedAt: Long) {
+            update(categories.single { it.id == id }.copy(deletedAt = null, updatedAt = updatedAt))
+        }
+
+        override suspend fun countActiveByName(name: String, kind: Int, excludeId: Long): Int =
+            categories.count {
+                it.deletedAt == null && it.kind == kind && it.id != excludeId &&
+                    it.name.equals(name, ignoreCase = true)
+            }
+
         override suspend fun getCount(): Int = categories.size
     }
 
@@ -411,6 +421,10 @@ class LedgerRepositoryTest {
 
         override suspend fun softDelete(id: Long, deletedAt: Long) {
             update(assets.single { it.id == id }.copy(deletedAt = deletedAt, updatedAt = deletedAt))
+        }
+
+        override suspend fun restoreFromTrash(id: Long, updatedAt: Long) {
+            update(assets.single { it.id == id }.copy(deletedAt = null, updatedAt = updatedAt))
         }
 
         override suspend fun getCount(): Int = assets.size

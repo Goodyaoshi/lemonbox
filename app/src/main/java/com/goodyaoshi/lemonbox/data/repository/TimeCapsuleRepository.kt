@@ -79,6 +79,21 @@ class TimeCapsuleRepository @Inject constructor(
         }
     }
 
+    /**
+     * 撤销删除（P3-16）：清掉墓碑、标脏（[softDelete] 的反向），
+     * 并在解锁日仍有效时重新挂回到期提醒，与其它页的「撤销」行为一致。
+     */
+    suspend fun restore(capsule: TimeCapsule) {
+        dao.update(
+            capsule.copy(
+                deletedAt = null,
+                updatedAt = MonotonicClock.now(),
+                dirty = true
+            )
+        )
+        scheduleUnlockReminder(capsule)
+    }
+
     suspend fun purgeDeletedOlderThan(cutoff: Long) = dao.purgeDeletedOlderThan(cutoff)
 
     // ---- 到期提醒（复用 Reminder ONCE，报告 F14）----

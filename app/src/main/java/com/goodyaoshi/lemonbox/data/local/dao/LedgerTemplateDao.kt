@@ -41,6 +41,10 @@ interface LedgerTemplateDao {
     @Query("UPDATE ledger_templates SET deletedAt = :deletedAt, updatedAt = :updatedAt, dirty = 1 WHERE id = :id")
     suspend fun softDelete(id: Long, deletedAt: Long, updatedAt: Long)
 
+    /** 从回收站恢复一条模板（清空 deletedAt），配合删除后的「撤销」使用。 */
+    @Query("UPDATE ledger_templates SET deletedAt = NULL, updatedAt = :updatedAt, dirty = 1 WHERE id = :id")
+    suspend fun restoreFromTrash(id: Long, updatedAt: Long)
+
     @Query("DELETE FROM ledger_templates WHERE deletedAt IS NOT NULL AND deletedAt < :cutoff" + TOMBSTONE_CONFIRMED_SQL)
     suspend fun purgeDeletedOlderThan(cutoff: Long)
 }

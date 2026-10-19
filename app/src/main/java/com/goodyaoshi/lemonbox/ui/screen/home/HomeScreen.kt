@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.QrCodeScanner
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.TaskAlt
 import androidx.compose.material.icons.outlined.CheckCircle
@@ -50,6 +51,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -64,7 +66,6 @@ import com.goodyaoshi.lemonbox.ui.components.EditorSelectionChip
 import com.goodyaoshi.lemonbox.ui.components.LedgerBudgetBar
 import com.goodyaoshi.lemonbox.ui.components.rememberBottomBarClearance
 import com.goodyaoshi.lemonbox.ui.components.PillTag
-import com.goodyaoshi.lemonbox.ui.components.SearchBar
 import com.goodyaoshi.lemonbox.ui.components.SectionHeader
 import com.goodyaoshi.lemonbox.ui.theme.CardWhite
 import com.goodyaoshi.lemonbox.ui.theme.LemonEnd
@@ -144,23 +145,44 @@ fun HomeScreen(
         Column(modifier = Modifier.fillMaxSize()) {
             HeroHeader(togetherLabel = togetherDays, nickname = nickname)
 
-            // 固定搜索行（IA-1）：首页只留「入口」不做搜索——假搜索条不可输入，
-            // 点击整体跳去家当 Tab（那里有完整的搜索框与筛选），视觉与家当页搜索框保持一致。
+            // 搜索入口行（IA-1/P2-5）：首页不做搜索，这里只是「去家当找东西」的导航入口，
+            // 用图标 + 文案 + 右箭头表达跳转，不再复刻家当页真搜索框的外形与操作说明式占位。
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                SearchBar(
-                    value = "",
-                    onValueChange = {},
-                    placeholder = "搜索家当，点这里去家当页搜索",
-                    modifier = Modifier.weight(1f),
-                    readOnly = true,
-                    onClick = { onSearchInHousehold("") },
-                    showMagicIconWhenEmpty = false
-                )
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(52.dp)
+                        // 形状走形状令牌（F6）：圆角收敛到 CircleShape 胶囊。
+                        .clip(CircleShape)
+                        .background(OrangeTint)
+                        // 整条即入口，声明 Button 角色并给出动作说明（F8），热区即 52dp。
+                        .clickable(onClickLabel = "去家当搜索", role = Role.Button) {
+                            onSearchInHousehold("")
+                        }
+                        .padding(horizontal = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = null,
+                        tint = OrangeStart,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = "去家当找东西 ›",
+                        // 字号走主题字阶（F6）：labelLarge 为 14sp。
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Medium,
+                        color = TextPrimary,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
                 Spacer(modifier = Modifier.width(10.dp))
                 Box(
                     modifier = Modifier
@@ -577,7 +599,9 @@ private fun TodayIgnoredRow(
             text = "今天已忽略 · ${event.title}",
             // 字号走主题字阶（F6）：bodySmall 为 12sp。
             style = MaterialTheme.typography.bodySmall,
-            color = TextHint,
+            // 承载可读正文（P2-3）：由 TextHint 换成 TextSecondary，对比度达标；
+            // TextHint 只留给图标与占位。
+            color = TextSecondary,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f)
@@ -748,21 +772,14 @@ private fun TodayEventRow(
                 )
             }
             TodayEventKind.TO_BUY -> {
-                // 待买尾部给购物车直达（H1）：点它去待买清单，行本体同样可达。
-                Box(
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(CircleShape)
-                        .clickable(onClick = onClick),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.ShoppingCart,
-                        contentDescription = "去待买",
-                        tint = accent,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
+                // 待买行尾的购物车与整行跳同一个目的地，属重复入口（P3-4）：去掉它，
+                // 只留行本体这一个主入口；补右箭头与另外两类保持视觉一致。
+                Icon(
+                    imageVector = Icons.Default.ChevronRight,
+                    contentDescription = null,
+                    tint = TextHint,
+                    modifier = Modifier.size(16.dp)
+                )
             }
         }
     }
@@ -867,8 +884,7 @@ private fun TodayMealCard(
         SectionHeader(
             title = "今天吃什么",
             subtitle = "按家里现有食材安排，缺的主料会自动进待买",
-            action = "去安排 ›",
-            onActionClick = onGoPlan,
+            // 卡片整体即主入口（P3-4）：去掉节标题里与之同目的地的重复「去安排 ›」。
             modifier = Modifier.padding(top = 12.dp)
         )
         Spacer(modifier = Modifier.height(10.dp))
@@ -961,8 +977,7 @@ private fun MonthSpendingBar(
     ) {
         SectionHeader(
             title = "本月账",
-            action = "去记账 ›",
-            onActionClick = onClick,
+            // 预算条整体即主入口（P3-4）：去掉节标题里与之同目的地的重复「去记账 ›」。
             modifier = Modifier.padding(top = 12.dp, bottom = 10.dp)
         )
         LedgerBudgetBar(

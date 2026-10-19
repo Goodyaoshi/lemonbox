@@ -51,4 +51,9 @@ class TimeCapsuleViewModel @Inject constructor(
     fun delete(capsule: TimeCapsule) {
         viewModelScope.launch { repository.softDelete(capsule) }
     }
+
+    /** 撤销删除（P3-16）：复活软删墓碑，与底部提示条的「撤销」对应。 */
+    fun restore(capsule: TimeCapsule) {
+        viewModelScope.launch { repository.restore(capsule) }
+    }
 }

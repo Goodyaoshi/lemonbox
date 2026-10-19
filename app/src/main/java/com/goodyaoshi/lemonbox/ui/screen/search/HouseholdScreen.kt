@@ -41,6 +41,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -54,6 +55,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -394,13 +398,15 @@ fun HouseholdScreen(
                     )
                 }
                 // 用户自定义预设（SE1）：点击应用、长按删除。
+                // P3-8：长按是隐藏手势，补一条可被读屏读出的说明，让「能删」可发现。
                 userPresets.forEach { preset ->
                     PresetChip(
                         label = preset.label,
                         count = null,
                         selected = filter == preset.filter,
                         onClick = { viewModel.applyUserPreset(preset) },
-                        onLongClick = { pendingDeletePreset = preset }
+                        onLongClick = { pendingDeletePreset = preset },
+                        contentDescription = "${preset.label}，长按可删除"
                     )
                 }
                 if (filter != LibraryFilter()) {
@@ -449,30 +455,46 @@ fun HouseholdScreen(
                         fontWeight = FontWeight.Medium,
                         color = TextSecondary,
                         modifier = Modifier
+                            // 触达面积达标（F7/P2-6）：热区对齐 48dp（视觉尺寸不变）。
+                            .minimumInteractiveComponentSize()
                             .clip(CircleShape)
-                            .clickable { viewModel.resetFilter() }
+                            // 可点文本声明 Button 角色（F8）。
+                            .clickable(role = Role.Button) { viewModel.resetFilter() }
                             .padding(horizontal = 6.dp, vertical = 4.dp)
                     )
                 }
             }
 
             if (results.isEmpty()) {
-                EmptyState(
-                    title = "没有找到匹配物品",
-                    message = if (query.isBlank()) {
-                        "当前筛选条件下还没有物品，可以放宽一些条件。"
-                    } else {
-                        "可以更换关键词，或者去掉部分筛选条件。"
-                    },
-                    // 家当页空结果往往是自己把筛选收窄了（I5）：给一键「重置」，清关键词 + 恢复默认筛选。
-                    actionLabel = "重置筛选条件",
-                    actionIcon = Icons.Default.Close,
-                    onAction = {
-                        viewModel.updateQuery("")
-                        viewModel.resetFilter()
-                    },
-                    modifier = Modifier.padding(top = 24.dp)
-                )
+                // P2-2：区分「库为空」与「仅筛选无结果」两套文案与动作——对空库说「放宽筛选」
+                // 既没有条件可放宽、也没有条件可重置，动作应是「快速录入」。
+                if (allItems.isEmpty()) {
+                    EmptyState(
+                        title = "还没有家当",
+                        message = "把家里的东西录进来，就能在这里搜索、筛选和管理了。",
+                        actionLabel = "快速录入",
+                        actionIcon = Icons.Default.Add,
+                        onAction = onNavigateToSave,
+                        modifier = Modifier.padding(top = 24.dp)
+                    )
+                } else {
+                    EmptyState(
+                        title = "没有找到匹配物品",
+                        message = if (query.isBlank()) {
+                            "当前筛选条件下还没有物品，可以放宽一些条件。"
+                        } else {
+                            "可以更换关键词，或者去掉部分筛选条件。"
+                        },
+                        // 有家当却筛不出来，往往是自己把筛选收窄了（I5）：给一键「重置」，清关键词 + 恢复默认筛选。
+                        actionLabel = "重置筛选条件",
+                        actionIcon = Icons.Default.Close,
+                        onAction = {
+                            viewModel.updateQuery("")
+                            viewModel.resetFilter()
+                        },
+                        modifier = Modifier.padding(top = 24.dp)
+                    )
+                }
             } else {
                 LazyColumn(
                     contentPadding = PaddingValues(
@@ -586,7 +608,8 @@ fun HouseholdScreen(
         if (!isSelectionMode) {
             LemonFab(
                 icon = Icons.Default.Add,
-                contentDescription = "录入家当",
+                // 文案与目的页标题对齐（P3-5）：落地页叫「快速录入」，入口就用同一个词。
+                contentDescription = "快速录入",
                 onClick = {
                     openedItemId = null
                     onNavigateToSave()
@@ -744,9 +767,12 @@ private fun buildActiveChips(
 private fun ActiveConditionChip(label: String, onRemove: () -> Unit) {
     Row(
         modifier = Modifier
+            // 触达面积达标（F7/P2-6）：热区对齐 48dp（视觉尺寸不变）。
+            .minimumInteractiveComponentSize()
             .clip(CircleShape)
             .background(OrangeStart.copy(alpha = 0.12f))
-            .clickable(onClick = onRemove)
+            // 整枚胶囊就是「移除该条件」，声明 Button 角色（F8）。
+            .clickable(role = Role.Button, onClick = onRemove)
             .padding(start = 12.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -830,7 +856,10 @@ private fun PresetChip(
     count: Int?,
     selected: Boolean,
     onClick: () -> Unit,
-    onLongClick: (() -> Unit)? = null
+    onLongClick: (() -> Unit)? = null,
+    // P3-8：为带删除手势的胶囊补一段说明（如「X，长按可删除」），
+    // 让隐藏手势可被读屏发现；内置预设不传，保持原样。
+    contentDescription: String? = null
 ) {
     AppSurfaceCard(
         shape = CircleShape,
@@ -840,12 +869,23 @@ private fun PresetChip(
         // 需要长按手势时接管到内容层 combinedClickable，整卡点击与长按才不冲突。
         onClick = if (onLongClick == null) onClick else null
     ) {
+        val rowModifier = if (onLongClick != null) {
+            Modifier.combinedClickable(
+                onClickLabel = "应用该预设",
+                role = Role.Button,
+                onLongClickLabel = "长按可删除",
+                onLongClick = onLongClick,
+                onClick = onClick
+            )
+        } else {
+            Modifier
+        }
+        // P3-8：带删除手势的胶囊额外声明说明，读屏能读出「长按可删除」。
+        val describedModifier = contentDescription?.let { text ->
+            Modifier.semantics { this.contentDescription = text }
+        } ?: Modifier
         Row(
-            modifier = if (onLongClick != null) {
-                Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick)
-            } else {
-                Modifier
-            },
+            modifier = rowModifier.then(describedModifier),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(

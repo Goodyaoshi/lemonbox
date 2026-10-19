@@ -87,4 +87,9 @@ class LedgerAssetsViewModel @Inject constructor(
             onResult(ledgerRepository.deleteAsset(id))
         }
     }
+
+    /** 撤销删除：把已软删的账户恢复（清空 deletedAt）。 */
+    fun restoreAsset(id: Long) {
+        viewModelScope.launch { ledgerRepository.restoreAsset(id) }
+    }
 }

@@ -26,12 +26,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.BookmarkAdd
 import androidx.compose.material.icons.filled.Repeat
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -495,18 +493,22 @@ fun RecordEditScreen(
     }
 
     if (state.conflict) {
-        AlertDialog(
+        // 统一走 AppDialog（P3-12）：此前这一处用的是 Material 原生 AlertDialog，
+        // 圆角 / 底色 / 按钮样式与全应用其它弹窗不一致，视觉断裂。
+        // 两个动作的语义保持原样——左侧「载入最新」仍是 discardConflictAndReload
+        // （放弃本地改动、重新载入最新账单），右侧「仍然覆盖」仍是 confirmOverwrite。
+        // 因 AppDialog 的次要按钮回调独立于 onDismissRequest，这里用 secondaryText 承载
+        // 「载入最新」，避免与「点遮罩 / 返回键只关窗不重载」的既有行为混淆。
+        AppDialog(
+            title = "这笔账单在别处被修改过",
+            subtitle = "另一台设备（或本机其它操作）在你编辑期间改动了它。" +
+                "继续保存会用你当前的内容覆盖对方；也可以放弃你的改动、载入最新版本。",
             onDismissRequest = viewModel::dismissConflict,
-            title = { Text("这笔账单在别处被修改过") },
-            text = {
-                Text("另一台设备（或本机其它操作）在你编辑期间改动了它。继续保存会用你当前的内容覆盖对方；也可以放弃你的改动、载入最新版本。")
-            },
-            confirmButton = {
-                TextButton(onClick = viewModel::confirmOverwrite) { Text("仍然覆盖") }
-            },
-            dismissButton = {
-                TextButton(onClick = viewModel::discardConflictAndReload) { Text("载入最新") }
-            }
+            confirmText = "仍然覆盖",
+            onConfirm = viewModel::confirmOverwrite,
+            secondaryText = "载入最新",
+            onSecondary = viewModel::discardConflictAndReload,
+            dismissText = null
         )
     }
 

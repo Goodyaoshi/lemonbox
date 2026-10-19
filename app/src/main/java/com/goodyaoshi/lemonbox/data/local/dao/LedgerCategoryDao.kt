@@ -41,6 +41,17 @@ interface LedgerCategoryDao {
     )
     suspend fun softDelete(id: Long, deletedAt: Long)
 
+    /** 从回收站恢复一条分类（清空 deletedAt），配合删除后的「撤销」使用。 */
+    @Query("UPDATE ledger_categories SET deletedAt = NULL, updatedAt = :updatedAt, dirty = 1 WHERE id = :id")
+    suspend fun restoreFromTrash(id: Long, updatedAt: Long)
+
+    /** 同性质下同名有效分类数量（忽略大小写），排除自身，供保存前的重名守卫使用。 */
+    @Query(
+        "SELECT COUNT(*) FROM ledger_categories " +
+            "WHERE deletedAt IS NULL AND kind = :kind AND id != :excludeId AND name = :name COLLATE NOCASE"
+    )
+    suspend fun countActiveByName(name: String, kind: Int, excludeId: Long): Int
+
     @Query("SELECT COUNT(*) FROM ledger_categories")
     suspend fun getCount(): Int
 }

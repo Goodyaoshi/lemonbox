@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material3.Icon
@@ -86,7 +87,10 @@ fun EditorInputBox(
     trailingContent: (@Composable () -> Unit)? = null,
     // 需要打码的输入（如访问密钥）传 PasswordVisualTransformation()；
     // 默认 None，既有调用点行为逐字不变。
-    visualTransformation: VisualTransformation = VisualTransformation.None
+    visualTransformation: VisualTransformation = VisualTransformation.None,
+    // 键盘类型（P2-19）：默认沿用系统默认键盘；金额等数值输入传
+    // KeyboardOptions(keyboardType = KeyboardType.Decimal)，弹出数字键盘。
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default
 ) {
     Box(
         modifier = modifier
@@ -124,6 +128,7 @@ fun EditorInputBox(
                 singleLine = singleLine,
                 readOnly = readOnly,
                 visualTransformation = visualTransformation,
+                keyboardOptions = keyboardOptions,
                 // 字号走主题字阶（F6）：titleMedium 为 16sp。
                 textStyle = MaterialTheme.typography.titleMedium.copy(
                     color = TextPrimary

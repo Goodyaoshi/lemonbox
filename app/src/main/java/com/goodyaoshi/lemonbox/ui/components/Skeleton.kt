@@ -51,6 +51,9 @@ fun SkeletonList(
     modifier: Modifier = Modifier,
     itemCount: Int = 3,
     showHeader: Boolean = true,
+    // 底栏占位开关（P3-26）：带底部导航的列表页需要补足占位，否则末块会被底栏压住；
+    // 无底部导航的页面（如回收站）传 false，避免凭空多占一段底栏高度。
+    showBottomBarClearance: Boolean = true,
     contentPadding: PaddingValues = PaddingValues(horizontal = 20.dp)
 ) {
     val alpha = rememberSkeletonAlpha()
@@ -77,8 +80,11 @@ fun SkeletonList(
         repeat(itemCount.coerceAtLeast(1)) {
             SkeletonListCard(alpha = alpha)
         }
-        // 底栏占位（F7）：骨架常出现在带底部导航的列表页，补足占位避免末块被底栏压住。
-        BottomBarClearance()
+        // 底栏占位（F7 / P3-26）：骨架常出现在带底部导航的列表页，补足占位避免末块被底栏压住；
+        // 无底栏的页面显式关闭，避免加载态凭空多占一段高度。
+        if (showBottomBarClearance) {
+            BottomBarClearance()
+        }
     }
 }
 

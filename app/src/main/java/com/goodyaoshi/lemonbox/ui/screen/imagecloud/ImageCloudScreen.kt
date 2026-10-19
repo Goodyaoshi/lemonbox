@@ -16,6 +16,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -27,14 +29,20 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
+import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
+import com.goodyaoshi.lemonbox.ui.components.EditorInputBox
 import com.goodyaoshi.lemonbox.ui.components.EditorSectionLabel
 import com.goodyaoshi.lemonbox.ui.components.GradientButton
 import com.goodyaoshi.lemonbox.ui.theme.DividerSoft
@@ -45,6 +53,7 @@ import com.goodyaoshi.lemonbox.ui.theme.TextHint
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
 import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
 import com.goodyaoshi.lemonbox.ui.viewmodel.ImageCloudViewModel
+import com.goodyaoshi.lemonbox.ui.viewmodel.SyncLoginViewModel
 
 /**
  * 云存储与同步设置（F20 · 仅正式包）：图片上传 + 多设备数据同步。
@@ -59,13 +68,18 @@ import com.goodyaoshi.lemonbox.ui.viewmodel.ImageCloudViewModel
 @Composable
 fun ImageCloudScreen(
     onBack: () -> Unit,
-    onOpenSyncLogin: () -> Unit,
     onOpenSyncDiagnostics: () -> Unit,
-    viewModel: ImageCloudViewModel = hiltViewModel()
+    viewModel: ImageCloudViewModel = hiltViewModel(),
+    // 登录表单内嵌到本页（IA 合并）：云端账号本就是「云存储与同步」的前提，
+    // 拆成两个二级页只会让人来回找，现在同一页从登录到同步一次走完。
+    loginViewModel: SyncLoginViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
     val sync by viewModel.syncState.collectAsState()
     val remoteSync by viewModel.remoteSyncState.collectAsState()
+    val loginState by loginViewModel.uiState.collectAsState()
+    // 退出登录的二次确认闸门（IA 合并后本页承担退出入口）。
+    var showLogoutConfirm by remember { mutableStateOf(false) }
 
     // 同步跑完（running 由 true 落回 false）就重算未上传张数，让界面上的数字跟着更新。
     LaunchedEffect(sync.running) {
@@ -97,7 +111,7 @@ fun ImageCloudScreen(
                     )
                 }
                 Text(
-                    text = "云存储与同步",
+                    text = "云端同步",
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary
@@ -122,7 +136,7 @@ fun ImageCloudScreen(
                             color = TextPrimary
                         )
                         Text(
-                            text = "云存储与同步只在正式发布版中提供，开发调试版已关闭，避免测试图片传进真实的云端空间。",
+                            text = "云端同步只在正式发布版中提供，开发调试版已关闭，避免测试图片传进真实的云端空间。",
                             style = MaterialTheme.typography.bodyMedium,
                             color = TextSecondary,
                             modifier = Modifier.padding(top = 6.dp)
@@ -175,13 +189,11 @@ fun ImageCloudScreen(
 
                 if (!state.loggedIn) {
                     Spacer(modifier = Modifier.height(12.dp))
-                    TextButton(onClick = onOpenSyncLogin) {
-                        Text(
-                            text = "去登录云端账号",
-                            color = OrangeStart,
-                            style = MaterialTheme.typography.titleSmall
-                        )
-                    }
+                    Text(
+                        text = "未登录云端账号时，图片只留在本机；往下就是登录入口。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextHint
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(22.dp))
@@ -295,11 +307,51 @@ fun ImageCloudScreen(
                             fontWeight = FontWeight.SemiBold,
                             color = TextSecondary
                         )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        GradientButton(
-                            text = "登录云端账号",
-                            onClick = onOpenSyncLogin
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "用当初在服务端配置好的账号密码登录。密码只在这一步校验，"
+                                + "不会存在本机；本机保存的是登录换来的令牌。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextHint
                         )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        EditorInputBox(
+                            value = loginState.inputUsername,
+                            onValueChange = loginViewModel::updateUsername,
+                            placeholder = "账号"
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        EditorInputBox(
+                            value = loginState.inputPassword,
+                            onValueChange = loginViewModel::updatePassword,
+                            placeholder = "密码",
+                            // 打码显示，避免旁人一眼看到密码。
+                            visualTransformation = PasswordVisualTransformation()
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        GradientButton(
+                            text = if (loginState.busy) "正在登录…" else "登录",
+                            enabled = !loginState.busy && loginState.baseUrl.isNotEmpty(),
+                            onClick = loginViewModel::login
+                        )
+                        if (loginState.baseUrl.isEmpty()) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            NoticeLine(text = "这个安装包没有配置同步服务器地址，无法登录", isError = true)
+                        }
+                        loginState.message?.let { message ->
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (loginState.busy) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(14.dp),
+                                        strokeWidth = 2.dp,
+                                        color = OrangeStart
+                                    )
+                                    Spacer(modifier = Modifier.size(8.dp))
+                                }
+                                NoticeLine(text = message, isError = loginState.messageIsError)
+                            }
+                        }
                     } else {
                         Text(
                             text = state.username?.let { "已登录：$it" } ?: "已登录",
@@ -322,7 +374,7 @@ fun ImageCloudScreen(
                             Spacer(modifier = Modifier.height(4.dp))
                             NoticeLine(
                                 text = "有 ${remoteSync.lastConflicts} 条两边都改过，" +
-                                    "已保留服务端版本（可在设备同步里逐条对比）",
+                                    "已保留服务端版本（可在「同步诊断」里逐条查看）",
                                 isError = false
                             )
                         }
@@ -347,6 +399,22 @@ fun ImageCloudScreen(
                         TextButton(onClick = onOpenSyncDiagnostics, enabled = state.cloudSyncEnabled) {
                             Text(text = "打开同步诊断", color = TextSecondary)
                         }
+                        // 退出登录（IA 合并）：原先在「云端账号」页，现在同一页里收尾。
+                        // 走二次确认——确认后要重新输密码才能再连上，不能一点就生效。
+                        TextButton(onClick = { showLogoutConfirm = true }) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.Logout,
+                                contentDescription = null,
+                                tint = StatusExpired,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.size(6.dp))
+                            Text(
+                                text = "退出登录",
+                                color = StatusExpired,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
                     }
                     // 未就绪的原因直接说清（未登录 / 未开启），比只在按钮上变灰有用。
                     state.cloudSyncBlocker?.let { blocker ->
@@ -362,6 +430,21 @@ fun ImageCloudScreen(
                     color = TextHint
                 )
             }
+        }
+
+        if (showLogoutConfirm) {
+            AppDialog(
+                title = "退出登录？",
+                subtitle = "退出后本机数据不再与其他设备同步，但本机数据与云端数据都不会被删除；"
+                    + "下次登录即可继续。",
+                confirmText = "退出",
+                destructiveConfirm = true,
+                onConfirm = {
+                    loginViewModel.logout()
+                    showLogoutConfirm = false
+                },
+                onDismissRequest = { showLogoutConfirm = false }
+            )
         }
     }
 }

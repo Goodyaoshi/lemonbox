@@ -1039,7 +1039,9 @@ private fun SyncReportRow(report: SyncReport, onClick: (() -> Unit)? = null) {
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = TextSecondary,
-                maxLines = 2
+                maxLines = 2,
+                // 超长摘要省略号（P3-30）：此前只设 maxLines、硬裁后无省略号，看不出还有内容。
+                overflow = TextOverflow.Ellipsis
             )
         }
         Text(

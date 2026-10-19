@@ -38,15 +38,31 @@ class CategoryRepository @Inject constructor(
     /**
      * 软删除（写墓碑），并连带其所有下级分类（子分类、孙分类…），
      * 记录会保留以便把删除同步给其他设备。受保护分类直接跳过。
+     * 返回被软删的（含下级的）分类 id，供撤销时原样恢复（P2-4）。
      */
-    suspend fun delete(category: Category) {
-        if (category.isProtected) return
+    suspend fun delete(category: Category): List<Long> {
+        if (category.isProtected) return emptyList()
         val now = MonotonicClock.now()
         val all = categoryDao.getAllCategoriesSnapshot()
         val targets = collectDescendantIds(category.id, all) + category.id
         targets.forEach { id ->
             all.firstOrNull { it.id == id }?.let { entity ->
                 categoryDao.update(entity.copy(deletedAt = now, updatedAt = now, dirty = true))
+            }
+        }
+        return targets
+    }
+
+    /** 撤销删除：清掉这批分类的墓碑，恢复到原归属（P2-4）。 */
+    suspend fun restoreDeleted(ids: List<Long>) {
+        if (ids.isEmpty()) return
+        val now = MonotonicClock.now()
+        val all = categoryDao.getAllCategoriesSnapshot()
+        ids.forEach { id ->
+            all.firstOrNull { it.id == id }?.let { entity ->
+                if (entity.deletedAt != null) {
+                    categoryDao.update(entity.copy(deletedAt = null, updatedAt = now, dirty = true))
+                }
             }
         }
     }

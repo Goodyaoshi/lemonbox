@@ -179,6 +179,22 @@ class ItemRepository @Inject constructor(
     }
 
     /**
+     * 撤销「标记为已用完」（P2-18）：按动作前的快照写回使用状态、补货标记与使用周期，
+     * 而不是简单回「使用中」——动作前可能本是别的状态，按快照才原样复原。
+     */
+    suspend fun undoMarkAsUsed(previous: Item) {
+        val now = MonotonicClock.now()
+        itemDao.updateUsageStatus(previous.id, previous.usageStatus, now)
+        itemDao.updateNeedRestock(previous.id, previous.needRestock, now)
+        itemDao.updateUsageWindow(previous.id, previous.startUseTime, previous.usageEndedAt, now)
+    }
+
+    /** 撤销「加入待买清单」（P2-18）：恢复动作前的补货标记。 */
+    suspend fun undoAddToBuy(previous: Item) {
+        itemDao.updateNeedRestock(previous.id, previous.needRestock, MonotonicClock.now())
+    }
+
+    /**
      * 待买清单里勾选"已买到"：回到使用中并取消补货标记，
      * 同时记下购买日期、开启新一轮使用周期。
      */
@@ -218,6 +234,30 @@ class ItemRepository @Inject constructor(
     /** 开关「需要补货」（不涉及使用周期）。 */
     suspend fun setNeedRestock(id: Long, needRestock: Boolean) =
         itemDao.updateNeedRestock(id, needRestock, MonotonicClock.now())
+
+    /** 仍在使用某自定义「使用进度」编号的物品数（P1-2）。 */
+    suspend fun countItemsByUsageStatus(code: Int): Int = itemDao.countItemsByUsageStatus(code)
+
+    /** 仍在使用某自定义「物品去向」编号的物品数（P1-2）。 */
+    suspend fun countItemsByDisposition(code: Int): Int = itemDao.countItemsByDisposition(code)
+
+    /** 使用某自定义「使用进度」编号的物品 id（P1-2 撤销用）。 */
+    suspend fun getItemIdsByUsageStatus(code: Int): List<Long> = itemDao.getItemIdsByUsageStatus(code)
+
+    /** 使用某自定义「物品去向」编号的物品 id（P1-2 撤销用）。 */
+    suspend fun getItemIdsByDisposition(code: Int): List<Long> = itemDao.getItemIdsByDisposition(code)
+
+    /** 批量把物品按使用进度编号回挂（P1-2 撤销用），不改使用周期窗口。 */
+    suspend fun setUsageStatusForIds(ids: List<Long>, code: Int) {
+        if (ids.isEmpty()) return
+        itemDao.updateUsageStatusForIds(ids, code, MonotonicClock.now())
+    }
+
+    /** 批量把物品按去向编号回挂（P1-2 撤销用），不改使用周期窗口。 */
+    suspend fun setDispositionForIds(ids: List<Long>, code: Int) {
+        if (ids.isEmpty()) return
+        itemDao.updateDispositionForIds(ids, code, MonotonicClock.now())
+    }
 
     /**
      * 依最终状态计算使用周期窗口（开始使用, 使用结束）：

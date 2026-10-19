@@ -5,6 +5,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -24,6 +25,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
@@ -206,7 +208,21 @@ fun DetailScreen(
     val item = detail.item
     val imageHashes = item.imageHashList()
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    // 「需要补货」改动给回执 + 撤销（P2-7）：与家当列表同一套提示范式，
+    // 不再像此前那样点了就直接生效、既无回执也无法回退。
+    fun toggleNeedRestock(target: Boolean) {
+        val previous = item.needRestock
+        if (previous == target) return
+        viewModel.setNeedRestock(item.id, target)
+        appSnackbar?.showUndo("已更新需要补货", DeleteCopy.UNDO_ACTION) {
+            viewModel.setNeedRestock(item.id, previous)
+        }
+    }
+
+    // 主图高度随屏幕自适应（P3-3）：按可用高度的 38% 取值并夹在 220–420dp 之间，
+    // 小屏首屏不再被固定 380dp 的大图占满，宽屏 / 高屏也不会无限拔高。
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val imageHeight = (maxHeight * 0.38f).coerceIn(220.dp, 420.dp)
         AppDecorativeBackground()
 
         Column(
@@ -218,7 +234,7 @@ fun DetailScreen(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(380.dp)
+                    .height(imageHeight)
             ) {
                 HorizontalPager(
                     state = pagerState,
@@ -284,6 +300,18 @@ fun DetailScreen(
                         )
                 )
 
+                // 返回入口（P1-1）：此前整页只有「删除」「编辑」两个圆钮，用户只能靠系统返回手势离开；
+                // 这里在图片左上角补一个与右侧同款（同尺寸、同热区）的返回圆钮。
+                ArrowCircleButton(
+                    icon = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "返回",
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .statusBarsPadding()
+                ) {
+                    onBack()
+                }
+
                 Row(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
@@ -300,7 +328,8 @@ fun DetailScreen(
                     }
                     ArrowCircleButton(
                         icon = Icons.Default.Edit,
-                        contentDescription = "编辑家当"
+                        // 术语统一（P3-5）：单件叫「物品」，与编辑页标题「编辑物品」一致。
+                        contentDescription = "编辑物品"
                     ) {
                         onEdit(item.id)
                     }
@@ -461,10 +490,10 @@ fun DetailScreen(
                             checked = item.needRestock,
                             // 读屏/键盘可独立操作开关（F8）：给出真实回调，
                             // 而非 onCheckedChange = null 只能靠整行点击。
-                            onCheckedChange = { viewModel.setNeedRestock(item.id, it) }
+                            onCheckedChange = { checked -> toggleNeedRestock(checked) }
                         )
                     },
-                    onClick = { viewModel.setNeedRestock(item.id, !item.needRestock) }
+                    onClick = { toggleNeedRestock(!item.needRestock) }
                 )
                 DetailInfoRow("备注", item.note.ifBlank { "无" })
                 DetailInfoRow(
@@ -533,10 +562,26 @@ fun DetailScreen(
                 item.disposition
             },
             onSelect = { code ->
+                // 状态改动给回执 + 撤销（P2-7）：与家当列表同一套提示范式。
+                val previous = if (dimension == StatusDimension.USAGE) {
+                    item.usageStatus
+                } else {
+                    item.disposition
+                }
                 if (dimension == StatusDimension.USAGE) {
                     viewModel.setUsageStatus(item.id, code)
                 } else {
                     viewModel.setDisposition(item.id, code)
+                }
+                appSnackbar?.showUndo(
+                    "已更新${statusDimensionTitle(dimension)}",
+                    DeleteCopy.UNDO_ACTION
+                ) {
+                    if (dimension == StatusDimension.USAGE) {
+                        viewModel.setUsageStatus(item.id, previous)
+                    } else {
+                        viewModel.setDisposition(item.id, previous)
+                    }
                 }
             },
             onDismissRequest = { statusPickerDimensionName = null }

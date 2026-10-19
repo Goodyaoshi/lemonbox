@@ -569,7 +569,7 @@ fun EditScreen(
                 selectedId = state.categoryId,
                 onSelect = viewModel::updateCategory,
                 onDismissRequest = { showCategoryPicker = false },
-                emptyHint = "还没有分类，可到「分类」页添加。"
+                emptyHint = "还没有分类，可到「家当设置 → 分类」里添加。"
             )
         }
 
@@ -580,7 +580,7 @@ fun EditScreen(
                 selectedId = state.locationId,
                 onSelect = viewModel::updateLocation,
                 onDismissRequest = { showLocationPicker = false },
-                emptyHint = "还没有存放位置，可到「分类 → 管理位置」里添加。"
+                emptyHint = "还没有存放位置，可到「家当设置 → 存放位置」里添加。"
             )
         }
 

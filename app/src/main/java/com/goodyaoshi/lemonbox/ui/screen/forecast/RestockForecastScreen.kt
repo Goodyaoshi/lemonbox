@@ -70,6 +70,8 @@ import kotlinx.coroutines.delay
 @Composable
 fun RestockForecastScreen(
     onBack: () -> Unit,
+    // 空态「去家当用掉 1 件」的直达入口（P2-20）：此前空态只有一句文字，用户无路可走。
+    onOpenHousehold: () -> Unit = {},
     viewModel: RestockForecastViewModel = hiltViewModel()
 ) {
     val forecasts by viewModel.forecasts.collectAsState()
@@ -139,6 +141,9 @@ fun RestockForecastScreen(
                         EmptyState(
                             title = "还没有可预测的物品",
                             message = "记录几件按件消耗的东西、点过几次「用1件」之后，就能算出补货时机了。",
+                            // 空态直达（P2-20）：补一键去家当列表，去用掉 1 件攒出消耗数据。
+                            actionLabel = "去家当用掉 1 件",
+                            onAction = onOpenHousehold,
                             modifier = Modifier.padding(top = 6.dp)
                         )
                     }

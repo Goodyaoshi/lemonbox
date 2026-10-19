@@ -73,6 +73,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -90,7 +91,9 @@ import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.CategoryIconOption
+import com.goodyaoshi.lemonbox.ui.components.DeleteCopy
 import com.goodyaoshi.lemonbox.ui.components.EditorInputBox
+import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
 import com.goodyaoshi.lemonbox.ui.components.categoryIconFor
 import com.goodyaoshi.lemonbox.ui.components.categoryIconOptions
 import com.goodyaoshi.lemonbox.ui.components.itemStatusColors
@@ -101,16 +104,29 @@ import com.goodyaoshi.lemonbox.ui.theme.OrangeTint
 import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarm
 import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarmDeep
 import com.goodyaoshi.lemonbox.ui.theme.StatusExpired
-import com.goodyaoshi.lemonbox.ui.theme.TextHint
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
 import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
 import com.goodyaoshi.lemonbox.ui.viewmodel.CategoryViewModel
+import com.goodyaoshi.lemonbox.ui.viewmodel.RemovedStatusSnapshot
 import com.goodyaoshi.lemonbox.util.DateUtil
+import kotlinx.coroutines.launch
 
-/** 分类页：统一维护物品分类、存放位置与物品状态选项，从「我的」进入。 */
+/** 家当设置四个 Tab 的序号（P2-24）：供外部深链指定要落到哪个 Tab。 */
+object CategoryTab {
+    const val CATEGORY = 0
+    const val LOCATION = 1
+    const val STATUS = 2
+
+    /** 「有效期与提醒」：设置页的「提前几天提醒」深链应落到这里。 */
+    const val EXPIRY_REMINDER = 3
+}
+
+/** 分类页：统一维护物品分类、存放位置与物品状态选项，入口在家当 Tab 页头。 */
 @Composable
 fun CategoryScreen(
     onBack: () -> Unit,
+    /** 进入时默认展开的 Tab（P2-24）：默认「管理分类」，深链可指定其它 Tab。 */
+    initialTab: Int = CategoryTab.CATEGORY,
     viewModel: CategoryViewModel = hiltViewModel()
 ) {
     val categories by viewModel.categories.collectAsState()
@@ -124,7 +140,12 @@ fun CategoryScreen(
     val reminderLadder by viewModel.reminderLadder.collectAsState()
     val expiryQuickOptions by viewModel.expiryQuickOptions.collectAsState()
 
-    var selectedTab by remember { mutableIntStateOf(0) }
+    // 初始 Tab 由入参决定（P2-24）：设置页的「提前几天提醒」可直达「有效期与提醒」。
+    var selectedTab by remember(initialTab) {
+        mutableIntStateOf(initialTab.coerceIn(CategoryTab.CATEGORY, CategoryTab.EXPIRY_REMINDER))
+    }
+    val appSnackbar = LocalAppSnackbar.current
+    val uiScope = rememberCoroutineScope()
     val expandedLocations = remember { mutableStateMapOf<Long, Boolean>() }
     val expandedCategories = remember { mutableStateMapOf<Long, Boolean>() }
     var showCategoryDialog by remember { mutableStateOf(false) }
@@ -142,6 +163,9 @@ fun CategoryScreen(
     // 状态选项弹窗：新增时 dimension 非空、editingStatus 为空；重命名时 editingStatus 非空。
     var statusDialogDimension by remember { mutableStateOf<StatusDimension?>(null) }
     var editingStatus by remember { mutableStateOf<ItemStatusOption?>(null) }
+    // 删除自定义状态前的二次确认（P1-2）：记录待删状态与仍在使用它的物品数。
+    var pendingRemoveStatus by remember { mutableStateOf<ItemStatusOption?>(null) }
+    var pendingRemoveStatusCount by remember { mutableIntStateOf(0) }
     var statusInput by remember { mutableStateOf("") }
     var statusError by remember { mutableStateOf<String?>(null) }
     var showExpiryQuickDialog by remember { mutableStateOf(false) }
@@ -255,7 +279,9 @@ fun CategoryScreen(
                             text = "内置保护",
                             // 字号走主题字阶（F6）：labelMedium 为 12sp。
                             style = MaterialTheme.typography.labelMedium,
-                            color = TextHint
+                            // 承载可读信息的正文改用 TextSecondary（P2-3）：
+                            // TextHint 对比度不足 4.5:1，只留给图标与占位。
+                            color = TextSecondary
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                     }
@@ -375,7 +401,17 @@ fun CategoryScreen(
                             editingStatus = option
                             statusDialogDimension = option.dimension
                         },
-                        onRemove = viewModel::removeCustomStatus
+                        // 「×」不再单击即删（P1-2）：先记录待删状态并异步数出受影响的物品，弹二次确认。
+                        onRemove = { code ->
+                            val option = customStatuses.firstOrNull { it.code == code }
+                            if (option != null) {
+                                pendingRemoveStatus = option
+                                pendingRemoveStatusCount = 0
+                                uiScope.launch {
+                                    pendingRemoveStatusCount = viewModel.countItemsUsingStatus(option)
+                                }
+                            }
+                        }
                     )
 
                     else -> ExpiryReminderPanel(
@@ -483,10 +519,29 @@ fun CategoryScreen(
             confirmText = "删除",
             destructiveConfirm = true,
             onConfirm = {
-                if (selectedTab == 0) {
-                    viewModel.deleteCategory(selectedCategoryId)
-                } else {
-                    viewModel.deleteLocation(selectedLocationId)
+                // 删除后给带「撤销」的提示条（P2-4）：撤销时把这批节点的墓碑清掉，
+                // 其下物品的原归属也就跟着恢复，不再是「删了就没法回退」。
+                val isCategory = selectedTab == 0
+                val targetCategoryId = selectedCategoryId
+                val targetLocationId = selectedLocationId
+                val removedName = deleteName.orEmpty()
+                uiScope.launch {
+                    val removedIds = if (isCategory) {
+                        viewModel.deleteCategory(targetCategoryId)
+                    } else {
+                        viewModel.deleteLocation(targetLocationId)
+                    }
+                    if (removedIds.isNotEmpty()) {
+                        appSnackbar?.showUndo("已删除「$removedName」", DeleteCopy.UNDO_ACTION) {
+                            uiScope.launch {
+                                if (isCategory) {
+                                    viewModel.restoreCategory(removedIds)
+                                } else {
+                                    viewModel.restoreLocation(removedIds)
+                                }
+                            }
+                        }
+                    }
                 }
                 showDeleteDialog = false
             }
@@ -552,8 +607,46 @@ fun CategoryScreen(
         }
     }
 
+    pendingRemoveStatus?.let { option ->
+        AppDialog(
+            title = "删除自定义状态",
+            // 正文说清影响面（P1-2）：删除前告知有多少件物品仍挂在该状态上。
+            subtitle = if (pendingRemoveStatusCount > 0) {
+                "「${option.label}」下有 $pendingRemoveStatusCount 件物品仍在使用该状态，" +
+                    "删除后它们会显示成「状态 ${option.code}」，可撤销。"
+            } else {
+                "确定要删除「${option.label}」吗？删错了可以撤销。"
+            },
+            onDismissRequest = { pendingRemoveStatus = null },
+            confirmText = "删除",
+            destructiveConfirm = true,
+            onConfirm = {
+                val target = option
+                uiScope.launch {
+                    // 删除时记下快照（状态本体 + 受影响物品 id），撤销时一并恢复。
+                    val snapshot: RemovedStatusSnapshot? =
+                        viewModel.removeCustomStatusWithSnapshot(target.code)
+                    if (snapshot != null) {
+                        appSnackbar?.showUndo("已删除「${target.label}」", DeleteCopy.UNDO_ACTION) {
+                            uiScope.launch { viewModel.restoreCustomStatus(snapshot) }
+                        }
+                    }
+                }
+                pendingRemoveStatus = null
+            }
+        ) {
+            Text(
+                text = "删除后该维度下将不再提供这个选项。",
+                // 字号走主题字阶（F6）：bodyMedium 为 14sp。
+                style = MaterialTheme.typography.bodyMedium,
+                color = TextSecondary
+            )
+        }
+    }
+
     if (showExpiryQuickDialog) {
         ExpiryQuickDialog(
+            current = expiryQuickOptions,
             onDismiss = { showExpiryQuickDialog = false },
             onConfirm = { codes ->
                 viewModel.setExpiryQuickOptions(codes)

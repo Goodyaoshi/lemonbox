@@ -32,6 +32,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -44,6 +45,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -52,7 +54,9 @@ import com.goodyaoshi.lemonbox.data.local.entity.Anniversary
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
+import com.goodyaoshi.lemonbox.ui.components.DeleteCopy
 import com.goodyaoshi.lemonbox.ui.components.ExpiryPickerDialog
+import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
 import com.goodyaoshi.lemonbox.ui.components.LunarDatePickerDialog
 import com.goodyaoshi.lemonbox.ui.components.PrimaryActionBar
 import com.goodyaoshi.lemonbox.ui.components.SegmentedTabs
@@ -145,6 +149,7 @@ fun AnniversaryEditScreen(
     // 重复周期与提前提醒的「更多」展开（P1）：把长尾档位收起，单一决策点不超过 4 个 chip。
     var showMoreRepeat by remember { mutableStateOf(false) }
     var showMoreRemind by remember { mutableStateOf(false) }
+    val appSnackbar = LocalAppSnackbar.current
 
     LaunchedEffect(loaded) {
         val a = loaded ?: return@LaunchedEffect
@@ -662,8 +667,11 @@ fun AnniversaryEditScreen(
                         color = StatusExpired,
                         modifier = Modifier
                             .fillMaxWidth()
+                            // 热区补足 48dp（P3-18）：此前文本行热区仅约 44dp；文本型可点元素统一到
+                            // 48dp 最小可点区并声明按钮角色。
+                            .minimumInteractiveComponentSize()
                             .clip(MaterialTheme.shapes.medium)
-                            .clickable { pendingDelete = true }
+                            .clickable(role = Role.Button) { pendingDelete = true }
                             .padding(vertical = 12.dp),
                         textAlign = TextAlign.Center
                     )
@@ -781,7 +789,14 @@ fun AnniversaryEditScreen(
             destructiveConfirm = true,
             onConfirm = {
                 pendingDelete = false
+                // 删除也给后悔药（P3-18）：与列表页同一删除动作一致，按快照撤销即复活。
+                val snapshot = loaded
                 viewModel.delete(onDone = onBack)
+                if (snapshot != null) {
+                    appSnackbar?.showUndo("已删除「${snapshot.name}」", DeleteCopy.UNDO_ACTION) {
+                        viewModel.restore(snapshot)
+                    }
+                }
             }
         ) {
             Text(

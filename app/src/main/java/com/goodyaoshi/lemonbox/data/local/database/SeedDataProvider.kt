@@ -60,21 +60,6 @@ internal object SeedDataProvider {
     private const val SNACK_CATEGORY = "零食"
     private val snackLeaves = listOf("零食", "饼干", "坚果", "饮料", "茶叶", "咖啡")
 
-    /**
-     * 受保护种子分类的完整名单（与 [ensureProtectedSeedData] 的补种范围同源）：
-     * 「恢复内置分类」的预览用它按名称与现有分类比对（G-6），保证预览与实际插入一致。
-     */
-    val protectedSeedCategoryNames: List<String>
-        get() = buildList {
-            add("食品")
-            protectedFoodSubtree.forEach { (subName, leaves) ->
-                add(subName)
-                addAll(leaves)
-            }
-            add(SNACK_CATEGORY)
-            addAll(snackLeaves)
-        }
-
     /** 「辅料」是 v18 新增的食品子分类：葱姜蒜、辣椒等配料从「蔬菜」拆出，仍受保护。 */
     private const val AUXILIARY_CATEGORY = "辅料"
 

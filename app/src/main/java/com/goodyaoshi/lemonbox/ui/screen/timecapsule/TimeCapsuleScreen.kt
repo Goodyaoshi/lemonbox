@@ -47,9 +47,11 @@ import com.goodyaoshi.lemonbox.data.local.entity.TimeCapsule
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
+import com.goodyaoshi.lemonbox.ui.components.DeleteCopy
 import com.goodyaoshi.lemonbox.ui.components.EmptyState
 import com.goodyaoshi.lemonbox.ui.components.ExpiryPickerDialog
 import com.goodyaoshi.lemonbox.ui.components.LemonFab
+import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
 import com.goodyaoshi.lemonbox.ui.components.PillTag
 import com.goodyaoshi.lemonbox.ui.components.SwipeActionSpec
 import com.goodyaoshi.lemonbox.ui.components.SwipeRevealItem
@@ -77,9 +79,11 @@ fun TimeCapsuleScreen(
     val capsules by viewModel.capsules.collectAsState()
     var showCompose by remember { mutableStateOf(false) }
     var readingId by remember { mutableStateOf<Long?>(null) }
-    // 删除入口（P3）：胶囊原先只能写不能删，这里补上左滑删除并二次确认（软删无撤销）。
+    // 删除入口（P3）：胶囊原先只能写不能删，这里补上左滑删除并二次确认。
+    // 撤销提示条（P3-16）：软删只是写墓碑，删除后可在提示条里一键恢复。
     var openedKey by remember { mutableStateOf<Any?>(null) }
     var pendingDelete by remember { mutableStateOf<TimeCapsule?>(null) }
+    val appSnackbar = LocalAppSnackbar.current
 
     Box(modifier = Modifier.fillMaxSize()) {
         AppDecorativeBackground()
@@ -174,7 +178,7 @@ fun TimeCapsuleScreen(
         }
     }
 
-    // 删除确认（P3）：破坏性操作先弹二次确认；软删无撤销，所以文案讲清楚不可恢复。
+    // 删除确认（P3）：破坏性操作先弹二次确认；软删写墓碑，删错可在提示条里撤销（P3-16）。
     pendingDelete?.let { target ->
         AppDialog(
             title = "删除时间胶囊",
@@ -183,11 +187,16 @@ fun TimeCapsuleScreen(
             destructiveConfirm = true,
             onConfirm = {
                 viewModel.delete(target)
+                // 撤销提示条（P3-16）：与全 App 删除动作一致，软删后给一次反悔机会（复活墓碑）。
+                appSnackbar?.showUndo("已删除「${target.title}」", DeleteCopy.UNDO_ACTION) {
+                    viewModel.restore(target)
+                }
                 pendingDelete = null
             }
         ) {
             Text(
-                text = "确定要删除「${target.title}」吗？删除后无法恢复。",
+                // 文案与实现对齐（P3-16）：实际是软删、可撤销，不再说「无法恢复」。
+                text = "确定要删除「${target.title}」吗？删除后可在提示条里撤销。",
                 // 字号走主题字阶（F6）：bodyMedium 为 14sp。
                 style = MaterialTheme.typography.bodyMedium,
                 color = TextSecondary

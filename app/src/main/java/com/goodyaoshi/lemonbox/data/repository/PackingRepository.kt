@@ -26,6 +26,9 @@ class PackingRepository @Inject constructor(
 
     fun getTripFlow(id: Long): Flow<PackingTrip?> = tripDao.getByIdFlow(id)
 
+    /** 取行程（含软删除墓碑）。删除前留快照，供撤销回写。 */
+    suspend fun getTrip(id: Long): PackingTrip? = tripDao.getById(id)
+
     /** 新建行程；返回新 id。 */
     suspend fun createTrip(trip: PackingTrip): Long = tripDao.insert(
         trip.copy(
@@ -43,6 +46,21 @@ class PackingRepository @Inject constructor(
         itemDao.softDeleteByTrip(tripId = id, deletedAt = now, updatedAt = now)
         tripDao.softDelete(id = id, deletedAt = now, updatedAt = now)
     }
+
+    /**
+     * 撤销删除行程（GAP-13 同范式）：把行程与本次一并删掉的条目一起复活。
+     *
+     * [items] 必须是删除**之前**读到的未删除条目——只复活这批，
+     * 不会把用户早先自己删掉的条目也顺带翻出来。
+     */
+    suspend fun restoreTrip(trip: PackingTrip, items: List<PackingItem>) {
+        val now = MonotonicClock.now()
+        items.forEach { itemDao.update(it.copy(deletedAt = null, updatedAt = now, dirty = true)) }
+        tripDao.update(trip.copy(deletedAt = null, updatedAt = now, dirty = true))
+    }
+
+    /** 某行程下全部未删除条目（一次性读取，删除前留撤销快照用）。 */
+    suspend fun getActiveItemsByTrip(tripId: Long): List<PackingItem> = itemDao.getActiveByTrip(tripId)
 
     // ---------- 条目 ----------
 

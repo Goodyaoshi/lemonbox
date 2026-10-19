@@ -129,7 +129,8 @@ fun TrashScreen(
 
             if (isLoading) {
                 // 首帧：列表还没读到，先画骨架，别让「还没加载」看起来像「回收站是空的」。
-                SkeletonList(itemCount = 3, showHeader = false)
+                // 回收站没有底部导航，关掉底栏占位，避免加载态凭空多占一段高度（P3-26）。
+                SkeletonList(itemCount = 3, showHeader = false, showBottomBarClearance = false)
             } else if (deletedItems.isEmpty()) {
                 // 空回收站刻意不给操作按钮（I5 的例外）：这里没有「主操作」可直达，
                 // 且文案本身没有引用屏幕外的位置，因此保留纯说明态即可，避免硬塞一个「返回」按钮。

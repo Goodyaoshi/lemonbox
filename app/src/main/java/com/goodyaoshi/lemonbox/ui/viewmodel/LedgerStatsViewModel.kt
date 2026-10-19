@@ -89,9 +89,13 @@ class LedgerStatsViewModel @Inject constructor(
     ): List<LedgerStatSlice> {
         if (records.isEmpty()) return emptyList()
         val categoryById = categories.associateBy { it.id }
+        // 按「有效分类 id」聚合（P1-4）：分类被删除后其历史账单仍带原 id，
+        // 若直接按 categoryId 分组，每个已删 id 都各自变成一个「未分类」扇区、
+        // 并按 id 取到不同颜色，图例里会出现多条同名不同色的「未分类」。
+        // 这里把「找不到对应分类的 id」与真正的空 id 一并归到 null 键，合并为同一条「未分类」，
+        // 金额仍逐条正确汇总，不丢不重。
         val totals = records
-            .groupBy { it.categoryId }
-            .mapKeys { (categoryId, _) -> categoryId }
+            .groupBy { record -> record.categoryId?.takeIf { it in categoryById } }
             .mapValues { (_, group) -> group.sumOf { it.amount } }
         val total = totals.values.sum().coerceAtLeast(1L)
         return totals

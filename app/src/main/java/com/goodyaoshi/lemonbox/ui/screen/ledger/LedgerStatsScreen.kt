@@ -8,14 +8,17 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
@@ -82,16 +85,22 @@ fun LedgerStatsScreen(
     // 分类配色统一走共享色槽（P2）：扇区与图例都按分类身份取色，排序变化不再换色。
     // 饼图避开红绿语义对（P2）：红绿色盲不友好，剔除 StatusExpired(红)/StatusNormal(绿)。
     val palette = categorySolidColors().filterNot { it == StatusExpired || it == StatusNormal }
-    // 图例与下方「分类排行」统一展示全部分类（此前图例只列 Top5，与饼图/排行口径不一致）。
+    // 饼图与图例只展示占比前几名 + 「其它」（P2-17）：此前图例把全部分类再列一遍，
+    // 与紧接着的「分类排行」卡重复，分类一多页面就被撑长。完整金额仍在排行卡里保留。
+    val displaySlices = remember(slices) { chartSlices(slices) }
     // 百分比取整后由最大的分类吸收余数，保证各项相加恰为 100%。
-    val percents = remember(slices) { percentLabels(slices) }
+    val percents = remember(displaySlices) { percentLabels(displaySlices) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         AppDecorativeBackground()
 
         Column(
             modifier = Modifier
-                .fillMaxSize()
+                // 宽屏限宽（P3-14）：600dp 以上平板不再把内容拉成整屏宽，居中留出阅读边距。
+                .align(Alignment.TopCenter)
+                .fillMaxHeight()
+                .widthIn(max = 600.dp)
+                .fillMaxWidth()
                 .statusBarsPadding()
                 .navigationBarsPadding()
         ) {
@@ -156,10 +165,11 @@ fun LedgerStatsScreen(
                         contentPadding = PaddingValues(18.dp),
                         shadowElevation = 12.dp
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        // 顶部对齐（P2-10）：图例条数多时不再把饼图竖直居中，避免饼图上下留白。
+                        Row(verticalAlignment = Alignment.Top) {
                             Box(contentAlignment = Alignment.Center) {
                                 LedgerPieChart(
-                                    slices = slices.map { slice ->
+                                    slices = displaySlices.map { slice ->
                                         LedgerPieSlice(
                                             value = slice.amountCents,
                                             color = palette[categorySlot(slice.categoryId, slice.name, palette.size)]
@@ -188,8 +198,17 @@ fun LedgerStatsScreen(
                                 }
                             }
                             Spacer(modifier = Modifier.width(16.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                slices.forEachIndexed { index, slice ->
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    // 图例限高可滚动（P2-10）：此前图例每条 48dp 最小热区，
+                                    // 分类一多就把 Row 撑得远高于饼图、居中后饼图上下出现大片空白，
+                                    // 卡片也被拉很高。这里把图例高度收敛到与饼图相当并允许滚动，
+                                    // 每条仍是 48dp 可点热区（下方 minimumInteractiveComponentSize）。
+                                    .heightIn(max = 150.dp)
+                                    .verticalScroll(rememberScrollState())
+                            ) {
+                                displaySlices.forEachIndexed { index, slice ->
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
                                         modifier = Modifier
@@ -253,6 +272,24 @@ fun LedgerStatsScreen(
             }
         }
     }
+}
+
+/**
+ * 饼图 / 图例的展示切片（P2-17）：只取占比前 [limit] 名，其余合并成一条「其它」，
+ * 使图例不再与下方「分类排行」重复列全量，分类一多时页面也不被撑长。
+ * 「其它」的 categoryId 置空，取色 key 单一，不会散成多条同名不同色。
+ */
+private fun chartSlices(slices: List<LedgerStatSlice>, limit: Int = 5): List<LedgerStatSlice> {
+    if (slices.size <= limit) return slices
+    val top = slices.take(limit)
+    val rest = slices.drop(limit)
+    return top + LedgerStatSlice(
+        categoryId = null,
+        name = "其它",
+        icon = null,
+        amountCents = rest.sumOf { it.amountCents },
+        ratio = rest.sumOf { it.ratio.toDouble() }.toFloat()
+    )
 }
 
 /**

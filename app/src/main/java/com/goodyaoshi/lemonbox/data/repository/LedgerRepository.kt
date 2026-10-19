@@ -131,6 +131,13 @@ class LedgerRepository @Inject constructor(
         return true
     }
 
+    /** 撤销删除：把分类从回收站恢复（清空 deletedAt），供删除后的「撤销」使用。 */
+    suspend fun restoreCategory(id: Long) = categoryDao.restoreFromTrash(id, MonotonicClock.now())
+
+    /** 同性质下是否已有同名有效分类（忽略大小写），供保存前的重名拦截（P2-16）。 */
+    suspend fun isCategoryNameTaken(kind: Int, name: String, excludeId: Long): Boolean =
+        categoryDao.countActiveByName(name, kind, excludeId) > 0
+
     // ---------- 账户 ----------
 
     suspend fun getAsset(id: Long): LedgerAsset? = assetDao.getById(id)
@@ -176,6 +183,9 @@ class LedgerRepository @Inject constructor(
         assetDao.softDelete(id, MonotonicClock.now())
         return true
     }
+
+    /** 撤销删除：把账户从回收站恢复（清空 deletedAt），供删除后的「撤销」使用。 */
+    suspend fun restoreAsset(id: Long) = assetDao.restoreFromTrash(id, MonotonicClock.now())
 
     // ---------- 预算 ----------
 

@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material3.Icon
@@ -333,7 +332,9 @@ fun ItemCard(
             }
 
             Spacer(modifier = Modifier.width(4.dp))
-            // 批量模式下隐藏行尾「更多 / 箭头」：整卡点击已用于切换勾选，避免与其它动作打架。
+            // 批量模式下隐藏行尾「更多」：整卡点击已用于切换勾选，避免与其它动作打架。
+            // P3-6：行尾原先还有一颗橙色圆底 + 右箭头，视觉像可点按钮却不可点也无描述，
+            // 与整卡点击语义重复；已去掉，只保留整卡点击与可见的「更多」按钮。
             if (!inSelectionMode) {
                 // I8：行尾常驻「更多」按钮，与左滑露出的是同一组动作，
                 // 让入口可见、可被读屏聚焦，不再把手势当作唯一通道；
@@ -353,19 +354,6 @@ fun ItemCard(
                             tint = TextSecondary
                         )
                     }
-                }
-                Box(
-                    modifier = Modifier
-                        .size(30.dp)
-                        .background(OrangeTint, CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.ChevronRight,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp),
-                        tint = TextSecondary
-                    )
                 }
             }
         }

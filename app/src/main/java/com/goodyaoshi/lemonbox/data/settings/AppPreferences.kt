@@ -19,7 +19,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
-import java.security.MessageDigest
 import java.time.LocalDate
 import java.util.UUID
 import javax.inject.Inject
@@ -304,36 +303,6 @@ class AppPreferences @Inject constructor(
         if (hour !in 0..23 || minute !in 0..59) return null
         return "%02d:%02d".format(hour, minute)
     }
-
-    private val _appLockEnabled = MutableStateFlow(
-        preferences.getBoolean(KEY_APP_LOCK_ENABLED, false)
-    )
-
-    /** 应用锁开关（F19）：开启后每次进入需验证 PIN 或系统密码/指纹。默认关闭。 */
-    val appLockEnabled: StateFlow<Boolean> = _appLockEnabled.asStateFlow()
-
-    private val _appLockPinHash = MutableStateFlow(
-        preferences.getString(KEY_APP_LOCK_PIN_HASH, null)
-    )
-
-    /** 应用锁 PIN 的哈希（不存明文）；null 表示尚未设置 PIN。 */
-    val appLockPinHash: StateFlow<String?> = _appLockPinHash.asStateFlow()
-
-    fun setAppLockEnabled(enabled: Boolean) {
-        preferences.edit().putBoolean(KEY_APP_LOCK_ENABLED, enabled).apply()
-        _appLockEnabled.value = enabled
-    }
-
-    /** 设置应用锁 PIN：只存哈希，明文不落盘。 */
-    fun setAppLockPin(pin: String) {
-        val hash = hashPin(pin)
-        preferences.edit().putString(KEY_APP_LOCK_PIN_HASH, hash).apply()
-        _appLockPinHash.value = hash
-    }
-
-    /** 校验 PIN 是否与已存哈希一致。 */
-    fun verifyAppLockPin(pin: String): Boolean =
-        _appLockPinHash.value?.let { it == hashPin(pin) } ?: false
 
     private val _continuousEntry = MutableStateFlow(
         preferences.getBoolean(KEY_CONTINUOUS_ENTRY, false)
@@ -1155,16 +1124,6 @@ class AppPreferences @Inject constructor(
         /** 默认就寝提醒时间（F15）。 */
         const val DEFAULT_BEDTIME_TIME = "22:30"
 
-        /** 应用锁 PIN 的加盐盐值（F19）：只存哈希，不存明文。 */
-        private const val PIN_SALT = "lemonbox::applock::v1"
-
-        /** 计算 PIN 的加盐 SHA-256 十六进制串（F19）。 */
-        fun hashPin(pin: String): String {
-            val digest = MessageDigest.getInstance("SHA-256")
-            val bytes = digest.digest((PIN_SALT + pin).toByteArray(Charsets.UTF_8))
-            return bytes.joinToString("") { "%02x".format(it) }
-        }
-
         /** 提醒时间点的候选档位（HH:mm），设置页与调度器共用。 */
         val REMINDER_TIME_OPTIONS = listOf(
             "07:00", "08:00", "09:00", "12:00", "18:00", "19:00", "20:00", "21:00"
@@ -1216,8 +1175,6 @@ class AppPreferences @Inject constructor(
         private const val KEY_BEDTIME_REMINDER_ENABLED = "bedtime_reminder_enabled"
         private const val KEY_BEDTIME_TIME = "bedtime_time"
         private const val KEY_BEDTIME_NOTIFIED_DATE = "bedtime_notified_date"
-        private const val KEY_APP_LOCK_ENABLED = "app_lock_enabled"
-        private const val KEY_APP_LOCK_PIN_HASH = "app_lock_pin_hash"
         private const val KEY_OCR_MODEL_TIER = "ocr_model_tier"
         private const val KEY_MEAL_PREP_DAY_SHIFT = "meal_prep_day_shift"
         private const val KEY_MEAL_PREP_FIRE_TIME = "meal_prep_fire_time"

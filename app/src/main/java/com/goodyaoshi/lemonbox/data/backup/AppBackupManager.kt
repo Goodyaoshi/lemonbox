@@ -276,29 +276,6 @@ class AppBackupManager @Inject constructor(
     }
 
     /**
-     * 恢复内置分类：手动入口用。把内置食材/零食分类补齐、复活被误删项、修复孤立父级，
-     * 再统一去重收敛，让「同步后少了的食材分类」能一键找回来。
-     */
-    suspend fun restoreBuiltInData() {
-        seedProtectedData()
-        categoryRepository.deduplicateCategories()
-        locationRepository.deduplicateLocations()
-    }
-
-    /**
-     * 预演「恢复内置分类」会新增哪些分类（G-6）：与 [restoreBuiltInData] 的补种同口径——
-     * 内置种子分类按名称与现有分类全量快照（含软删墓碑，补种命中墓碑只会复活而非插入）
-     * 去重，剩下的就是会真正插入的名单。预览据此让用户先看清再确认，不往整理过的
-     * 分类树里硬塞回一堆不用的分类。
-     */
-    suspend fun previewRestoreBuiltIn(): List<String> {
-        val existingNames = categoryRepository.getAllCategoriesSnapshot()
-            .map { it.name }
-            .toSet()
-        return SeedDataProvider.protectedSeedCategoryNames.filterNot { it in existingNames }
-    }
-
-    /**
      * 合并导入：不再整库替换。以 syncId 对齐同一条记录，按 updatedAt「较新者胜」，
      * 删除通过软删除时间戳传递。这样双方各自编辑后互相导入不会丢数据。
      *

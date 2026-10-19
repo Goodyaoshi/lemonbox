@@ -33,6 +33,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -71,7 +72,9 @@ fun NotificationReliabilityScreen(
 
     // 自启动「去设置」后是否已跳转（SET1）：系统不提供自启动检测，跳转本身不等于已开启，
     // 因此先记录「已前往」，回到本页由用户点「我已开启」确认，避免不撒谎地写死「已完成」。
-    var autoStartVisited by remember { mutableStateOf(false) }
+    // 用 rememberSaveable（P3-29）：跳系统设置会导致进程重建，普通 remember 会丢失「已前往」，
+    // 回来后按钮退回「去设置」，用户会以为跳转没生效。
+    var autoStartVisited by rememberSaveable { mutableStateOf(false) }
     // 「临时关闭后台」二次确认（SET1）：这是立即生效的破坏性动作，先弹确认再执行。
     var showReleaseConfirm by remember { mutableStateOf(false) }
 

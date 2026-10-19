@@ -2,6 +2,7 @@ package com.goodyaoshi.lemonbox.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.goodyaoshi.lemonbox.data.local.entity.Item
 import com.goodyaoshi.lemonbox.data.local.entity.ItemDetail
 import com.goodyaoshi.lemonbox.data.repository.ItemRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -37,5 +38,15 @@ class ExpiryViewModel @Inject constructor(
      */
     fun addToBuy(id: Long) {
         viewModelScope.launch { itemRepository.setNeedRestock(id, true) }
+    }
+
+    /** 撤销「标记为已用完」（P2-18）：按动作前快照还原使用状态、补货标记与使用周期。 */
+    fun undoMarkAsUsed(previous: Item) {
+        viewModelScope.launch { itemRepository.undoMarkAsUsed(previous) }
+    }
+
+    /** 撤销「加入待买清单」（P2-18）：恢复动作前的补货标记。 */
+    fun undoAddToBuy(previous: Item) {
+        viewModelScope.launch { itemRepository.undoAddToBuy(previous) }
     }
 }

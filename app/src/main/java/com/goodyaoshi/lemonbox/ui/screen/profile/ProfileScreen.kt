@@ -52,6 +52,7 @@ import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.PillTag
+import com.goodyaoshi.lemonbox.ui.components.SectionTitle
 import com.goodyaoshi.lemonbox.ui.components.rememberBottomBarClearance
 import com.goodyaoshi.lemonbox.ui.components.rememberBottomBarPanelClearance
 import com.goodyaoshi.lemonbox.ui.theme.DividerSoft
@@ -237,14 +238,14 @@ fun ProfileScreen(
                 MenuRow(
                     icon = Icons.Default.Settings,
                     title = "设置",
-                    subtitle = "外观、提醒时间、备菜提醒与应用锁",
+                    subtitle = "外观、提醒时间与备菜提醒",
                     onClick = onOpenSettings
                 )
                 DividerSpacer()
                 MenuRow(
                     icon = Icons.Default.Storage,
                     title = "数据中心",
-                    subtitle = "局域网同步、云存储与图片上传、导出可读报告",
+                    subtitle = "设备同步、云端同步（账号与图片上传）",
                     onClick = onOpenDataCenter
                 )
             }
@@ -285,33 +286,6 @@ fun ProfileScreen(
                 modifier = Modifier.fillMaxWidth()
             )
         }
-    }
-}
-
-@Composable
-private fun SectionTitle(
-    title: String,
-    modifier: Modifier = Modifier
-) {
-    Row(
-        modifier = modifier,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            modifier = Modifier
-                .size(width = 4.dp, height = 14.dp)
-                // 装饰色条本就两端全圆，走 CircleShape（F6）：不再内联 RoundedCornerShape(2.dp)。
-                .clip(CircleShape)
-                .background(LemonEnd)
-        )
-        Spacer(modifier = Modifier.size(6.dp))
-        Text(
-            text = title,
-            // 字号走主题字阶（F6）：区块标题收敛到 titleSmall。
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.Bold,
-            color = TextSecondary
-        )
     }
 }
 
