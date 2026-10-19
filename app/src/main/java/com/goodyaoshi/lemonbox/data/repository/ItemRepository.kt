@@ -85,11 +85,16 @@ class ItemRepository @Inject constructor(
 
     suspend fun delete(item: Item) = itemDao.delete(item)
 
-    /** 合并导入专用：保留备份中的 id 与 updatedAt，按原样落库。 */
-    suspend fun insertSynced(item: Item): Long = itemDao.insert(item.copy(dirty = false))
+    /**
+     * 合并导入专用：保留备份中的 id 与 updatedAt，按原样落库。
+     * [markDirty] 时本机改动尚未进服务端（LAN 同步 / 本地恢复），标脏让增量推送带走它。
+     */
+    suspend fun insertSynced(item: Item, markDirty: Boolean = false): Long =
+        itemDao.insert(item.copy(dirty = markDirty))
 
-    /** 合并导入专用：原样覆盖本地记录，不刷新 updatedAt。 */
-    suspend fun updateSynced(item: Item) = itemDao.update(item.copy(dirty = false))
+    /** 合并导入专用：原样覆盖本地记录，不刷新 updatedAt；[markDirty] 含义同 [insertSynced]。 */
+    suspend fun updateSynced(item: Item, markDirty: Boolean = false) =
+        itemDao.update(item.copy(dirty = markDirty))
 
     suspend fun moveToTrash(item: Item) = itemDao.moveToTrash(
         id = item.id,

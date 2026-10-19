@@ -227,7 +227,8 @@ class SyncServer @Inject constructor(
         appScope.launch {
             runCatching {
                 withTimeout(SYNC_TIMEOUT_MS) {
-                    backupManager.importBackup(Uri.fromFile(file), keepKeys = keepKeys)
+                    // P11：LAN 收到的改动服务端还没见过，标脏让下一轮远程同步把它们推上去。
+                    backupManager.importBackup(Uri.fromFile(file), keepKeys = keepKeys, markDirty = true)
                 }
             }.onSuccess { result ->
                 // 把「本机跳过几条」带给发起方：它据此决定推送水位线是否前进。

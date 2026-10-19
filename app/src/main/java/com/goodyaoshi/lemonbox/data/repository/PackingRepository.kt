@@ -88,11 +88,16 @@ class PackingRepository @Inject constructor(
 
     suspend fun getAllItemsSnapshot(): List<PackingItem> = itemDao.getAllSnapshot()
 
-    suspend fun insertSyncedTrip(trip: PackingTrip): Long = tripDao.insert(trip.copy(dirty = false))
+    /** [markDirty] 时本机改动尚未进服务端（LAN 同步 / 本地恢复），标脏让增量推送带走它。 */
+    suspend fun insertSyncedTrip(trip: PackingTrip, markDirty: Boolean = false): Long =
+        tripDao.insert(trip.copy(dirty = markDirty))
 
-    suspend fun updateSyncedTrip(trip: PackingTrip) = tripDao.update(trip.copy(dirty = false))
+    suspend fun updateSyncedTrip(trip: PackingTrip, markDirty: Boolean = false) =
+        tripDao.update(trip.copy(dirty = markDirty))
 
-    suspend fun insertSyncedItem(item: PackingItem): Long = itemDao.insert(item.copy(dirty = false))
+    suspend fun insertSyncedItem(item: PackingItem, markDirty: Boolean = false): Long =
+        itemDao.insert(item.copy(dirty = markDirty))
 
-    suspend fun updateSyncedItem(item: PackingItem) = itemDao.update(item.copy(dirty = false))
+    suspend fun updateSyncedItem(item: PackingItem, markDirty: Boolean = false) =
+        itemDao.update(item.copy(dirty = markDirty))
 }

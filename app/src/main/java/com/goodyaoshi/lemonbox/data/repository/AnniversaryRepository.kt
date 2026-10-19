@@ -151,9 +151,10 @@ class AnniversaryRepository @Inject constructor(
     /** 活跃快照（后台纪念日检查 Worker 用）。 */
     suspend fun getActiveSnapshot(): List<Anniversary> = anniversaryDao.getActiveSnapshot()
 
-    suspend fun insertSynced(anniversary: Anniversary): Long =
-        anniversaryDao.insert(anniversary.copy(dirty = false))
+    /** [markDirty] 时本机改动尚未进服务端（LAN 同步 / 本地恢复），标脏让增量推送带走它。 */
+    suspend fun insertSynced(anniversary: Anniversary, markDirty: Boolean = false): Long =
+        anniversaryDao.insert(anniversary.copy(dirty = markDirty))
 
-    suspend fun updateSynced(anniversary: Anniversary) =
-        anniversaryDao.update(anniversary.copy(dirty = false))
+    suspend fun updateSynced(anniversary: Anniversary, markDirty: Boolean = false) =
+        anniversaryDao.update(anniversary.copy(dirty = markDirty))
 }

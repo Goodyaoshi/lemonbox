@@ -306,11 +306,17 @@ class AppBackupManager @Inject constructor(
      * 在合并前先把远端快照按范围过滤，因此无需改动各实体的合并规则。
      * [keepKeys] 是逐条模式的白名单（来自变更列表的勾选结果）：非 null 时只落地
      * 这些对齐键对应的记录，范围枚举不再参与——用户勾了删除墓碑就执行删除，没勾就不动。
+     *
+     * [markDirty]（P11）：落地是否标脏。默认 false——服务端同步拉取落地用，
+     * 服务端已是权威，标脏只会造成两台设备间序号乒乓（落地后另有 markLanded 统一清账）；
+     * LAN 同步与本地 ZIP 恢复必须传 true：这些改动服务端还没见过，不标脏就永远不会
+     * 被增量推送带上去，多设备之间就对不上。
      */
     suspend fun importBackup(
         sourceUri: Uri,
         scope: SyncScope = SyncScope.ALL,
-        keepKeys: Set<String>? = null
+        keepKeys: Set<String>? = null,
+        markDirty: Boolean = false
     ): BackupMergeResult {
         val workingDir = File(context.cacheDir, "backup-import-${System.currentTimeMillis()}.apply").apply {
             mkdirs()
@@ -326,27 +332,30 @@ class AppBackupManager @Inject constructor(
             val useSyncIds = raw.syncVersion >= SYNC_ID_VERSION
             val backup = filterByScope(raw, scope, useSyncIds, keepKeys)
 
-            val categoryOutcome = mergeCategories(backup.categories, useSyncIds)
-            val locationOutcome = mergeLocations(backup.locations, useSyncIds)
+            val categoryOutcome = mergeCategories(backup.categories, useSyncIds, markDirty)
+            val locationOutcome = mergeLocations(backup.locations, useSyncIds, markDirty)
             val itemOutcome = mergeItems(
                 snapshots = backup.items,
                 useSyncIds = useSyncIds,
                 categoryIdByKey = categoryOutcome.idByKey,
-                locationIdByKey = locationOutcome.idByKey
+                locationIdByKey = locationOutcome.idByKey,
+                markDirty = markDirty
             )
-            val ledgerCategoryOutcome = mergeLedgerCategories(backup.ledgerCategories, useSyncIds)
-            val ledgerAssetOutcome = mergeLedgerAssets(backup.ledgerAssets, useSyncIds)
+            val ledgerCategoryOutcome = mergeLedgerCategories(backup.ledgerCategories, useSyncIds, markDirty)
+            val ledgerAssetOutcome = mergeLedgerAssets(backup.ledgerAssets, useSyncIds, markDirty)
             val ledgerRecordOutcome = mergeLedgerRecords(
                 snapshots = backup.ledgerRecords,
                 useSyncIds = useSyncIds,
                 categoryIdByKey = ledgerCategoryOutcome.idByKey,
                 assetIdByKey = ledgerAssetOutcome.idByKey,
-                itemKeyById = itemOutcome.idByKey
+                itemKeyById = itemOutcome.idByKey,
+                markDirty = markDirty
             )
             val ledgerBudgetOutcome = mergeLedgerBudgets(
                 snapshots = backup.ledgerBudgets,
                 useSyncIds = useSyncIds,
-                categoryIdByKey = ledgerCategoryOutcome.idByKey
+                categoryIdByKey = ledgerCategoryOutcome.idByKey,
+                markDirty = markDirty
             )
             val ledgerAdded = ledgerCategoryOutcome.added + ledgerAssetOutcome.added +
                 ledgerRecordOutcome.added + ledgerBudgetOutcome.added
@@ -354,16 +363,17 @@ class AppBackupManager @Inject constructor(
                 ledgerRecordOutcome.updated + ledgerBudgetOutcome.updated
 
             // v5 起：纪念日与待办提醒进备份（含软删墓碑），LWW 合并。
-            val anniversaryOutcome = mergeAnniversaries(backup.anniversaries, useSyncIds)
-            val reminderOutcome = mergeReminders(backup.reminders, useSyncIds, itemOutcome.idByKey)
+            val anniversaryOutcome = mergeAnniversaries(backup.anniversaries, useSyncIds, markDirty)
+            val reminderOutcome = mergeReminders(backup.reminders, useSyncIds, itemOutcome.idByKey, markDirty)
             // v9 起：时间胶囊与打包清单进备份。行程先合、拿到本地 id 映射后再合条目，
             // 因为条目的 tripId 是本地主键、跨设备对不上，必须靠行程 syncId 重新解析。
-            val capsuleOutcome = mergeTimeCapsules(backup.timeCapsules, useSyncIds)
-            val tripOutcome = mergePackingTrips(backup.packingTrips, useSyncIds)
+            val capsuleOutcome = mergeTimeCapsules(backup.timeCapsules, useSyncIds, markDirty)
+            val tripOutcome = mergePackingTrips(backup.packingTrips, useSyncIds, markDirty)
             val packingItemOutcome = mergePackingItems(
                 snapshots = backup.packingItems,
                 useSyncIds = useSyncIds,
-                tripIdByKey = tripOutcome.idByKey
+                tripIdByKey = tripOutcome.idByKey,
+                markDirty = markDirty
             )
             // v10 起：记账模板与周期记账规则进备份。两者都引用记账分类与账户，
             // 复用上面已算好的 id 映射（模板/规则的 categoryId/assetId 是本地主键）。
@@ -371,13 +381,15 @@ class AppBackupManager @Inject constructor(
                 snapshots = backup.ledgerTemplates,
                 useSyncIds = useSyncIds,
                 categoryIdByKey = ledgerCategoryOutcome.idByKey,
-                assetIdByKey = ledgerAssetOutcome.idByKey
+                assetIdByKey = ledgerAssetOutcome.idByKey,
+                markDirty = markDirty
             )
             val recurringRuleOutcome = mergeLedgerRecurringRules(
                 snapshots = backup.ledgerRecurringRules,
                 useSyncIds = useSyncIds,
                 categoryIdByKey = ledgerCategoryOutcome.idByKey,
-                assetIdByKey = ledgerAssetOutcome.idByKey
+                assetIdByKey = ledgerAssetOutcome.idByKey,
+                markDirty = markDirty
             )
             // v5 起：菜谱/周菜单/自定义状态/提醒设置等偏好内容。
             val prefs = backup.preferences

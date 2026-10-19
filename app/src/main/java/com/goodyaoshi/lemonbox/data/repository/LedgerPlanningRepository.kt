@@ -138,18 +138,19 @@ class LedgerPlanningRepository @Inject constructor(
 
     suspend fun getAllRulesSnapshot(): List<LedgerRecurringRule> = ruleDao.getAllSnapshot()
 
-    // ---- 同步专用：原样落库（保留 syncId/updatedAt/墓碑），落地即标 `dirty = false`（P6）。 ----
-    suspend fun insertSyncedTemplate(template: LedgerTemplate): Long =
-        templateDao.insert(template.copy(dirty = false))
+    // ---- 同步专用：原样落库（保留 syncId/updatedAt/墓碑）。落地默认不标脏（P6），
+    //      [markDirty] 用于 LAN 同步 / 本地恢复——服务端还没见过这些改动，标脏交给增量推送。 ----
+    suspend fun insertSyncedTemplate(template: LedgerTemplate, markDirty: Boolean = false): Long =
+        templateDao.insert(template.copy(dirty = markDirty))
 
-    suspend fun updateSyncedTemplate(template: LedgerTemplate) =
-        templateDao.update(template.copy(dirty = false))
+    suspend fun updateSyncedTemplate(template: LedgerTemplate, markDirty: Boolean = false) =
+        templateDao.update(template.copy(dirty = markDirty))
 
-    suspend fun insertSyncedRule(rule: LedgerRecurringRule): Long =
-        ruleDao.insert(rule.copy(dirty = false))
+    suspend fun insertSyncedRule(rule: LedgerRecurringRule, markDirty: Boolean = false): Long =
+        ruleDao.insert(rule.copy(dirty = markDirty))
 
-    suspend fun updateSyncedRule(rule: LedgerRecurringRule) =
-        ruleDao.update(rule.copy(dirty = false))
+    suspend fun updateSyncedRule(rule: LedgerRecurringRule, markDirty: Boolean = false) =
+        ruleDao.update(rule.copy(dirty = markDirty))
 
     private companion object {
         /** 单条规则一次最多补生成的账单数，防止长期未打开应用时瞬间写入过多记录。 */

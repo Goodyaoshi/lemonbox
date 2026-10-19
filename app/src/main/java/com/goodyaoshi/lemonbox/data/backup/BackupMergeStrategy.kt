@@ -53,7 +53,8 @@ internal fun String?.orNewSyncId(): String = orBlank() ?: UUID.randomUUID().toSt
 
 internal suspend fun AppBackupManager.mergeCategories(
     snapshots: List<CategorySnapshot>,
-    useSyncIds: Boolean
+    useSyncIds: Boolean,
+    markDirty: Boolean
 ): MergeOutcome {
     val localCategories = categoryRepository.getAllCategoriesSnapshot()
     val localByKey = localCategories.associateBy { keyOf(it.syncId, it.id, useSyncIds) }
@@ -79,7 +80,8 @@ internal suspend fun AppBackupManager.mergeCategories(
                     updatedAt = snapshot.updatedAt ?: System.currentTimeMillis(),
                     deletedAt = snapshot.deletedAt,
                     isProtected = snapshot.isProtected
-                )
+                ),
+                markDirty = markDirty
             )
             idByKey[key] = newId
             insertedKeys += key
@@ -120,7 +122,8 @@ internal suspend fun AppBackupManager.mergeCategories(
                 deletedAt = snapshot.deletedAt,
                 // 保护位只增不减：远端标记保护后，本地同步过来的同一条也不能解除。
                 isProtected = local.isProtected || snapshot.isProtected
-            )
+            ),
+            markDirty = markDirty
         )
         if (!isNew) updated++
     }
@@ -130,7 +133,8 @@ internal suspend fun AppBackupManager.mergeCategories(
 
 internal suspend fun AppBackupManager.mergeLocations(
     snapshots: List<LocationSnapshot>,
-    useSyncIds: Boolean
+    useSyncIds: Boolean,
+    markDirty: Boolean
 ): MergeOutcome {
     val localLocations = locationRepository.getAllLocationsSnapshot()
     val localByKey = localLocations.associateBy { keyOf(it.syncId, it.id, useSyncIds) }
@@ -155,7 +159,8 @@ internal suspend fun AppBackupManager.mergeLocations(
                     updatedAt = snapshot.updatedAt ?: System.currentTimeMillis(),
                     deletedAt = snapshot.deletedAt,
                     isProtected = snapshot.isProtected
-                )
+                ),
+                markDirty = markDirty
             )
             idByKey[key] = newId
             insertedKeys += key
@@ -193,7 +198,8 @@ internal suspend fun AppBackupManager.mergeLocations(
                 deletedAt = snapshot.deletedAt,
                 // 保护位只增不减：远端标记保护后，本地同步过来的同一条也不能解除。
                 isProtected = local.isProtected || snapshot.isProtected
-            )
+            ),
+            markDirty = markDirty
         )
         if (!isNew) updated++
     }
@@ -205,7 +211,8 @@ internal suspend fun AppBackupManager.mergeItems(
     snapshots: List<ItemSnapshot>,
     useSyncIds: Boolean,
     categoryIdByKey: Map<String, Long>,
-    locationIdByKey: Map<String, Long>
+    locationIdByKey: Map<String, Long>,
+    markDirty: Boolean
 ): ItemMergeOutcome {
     val localItems = itemRepository.getAllItemsSnapshot()
     val localByKey = localItems.associateBy { keyOf(it.syncId, it.id, useSyncIds) }
@@ -243,7 +250,8 @@ internal suspend fun AppBackupManager.mergeItems(
                         idByKey = locationIdByKey,
                         useSyncIds = useSyncIds
                     )
-                )
+                ),
+                markDirty = markDirty
             )
             idByKey[key] = newId
             added++
@@ -270,7 +278,8 @@ internal suspend fun AppBackupManager.mergeItems(
                         idByKey = locationIdByKey,
                         useSyncIds = useSyncIds
                     )
-                ).copy(syncId = local.syncId ?: snapshot.syncId.orNewSyncId())
+                ).copy(syncId = local.syncId ?: snapshot.syncId.orNewSyncId()),
+                markDirty = markDirty
             )
             updated++
         }
@@ -282,7 +291,8 @@ internal suspend fun AppBackupManager.mergeItems(
 /** 记账分类合并：扁平结构（parentId 恒为 null），单遍即可；保护位只增不减。 */
 internal suspend fun AppBackupManager.mergeLedgerCategories(
     snapshots: List<LedgerCategorySnapshot>,
-    useSyncIds: Boolean
+    useSyncIds: Boolean,
+    markDirty: Boolean
 ): MergeOutcome {
     val localCategories = ledgerRepository.getAllCategoriesSnapshot()
     val localByKey = localCategories.associateBy { keyOf(it.syncId, it.id, useSyncIds) }
@@ -306,7 +316,8 @@ internal suspend fun AppBackupManager.mergeLedgerCategories(
                     syncId = snapshot.syncId.orNewSyncId(),
                     updatedAt = snapshot.updatedAt ?: System.currentTimeMillis(),
                     deletedAt = snapshot.deletedAt
-                )
+                ),
+                markDirty = markDirty
             )
             idByKey[key] = newId
             added++
@@ -324,7 +335,8 @@ internal suspend fun AppBackupManager.mergeLedgerCategories(
                     updatedAt = snapshot.updatedAt ?: local.updatedAt,
                     deletedAt = snapshot.deletedAt,
                     isProtected = local.isProtected || snapshot.isProtected
-                )
+                ),
+                markDirty = markDirty
             )
             updated++
         }
@@ -335,7 +347,8 @@ internal suspend fun AppBackupManager.mergeLedgerCategories(
 /** 记账账户合并：无引用字段，单遍 LWW。 */
 internal suspend fun AppBackupManager.mergeLedgerAssets(
     snapshots: List<LedgerAssetSnapshot>,
-    useSyncIds: Boolean
+    useSyncIds: Boolean,
+    markDirty: Boolean
 ): MergeOutcome {
     val localAssets = ledgerRepository.getAllAssetsSnapshot()
     val localByKey = localAssets.associateBy { keyOf(it.syncId, it.id, useSyncIds) }
@@ -358,7 +371,8 @@ internal suspend fun AppBackupManager.mergeLedgerAssets(
                     syncId = snapshot.syncId.orNewSyncId(),
                     updatedAt = snapshot.updatedAt ?: System.currentTimeMillis(),
                     deletedAt = snapshot.deletedAt
-                )
+                ),
+                markDirty = markDirty
             )
             idByKey[key] = newId
             added++
@@ -374,7 +388,8 @@ internal suspend fun AppBackupManager.mergeLedgerAssets(
                     type = snapshot.type,
                     updatedAt = snapshot.updatedAt ?: local.updatedAt,
                     deletedAt = snapshot.deletedAt
-                )
+                ),
+                markDirty = markDirty
             )
             updated++
         }
@@ -392,7 +407,8 @@ internal suspend fun AppBackupManager.mergeLedgerRecords(
     useSyncIds: Boolean,
     categoryIdByKey: Map<String, Long>,
     assetIdByKey: Map<String, Long>,
-    itemKeyById: Map<String, Long>
+    itemKeyById: Map<String, Long>,
+    markDirty: Boolean
 ): MergeOutcome {
     val localRecords = ledgerRepository.getAllRecordsSnapshot()
     val localByKey = localRecords.associateBy { keyOf(it.syncId, it.id, useSyncIds) }
@@ -443,7 +459,8 @@ internal suspend fun AppBackupManager.mergeLedgerRecords(
                     syncId = snapshot.syncId.orNewSyncId(),
                     updatedAt = snapshot.updatedAt ?: snapshot.createdAt,
                     deletedAt = snapshot.deletedAt
-                )
+                ),
+                markDirty = markDirty
             )
             added++
         } else {
@@ -461,7 +478,8 @@ internal suspend fun AppBackupManager.mergeLedgerRecords(
                     itemId = itemId,
                     updatedAt = snapshot.updatedAt ?: local.updatedAt,
                     deletedAt = snapshot.deletedAt
-                )
+                ),
+                markDirty = markDirty
             )
             updated++
         }
@@ -473,7 +491,8 @@ internal suspend fun AppBackupManager.mergeLedgerRecords(
 internal suspend fun AppBackupManager.mergeLedgerBudgets(
     snapshots: List<LedgerBudgetSnapshot>,
     useSyncIds: Boolean,
-    categoryIdByKey: Map<String, Long>
+    categoryIdByKey: Map<String, Long>,
+    markDirty: Boolean
 ): MergeOutcome {
     val localBudgets = ledgerRepository.getAllBudgetsSnapshot()
     val localByKey = localBudgets.associateBy { keyOf(it.syncId, it.id, useSyncIds) }
@@ -501,7 +520,8 @@ internal suspend fun AppBackupManager.mergeLedgerBudgets(
                     syncId = snapshot.syncId.orNewSyncId(),
                     updatedAt = snapshot.updatedAt ?: System.currentTimeMillis(),
                     deletedAt = null
-                )
+                ),
+                markDirty = markDirty
             )
             added++
         } else {
@@ -514,7 +534,8 @@ internal suspend fun AppBackupManager.mergeLedgerBudgets(
                     updatedAt = snapshot.updatedAt ?: local.updatedAt,
                     // 传播墓碑：对方取消预算（或删除）后，本端也据此隐藏，而不是把旧预算留着。
                     deletedAt = snapshot.deletedAt
-                )
+                ),
+                markDirty = markDirty
             )
             updated++
         }
@@ -528,7 +549,8 @@ internal suspend fun AppBackupManager.mergeLedgerBudgets(
  */
 internal suspend fun AppBackupManager.mergeAnniversaries(
     snapshots: List<AnniversarySnapshot>,
-    useSyncIds: Boolean
+    useSyncIds: Boolean,
+    markDirty: Boolean
 ): MergeOutcome {
     val localAnniversaries = anniversaryRepository.getAllSnapshot()
     val localByKey = localAnniversaries.associateBy { keyOf(it.syncId, it.id, useSyncIds) }
@@ -557,7 +579,8 @@ internal suspend fun AppBackupManager.mergeAnniversaries(
                     syncId = snapshot.syncId.orNewSyncId(),
                     updatedAt = snapshot.updatedAt ?: snapshot.createdAt,
                     deletedAt = snapshot.deletedAt
-                )
+                ),
+                markDirty = markDirty
             )
             added++
         } else {
@@ -577,7 +600,8 @@ internal suspend fun AppBackupManager.mergeAnniversaries(
                     enabled = snapshot.enabled,
                     updatedAt = snapshot.updatedAt ?: local.updatedAt,
                     deletedAt = snapshot.deletedAt
-                )
+                ),
+                markDirty = markDirty
             )
             updated++
         }
@@ -592,7 +616,8 @@ internal suspend fun AppBackupManager.mergeAnniversaries(
 internal suspend fun AppBackupManager.mergeReminders(
     snapshots: List<ReminderSnapshot>,
     useSyncIds: Boolean,
-    itemIdByKey: Map<String, Long> = emptyMap()
+    itemIdByKey: Map<String, Long> = emptyMap(),
+    markDirty: Boolean = false
 ): MergeOutcome {
     val localReminders = reminderRepository.getAllSnapshot()
     val localByKey = localReminders.associateBy { keyOf(it.syncId, it.id, useSyncIds) }
@@ -614,7 +639,8 @@ internal suspend fun AppBackupManager.mergeReminders(
         }
         if (local == null) {
             reminderRepository.insertSynced(
-                snapshot.toReminder(targetId = 0, itemId = resolvedItemId).recomputeFireAt()
+                snapshot.toReminder(targetId = 0, itemId = resolvedItemId).recomputeFireAt(),
+                markDirty = markDirty
             )
             added++
         } else {
@@ -623,7 +649,8 @@ internal suspend fun AppBackupManager.mergeReminders(
                 snapshot.toReminder(targetId = local.id, itemId = resolvedItemId).copy(
                     syncId = local.syncId ?: snapshot.syncId.orNewSyncId()
                     // nextFireAt 由 recomputeFireAt 本地重算，不采用对方快照里的值。
-                ).recomputeFireAt(fallback = local.nextFireAt)
+                ).recomputeFireAt(fallback = local.nextFireAt),
+                markDirty = markDirty
             )
             updated++
         }
@@ -651,7 +678,8 @@ internal fun Reminder.recomputeFireAt(fallback: Long = 0L): Reminder {
  */
 internal suspend fun AppBackupManager.mergeTimeCapsules(
     snapshots: List<TimeCapsuleSnapshot>,
-    useSyncIds: Boolean
+    useSyncIds: Boolean,
+    markDirty: Boolean
 ): MergeOutcome {
     val local = timeCapsuleRepository.getAllSnapshot()
     val localByKey = local.associateBy { keyOf(it.syncId, it.id, useSyncIds) }
@@ -663,7 +691,8 @@ internal suspend fun AppBackupManager.mergeTimeCapsules(
         val existing = localByKey[key]
         if (existing == null) {
             timeCapsuleRepository.insertSynced(
-                snapshot.toCapsule(targetId = 0).copy(syncId = snapshot.syncId.orNewSyncId())
+                snapshot.toCapsule(targetId = 0).copy(syncId = snapshot.syncId.orNewSyncId()),
+                markDirty = markDirty
             )
             added++
         } else {
@@ -671,7 +700,8 @@ internal suspend fun AppBackupManager.mergeTimeCapsules(
             timeCapsuleRepository.updateSynced(
                 snapshot.toCapsule(targetId = existing.id).copy(
                     syncId = existing.syncId ?: snapshot.syncId.orNewSyncId()
-                )
+                ),
+                markDirty = markDirty
             )
             updated++
         }
@@ -682,7 +712,8 @@ internal suspend fun AppBackupManager.mergeTimeCapsules(
 /** 旅行行程合并（v9 起）：产出 idByKey 供条目解析归属。 */
 internal suspend fun AppBackupManager.mergePackingTrips(
     snapshots: List<PackingTripSnapshot>,
-    useSyncIds: Boolean
+    useSyncIds: Boolean,
+    markDirty: Boolean
 ): MergeOutcome {
     val local = packingRepository.getAllTripsSnapshot()
     val localByKey = local.associateBy { keyOf(it.syncId, it.id, useSyncIds) }
@@ -695,7 +726,8 @@ internal suspend fun AppBackupManager.mergePackingTrips(
         val existing = localByKey[key]
         if (existing == null) {
             val newId = packingRepository.insertSyncedTrip(
-                snapshot.toTrip(targetId = 0).copy(syncId = snapshot.syncId.orNewSyncId())
+                snapshot.toTrip(targetId = 0).copy(syncId = snapshot.syncId.orNewSyncId()),
+                markDirty = markDirty
             )
             idByKey[key] = newId
             added++
@@ -705,7 +737,8 @@ internal suspend fun AppBackupManager.mergePackingTrips(
             packingRepository.updateSyncedTrip(
                 snapshot.toTrip(targetId = existing.id).copy(
                     syncId = existing.syncId ?: snapshot.syncId.orNewSyncId()
-                )
+                ),
+                markDirty = markDirty
             )
             updated++
         }
@@ -722,7 +755,8 @@ internal suspend fun AppBackupManager.mergePackingTrips(
 internal suspend fun AppBackupManager.mergePackingItems(
     snapshots: List<PackingItemSnapshot>,
     useSyncIds: Boolean,
-    tripIdByKey: Map<String, Long>
+    tripIdByKey: Map<String, Long>,
+    markDirty: Boolean
 ): MergeOutcome {
     val local = packingRepository.getAllItemsSnapshot()
     val localByKey = local.associateBy { keyOf(it.syncId, it.id, useSyncIds) }
@@ -741,14 +775,16 @@ internal suspend fun AppBackupManager.mergePackingItems(
         if (existing == null) {
             packingRepository.insertSyncedItem(
                 snapshot.toPackingItem(targetId = 0, resolvedTripId = resolvedTripId)
-                    .copy(syncId = snapshot.syncId.orNewSyncId())
+                    .copy(syncId = snapshot.syncId.orNewSyncId()),
+                markDirty = markDirty
             )
             added++
         } else {
             if (!isRemoteNewer(snapshot.updatedAt, existing.updatedAt)) return@forEach
             packingRepository.updateSyncedItem(
                 snapshot.toPackingItem(targetId = existing.id, resolvedTripId = resolvedTripId)
-                    .copy(syncId = existing.syncId ?: snapshot.syncId.orNewSyncId())
+                    .copy(syncId = existing.syncId ?: snapshot.syncId.orNewSyncId()),
+                markDirty = markDirty
             )
             updated++
         }
@@ -767,7 +803,8 @@ internal suspend fun AppBackupManager.mergeLedgerTemplates(
     snapshots: List<LedgerTemplateSnapshot>,
     useSyncIds: Boolean,
     categoryIdByKey: Map<String, Long>,
-    assetIdByKey: Map<String, Long>
+    assetIdByKey: Map<String, Long>,
+    markDirty: Boolean
 ): MergeOutcome {
     val local = ledgerPlanningRepository.getAllTemplatesSnapshot()
     val localByKey = local.associateBy { keyOf(it.syncId, it.id, useSyncIds) }
@@ -803,7 +840,8 @@ internal suspend fun AppBackupManager.mergeLedgerTemplates(
                     categoryId = categoryId,
                     assetId = assetId,
                     targetAssetId = targetAssetId
-                ).copy(syncId = snapshot.syncId.orNewSyncId())
+                ).copy(syncId = snapshot.syncId.orNewSyncId()),
+                markDirty = markDirty
             )
             added++
         } else {
@@ -814,7 +852,8 @@ internal suspend fun AppBackupManager.mergeLedgerTemplates(
                     categoryId = categoryId,
                     assetId = assetId,
                     targetAssetId = targetAssetId
-                ).copy(syncId = existing.syncId ?: snapshot.syncId.orNewSyncId())
+                ).copy(syncId = existing.syncId ?: snapshot.syncId.orNewSyncId()),
+                markDirty = markDirty
             )
             updated++
         }
@@ -832,7 +871,8 @@ internal suspend fun AppBackupManager.mergeLedgerRecurringRules(
     snapshots: List<LedgerRecurringRuleSnapshot>,
     useSyncIds: Boolean,
     categoryIdByKey: Map<String, Long>,
-    assetIdByKey: Map<String, Long>
+    assetIdByKey: Map<String, Long>,
+    markDirty: Boolean
 ): MergeOutcome {
     val local = ledgerPlanningRepository.getAllRulesSnapshot()
     val localByKey = local.associateBy { keyOf(it.syncId, it.id, useSyncIds) }
@@ -878,11 +918,11 @@ internal suspend fun AppBackupManager.mergeLedgerRecurringRules(
         }
 
         if (existing == null) {
-            ledgerPlanningRepository.insertSyncedRule(rule)
+            ledgerPlanningRepository.insertSyncedRule(rule, markDirty = markDirty)
             added++
         } else {
             if (!isRemoteNewer(snapshot.updatedAt, existing.updatedAt)) return@forEach
-            ledgerPlanningRepository.updateSyncedRule(rule)
+            ledgerPlanningRepository.updateSyncedRule(rule, markDirty = markDirty)
             updated++
         }
     }

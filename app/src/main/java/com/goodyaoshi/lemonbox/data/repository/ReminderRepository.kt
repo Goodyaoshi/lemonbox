@@ -195,12 +195,13 @@ class ReminderRepository @Inject constructor(
 
     suspend fun getAllSnapshot(): List<Reminder> = reminderDao.getAllSnapshot()
 
-    suspend fun insertSynced(reminder: Reminder) {
-        reminderDao.insert(reminder.copy(dirty = false))
+    /** [markDirty] 时本机改动尚未进服务端（LAN 同步 / 本地恢复），标脏让增量推送带走它。 */
+    suspend fun insertSynced(reminder: Reminder, markDirty: Boolean = false) {
+        reminderDao.insert(reminder.copy(dirty = markDirty))
     }
 
-    suspend fun updateSynced(reminder: Reminder) {
-        reminderDao.update(reminder.copy(dirty = false))
+    suspend fun updateSynced(reminder: Reminder, markDirty: Boolean = false) {
+        reminderDao.update(reminder.copy(dirty = markDirty))
     }
 
     /** 收到对方的永久删除墓碑：本地那份同样标成永久删除，以便继续向第三方传播。 */

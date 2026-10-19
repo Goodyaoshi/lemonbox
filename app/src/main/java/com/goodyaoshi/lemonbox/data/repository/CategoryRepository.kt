@@ -121,7 +121,10 @@ class CategoryRepository @Inject constructor(
     }
 
     /** 合并导入专用：保留备份中的 id 与 updatedAt。 */
-    suspend fun insertSynced(category: Category): Long = categoryDao.insert(category.copy(dirty = false))
+    /** [markDirty] 时本机改动尚未进服务端（LAN 同步 / 本地恢复），标脏让增量推送带走它。 */
+    suspend fun insertSynced(category: Category, markDirty: Boolean = false): Long =
+        categoryDao.insert(category.copy(dirty = markDirty))
 
-    suspend fun updateSynced(category: Category) = categoryDao.update(category.copy(dirty = false))
+    suspend fun updateSynced(category: Category, markDirty: Boolean = false) =
+        categoryDao.update(category.copy(dirty = markDirty))
 }

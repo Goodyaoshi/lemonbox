@@ -126,7 +126,10 @@ class LocationRepository @Inject constructor(
     }
 
     /** 合并导入专用：保留备份中的 id 与 updatedAt。 */
-    suspend fun insertSynced(location: Location): Long = locationDao.insert(location.copy(dirty = false))
+    /** [markDirty] 时本机改动尚未进服务端（LAN 同步 / 本地恢复），标脏让增量推送带走它。 */
+    suspend fun insertSynced(location: Location, markDirty: Boolean = false): Long =
+        locationDao.insert(location.copy(dirty = markDirty))
 
-    suspend fun updateSynced(location: Location) = locationDao.update(location.copy(dirty = false))
+    suspend fun updateSynced(location: Location, markDirty: Boolean = false) =
+        locationDao.update(location.copy(dirty = markDirty))
 }

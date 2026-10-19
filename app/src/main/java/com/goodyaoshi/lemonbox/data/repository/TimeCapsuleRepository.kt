@@ -110,7 +110,10 @@ class TimeCapsuleRepository @Inject constructor(
 
     suspend fun getAllSnapshot(): List<TimeCapsule> = dao.getAllSnapshot()
 
-    suspend fun insertSynced(capsule: TimeCapsule): Long = dao.insert(capsule.copy(dirty = false))
+    /** [markDirty] 时本机改动尚未进服务端（LAN 同步 / 本地恢复），标脏让增量推送带走它。 */
+    suspend fun insertSynced(capsule: TimeCapsule, markDirty: Boolean = false): Long =
+        dao.insert(capsule.copy(dirty = markDirty))
 
-    suspend fun updateSynced(capsule: TimeCapsule) = dao.update(capsule.copy(dirty = false))
+    suspend fun updateSynced(capsule: TimeCapsule, markDirty: Boolean = false) =
+        dao.update(capsule.copy(dirty = markDirty))
 }

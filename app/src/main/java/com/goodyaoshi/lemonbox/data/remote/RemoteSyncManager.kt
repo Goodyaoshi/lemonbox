@@ -303,8 +303,9 @@ class RemoteSyncManager @Inject constructor(
      * 把一批推送冲突落地为服务端版本，并写入冲突留痕（P9）。
      *
      * 落地与拉取共用同一条合并通道（ZIP 中转 + `importBackup`），「较新者胜、墓碑传播、
-     * 引用重映射」规则天然一致；落地（合并写会把行标脏）之后**再**逐条 [markLanded] 清脏，
-     * 顺序反了会把刚落地的行当成本机新改动推回去。
+     * 引用重映射」规则天然一致；服务端已是权威，落地默认不标脏（P11），但合并里的
+     * 墓碑副作用（`markPurged` 等）仍会把行标脏——所以落地之后**再**逐条 [markLanded]
+     * 清脏，顺序反了会把刚落地的行当成本机新改动推回去。
      *
      * 服务端载荷为空的旧版冲突（服务端未升级）只对齐序号、不落地内容，与旧行为一致。
      * 留痕是非事务的旁路：失败只影响「以后能不能回看对比」，不影响数据一致。
@@ -449,15 +450,16 @@ class RemoteSyncManager @Inject constructor(
     /**
      * 撤销重建：把重建前的快照导回本机。
      *
-     * 刻意**不做**全库标脏：合并写路径本就会把落地的行标脏（随后自动推回服务端），
-     * 而被 LWW 保留的服务端较新行就该保持干净；全库标脏只会让两台设备把整库
-     * 重推重拉一遍，序号白白膨胀一轮。
+     * 必须 [AppBackupManager.importBackup] `markDirty = true`（P11）：快照里有本机自建、
+     * 从没上过服务端的记录，不标脏就永远不会被增量推送带走，服务端缺数据的局面原样保留。
+     * 服务端已有的行会以 baseSeq=0 推上去并按冲突处理——内容与服务器一致的只是白耗一轮
+     * 序号，内容有差异的进冲突留痕（字段对比可查），两边都不静默丢。
      */
     suspend fun undoRebuild(undoZipPath: String): String = withContext(Dispatchers.IO) {
         val file = File(undoZipPath)
         if (!file.isFile) return@withContext "找不到重建前的备份文件，无法撤销"
         try {
-            val result = backupManager.importBackup(Uri.fromFile(file))
+            val result = backupManager.importBackup(Uri.fromFile(file), markDirty = true)
             file.delete()
             "已恢复重建前数据（新增 ${result.totalAdded}、更新 ${result.totalUpdated} 条），" +
                 "打开 App 时会自动同步回服务端"

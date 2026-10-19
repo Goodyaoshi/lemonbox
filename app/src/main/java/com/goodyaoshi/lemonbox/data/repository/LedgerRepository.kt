@@ -301,28 +301,30 @@ class LedgerRepository @Inject constructor(
 
     suspend fun getAllBudgetsSnapshot(): List<LedgerBudget> = budgetDao.getAllSnapshot()
 
-    /** 同步专用：原样插入（保留 syncId/updatedAt/墓碑），不刷新时间戳，落地即标 `dirty = false`（P6）。 */
-    suspend fun insertSyncedRecord(record: LedgerRecord): Long =
-        recordDao.insert(record.copy(dirty = false))
+    /** 同步专用：原样插入（保留 syncId/updatedAt/墓碑），不刷新时间戳。
+     *  落地默认不标脏（P6，服务端已是权威）；[markDirty] 用于 LAN 同步 / 本地恢复——
+     *  这些改动服务端还没见过，标脏后由增量推送带走。 */
+    suspend fun insertSyncedRecord(record: LedgerRecord, markDirty: Boolean = false): Long =
+        recordDao.insert(record.copy(dirty = markDirty))
 
-    suspend fun updateSyncedRecord(record: LedgerRecord) =
-        recordDao.update(record.copy(dirty = false))
+    suspend fun updateSyncedRecord(record: LedgerRecord, markDirty: Boolean = false) =
+        recordDao.update(record.copy(dirty = markDirty))
 
-    suspend fun insertSyncedCategory(category: LedgerCategory): Long =
-        categoryDao.insert(category.copy(dirty = false))
+    suspend fun insertSyncedCategory(category: LedgerCategory, markDirty: Boolean = false): Long =
+        categoryDao.insert(category.copy(dirty = markDirty))
 
-    suspend fun updateSyncedCategory(category: LedgerCategory) =
-        categoryDao.update(category.copy(dirty = false))
+    suspend fun updateSyncedCategory(category: LedgerCategory, markDirty: Boolean = false) =
+        categoryDao.update(category.copy(dirty = markDirty))
 
-    suspend fun insertSyncedAsset(asset: LedgerAsset): Long =
-        assetDao.insert(asset.copy(dirty = false))
+    suspend fun insertSyncedAsset(asset: LedgerAsset, markDirty: Boolean = false): Long =
+        assetDao.insert(asset.copy(dirty = markDirty))
 
-    suspend fun updateSyncedAsset(asset: LedgerAsset) =
-        assetDao.update(asset.copy(dirty = false))
+    suspend fun updateSyncedAsset(asset: LedgerAsset, markDirty: Boolean = false) =
+        assetDao.update(asset.copy(dirty = markDirty))
 
-    suspend fun insertSyncedBudget(budget: LedgerBudget): Long =
-        budgetDao.insert(budget.copy(dirty = false))
+    suspend fun insertSyncedBudget(budget: LedgerBudget, markDirty: Boolean = false): Long =
+        budgetDao.insert(budget.copy(dirty = markDirty))
 
-    suspend fun updateSyncedBudget(budget: LedgerBudget) =
-        budgetDao.update(budget.copy(dirty = false))
+    suspend fun updateSyncedBudget(budget: LedgerBudget, markDirty: Boolean = false) =
+        budgetDao.update(budget.copy(dirty = markDirty))
 }

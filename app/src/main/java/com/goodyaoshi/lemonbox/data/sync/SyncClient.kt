@@ -149,7 +149,8 @@ class SyncClient @Inject constructor(
 
                 onProgress(SyncStage.APPLYING)
                 val localMerge = step("应用对方数据") {
-                    backupManager.importBackup(Uri.fromFile(incoming), keepKeys = selected)
+                    // P11：LAN 收到的改动服务端还没见过，标脏让下一轮远程同步把它们推上去。
+                    backupManager.importBackup(Uri.fromFile(incoming), keepKeys = selected, markDirty = true)
                 }
                 // 这次有跳过的条目就不前进拉取水位线：下次同步它们会再次出现在变更列表里，
                 // 已落地的条目因 LWW 时间戳相同自然不再出现（「跳过=下次再来」语义）。
