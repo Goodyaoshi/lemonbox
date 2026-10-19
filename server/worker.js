@@ -6,7 +6,8 @@
  *   2. /v1/blob/*   —— 自建 S3 兼容存储（Filebase）的密钥只在这里；客户端每次只拿几分钟有效的预签名 URL
  *   3. /mcp         —— MCP 服务端，读写、禁删，供 AI 整理家庭数据
  *
- * 刻意不用 npm / wrangler / 打包：单文件 ES module，直接经 Cloudflare API 上传。
+ * 刻意保持单文件 ES module、无需打包：仓库内 wrangler.jsonc 支持
+ * `npx wrangler deploy` 部署与 `npx wrangler dev` 本地预览。
  * 刻意不做的事：不下发长期密钥、不提供删除授权、不用墙钟判胜负。
  *
  * secrets（只存在于 Worker，绝不进仓库与 APK）：

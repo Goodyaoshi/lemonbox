@@ -1,0 +1,34 @@
+/**
+ * 柠檬百宝箱 · 同步中枢部署配置
+ *
+ * 部署：npx wrangler deploy
+ *   —— 需要能访问 api.cloudflare.com 的网络（本机被重置时先设代理，如
+ *      $env:HTTPS_PROXY = "http://127.0.0.1:<代理端口>"），或改在 CI 里跑。
+ * 本地预览：npx wrangler dev（离线可用，D1 走本地 SQLite）
+ *   先建表：npx wrangler d1 execute DB --local --file schema.sql
+ *
+ * secrets（S3_* / ADMIN_TOKEN / MCP_TOKEN）只保存在 Cloudflare dashboard，
+ * deploy 不会读取也不会覆盖它们；本地调试需要时手工创建 .dev.vars（已被 gitignore）。
+ */
+{
+  "$schema": "https://unpkg.com/wrangler/config-schema.json",
+  "name": "lemonbox",
+  "main": "worker.js",
+  "compatibility_date": "2025-10-01",
+  "account_id": "5bc8fa89dce31312030f18dd77187b8a",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      // database_name 仅供本地 d1 命令显示用，部署以 database_id 为准
+      "database_name": "lemonbox",
+      "database_id": "ac5e7348-9bce-4e0a-99f3-93b655d2c948"
+    }
+  ],
+  "routes": [
+    {
+      // 自定义域已在 dashboard 绑定过，此处声明保持幂等
+      "pattern": "lemonbox.goodyaoshi.eu.cc",
+      "custom_domain": true
+    }
+  ]
+}

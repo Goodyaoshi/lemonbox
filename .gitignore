@@ -34,3 +34,7 @@ UI草图.png
 /docs/
 /.mcp.json
 /skills-lock.json
+
+# wrangler 本地状态与本地密钥（绝不入库）
+server/.dev.vars
+server/.wrangler/
