@@ -112,12 +112,22 @@ class RemoteSyncClient @Inject constructor(
     /**
      * 按服务端序号增量拉取一批记录。服务端单次上限 500 条，
      * [hasMore] 为真表示还有余量，由调用方接着拉下一批。
+     *
+     * [includeSelf] 不排除本设备写过的记录：常规同步必须排除（自己推的再拉回来是浪费），
+     * 「以服务端为准重建」则必须带上——重建后本机是空的，服务端上很多记录本就是这台设备写的。
      */
-    suspend fun pull(since: Long, limit: Int): PullResponse = withContext(Dispatchers.IO) {
-        json.decodeFromString(
-            PullResponse.serializer(),
-            authedRequest("GET", "/v1/pull?since=$since&limit=$limit", body = null)
-        )
+    suspend fun pull(since: Long, limit: Int, includeSelf: Boolean = false): PullResponse =
+        withContext(Dispatchers.IO) {
+            val selfParam = if (includeSelf) "&includeSelf=1" else ""
+            json.decodeFromString(
+                PullResponse.serializer(),
+                authedRequest("GET", "/v1/pull?since=$since&limit=$limit$selfParam", body = null)
+            )
+        }
+
+    /** 服务端对账统计：各集合计数、设备列表与冲突台账数（P9 诊断页用）。 */
+    suspend fun stats(): SyncStatsResponse = withContext(Dispatchers.IO) {
+        json.decodeFromString(SyncStatsResponse.serializer(), authedRequest("GET", "/v1/stats", body = null))
     }
 
     /** 取当前会话令牌带上去发一次请求；未登录时直接抛，不白跑一趟必然 401 的请求。 */

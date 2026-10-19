@@ -20,6 +20,22 @@ import com.goodyaoshi.lemonbox.data.local.entity.SyncStateRow
 data class PendingSyncRow(val syncId: String?, val serverSeq: Long)
 
 /**
+ * 一张同步表的对账计数（P9 诊断页）。
+ *
+ *  - [live]：非墓碑行数（对应服务端 `records.deleted = 0` 的口径）；
+ *  - [tombstones]：软删墓碑行数（`items` / `reminders` 的 `purgedAt` 也算墓碑）；
+ *  - [missingSyncId]：没有 syncId 的活行——增量同步推不出去也拉不下来，只增不减的账，
+ *    诊断页要把这个数亮出来而不是静默吞掉；
+ *  - [dirty]：本机改过、还没被服务端确认的行数。
+ */
+data class SyncTableAudit(
+    val live: Int,
+    val tombstones: Int,
+    val missingSyncId: Int,
+    val dirty: Int
+)
+
+/**
  * 增量同步在本地的记账口（P6）。
  *
  * 两件事：
@@ -90,6 +106,149 @@ interface RemoteSyncDao {
 
     @Query("SELECT syncId, serverSeq FROM ledger_recurring_rules WHERE dirty = 1 AND syncId IS NOT NULL")
     suspend fun pendingLedgerRecurringRules(): List<PendingSyncRow>
+
+    // ---------- 逐表对账计数（P9 诊断页） ----------
+    // 墓碑口径与 toSyncRecords 一致：普通表看 deletedAt，items / reminders 连 purgedAt 一起算。
+
+    @Query(
+        "SELECT " +
+            "SUM(CASE WHEN deletedAt IS NULL THEN 1 ELSE 0 END) AS live, " +
+            "SUM(CASE WHEN deletedAt IS NOT NULL THEN 1 ELSE 0 END) AS tombstones, " +
+            "SUM(CASE WHEN syncId IS NULL AND deletedAt IS NULL THEN 1 ELSE 0 END) AS missingSyncId, " +
+            "SUM(CASE WHEN dirty = 1 THEN 1 ELSE 0 END) AS dirty " +
+            "FROM categories"
+    )
+    suspend fun auditCategories(): SyncTableAudit
+
+    @Query(
+        "SELECT " +
+            "SUM(CASE WHEN deletedAt IS NULL THEN 1 ELSE 0 END) AS live, " +
+            "SUM(CASE WHEN deletedAt IS NOT NULL THEN 1 ELSE 0 END) AS tombstones, " +
+            "SUM(CASE WHEN syncId IS NULL AND deletedAt IS NULL THEN 1 ELSE 0 END) AS missingSyncId, " +
+            "SUM(CASE WHEN dirty = 1 THEN 1 ELSE 0 END) AS dirty " +
+            "FROM locations"
+    )
+    suspend fun auditLocations(): SyncTableAudit
+
+    @Query(
+        "SELECT " +
+            "SUM(CASE WHEN deletedAt IS NULL AND purgedAt IS NULL THEN 1 ELSE 0 END) AS live, " +
+            "SUM(CASE WHEN deletedAt IS NOT NULL OR purgedAt IS NOT NULL THEN 1 ELSE 0 END) AS tombstones, " +
+            "SUM(CASE WHEN syncId IS NULL AND deletedAt IS NULL AND purgedAt IS NULL THEN 1 ELSE 0 END) AS missingSyncId, " +
+            "SUM(CASE WHEN dirty = 1 THEN 1 ELSE 0 END) AS dirty " +
+            "FROM items"
+    )
+    suspend fun auditItems(): SyncTableAudit
+
+    @Query(
+        "SELECT " +
+            "SUM(CASE WHEN deletedAt IS NULL THEN 1 ELSE 0 END) AS live, " +
+            "SUM(CASE WHEN deletedAt IS NOT NULL THEN 1 ELSE 0 END) AS tombstones, " +
+            "SUM(CASE WHEN syncId IS NULL AND deletedAt IS NULL THEN 1 ELSE 0 END) AS missingSyncId, " +
+            "SUM(CASE WHEN dirty = 1 THEN 1 ELSE 0 END) AS dirty " +
+            "FROM ledger_assets"
+    )
+    suspend fun auditLedgerAssets(): SyncTableAudit
+
+    @Query(
+        "SELECT " +
+            "SUM(CASE WHEN deletedAt IS NULL THEN 1 ELSE 0 END) AS live, " +
+            "SUM(CASE WHEN deletedAt IS NOT NULL THEN 1 ELSE 0 END) AS tombstones, " +
+            "SUM(CASE WHEN syncId IS NULL AND deletedAt IS NULL THEN 1 ELSE 0 END) AS missingSyncId, " +
+            "SUM(CASE WHEN dirty = 1 THEN 1 ELSE 0 END) AS dirty " +
+            "FROM ledger_categories"
+    )
+    suspend fun auditLedgerCategories(): SyncTableAudit
+
+    @Query(
+        "SELECT " +
+            "SUM(CASE WHEN deletedAt IS NULL THEN 1 ELSE 0 END) AS live, " +
+            "SUM(CASE WHEN deletedAt IS NOT NULL THEN 1 ELSE 0 END) AS tombstones, " +
+            "SUM(CASE WHEN syncId IS NULL AND deletedAt IS NULL THEN 1 ELSE 0 END) AS missingSyncId, " +
+            "SUM(CASE WHEN dirty = 1 THEN 1 ELSE 0 END) AS dirty " +
+            "FROM ledger_records"
+    )
+    suspend fun auditLedgerRecords(): SyncTableAudit
+
+    @Query(
+        "SELECT " +
+            "SUM(CASE WHEN deletedAt IS NULL THEN 1 ELSE 0 END) AS live, " +
+            "SUM(CASE WHEN deletedAt IS NOT NULL THEN 1 ELSE 0 END) AS tombstones, " +
+            "SUM(CASE WHEN syncId IS NULL AND deletedAt IS NULL THEN 1 ELSE 0 END) AS missingSyncId, " +
+            "SUM(CASE WHEN dirty = 1 THEN 1 ELSE 0 END) AS dirty " +
+            "FROM ledger_budgets"
+    )
+    suspend fun auditLedgerBudgets(): SyncTableAudit
+
+    @Query(
+        "SELECT " +
+            "SUM(CASE WHEN deletedAt IS NULL THEN 1 ELSE 0 END) AS live, " +
+            "SUM(CASE WHEN deletedAt IS NOT NULL THEN 1 ELSE 0 END) AS tombstones, " +
+            "SUM(CASE WHEN syncId IS NULL AND deletedAt IS NULL THEN 1 ELSE 0 END) AS missingSyncId, " +
+            "SUM(CASE WHEN dirty = 1 THEN 1 ELSE 0 END) AS dirty " +
+            "FROM anniversaries"
+    )
+    suspend fun auditAnniversaries(): SyncTableAudit
+
+    @Query(
+        "SELECT " +
+            "SUM(CASE WHEN deletedAt IS NULL AND purgedAt IS NULL THEN 1 ELSE 0 END) AS live, " +
+            "SUM(CASE WHEN deletedAt IS NOT NULL OR purgedAt IS NOT NULL THEN 1 ELSE 0 END) AS tombstones, " +
+            "SUM(CASE WHEN syncId IS NULL AND deletedAt IS NULL AND purgedAt IS NULL THEN 1 ELSE 0 END) AS missingSyncId, " +
+            "SUM(CASE WHEN dirty = 1 THEN 1 ELSE 0 END) AS dirty " +
+            "FROM reminders"
+    )
+    suspend fun auditReminders(): SyncTableAudit
+
+    @Query(
+        "SELECT " +
+            "SUM(CASE WHEN deletedAt IS NULL THEN 1 ELSE 0 END) AS live, " +
+            "SUM(CASE WHEN deletedAt IS NOT NULL THEN 1 ELSE 0 END) AS tombstones, " +
+            "SUM(CASE WHEN syncId IS NULL AND deletedAt IS NULL THEN 1 ELSE 0 END) AS missingSyncId, " +
+            "SUM(CASE WHEN dirty = 1 THEN 1 ELSE 0 END) AS dirty " +
+            "FROM time_capsules"
+    )
+    suspend fun auditTimeCapsules(): SyncTableAudit
+
+    @Query(
+        "SELECT " +
+            "SUM(CASE WHEN deletedAt IS NULL THEN 1 ELSE 0 END) AS live, " +
+            "SUM(CASE WHEN deletedAt IS NOT NULL THEN 1 ELSE 0 END) AS tombstones, " +
+            "SUM(CASE WHEN syncId IS NULL AND deletedAt IS NULL THEN 1 ELSE 0 END) AS missingSyncId, " +
+            "SUM(CASE WHEN dirty = 1 THEN 1 ELSE 0 END) AS dirty " +
+            "FROM packing_trips"
+    )
+    suspend fun auditPackingTrips(): SyncTableAudit
+
+    @Query(
+        "SELECT " +
+            "SUM(CASE WHEN deletedAt IS NULL THEN 1 ELSE 0 END) AS live, " +
+            "SUM(CASE WHEN deletedAt IS NOT NULL THEN 1 ELSE 0 END) AS tombstones, " +
+            "SUM(CASE WHEN syncId IS NULL AND deletedAt IS NULL THEN 1 ELSE 0 END) AS missingSyncId, " +
+            "SUM(CASE WHEN dirty = 1 THEN 1 ELSE 0 END) AS dirty " +
+            "FROM packing_items"
+    )
+    suspend fun auditPackingItems(): SyncTableAudit
+
+    @Query(
+        "SELECT " +
+            "SUM(CASE WHEN deletedAt IS NULL THEN 1 ELSE 0 END) AS live, " +
+            "SUM(CASE WHEN deletedAt IS NOT NULL THEN 1 ELSE 0 END) AS tombstones, " +
+            "SUM(CASE WHEN syncId IS NULL AND deletedAt IS NULL THEN 1 ELSE 0 END) AS missingSyncId, " +
+            "SUM(CASE WHEN dirty = 1 THEN 1 ELSE 0 END) AS dirty " +
+            "FROM ledger_templates"
+    )
+    suspend fun auditLedgerTemplates(): SyncTableAudit
+
+    @Query(
+        "SELECT " +
+            "SUM(CASE WHEN deletedAt IS NULL THEN 1 ELSE 0 END) AS live, " +
+            "SUM(CASE WHEN deletedAt IS NOT NULL THEN 1 ELSE 0 END) AS tombstones, " +
+            "SUM(CASE WHEN syncId IS NULL AND deletedAt IS NULL THEN 1 ELSE 0 END) AS missingSyncId, " +
+            "SUM(CASE WHEN dirty = 1 THEN 1 ELSE 0 END) AS dirty " +
+            "FROM ledger_recurring_rules"
+    )
+    suspend fun auditLedgerRecurringRules(): SyncTableAudit
 
     // ---------- 落地记账：写服务端序号并清脏 ----------
 
@@ -183,6 +342,29 @@ internal suspend fun RemoteSyncDao.markSynced(collection: String, syncId: String
         else -> Unit
     }
 }
+
+/**
+ * 按集合名取本机这张同步表的对账计数（P9 诊断页）。
+ * `preferences`（整块设置、无对应表）与未知集合返回 null，调用方按「无本地表」展示。
+ */
+internal suspend fun RemoteSyncDao.tableAudit(collection: String): SyncTableAudit? =
+    when (collection) {
+        SyncCollections.CATEGORIES -> auditCategories()
+        SyncCollections.LOCATIONS -> auditLocations()
+        SyncCollections.ITEMS -> auditItems()
+        SyncCollections.LEDGER_ASSETS -> auditLedgerAssets()
+        SyncCollections.LEDGER_CATEGORIES -> auditLedgerCategories()
+        SyncCollections.LEDGER_RECORDS -> auditLedgerRecords()
+        SyncCollections.LEDGER_BUDGETS -> auditLedgerBudgets()
+        SyncCollections.ANNIVERSARIES -> auditAnniversaries()
+        SyncCollections.REMINDERS -> auditReminders()
+        SyncCollections.TIME_CAPSULES -> auditTimeCapsules()
+        SyncCollections.PACKING_TRIPS -> auditPackingTrips()
+        SyncCollections.PACKING_ITEMS -> auditPackingItems()
+        SyncCollections.LEDGER_TEMPLATES -> auditLedgerTemplates()
+        SyncCollections.LEDGER_RECURRING_RULES -> auditLedgerRecurringRules()
+        else -> null
+    }
 
 /**
  * 墓碑物理清除的「服务端已确认」前提（P6-d）。

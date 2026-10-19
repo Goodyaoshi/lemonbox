@@ -102,6 +102,9 @@ sealed class Screen(val route: String) {
      */
     data object SyncLogin : Screen("sync-login")
 
+    /** 同步诊断（P9）：逐表对账、冲突留痕、设备列表与「以服务端为准重建」。 */
+    data object SyncDiagnostics : Screen("sync-diagnostics")
+
     data object ToBuy : Screen("to-buy")
     data object Trash : Screen("trash")
     data object Expiry : Screen("expiry")

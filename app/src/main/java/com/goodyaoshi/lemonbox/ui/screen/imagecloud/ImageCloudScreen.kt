@@ -60,6 +60,7 @@ import com.goodyaoshi.lemonbox.ui.viewmodel.ImageCloudViewModel
 fun ImageCloudScreen(
     onBack: () -> Unit,
     onOpenSyncLogin: () -> Unit,
+    onOpenSyncDiagnostics: () -> Unit,
     viewModel: ImageCloudViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -339,6 +340,12 @@ fun ImageCloudScreen(
                                 onClick = viewModel::syncNow,
                                 enabled = state.cloudSyncEnabled
                             )
+                        }
+                        // 冲突提示「已保留服务端版本」只是结论，逐条证据在诊断页：
+                        // 逐表计数、冲突留痕的字段对比都在那里，故入口常驻登录态分支。
+                        Spacer(modifier = Modifier.height(8.dp))
+                        TextButton(onClick = onOpenSyncDiagnostics, enabled = state.cloudSyncEnabled) {
+                            Text(text = "打开同步诊断", color = TextSecondary)
                         }
                     }
                     // 未就绪的原因直接说清（未登录 / 未开启），比只在按钮上变灰有用。

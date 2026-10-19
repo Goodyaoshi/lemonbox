@@ -10,8 +10,10 @@ import com.goodyaoshi.lemonbox.data.backup.SyncTables
 import com.goodyaoshi.lemonbox.data.backup.syncRecordsToPayload
 import com.goodyaoshi.lemonbox.data.imagecloud.ImageCloudConfig
 import com.goodyaoshi.lemonbox.data.local.dao.RemoteSyncDao
+import com.goodyaoshi.lemonbox.data.local.dao.SyncTableAudit
 import com.goodyaoshi.lemonbox.data.local.dao.markSynced
 import com.goodyaoshi.lemonbox.data.local.dao.pendingSeqs
+import com.goodyaoshi.lemonbox.data.local.dao.tableAudit
 import com.goodyaoshi.lemonbox.data.local.database.AppDatabase
 import com.goodyaoshi.lemonbox.data.local.entity.SyncStateKeys
 import com.goodyaoshi.lemonbox.data.local.entity.SyncStateRow
@@ -82,6 +84,7 @@ class RemoteSyncManager @Inject constructor(
     private val appPreferences: AppPreferences,
     private val config: ImageCloudConfig,
     private val remoteSyncDao: RemoteSyncDao,
+    private val conflictStore: RemoteConflictStore,
     private val appDatabase: AppDatabase
 ) {
 
@@ -95,8 +98,13 @@ class RemoteSyncManager @Inject constructor(
     )
     val state: StateFlow<RemoteSyncState> = _state.asStateFlow()
 
-    /** 执行一次完整同步：先拉别人的变更落地，再推自己的。失败只进状态，不抛给调用方。 */
-    suspend fun syncNow(): RemoteSyncResult = withContext(Dispatchers.IO) {
+    /**
+     * 执行一次完整同步：先拉别人的变更落地，再推自己的。失败只进状态，不抛给调用方。
+     *
+     * [includeSelf] 拉取时不排除本设备写过的记录——只有「以服务端为准重建」用它：
+     * 重建后本机是空的，服务端上很多记录本就是这台设备写的，排除自己就拉不回全量。
+     */
+    suspend fun syncNow(includeSelf: Boolean = false): RemoteSyncResult = withContext(Dispatchers.IO) {
         if (_state.value.running) return@withContext RemoteSyncResult(0, 0, 0, "同步正在进行中")
         val blocker = if (!client.isConfigured()) {
             "这个安装包没有配置同步服务器地址"
@@ -113,7 +121,7 @@ class RemoteSyncManager @Inject constructor(
             // 脏账本读两次：拉取前那次决定「跳过哪些本机未上传的改动」，
             // 拉取后那次决定「还剩哪些要推」——落地会清掉一批脏位，沿用旧账本会白白重推一遍。
             val pendingBeforePull = loadPendingSeqs()
-            val pulled = pull(pendingBeforePull)
+            val pulled = pull(pendingBeforePull, includeSelf)
             val pushed = push(loadPendingSeqs())
             val now = System.currentTimeMillis()
             appPreferences.setLastSyncAt(now)
@@ -154,7 +162,10 @@ class RemoteSyncManager @Inject constructor(
      * 分页由 [PullResponse.hasMore] 驱动：一页满了就接着拉下一批，直到服务端说没有了。
      * 分段拉取也顺带避开 Workers 免费档的单次 CPU 上限（拉太多会被限流）。
      */
-    private suspend fun pull(pending: Map<String, Map<String, Long>>): PullOutcome {
+    private suspend fun pull(
+        pending: Map<String, Map<String, Long>>,
+        includeSelf: Boolean
+    ): PullOutcome {
         // 水位优先读 sync_state（与落地同事务）；旧安装包的水位还留在偏好里，回落到它以免从头拉全库。
         val sinceSeq = remoteSyncDao.state(SyncStateKeys.PULL_WATERMARK)
             ?: appPreferences.pullWatermark(LEGACY_PEER_ID)
@@ -166,7 +177,7 @@ class RemoteSyncManager @Inject constructor(
 
         while (pageCount < MAX_PULL_PAGES) {
             pageCount++
-            val page = client.pull(since = cursor, limit = PULL_LIMIT)
+            val page = client.pull(since = cursor, limit = PULL_LIMIT, includeSelf = includeSelf)
             page.changes.forEach { change ->
                 // 本机这条也改过且还没推上去：先留本机改动（服务端那一版可能是旧的，
                 // 盖下来就等于把本机还没上传的编辑吃掉）。随后推送会用陈旧 baseSeq 撞出冲突，
@@ -270,9 +281,10 @@ class RemoteSyncManager @Inject constructor(
             )
             // 服务端已写下的：把序号记回本机并清脏，否则下一轮还会推同一条（服务端不比对载荷）。
             response.applied.forEach { markLanded(it.collection, it.key, it.seq) }
-            // 判为冲突而未覆盖的：同样把序号推进到服务端那一版并清脏，避免本机每次同步都拿
-            // 同一个陈旧 baseSeq 反复撞同一堵墙。条数如实回报，由界面告知用户。
-            response.conflicts.forEach { markLanded(it.collection, it.key, it.seq) }
+            // 判为冲突的：把服务端那一版**连同内容**落地到本机并记留痕，再把序号对齐清脏。
+            // 只对齐序号不落地内容，会让本机与服务端各留各的值——这是最隐蔽的静默分叉
+            // （界面还提示「已保留服务端版本」，实际本机还是旧值）。
+            if (response.conflicts.isNotEmpty()) landConflicts(batch, response.conflicts)
             applied += response.applied.size
             conflicts += response.conflicts.size
         }
@@ -286,6 +298,178 @@ class RemoteSyncManager @Inject constructor(
             remoteSyncDao.putState(SyncStateRow(SyncStateKeys.PREFERENCES_SEQ, seq))
         }
     }
+
+    /**
+     * 把一批推送冲突落地为服务端版本，并写入冲突留痕（P9）。
+     *
+     * 落地与拉取共用同一条合并通道（ZIP 中转 + `importBackup`），「较新者胜、墓碑传播、
+     * 引用重映射」规则天然一致；落地（合并写会把行标脏）之后**再**逐条 [markLanded] 清脏，
+     * 顺序反了会把刚落地的行当成本机新改动推回去。
+     *
+     * 服务端载荷为空的旧版冲突（服务端未升级）只对齐序号、不落地内容，与旧行为一致。
+     * 留痕是非事务的旁路：失败只影响「以后能不能回看对比」，不影响数据一致。
+     */
+    private suspend fun landConflicts(batch: List<SyncRecord>, conflicts: List<PushConflict>) {
+        val landable = conflicts.filter { it.payload.isNotEmpty() }
+        appDatabase.withTransaction {
+            if (landable.isNotEmpty()) {
+                val payload = syncRecordsToPayload(
+                    landable.map { SyncRecord(it.collection, it.key, it.payload, it.deleted) },
+                    appPreferences.deviceId
+                )
+                val file = File(context.cacheDir, "remote-conflict-${System.currentTimeMillis()}.zip")
+                try {
+                    backupManager.writePayloadZipTo(payload, file)
+                    backupManager.importBackup(Uri.fromFile(file))
+                } finally {
+                    file.delete()
+                }
+            }
+            conflicts.forEach { markLanded(it.collection, it.key, it.seq) }
+        }
+        conflictStore.append(
+            conflicts.map { conflict ->
+                val local = batch.firstOrNull {
+                    it.collection == conflict.collection && it.key == conflict.key
+                }
+                ConflictLogEntry(
+                    collection = conflict.collection,
+                    key = conflict.key,
+                    seq = conflict.seq,
+                    baseSeq = conflict.baseSeq,
+                    localPayload = local?.payload.orEmpty(),
+                    remotePayload = conflict.payload,
+                    at = System.currentTimeMillis(),
+                    updatedBy = conflict.updatedBy
+                )
+            }
+        )
+    }
+
+    // ---------- 对账与诊断（P9） ----------
+
+    /**
+     * 逐表对账：本机各同步表的计数对照服务端各集合的计数。
+     *
+     * 网络失败（未登录、断网）原样抛 [RemoteApiException]，由界面转成提示——
+     * 对账是用户主动动作，静默返回空表反而让人误以为「没问题」。
+     */
+    suspend fun audit(): SyncAuditReport {
+        val stats = client.stats()
+        val serverByCollection = stats.collections.associateBy { it.collection }
+        val rows = SyncTables.BY_COLLECTION.keys.map { collection ->
+            val local = remoteSyncDao.tableAudit(collection)
+            val server = serverByCollection[collection]
+            SyncAuditRow(
+                collection = collection,
+                label = collectionLabel(collection),
+                localLive = local?.live,
+                localTotal = local?.let { it.live + it.tombstones } ?: 0,
+                missingSyncId = local?.missingSyncId ?: 0,
+                localDirty = local?.dirty ?: 0,
+                serverLive = server?.live ?: 0,
+                serverDeleted = server?.deleted ?: 0,
+                serverKnown = server != null
+            )
+        }
+        return SyncAuditReport(
+            serverSeq = stats.seq,
+            conflictCount = stats.conflictCount,
+            rows = rows,
+            devices = stats.devices,
+            generatedAt = System.currentTimeMillis()
+        )
+    }
+
+    /**
+     * 「以服务端为准重建本地」：本机数据可能已经乱掉，用服务端的权威版本整个重来一遍。
+     *
+     * 步骤（每一步都为失败留了退路）：
+     * 1. 闸门检查——未配置 / 未登录 / 未开启一律拒绝，本机数据一个字节都不动；
+     * 2. 先探一次服务端（stats）——连不上就放弃，**清库之前**一切失败都是零损失；
+     * 3. 导出本机全量快照存进 filesDir 作为**撤销点**（不是 cacheDir，重建后 App 随时可能被杀）；
+     * 4. 清空本地数据库（含 sync_state：水位显式归零，偏好序号一并归零）；
+     * 5. 跑一轮带 [includeSelf] 的完整同步，把服务端全量拉回来。
+     *
+     * 重建中途失败（断网等）本机会停在「不完整」状态，撤销点就是那时的救命稻草，
+     * 故失败的回执里也带上撤销路径。
+     */
+    suspend fun rebuildFromServer(): RebuildOutcome = withContext(Dispatchers.IO) {
+        val blocker = if (!client.isConfigured()) {
+            "这个安装包没有配置同步服务器地址"
+        } else {
+            config.remoteSyncBlocker()
+        }
+        if (blocker != null) return@withContext RebuildOutcome(success = false, message = blocker)
+        if (_state.value.running) {
+            return@withContext RebuildOutcome(success = false, message = "同步正在进行中，稍后再试")
+        }
+
+        val stats = try {
+            client.stats()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return@withContext RebuildOutcome(
+                success = false,
+                message = "连不上服务端（${e.message ?: "网络异常"}），本机数据未动"
+            )
+        }
+        if (stats.seq <= 0) {
+            return@withContext RebuildOutcome(success = false, message = "服务端上还没有任何同步数据，无需重建")
+        }
+
+        // 撤销点：重建前的本机全量。
+        val archive = backupManager.createBackupZip(null)
+        val undoFile = File(context.filesDir, "rebuild-undo-${System.currentTimeMillis()}.zip")
+        if (archive.file.absolutePath != undoFile.absolutePath) {
+            if (!archive.file.renameTo(undoFile)) {
+                archive.file.copyTo(undoFile, overwrite = true)
+                archive.file.delete()
+            }
+        }
+
+        // 清库（sync_state 一并清掉），水位显式归零才能从头拉全量。
+        appDatabase.clearAllTables()
+        remoteSyncDao.putState(SyncStateRow(SyncStateKeys.PULL_WATERMARK, 0L))
+
+        val result = syncNow(includeSelf = true)
+        val error = _state.value.lastError
+        if (error != null) {
+            RebuildOutcome(
+                success = false,
+                message = "重建中断：$error。本机数据可能不完整，可用「撤销重建」恢复重建前的备份。",
+                undoZipPath = undoFile.path
+            )
+        } else {
+            RebuildOutcome(success = true, message = "重建完成：${result.message}", undoZipPath = undoFile.path)
+        }
+    }
+
+    /**
+     * 撤销重建：把重建前的快照导回本机。
+     *
+     * 刻意**不做**全库标脏：合并写路径本就会把落地的行标脏（随后自动推回服务端），
+     * 而被 LWW 保留的服务端较新行就该保持干净；全库标脏只会让两台设备把整库
+     * 重推重拉一遍，序号白白膨胀一轮。
+     */
+    suspend fun undoRebuild(undoZipPath: String): String = withContext(Dispatchers.IO) {
+        val file = File(undoZipPath)
+        if (!file.isFile) return@withContext "找不到重建前的备份文件，无法撤销"
+        try {
+            val result = backupManager.importBackup(Uri.fromFile(file))
+            file.delete()
+            "已恢复重建前数据（新增 ${result.totalAdded}、更新 ${result.totalUpdated} 条），" +
+                "打开 App 时会自动同步回服务端"
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            "撤销失败：${e.message ?: "未知错误"}（备份文件保留在原处，可重试）"
+        }
+    }
+
+    /** 读取冲突留痕（新痕在前），诊断页逐条展示字段对比。 */
+    suspend fun conflictLog(): List<ConflictLogEntry> = conflictStore.read()
 
     private companion object {
         /**
@@ -344,3 +528,63 @@ internal fun remoteSyncMessage(pushed: Int, pulled: Int, conflicts: Int): String
         if (conflicts > 0) append("，$conflicts 条两边都改过，以服务端为准")
     }
 }
+
+/** 集合名 → 界面中文标签（P9 诊断页）。 */
+internal fun collectionLabel(collection: String): String = when (collection) {
+    SyncCollections.CATEGORIES -> "分类"
+    SyncCollections.LOCATIONS -> "位置"
+    SyncCollections.ITEMS -> "家当"
+    SyncCollections.LEDGER_ASSETS -> "账户"
+    SyncCollections.LEDGER_CATEGORIES -> "记账分类"
+    SyncCollections.LEDGER_RECORDS -> "账目"
+    SyncCollections.LEDGER_BUDGETS -> "预算"
+    SyncCollections.ANNIVERSARIES -> "纪念日"
+    SyncCollections.REMINDERS -> "待办提醒"
+    SyncCollections.TIME_CAPSULES -> "时间胶囊"
+    SyncCollections.PACKING_TRIPS -> "打包行程"
+    SyncCollections.PACKING_ITEMS -> "打包条目"
+    SyncCollections.LEDGER_TEMPLATES -> "记账模板"
+    SyncCollections.LEDGER_RECURRING_RULES -> "周期记账"
+    SyncCollections.PREFERENCES -> "整块偏好"
+    else -> collection
+}
+
+/**
+ * 对账报告里一行的三方计数（P9）。
+ *
+ * [localLive] 为 null 表示本机没有对应表（整块偏好）：它不分条，无法按行数对。
+ * [localTotal] 含墓碑；[missingSyncId] 是推不出去也拉不回来的活行数，非 0 就是账要出事的信号。
+ * [serverKnown] 为假表示服务端上还没有这个集合的任何记录。
+ */
+data class SyncAuditRow(
+    val collection: String,
+    val label: String,
+    val localLive: Int?,
+    val localTotal: Int,
+    val missingSyncId: Int,
+    val localDirty: Int,
+    val serverLive: Int,
+    val serverDeleted: Int,
+    val serverKnown: Boolean
+) {
+    /** 本机 live 与服务端 live 的差；为 0 也可能是两边恰好同时错，但数量对不上必有一方账不平。 */
+    val delta: Int get() = (localLive ?: 0) - serverLive
+}
+
+/** 一次对账的总览：逐表计数、设备列表与服务端台账（P9）。 */
+data class SyncAuditReport(
+    /** 服务端当前序号水位。 */
+    val serverSeq: Long,
+    /** 服务端冲突台账累计条数（历史累计，只增不减）。 */
+    val conflictCount: Int,
+    val rows: List<SyncAuditRow>,
+    val devices: List<SyncStatsDevice>,
+    val generatedAt: Long
+)
+
+/** 一次重建的结果：成败、回执文案与撤销点的文件路径（撤销点在重建成功后由界面持有）。 */
+data class RebuildOutcome(
+    val success: Boolean,
+    val message: String,
+    val undoZipPath: String? = null
+)

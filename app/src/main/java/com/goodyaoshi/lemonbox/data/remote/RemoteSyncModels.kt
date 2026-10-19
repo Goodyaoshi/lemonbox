@@ -1,6 +1,7 @@
 package com.goodyaoshi.lemonbox.data.remote
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerialName
 
 /**
  * 与同步服务端（Cloudflare Worker）交互的线上报文。
@@ -59,13 +60,21 @@ data class PushRequest(val changes: List<PushChange>)
 @Serializable
 data class PushApplied(val collection: String, val key: String, val seq: Long = 0)
 
-/** 服务端判定「有人在我之后改过」而未覆盖的条目：服务端版本胜出。 */
+/**
+ * 服务端判定「有人在我之后改过」而未覆盖的条目：服务端版本胜出。
+ *
+ * [payload] / [deleted] 是服务端当前那一版的完整内容（P9 起）：客户端把它落地到本机，
+ * 才算真正「以服务端为准」——只对齐序号、内容却各留各的，是最隐蔽的静默分叉。
+ * 旧版服务端不回这两个字段，缺省为空，客户端按「无载荷可落地」处理并如实记录。
+ */
 @Serializable
 data class PushConflict(
     val collection: String,
     val key: String,
     val baseSeq: Long = 0,
     val seq: Long = 0,
+    val payload: String = "",
+    val deleted: Boolean = false,
     val updatedBy: String = ""
 )
 
@@ -98,4 +107,35 @@ data class PullResponse(
     val changes: List<PullChange> = emptyList(),
     val lastSeq: Long = 0,
     val hasMore: Boolean = false
+)
+
+// ---------- 服务端对账统计（P9，GET /v1/stats） ----------
+
+/** 服务端某个集合的计数：live 为非墓碑条数，deleted 为墓碑条数。 */
+@Serializable
+data class SyncStatsCollection(
+    val collection: String,
+    val live: Int = 0,
+    val deleted: Int = 0,
+    val total: Int = 0,
+    val lastSeq: Long = 0
+)
+
+/** 服务端记账里的一台设备：最后活跃时间与它拉到的水位。 */
+@Serializable
+data class SyncStatsDevice(
+    @SerialName("device_id") val deviceId: String = "",
+    @SerialName("user_id") val userId: String = "",
+    val name: String = "",
+    @SerialName("last_seen_at") val lastSeenAt: Long = 0,
+    @SerialName("last_pull_seq") val lastPullSeq: Long = 0
+)
+
+/** 对账总览：服务端各集合计数、设备列表、累计冲突台账条数与当前序号水位。 */
+@Serializable
+data class SyncStatsResponse(
+    val seq: Long = 0,
+    val collections: List<SyncStatsCollection> = emptyList(),
+    val devices: List<SyncStatsDevice> = emptyList(),
+    val conflictCount: Int = 0
 )

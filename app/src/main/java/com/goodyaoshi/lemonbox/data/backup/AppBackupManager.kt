@@ -1585,3 +1585,19 @@ private fun formatDiffValue(
     primitive.doubleOrNull?.let { return DateUtil.formatCurrency(it) }
     return primitive.content
 }
+
+/**
+ * 逐字段对比「冲突发生时」的本机载荷与服务端载荷（P9 诊断页）。
+ *
+ * 与 [diffFields] 同一套规则与文案；syncId 引用名解析在冲突场景做不了
+ * （两版载荷是孤立 JSON，没有上下文可查名字），直接显示原值——
+ * 罕见的引用字段显示 UUID 也比什么都不显示强。
+ * 任一侧解不开（旧版服务端没回载荷、载荷损坏）返回空，调用方按「无可对比」提示。
+ */
+fun conflictFieldDiffs(localPayload: String, remotePayload: String): List<FieldDiff> {
+    val local = runCatching { Json.parseToJsonElement(localPayload).jsonObject }.getOrNull()
+        ?: return emptyList()
+    val remote = runCatching { Json.parseToJsonElement(remotePayload).jsonObject }.getOrNull()
+        ?: return emptyList()
+    return diffFields(local, remote, emptyMap()) { _, _ -> null }
+}

@@ -114,6 +114,7 @@ import com.goodyaoshi.lemonbox.ui.screen.settings.NotificationReliabilityScreen
 import com.goodyaoshi.lemonbox.ui.screen.settings.SettingsScreen
 import com.goodyaoshi.lemonbox.ui.screen.sleep.SleepScreen
 import com.goodyaoshi.lemonbox.ui.screen.sync.LanSyncScreen
+import com.goodyaoshi.lemonbox.ui.screen.sync.SyncDiagnosticsScreen
 import com.goodyaoshi.lemonbox.ui.screen.sync.SyncLoginScreen
 import com.goodyaoshi.lemonbox.ui.screen.timecapsule.TimeCapsuleScreen
 import com.goodyaoshi.lemonbox.ui.screen.tobuy.ToBuyScreen
@@ -937,12 +938,19 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
                         onBack = { navController.popBackStack() },
                         onOpenSyncLogin = {
                             navController.navigateSingleTop(Screen.SyncLogin.route)
+                        },
+                        onOpenSyncDiagnostics = {
+                            navController.navigateSingleTop(Screen.SyncDiagnostics.route)
                         }
                     )
                 }
 
                 composable(Screen.SyncLogin.route) {
                     SyncLoginScreen(onBack = { navController.popBackStack() })
+                }
+
+                composable(Screen.SyncDiagnostics.route) {
+                    SyncDiagnosticsScreen(onBack = { navController.popBackStack() })
                 }
 
                 composable(Screen.ToBuy.route) {

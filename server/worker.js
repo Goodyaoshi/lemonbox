@@ -360,7 +360,7 @@ async function handlePush(request, env, session) {
     const placeholders = part.map(() => "(?,?)").join(",");
     const binds = part.flatMap((c) => [c.collection, c.key]);
     const rows = await env.DB.prepare(
-      "SELECT collection, record_key, server_seq, payload, updated_by_user FROM records " +
+      "SELECT collection, record_key, server_seq, payload, deleted, updated_by_user FROM records " +
         `WHERE (collection, record_key) IN (${placeholders})`,
     )
       .bind(...binds)
@@ -393,7 +393,10 @@ async function handlePush(request, env, session) {
         key: change.key,
         baseSeq,
         seq: Number(prior.server_seq),
+        // 把服务端那一版连载荷一起带回：客户端据此把服务端版本落地到本机，
+        // 不再只是「序号对齐、内容分叉」。载体会跟着响应走一遍网络，冲突本来就是小批量，可接受。
         payload: prior.payload,
+        deleted: !!prior.deleted,
         updatedBy: prior.updated_by_user,
       });
       statements.push(
@@ -452,11 +455,14 @@ async function handlePull(request, env, session) {
   );
 
   // 排除「本设备自己写的」：同一账号的另一台设备仍会收到，不能被用户身份误排。
+  // 例外：includeSelf=1（诊断页的「以服务端为准重建」）不排除自己——重建后本机是空的，
+  // 服务端上很多记录本来就是这台设备推上去的，排除自己就什么也拉不回来。
+  const includeSelf = params.get("includeSelf") === "1";
   const rows = await env.DB.prepare(
     "SELECT collection, record_key, payload, server_seq, deleted, updated_by_user, updated_at " +
-      "FROM records WHERE server_seq > ? AND updated_by_dev <> ? ORDER BY server_seq ASC LIMIT ?",
+      "FROM records WHERE server_seq > ? AND (? = 1 OR updated_by_dev <> ?) ORDER BY server_seq ASC LIMIT ?",
   )
-    .bind(since, session.device_id, limit)
+    .bind(since, includeSelf ? 1 : 0, session.device_id, limit)
     .all();
   const results = rows.results || [];
   const lastSeq = results.length ? Number(results[results.length - 1].server_seq) : since;
@@ -464,9 +470,9 @@ async function handlePull(request, env, session) {
   let hasMore = false;
   if (results.length === limit) {
     const more = await env.DB.prepare(
-      "SELECT 1 AS x FROM records WHERE server_seq > ? AND updated_by_dev <> ? LIMIT 1",
+      "SELECT 1 AS x FROM records WHERE server_seq > ? AND (? = 1 OR updated_by_dev <> ?) LIMIT 1",
     )
-      .bind(lastSeq, session.device_id)
+      .bind(lastSeq, includeSelf ? 1 : 0, session.device_id)
       .first();
     hasMore = !!more;
   }
