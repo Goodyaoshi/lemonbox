@@ -6,10 +6,13 @@ import com.goodyaoshi.lemonbox.data.imagecloud.ImageCloudConfig
 import com.goodyaoshi.lemonbox.data.imagecloud.ImageCloudPreferences
 import com.goodyaoshi.lemonbox.data.remote.RemoteApiException
 import com.goodyaoshi.lemonbox.data.remote.RemoteSyncClient
+import com.goodyaoshi.lemonbox.data.remote.RemoteSyncManager
+import com.goodyaoshi.lemonbox.data.remote.SyncEndpointStore
 import com.goodyaoshi.lemonbox.data.remote.SyncSessionStore
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import com.goodyaoshi.lemonbox.data.sync.CloudSyncScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -19,10 +22,16 @@ import javax.inject.Inject
 
 /** 云端账号页的状态。「登录了没有、以谁的身份」是这一页唯一的核心信息。 */
 data class SyncLoginUiState(
-    /** 当前包是否支持（仅正式包）。 */
+    /** 当前包是否支持文字多设备同步（debug 包也支持；图片上传另有开关）。 */
     val supported: Boolean = false,
     /** 服务端地址，用于让用户知道数据去了哪里；空串表示这个包没配。 */
     val baseUrl: String = "",
+    /** 用户输入的自定义备用地址（可空表示只用安装包默认地址）。 */
+    val customBaseUrl: String = "",
+    /** 探活结果或保存提示，直接展示给用户。 */
+    val serverDetail: String? = null,
+    val serverDetailIsError: Boolean = false,
+    val probing: Boolean = false,
     val loggedIn: Boolean = false,
     val username: String? = null,
     /** 令牌到期时刻（毫秒）；未登录为 null。 */
@@ -51,13 +60,16 @@ class SyncLoginViewModel @Inject constructor(
     private val config: ImageCloudConfig,
     private val preferences: ImageCloudPreferences,
     private val appPreferences: AppPreferences,
-    private val cloudSyncScheduler: CloudSyncScheduler
+    private val cloudSyncScheduler: CloudSyncScheduler,
+    private val syncManager: RemoteSyncManager,
+    private val endpointStore: SyncEndpointStore
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(
         SyncLoginUiState(
-            supported = config.supported,
+            supported = config.textSyncSupported,
             baseUrl = client.baseUrl,
+            customBaseUrl = endpointStore.customBaseUrl().orEmpty(),
             deviceName = deviceDisplayName()
         ).withSession()
     )
@@ -66,6 +78,54 @@ class SyncLoginViewModel @Inject constructor(
     fun updateUsername(value: String) = _uiState.update { it.copy(inputUsername = value) }
 
     fun updatePassword(value: String) = _uiState.update { it.copy(inputPassword = value) }
+
+    fun updateCustomBaseUrl(value: String) = _uiState.update { it.copy(customBaseUrl = value) }
+
+    /** 保存自定义服务器地址；清空表示回到安装包默认地址。 */
+    fun saveServerSetting() {
+        val raw = _uiState.value.customBaseUrl.trim()
+        endpointStore.setCustomBaseUrl(raw.ifBlank { null })
+        val saved = endpointStore.customBaseUrl()
+        _uiState.update {
+            it.copy(
+                customBaseUrl = saved.orEmpty(),
+                baseUrl = client.baseUrl,
+                serverDetail = if (saved == null) {
+                    "已清除自定义地址，使用安装包默认地址"
+                } else {
+                    "已保存：$saved。登录时会自动探活"
+                },
+                serverDetailIsError = false
+            )
+        }
+    }
+
+    /** 主动探活候选地址，结果直接展示；成功时更新当前使用地址。 */
+    fun probeServer() {
+        if (_uiState.value.probing) return
+        _uiState.update { it.copy(probing = true, serverDetail = null) }
+        viewModelScope.launch {
+            val result = try {
+                client.probe()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                null
+            }
+            _uiState.update {
+                it.copy(
+                    probing = false,
+                    baseUrl = client.baseUrl,
+                    serverDetail = when {
+                        result == null -> "探活失败：未知错误"
+                        result.reachable -> result.detail
+                        else -> "连不上任何候选地址：${result.detail}"
+                    },
+                    serverDetailIsError = result == null || !result.reachable
+                )
+            }
+        }
+    }
 
     /** 登录；失败原因（账号密码不对 / 网络不通）直接展示给用户。 */
     fun login() {
@@ -95,19 +155,50 @@ class SyncLoginViewModel @Inject constructor(
                     deviceName = deviceDisplayName()
                 )
             }
-            _uiState.update { state ->
-                val error = outcome.exceptionOrNull()
-                state.copy(
-                    busy = false,
-                    message = when {
-                        error is RemoteApiException -> error.message
-                        error != null -> "登录失败，请稍后再试"
-                        else -> "登录成功，已开始多设备同步"
-                    },
-                    messageIsError = error != null
-                ).withSession()
+            val loginError = outcome.exceptionOrNull()
+            if (loginError != null) {
+                _uiState.update { state ->
+                    state.copy(
+                        busy = false,
+                        message = when (loginError) {
+                            is RemoteApiException -> loginError.message
+                            else -> "登录失败，请稍后再试"
+                        },
+                        messageIsError = true
+                    ).withSession()
+                }
+                rescheduleCloudSync()
+                return@launch
+            }
+
+            // 登录成功先把会话态亮出来，再立即跑一轮同步。只排后台任务不够：
+            // CloudSyncTrigger 只监听 Activity onStart 与同步表写入，登录本身两者都不触发，
+            // 用户会停在「已登录但数据没动」的状态直到下一次切前台或最多一小时后的周期任务。
+            _uiState.update {
+                it.copy(busy = false, message = "登录成功，正在同步…", messageIsError = false).withSession()
             }
             rescheduleCloudSync()
+
+            val syncResult = try {
+                syncManager.syncNow()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                null
+            }
+            val syncError = syncManager.state.value.lastError
+                ?: if (syncResult == null) "同步失败，请稍后重试" else null
+            _uiState.update { state ->
+                state.copy(
+                    busy = false,
+                    message = if (syncError != null) {
+                        "登录成功，但首次同步失败：$syncError"
+                    } else {
+                        "登录成功，${syncResult?.message ?: "已开始多设备同步"}"
+                    },
+                    messageIsError = syncError != null
+                ).withSession()
+            }
         }
     }
 
@@ -127,7 +218,7 @@ class SyncLoginViewModel @Inject constructor(
     /** 同步任务只在「已登录 + 用户开启」时才排期，否则撤掉。 */
     private fun rescheduleCloudSync() {
         cloudSyncScheduler.syncSchedule(
-            supported = config.supported,
+            supported = config.textSyncSupported,
             enabled = sessionStore.isLoggedIn && preferences.cloudSyncEnabled.value
         )
     }
@@ -138,7 +229,8 @@ class SyncLoginViewModel @Inject constructor(
         return copy(
             loggedIn = session != null,
             username = session?.username,
-            expiresAt = session?.expiresAt
+            expiresAt = session?.expiresAt,
+            baseUrl = session?.baseUrl ?: baseUrl
         )
     }
 

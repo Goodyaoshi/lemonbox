@@ -300,14 +300,8 @@ const liveOf = (c) => allOf(c).filter((r) => !r.deleted && !recordDeleted(r.data
 function recordDeleted(d) { return !!d && (d.deletedAt != null || d.purgedAt != null); }
 
 function loadSession() {
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-    if (!raw) return;
-    const v = JSON.parse(raw);
-    if (v && v.token && (!v.expiresAt || v.expiresAt > Date.now())) {
-      S.token = v.token; S.username = v.username; S.expiresAt = v.expiresAt || 0;
-    }
-  } catch (_) { /* 损坏的本地会话忽略即可 */ }
+  // 设备标识必须先于会话恢复初始化：首次访问没有 LS_KEY，若在下面提前 return，
+  // S.deviceId 会一直是 null，登录请求会被服务端以「缺少设备标识」拒绝。
   let dev = null;
   try { dev = localStorage.getItem(LS_DEV); } catch (_) {}
   if (!dev) { dev = uuid(); try { localStorage.setItem(LS_DEV, dev); } catch (_) {} }
@@ -315,6 +309,15 @@ function loadSession() {
   const ua = navigator.userAgent || "";
   const os = /iPhone/.test(ua) ? "iPhone" : /iPad/.test(ua) ? "iPad" : /Mac/.test(ua) ? "Mac" : /Android/.test(ua) ? "Android" : "浏览器";
   S.deviceName = "网页版 · " + os;
+
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return;        // 只跳过会话恢复，设备标识已经就绪
+    const v = JSON.parse(raw);
+    if (v && v.token && (!v.expiresAt || v.expiresAt > Date.now())) {
+      S.token = v.token; S.username = v.username; S.expiresAt = v.expiresAt || 0;
+    }
+  } catch (_) { /* 损坏的本地会话忽略即可 */ }
 }
 function saveSession(token, username, expiresAt) {
   S.token = token; S.username = username; S.expiresAt = expiresAt || 0;
@@ -331,17 +334,25 @@ function clearSession() {
 async function api(path, opts = {}) {
   const headers = { "content-type": "application/json" };
   if (opts.auth !== false && S.token) headers.Authorization = "Bearer " + S.token;
-  const res = await fetch(path, {
-    method: opts.method || "GET",
-    headers,
-    body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
-    cache: "no-store",
-  });
+  let res;
+  try {
+    res = await fetch(path, {
+      method: opts.method || "GET",
+      headers,
+      body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
+      cache: "no-store",
+    });
+  } catch (e) {
+    // fetch 抛 TypeError 时浏览器不会给出细节；把最可能的原因直接写出来，
+    // 避免用户只看到「Failed to fetch」而不知道是 DNS 污染、网络被拦截还是服务不可达。
+    throw new Error("连不上服务器（DNS 污染、网络被拦截或服务不可达），请检查网络后重试");
+  }
   const text = await res.text();
   let data = null;
   try { data = text ? JSON.parse(text) : null; } catch (_) { data = null; }
   if (!res.ok) {
-    if (res.status === 401) { clearSession(); render(); }
+    // 登录请求本身返回 401 时不要清会话/重绘：那会把用户刚输入的账号密码一起清掉。
+    if (res.status === 401 && opts.auth !== false) { clearSession(); render(); }
     throw new Error((data && data.error) || `请求失败（${res.status}）`);
   }
   return data;
@@ -456,7 +467,7 @@ function blank(collection, fields) {
         status: null, usageStatus: USAGE.IN_USE, disposition: DISPO.IN_STOCK, needRestock: false,
         purchaseDate: null, productionDate: null, startUseTime: null, usageEndedAt: null,
         trackMode: 0, forWhom: null, reminderDays: null, rating: null, ratedAt: null,
-        purgedAt: null, note: "", imageHashes: null,
+        purgedAt: null, note: "", imageHashes: null, deletedAt: null,
         createdAt: now, syncId: null, categorySyncId: null, locationSyncId: null, updatedAt: now,
       };
       break;
@@ -1355,18 +1366,28 @@ function viewLogin(root) {
     onClick: async () => {
       if (S.busy) return;
       if (!user.value.trim() || !pass.value) { snack("请输入账号和密码"); return; }
-      S.busy = true; render();
+      // 不要在这里 render()：重建登录视图会把用户刚输入的账号密码一起清掉。
+      // 直接改按钮状态，失败时保留输入。
+      S.busy = true;
+      submit.disabled = true;
+      submit.textContent = "登录中…";
       try {
         const r = await api("/v1/login", { auth: false, method: "POST", body: {
           username: user.value.trim(), password: pass.value, deviceId: S.deviceId, deviceName: S.deviceName } });
         saveSession(r.token, (r.user && r.user.name) || user.value.trim(), r.expiresAt);
         pass.value = "";
+        S.busy = false;
         render();
-        await syncNow(true);
-        snack("登录成功，数据已在两端对齐");
+        snack("登录成功，正在同步云端数据…");
+        // quiet=false：首次同步失败必须让用户看到原因，否则只会看到一屏空白。
+        await syncNow(false);
       } catch (e) {
         snack(e && e.message ? e.message : "登录失败，请再试一次");
-      } finally { S.busy = false; render(); }
+      } finally {
+        S.busy = false;
+        submit.disabled = false;
+        submit.textContent = "登录";
+      }
     } });
   card.append(submit);
   card.append(h("div", { class: "tiny muted", style: "margin-top:12px", html:

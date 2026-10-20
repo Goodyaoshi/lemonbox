@@ -798,7 +798,11 @@ data class ItemSnapshot(
     val reminderDays: String? = null,
     val rating: Int?,
     val ratedAt: Long?,
-    val deletedAt: Long?,
+    /**
+     * 旧版 Web 端（server/web/index.html）写入的载荷没有该字段；给默认值后，
+     * 这类记录仍能反序列化，而不是被 syncRecordsToPayload 静默跳过。
+     */
+    val deletedAt: Long? = null,
     /**
      * 「永久删除」墓碑标记（F21）。非空表示这条是永久删除留下的墓碑：
      * 对方合并时直接物理清除，而不是把它重新插入库中。

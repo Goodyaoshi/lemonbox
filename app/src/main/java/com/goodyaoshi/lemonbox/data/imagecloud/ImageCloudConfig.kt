@@ -1,6 +1,7 @@
 package com.goodyaoshi.lemonbox.data.imagecloud
 
 import com.goodyaoshi.lemonbox.BuildConfig
+import com.goodyaoshi.lemonbox.data.remote.SyncEndpointStore
 import com.goodyaoshi.lemonbox.data.remote.SyncSessionStore
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -43,15 +44,26 @@ data class ImageCloudReadiness(
 @Singleton
 class ImageCloudConfig @Inject constructor(
     private val preferences: ImageCloudPreferences,
-    private val sessionStore: SyncSessionStore
+    private val sessionStore: SyncSessionStore,
+    private val endpointStore: SyncEndpointStore
 ) {
 
     val supported: Boolean
         get() = BuildConfig.IMAGE_CLOUD_SUPPORTED
 
-    /** 同步服务端地址（Worker 的公开域名）。 */
+    /**
+     * 文字多设备同步是否可用。
+     *
+     * 与 [supported] 分开：图片上传涉及真实存储桶与流量，debug 包一律关闭；
+     * 文字同步体积小、风险低，debug 包也应能连服务端联调，否则「登录不上 / 数据不同步」
+     * 会被误判成服务端故障。
+     */
+    val textSyncSupported: Boolean
+        get() = BuildConfig.TEXT_SYNC_SUPPORTED
+
+    /** 同步服务端地址（Worker 的公开域名，或用户配置的备用地址）。 */
     val baseUrl: String
-        get() = BuildConfig.SYNC_BASE_URL.trim().trimEnd('/')
+        get() = endpointStore.activeBaseUrl()
 
     /** 是否已登录；未登录时所有云路径都必须不动作（纯本地）。 */
     fun isLoggedIn(): Boolean = sessionStore.isLoggedIn
@@ -70,7 +82,7 @@ class ImageCloudConfig @Inject constructor(
      * 有人只想让数据不丢、不愿把照片传上去。
      */
     fun remoteSyncBlocker(): String? = when {
-        !supported -> "当前版本不支持云同步，请使用正式版"
+        !textSyncSupported -> "当前版本不支持云同步，请使用正式版"
         !isLoggedIn() -> "请先登录柠檬账号"
         !preferences.cloudSyncEnabled.value -> "多设备同步未开启"
         else -> null

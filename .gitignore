@@ -38,3 +38,7 @@ UI草图.png
 # wrangler 本地状态与本地密钥（绝不入库）
 server/.dev.vars
 server/.wrangler/
+
+# 本地 UI 设计审计产物：只留本地，不进版本库
+/.trae-html-share-packages/
+/ui-design-audit*.html

@@ -23,6 +23,9 @@ junit4 = "4.13.2"
 serializationJson = "1.8.0"
 haze = "1.6.10"
 nanohttpd = "2.3.1"
+# OkHttp：同步客户端的 DoH 解析与连接复用。Coil 2.7 已传递依赖同版本，
+# 这里显式声明是为了让 DoH DNS 与超时配置有稳定的 API 可用。
+okhttp = "4.12.0"
 # ONNX Runtime：用完整版 onnxruntime-android。
 # mobile 精简版虽小（arm64 的 libonnxruntime.so 3.56MB，完整版 16.76MB），但其精简构建
 # 不含完整的 ONNX 模型解析器，直接加载 .onnx 会报
@@ -77,6 +80,9 @@ haze-materials = { group = "dev.chrisbanes.haze", name = "haze-materials", versi
 
 # 局域网同步：只在内网起一个极简 HTTP 服务，不访问互联网
 nanohttpd = { group = "org.nanohttpd", name = "nanohttpd", version.ref = "nanohttpd" }
+
+# 同步客户端：DoH 解析 + 连接复用（Coil 已传递依赖，显式固定版本）
+okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 
 # 端侧离线文字识别：ONNX Runtime 跑 PP-OCR 模型，模型文件不随包分发、按需下载（F01）
 onnxruntime-android = { group = "com.microsoft.onnxruntime", name = "onnxruntime-android", version.ref = "onnxruntime" }

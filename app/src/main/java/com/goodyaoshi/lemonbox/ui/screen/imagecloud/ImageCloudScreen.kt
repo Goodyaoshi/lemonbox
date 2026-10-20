@@ -328,6 +328,32 @@ fun ImageCloudScreen(
                             // 打码显示，避免旁人一眼看到密码。
                             visualTransformation = PasswordVisualTransformation()
                         )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        // 默认域名被污染/阻断时的备用入口：保存后会与安装包默认地址一起探活，
+                        // 哪个先连上就用哪个；留空表示只用默认地址。
+                        EditorInputBox(
+                            value = loginState.customBaseUrl,
+                            onValueChange = loginViewModel::updateCustomBaseUrl,
+                            placeholder = "备用服务器地址（可选，https://…）"
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            TextButton(onClick = loginViewModel::saveServerSetting) {
+                                Text(text = "保存地址", color = TextSecondary)
+                            }
+                            TextButton(
+                                onClick = loginViewModel::probeServer,
+                                enabled = !loginState.probing
+                            ) {
+                                Text(
+                                    text = if (loginState.probing) "探活中…" else "测试连接",
+                                    color = TextSecondary
+                                )
+                            }
+                        }
+                        loginState.serverDetail?.let { detail ->
+                            NoticeLine(text = detail, isError = loginState.serverDetailIsError)
+                        }
                         Spacer(modifier = Modifier.height(12.dp))
                         GradientButton(
                             text = if (loginState.busy) "正在登录…" else "登录",
@@ -360,6 +386,11 @@ fun ImageCloudScreen(
                             color = TextSecondary
                         )
                         Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = loginState.baseUrl.ifBlank { "服务器地址未配置" },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextHint
+                        )
                         Text(
                             text = remoteSync.lastSyncedAt?.let { "上次同步：${formatSyncTime(it)}" }
                                 ?: "还没同步过",

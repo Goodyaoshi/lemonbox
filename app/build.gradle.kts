@@ -68,8 +68,10 @@ android {
 
     buildTypes {
         // 图片云端存储（S3 兼容）：debug 包一律不支持，避免开发期把测试图片传进真实存储桶。
+        // 文字多设备同步与图片无关，debug 包同样可用，便于真机联调同步链路。
         debug {
             buildConfigField("boolean", "IMAGE_CLOUD_SUPPORTED", "false")
+            buildConfigField("boolean", "TEXT_SYNC_SUPPORTED", "true")
             buildConfigField("String", "SYNC_BASE_URL", syncBaseUrl.asBuildConfigLiteral())
         }
 
@@ -80,6 +82,7 @@ android {
             // 客户端登录后只拿**几分钟有效的预签名 URL**，包内因此没有任何可解的密文。
             // 进包的只有 SYNC_BASE_URL 这个公开域名，以及用户登录换来的会话令牌（Keystore 加密存本机）。
             buildConfigField("boolean", "IMAGE_CLOUD_SUPPORTED", "true")
+            buildConfigField("boolean", "TEXT_SYNC_SUPPORTED", "true")
             buildConfigField("String", "SYNC_BASE_URL", syncBaseUrl.asBuildConfigLiteral())
             isShrinkResources = true
             proguardFiles(
@@ -199,6 +202,7 @@ dependencies {
 
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
+    implementation(libs.okhttp)
     implementation(libs.haze)
     implementation(libs.haze.materials)
 

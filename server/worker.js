@@ -598,6 +598,28 @@ async function awaitingText(response) {
 /* ------------------------------------------------------------------- MCP 服务端 */
 
 /**
+ * MCP 走浏览器或跨域客户端时，预检请求不带 Authorization；因此 CORS 头必须在
+ * 鉴权之前返回，否则浏览器只会看到 401，永远发不出真正的 initialize。
+ */
+const MCP_PROTOCOL_VERSION = "2025-06-18";
+
+const MCP_CORS_HEADERS = {
+  "access-control-allow-origin": "*",
+  "access-control-allow-methods": "POST, GET, OPTIONS, DELETE",
+  "access-control-allow-headers":
+    "authorization, content-type, mcp-session-id, mcp-protocol-version",
+  "access-control-expose-headers": "mcp-session-id",
+  "access-control-max-age": "86400",
+};
+
+function mcpJson(data, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { "content-type": "application/json; charset=utf-8", ...MCP_CORS_HEADERS },
+  });
+}
+
+/**
  * 极简 MCP（Streamable HTTP，JSON-RPC）。读写、禁删。
  * 刻意不提供 create/delete 工具：新建记录需要客户端 Snapshot 的完整字段模板，
  * 让 AI 凭空拼一份可能产生客户端导入不了的载荷；整理既有数据用手上的记录本身当模板最稳。
@@ -651,34 +673,44 @@ const MCP_TOOLS = [
 ];
 
 async function handleMcp(request, env) {
+  // 预检必须在鉴权之前：浏览器不会在 OPTIONS 里带 Authorization。
+  if (request.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: MCP_CORS_HEADERS });
+  }
   const provided = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "").trim();
   if (!env.MCP_TOKEN || !equalConstantTime(provided, env.MCP_TOKEN)) {
     return new Response(JSON.stringify({ error: "unauthorized" }), {
       status: 401,
-      headers: { "content-type": "application/json", "www-authenticate": "Bearer" },
+      headers: {
+        "content-type": "application/json",
+        "www-authenticate": "Bearer",
+        ...MCP_CORS_HEADERS,
+      },
     });
   }
   if (request.method === "GET") {
     // 不支持服务端主动推送（SSE），如实拒绝而不是假装成功。
-    return fail("本服务端不提供 SSE 流", 405);
+    return mcpJson({ error: "本服务端不提供 SSE 流" }, 405);
   }
   const message = await request.json().catch(() => null);
   if (!message || typeof message.method !== "string") {
-    return json({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } }, 400);
+    return mcpJson({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } }, 400);
   }
   const id = message.id ?? null;
-  const reply = (result) => json({ jsonrpc: "2.0", id, result });
-  const error = (code, msg) => json({ jsonrpc: "2.0", id, error: { code, message: msg } });
+  const reply = (result) => mcpJson({ jsonrpc: "2.0", id, result });
+  const error = (code, msg) => mcpJson({ jsonrpc: "2.0", id, error: { code, message: msg } });
 
   if (message.method === "initialize") {
     return reply({
-      protocolVersion: message.params?.protocolVersion || "2025-06-18",
+      // 回显客户端版本会让旧客户端误以为服务端支持它；这里固定返回本服务端实现的版本，
+      // 由客户端按 MCP 规范决定是否继续。
+      protocolVersion: MCP_PROTOCOL_VERSION,
       capabilities: { tools: {} },
       serverInfo: { name: "lemonbox-sync", version: VERSION },
     });
   }
   if (message.method === "notifications/initialized" || message.method === "notifications/cancelled") {
-    return new Response(null, { status: 202 });
+    return new Response(null, { status: 202, headers: MCP_CORS_HEADERS });
   }
   if (message.method === "ping") return reply({});
   if (message.method === "tools/list") return reply({ tools: MCP_TOOLS });
@@ -747,6 +779,15 @@ async function mcpCall(env, name, args) {
     if (!fields || typeof fields !== "object" || Array.isArray(fields)) {
       throw new Error("fields 需要是一个字段对象");
     }
+    // 跨设备稳定键与墓碑字段不接受 AI 改写：
+    //  - id 是本机自增，改了会让别的引用指错行；syncId 是跨设备键，改了就换了一条记录；
+    //  - deletedAt / purgedAt 是删除墓碑，MCP 的设计前提就是「禁删」；
+    //  - updatedAt 由服务端统一写，否则 AI 传一个旧值会让 App 端 LWW 判成「不新」而丢弃修改。
+    for (const field of Object.keys(fields)) {
+      if (field === "id" || field === "syncId") throw new Error(`不允许修改 ${field}`);
+      if (field === "deletedAt" || field === "purgedAt") throw new Error("MCP 不允许删除或恢复记录");
+      if (field === "updatedAt") throw new Error("updatedAt 由服务端写入，不允许外部指定");
+    }
     const row = await env.DB.prepare(
       "SELECT payload, server_seq FROM records WHERE collection = ? AND record_key = ?",
     )
@@ -755,7 +796,8 @@ async function mcpCall(env, name, args) {
     if (!row) throw new Error("记录不存在：不允许凭空创建，先用 get_record 确认 key");
     const origin = safeParse(row.payload);
     if (!origin || typeof origin !== "object") throw new Error("原载荷不是合法 JSON，拒绝改写");
-    const merged = { ...origin, ...fields };
+    const now = Date.now();
+    const merged = { ...origin, ...fields, updatedAt: now };
     // 只覆盖给出的字段；载荷里的 syncId 不允许被改（改了就跨设备指错行）。
     if (merged.syncId !== origin.syncId) throw new Error("不允许修改 syncId");
 
@@ -766,7 +808,7 @@ async function mcpCall(env, name, args) {
       "UPDATE records SET payload = ?, server_seq = ?, updated_by_user = ?, updated_by_dev = ?, " +
         "updated_at = ?, deleted = 0 WHERE collection = ? AND record_key = ?",
     )
-      .bind(JSON.stringify(merged), seq, "AI助手", MCP_DEVICE_ID, Date.now(), collection, key)
+      .bind(JSON.stringify(merged), seq, "AI助手", MCP_DEVICE_ID, now, collection, key)
       .run();
     return { ok: true, key, seq, appliedFields: Object.keys(fields), updatedBy: "AI助手" };
   }

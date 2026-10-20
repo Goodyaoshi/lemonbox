@@ -101,10 +101,10 @@ class LemonApplication : Application(), Configuration.Provider, ImageLoaderFacto
             enabled = imageCloudPreferences.enabled.value,
             backgroundSync = imageCloudPreferences.backgroundSync.value
         )
-        // 多设备同步：按「正式包 + 已登录 + 用户已开启」排期；未登录视为纯本地，不注册后台唤醒。
-        // 用云同步自己的开关，不看图片上传开关——两者取舍不同。
+        // 多设备同步：按「支持文字同步 + 已登录 + 用户已开启」排期；未登录视为纯本地，不注册后台唤醒。
+        // 文字同步与图片上传用两个开关：debug 包也允许文字同步。
         cloudSyncScheduler.syncSchedule(
-            supported = imageCloudConfig.supported,
+            supported = imageCloudConfig.textSyncSupported,
             enabled = imageCloudPreferences.cloudSyncEnabled.value && syncSessionStore.isLoggedIn
         )
         // 即时触发：回到前台 / 本地写入后同步。冷启动的首次 onStart 也在其覆盖内，

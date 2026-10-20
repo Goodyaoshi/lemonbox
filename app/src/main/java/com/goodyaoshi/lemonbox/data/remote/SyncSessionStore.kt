@@ -51,7 +51,8 @@ data class RemoteSession(
  */
 @Singleton
 class SyncSessionStore @Inject constructor(
-    @ApplicationContext context: Context
+    @ApplicationContext context: Context,
+    private val endpointStore: SyncEndpointStore
 ) {
 
     private val preferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -97,7 +98,7 @@ class SyncSessionStore @Inject constructor(
         val valid = session != null &&
             session.token.isNotBlank() &&
             !session.isExpired() &&
-            session.baseUrl == BuildConfig.SYNC_BASE_URL.trim().trimEnd('/')
+            endpointStore.isKnownBaseUrl(session.baseUrl)
         if (!valid) {
             preferences.edit().remove(KEY_SESSION).apply()
             return null

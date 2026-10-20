@@ -1,13 +1,18 @@
 package com.goodyaoshi.lemonbox.data.remote
 
-import com.goodyaoshi.lemonbox.BuildConfig
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import java.net.HttpURLConnection
-import java.net.URL
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import java.io.IOException
+import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -23,32 +28,97 @@ class RemoteApiException(
 /**
  * 同步服务端的 HTTP 客户端。
  *
- * 裸 [HttpURLConnection] + kotlinx-serialization，不引任何 HTTP 框架：
- * 与局域网同步（`SyncClient`）同一套写法，依赖最少、行为最可控。
+ * 使用 OkHttp 而不是裸 [java.net.HttpURLConnection]，唯一原因是 DoH：
+ * 系统 DNS 被污染时需要在「域名 → IP」这一步走加密解析，同时仍让 TLS 按域名做
+ * SNI 与证书校验。OkHttp 的 [okhttp3.Dns] 正好提供这个切口，且 Coil 已经传递依赖它。
  *
- * 地址来自 `BuildConfig.SYNC_BASE_URL`（**非密钥**，Worker 的公开域名）；
+ * 地址来自 [SyncEndpointStore]：默认是构建时注入的公开域名，用户可另配一个自定义地址；
+ * 登录前按候选顺序探活 `/health`，能连上的那个才会被使用。
+ *
  * 凭据只有登录换来的会话令牌，由 [SyncSessionStore] 加密保管，每次请求临时取用。
  * 对象存储的 AccessKey / SecretKey 只在服务端，客户端永远看不到、也不需要。
  */
 @Singleton
 class RemoteSyncClient @Inject constructor(
-    private val sessionStore: SyncSessionStore
+    private val sessionStore: SyncSessionStore,
+    private val endpointStore: SyncEndpointStore
 ) {
 
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
-    /** 服务端根地址，已去掉结尾斜杠。 */
-    val baseUrl: String
-        get() = BuildConfig.SYNC_BASE_URL.trim().trimEnd('/')
+    private val dohResolver = DohResolver()
 
-    /** 是否配置了服务端地址（本地构建可能未注入）。 */
-    fun isConfigured(): Boolean = baseUrl.isNotEmpty()
+    /**
+     * 只对同步域名的解析走 DoH；其他域名（图片、局域网等）保持系统 DNS。
+     * 连接池与线程池由同一个 client 复用。
+     */
+    private val httpClient: OkHttpClient = OkHttpClient.Builder()
+        .dns(DohDns(dohResolver) { endpointStore.candidateHosts() })
+        .connectTimeout(CONNECT_TIMEOUT_MS.toLong(), TimeUnit.MILLISECONDS)
+        .readTimeout(DATA_TIMEOUT_MS.toLong(), TimeUnit.MILLISECONDS)
+        .build()
+
+    /** 当前使用的服务端根地址（最近一次探活成功的地址，未探活则为默认地址）。 */
+    val baseUrl: String
+        get() = endpointStore.activeBaseUrl()
+
+    /** 是否配置了服务端地址（本地构建可能未注入，用户也可通过自定义地址补上）。 */
+    fun isConfigured(): Boolean = endpointStore.candidates().isNotEmpty()
+
+    /** 主动探活当前候选地址，供设置页「测试连接」使用。 */
+    suspend fun probe(): EndpointProbe = withContext(Dispatchers.IO) {
+        probeEndpoints()
+    }
+
+    /**
+     * 按候选顺序探活 `/health`。阻塞调用，调用方必须已在 IO 线程。
+     * 全部失败时返回第一个候选与逐项失败原因，便于界面直接展示。
+     */
+    private fun probeEndpoints(): EndpointProbe {
+        val all = endpointStore.candidates()
+        if (all.isEmpty()) {
+            return EndpointProbe("", false, "这个安装包没有配置同步服务器地址")
+        }
+        val failures = mutableListOf<String>()
+        for (base in all) {
+            val result = probeOne(base)
+            if (result.reachable) {
+                endpointStore.markActive(base)
+                return result
+            }
+            failures += result.detail
+        }
+        return EndpointProbe(all.first(), false, failures.joinToString("；"))
+    }
+
+    private fun probeOne(base: String): EndpointProbe {
+        return try {
+            val request = Request.Builder().url("$base/health").get().build()
+            httpClient.newCall(request).execute().use { response ->
+                val text = response.body?.string().orEmpty()
+                val ok = response.isSuccessful && runCatching {
+                    json.parseToJsonElement(text)
+                        .jsonObject["ok"]
+                        ?.jsonPrimitive
+                        ?.content == "true"
+                }.getOrDefault(false)
+                EndpointProbe(
+                    baseUrl = base,
+                    reachable = ok,
+                    detail = if (ok) "已连接 $base" else "$base 返回 HTTP ${response.code}"
+                )
+            }
+        } catch (e: Exception) {
+            EndpointProbe(base, false, "$base：${NetworkError.describe(e)}")
+        }
+    }
 
     /**
      * 登录并把会话加密落本机。
      *
-     * 账号由服务端预先配置，客户端不内置任何账号密码；[password] 只在这一步交给服务端校验，
-     * 本机不保存它。失败时抛 [RemoteApiException]（账号密码不对、网络不通等），文案可直接展示。
+     * 先探活候选地址：默认域名被污染/阻断时，会自动改用用户配置的备用地址。
+     * 探活失败时把每个地址的具体原因拼进错误里，而不是笼统说「连不上」。
+     * [password] 只在这一步交给服务端校验，本机不保存它。
      */
     suspend fun login(
         username: String,
@@ -56,10 +126,14 @@ class RemoteSyncClient @Inject constructor(
         deviceId: String,
         deviceName: String
     ): RemoteSession = withContext(Dispatchers.IO) {
-        val endpoint = baseUrl
-        if (endpoint.isEmpty()) {
+        if (!isConfigured()) {
             throw RemoteApiException(0, "这个安装包没有配置同步服务器地址")
         }
+        val probe = probeEndpoints()
+        if (!probe.reachable) {
+            throw RemoteApiException(0, "连不上同步服务器：${probe.detail}")
+        }
+        val endpoint = probe.baseUrl
         val payload = json.encodeToString(
             LoginRequest(
                 username = username.trim(),
@@ -70,7 +144,14 @@ class RemoteSyncClient @Inject constructor(
         )
         val response = json.decodeFromString(
             LoginResponse.serializer(),
-            request("POST", "/v1/login", payload, token = null, readTimeoutMs = API_TIMEOUT_MS)
+            request(
+                method = "POST",
+                path = "/v1/login",
+                body = payload,
+                token = null,
+                baseUrl = endpoint,
+                readTimeoutMs = API_TIMEOUT_MS
+            )
         )
         val session = RemoteSession(
             baseUrl = endpoint,
@@ -95,7 +176,14 @@ class RemoteSyncClient @Inject constructor(
         val session = sessionStore.current()
         if (session != null) {
             runCatching {
-                request("POST", "/v1/logout", body = null, token = session.token, readTimeoutMs = API_TIMEOUT_MS)
+                request(
+                    method = "POST",
+                    path = "/v1/logout",
+                    body = null,
+                    token = session.token,
+                    baseUrl = session.baseUrl,
+                    readTimeoutMs = API_TIMEOUT_MS
+                )
             }
         }
         sessionStore.clear()
@@ -132,8 +220,31 @@ class RemoteSyncClient @Inject constructor(
 
     /** 取当前会话令牌带上去发一次请求；未登录时直接抛，不白跑一趟必然 401 的请求。 */
     private fun authedRequest(method: String, path: String, body: String?): String {
-        val session = sessionStore.current() ?: throw RemoteApiException(401, "请先登录柠檬账号")
-        return request(method, path, body, session.token, DATA_TIMEOUT_MS)
+        val session = sessionStore.current()
+            ?: throw RemoteApiException(401, "请先登录柠檬账号")
+        return try {
+            request(
+                method = method,
+                path = path,
+                body = body,
+                token = session.token,
+                baseUrl = session.baseUrl,
+                readTimeoutMs = DATA_TIMEOUT_MS
+            )
+        } catch (e: RemoteApiException) {
+            // 只有网络层失败（statusCode=0）才换地址重试；HTTP 4xx/5xx 原样带回。
+            if (e.statusCode != 0) throw e
+            val probe = probeEndpoints()
+            if (!probe.reachable || probe.baseUrl == session.baseUrl) throw e
+            request(
+                method = method,
+                path = path,
+                body = body,
+                token = session.token,
+                baseUrl = probe.baseUrl,
+                readTimeoutMs = DATA_TIMEOUT_MS
+            )
+        }
     }
 
     /**
@@ -149,38 +260,35 @@ class RemoteSyncClient @Inject constructor(
         path: String,
         body: String?,
         token: String?,
+        baseUrl: String,
         readTimeoutMs: Int
     ): String {
-        val connection = (URL(baseUrl + path).openConnection() as HttpURLConnection).apply {
-            requestMethod = method
-            connectTimeout = CONNECT_TIMEOUT_MS
-            this.readTimeout = readTimeoutMs
-            token?.let { setRequestProperty("Authorization", "Bearer $it") }
-            if (body != null) {
-                doOutput = true
-                setRequestProperty("Content-Type", "application/json")
+        val endpoint = baseUrl.trimEnd('/')
+        if (endpoint.isEmpty()) throw RemoteApiException(0, "同步服务器地址为空")
+        val builder = Request.Builder().url(endpoint + path)
+        token?.let { builder.header("Authorization", "Bearer $it") }
+        // GET/HEAD 不允许带 body；其余方法即使 body 为空也要显式给 null。
+        builder.method(method, body?.toRequestBody(JSON_MEDIA_TYPE))
+        val client = httpClient.newBuilder()
+            .readTimeout(readTimeoutMs.toLong(), TimeUnit.MILLISECONDS)
+            .build()
+        return try {
+            client.newCall(builder.build()).execute().use { response ->
+                val text = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    throw RemoteApiException(response.code, errorMessage(response.code, text))
+                }
+                text
             }
-        }
-        try {
-            if (body != null) {
-                val bytes = body.toByteArray(Charsets.UTF_8)
-                connection.setFixedLengthStreamingMode(bytes.size)
-                connection.outputStream.use { it.write(bytes) }
-            }
-            val code = connection.responseCode
-            val stream = if (code in 200..299) connection.inputStream else connection.errorStream
-            val text = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
-            if (code !in 200..299) throw RemoteApiException(code, errorMessage(code, text))
-            return text
         } catch (e: CancellationException) {
             throw e
         } catch (e: RemoteApiException) {
             throw e
+        } catch (e: IOException) {
+            // 把 DNS/TLS/超时/拒绝连接区分开，并带上实际尝试的地址。
+            throw RemoteApiException(0, "${NetworkError.describe(e)}（地址：$endpoint）")
         } catch (e: Exception) {
-            // 网络层异常统一翻译成人话，避免把 UnknownHostException 之类抛到界面上。
-            throw RemoteApiException(0, "连不上服务器，检查网络或稍后再试")
-        } finally {
-            connection.disconnect()
+            throw RemoteApiException(0, "请求失败：${e.message ?: e.javaClass.simpleName}（地址：$endpoint）")
         }
     }
 
@@ -208,5 +316,7 @@ class RemoteSyncClient @Inject constructor(
 
         /** 推拉一批记录的超时：一批最多几百条，给足读回的时间。 */
         const val DATA_TIMEOUT_MS = 60_000
+
+        val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
     }
 }
