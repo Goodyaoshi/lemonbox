@@ -1,5 +1,7 @@
 package com.goodyaoshi.lemonbox.ui.screen.profile
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -20,21 +22,29 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.Restore
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
+import com.goodyaoshi.lemonbox.ui.components.InlineNotice
+import com.goodyaoshi.lemonbox.ui.components.NoticeVariant
 import com.goodyaoshi.lemonbox.ui.components.SectionTitle
+import com.goodyaoshi.lemonbox.ui.viewmodel.DataCenterViewModel
 import com.goodyaoshi.lemonbox.ui.theme.DividerSoft
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.TextHint
@@ -53,8 +63,17 @@ fun DataCenterScreen(
     onBack: () -> Unit,
     onOpenLanSync: () -> Unit,
     // 云端同步入口（P4 · IA 合并）：登录云账号后图片上云、多设备数据自动对齐，同一页里完成。
-    onOpenImageCloud: () -> Unit = {}
+    onOpenImageCloud: () -> Unit = {},
+    viewModel: DataCenterViewModel = hiltViewModel()
 ) {
+    val state by viewModel.uiState.collectAsState()
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/zip")
+    ) { uri -> if (uri != null) viewModel.export(uri) }
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri -> if (uri != null) viewModel.import(uri) }
+
     Box(modifier = Modifier.fillMaxSize()) {
         AppDecorativeBackground()
 
@@ -109,6 +128,54 @@ fun DataCenterScreen(
                     subtitle = "登录云账号后图片上云、多设备数据自动对齐，仅正式版可用",
                     onClick = onOpenImageCloud
                 )
+            }
+
+            // 本地备份：不依赖登录与网络，是换机/卸载/清数据前的最后一份保险。
+            SectionTitle(
+                title = "本地备份",
+                modifier = Modifier.padding(start = 24.dp, top = 24.dp, bottom = 8.dp)
+            )
+            AppSurfaceCard(
+                modifier = Modifier.padding(horizontal = 20.dp),
+                shape = MaterialTheme.shapes.extraLarge,
+                shadowElevation = 12.dp
+            ) {
+                MenuRow(
+                    icon = Icons.Default.Save,
+                    title = "导出备份文件",
+                    subtitle = "打包全部数据与本机图片；换机、重装前先存一份",
+                    onClick = { exportLauncher.launch(viewModel.defaultBackupFileName()) }
+                )
+                DividerSpacer()
+                MenuRow(
+                    icon = Icons.Default.Restore,
+                    title = "从备份恢复",
+                    subtitle = "从 ZIP 合并恢复，不会删除现有数据；建议先导出当前备份",
+                    onClick = {
+                        importLauncher.launch(
+                            arrayOf(
+                                "application/zip",
+                                "application/x-zip-compressed",
+                                "application/octet-stream"
+                            )
+                        )
+                    }
+                )
+            }
+            if (state.busy) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Box(modifier = Modifier.padding(horizontal = 24.dp)) {
+                    InlineNotice(message = "正在处理，请稍候…", variant = NoticeVariant.Info)
+                }
+            }
+            state.message?.let { message ->
+                Spacer(modifier = Modifier.height(8.dp))
+                Box(modifier = Modifier.padding(horizontal = 24.dp)) {
+                    InlineNotice(
+                        message = message,
+                        variant = if (state.messageIsError) NoticeVariant.Danger else NoticeVariant.Success
+                    )
+                }
             }
         }
     }

@@ -305,6 +305,7 @@ class AppBackupManager @Inject constructor(
             } ?: error("无法读取备份文件")
 
             unzip(backupZip, workingDir)
+            restoreLocalImages(workingDir)
             val raw = readVerifiedPayload(workingDir)
             val useSyncIds = raw.syncVersion >= SYNC_ID_VERSION
             val backup = filterByScope(raw, scope, useSyncIds, keepKeys)
@@ -1128,10 +1129,13 @@ class AppBackupManager @Inject constructor(
      * 引用（分类、位置的 syncId）始终基于全量数据解析，否则增量包里未变更的
      * 父级/所属分类不在包内，导入端会解析不到而丢失关联。
      */
-    suspend fun createBackupZip(since: Long? = null): BackupArchive {
+    suspend fun createBackupZip(
+        since: Long? = null,
+        includeImages: Boolean = false
+    ): BackupArchive {
         val built = buildPayload(since)
         val workingFile = File(context.cacheDir, "lemonbox-backup-${System.currentTimeMillis()}.zip")
-        writePayloadZipTo(built.payload, workingFile)
+        writePayloadZipTo(built.payload, workingFile, includeImages)
         return BackupArchive(file = workingFile, exportedAt = built.exportedAt, isEmpty = built.isEmpty)
     }
 
@@ -1147,7 +1151,11 @@ class AppBackupManager @Inject constructor(
     /**
      * 把一份清单写成备份 ZIP（清单 + 完整性校验条目），供服务端拉取重组后走既有导入通道。
      */
-    fun writePayloadZipTo(payload: AppBackupPayload, target: File) {
+    fun writePayloadZipTo(
+        payload: AppBackupPayload,
+        target: File,
+        includeImages: Boolean = false
+    ) {
         val manifestBytes = json.encodeToString(payload).toByteArray()
         ZipOutputStream(FileOutputStream(target)).use { zip ->
             zip.putNextEntry(ZipEntry(BACKUP_MANIFEST_NAME))
@@ -1159,6 +1167,47 @@ class AppBackupManager @Inject constructor(
             zip.putNextEntry(ZipEntry(BACKUP_CHECKSUM_NAME))
             zip.write(sha256Hex(manifestBytes).toByteArray())
             zip.closeEntry()
+
+            if (includeImages) writeLocalImages(payload, zip)
+        }
+    }
+
+    /**
+     * 手动备份时把本机仍在的图片一起打包（`images/<hash>.jpg`）。
+     *
+     * 云同步不打包图片：图片以内容哈希为键存在对象存储里，两端指向同一个桶。
+     * 但普通用户不一定登录/开启图片云，只导出清单会在换机后丢图，因此本地备份
+     * 额外带上本机 `filesDir/images/item_<hash>.jpg` 的副本。已上传云端并清理本地的
+     * 图片不在这里，恢复时仍需云端取回。
+     */
+    private fun writeLocalImages(payload: AppBackupPayload, zip: ZipOutputStream) {
+        val sourceDir = File(context.filesDir, "images")
+        if (!sourceDir.isDirectory) return
+        payload.items
+            .flatMap { it.imageHashes.orEmpty() }
+            .toSet()
+            .forEach { hash ->
+                val file = File(sourceDir, "item_$hash.jpg")
+                if (!file.isFile) return@forEach
+                zip.putNextEntry(ZipEntry("images/$hash.jpg"))
+                file.inputStream().use { input -> input.copyTo(zip) }
+                zip.closeEntry()
+            }
+    }
+
+    /**
+     * 导入手动备份时把 ZIP 里的 `images/<hash>.jpg` 落回本机 `filesDir/images/item_<hash>.jpg`。
+     *
+     * 必须在 `importBackup` 删除解压目录之前执行；图片与清单里的 `imageHashes` 按文件名
+     * 对齐，因此不需要改数据库。同步产生的 ZIP 不含 `images/`，这里会直接跳过。
+     */
+    private fun restoreLocalImages(workingDir: File) {
+        val sourceDir = File(workingDir, "images")
+        if (!sourceDir.isDirectory) return
+        val targetDir = File(context.filesDir, "images").apply { if (!exists()) mkdirs() }
+        sourceDir.listFiles()?.forEach { file ->
+            if (!file.isFile || !file.name.endsWith(".jpg")) return@forEach
+            file.copyTo(File(targetDir, "item_${file.name}"), overwrite = true)
         }
     }
 
