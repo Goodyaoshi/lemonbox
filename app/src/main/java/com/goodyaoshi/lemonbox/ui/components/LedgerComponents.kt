@@ -526,6 +526,7 @@ fun AmountKeyboard(
 private val OPERATOR_KEYS = setOf("+", "-", "×", "÷")
 
 /** 账单类型配色：支出红 / 收入绿 / 转账青。 */
+@Composable
 fun ledgerTypeColor(type: Int): Color = when (type) {
     1 -> StatusNormal
     2 -> StatusInfo

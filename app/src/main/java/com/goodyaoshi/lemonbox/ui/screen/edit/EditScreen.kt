@@ -146,10 +146,12 @@ fun EditScreen(
         }
     }
     val expiryQuickCodes by viewModel.expiryQuickOptions.collectAsState()
-    // 快捷档位来自设置页的自定义配置（x天/x周/x月/x年），与录入页保持一致。
-    val expiryQuickOptions = remember(expiryQuickCodes) {
+    // 快捷档位来自设置页的自定义配置（x天/x周/x月/x年）；以生产日期为起算日，
+    // 没填生产日期时退回购买日期，再没有才从今天起算。
+    val expiryBase = state.productionDate ?: state.purchaseDate
+    val expiryQuickOptions = remember(expiryQuickCodes, expiryBase) {
         expiryQuickCodes.mapNotNull { code ->
-            val timestamp = DateUtil.expiryQuickTimestamp(code) ?: return@mapNotNull null
+            val timestamp = DateUtil.expiryQuickTimestamp(code, expiryBase) ?: return@mapNotNull null
             ExpiryQuickOption(DateUtil.expiryQuickLabel(code), timestamp)
         }
     }
@@ -492,6 +494,18 @@ fun EditScreen(
                                         onClick = { viewModel.updateExpireTime(option.timestamp) }
                                     )
                                 }
+                            }
+                            if (expiryQuickOptions.isNotEmpty()) {
+                                Text(
+                                    text = when {
+                                        state.productionDate != null -> "快捷档位按生产日期推算"
+                                        state.purchaseDate != null -> "快捷档位按购买日期推算"
+                                        else -> "快捷档位从今天起算"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = TextHint,
+                                    modifier = Modifier.padding(top = 6.dp)
+                                )
                             }
 
                             Spacer(modifier = Modifier.size(18.dp))

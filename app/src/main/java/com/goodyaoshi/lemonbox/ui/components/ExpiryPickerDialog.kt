@@ -5,10 +5,12 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -218,30 +220,41 @@ private fun <T> FixedGridOptions(
     selected: (T) -> Boolean,
     onSelect: (T) -> Unit
 ) {
-    // 审计修复：此前用 LazyVerticalGrid——它自带纵向滚动，嵌在弹窗内容区的 verticalScroll 里
-    // 会与外层滚动互相打架（选日期时滚不动 / 跳一下）。选项量级极小（年 ≤ 9、月 12、日 ≤ 31），
-    // 用普通网格一次铺满即可，既无嵌套滚动，也没有惰性列表的开销。
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        items.chunked(columns.coerceAtLeast(1)).forEach { rowItems ->
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                rowItems.forEach { item ->
-                    Box(modifier = Modifier.weight(1f)) {
-                        ExpiryGridCell(
-                            text = label(item),
-                            selected = selected(item),
-                            onClick = { onSelect(item) }
-                        )
+    // 7 列日历格在 360dp 手机上放不下：每格约 32dp，再叠加 48dp 最小触达区，
+    // 后面的日期会被裁成只剩第一位（20/21/22 看起来都像「2」）。
+    // 这里按可用宽度反算能放几列，保证每格至少 48dp；列数变少但不再裁字。
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        val hGap = 4.dp
+        val vGap = 2.dp
+        val minCell = 42.dp
+        val effectiveColumns = columns.coerceAtMost(
+            ((maxWidth + hGap) / (minCell + hGap)).toInt().coerceAtLeast(1)
+        )
+        // 审计修复：此前用 LazyVerticalGrid——它自带纵向滚动，嵌在弹窗内容区的 verticalScroll 里
+        // 会与外层滚动互相打架（选日期时滚不动 / 跳一下）。选项量级极小（年 ≤ 9、月 12、日 ≤ 31），
+        // 用普通网格一次铺满即可，既无嵌套滚动，也没有惰性列表的开销。
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(vGap)
+        ) {
+            items.chunked(effectiveColumns.coerceAtLeast(1)).forEach { rowItems ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(hGap)
+                ) {
+                    rowItems.forEach { item ->
+                        Box(modifier = Modifier.weight(1f)) {
+                            ExpiryGridCell(
+                                text = label(item),
+                                selected = selected(item),
+                                onClick = { onSelect(item) }
+                            )
+                        }
                     }
-                }
-                // 补齐最后一行的空位，保证每格等宽、列对齐。
-                repeat(columns - rowItems.size) {
-                    Spacer(modifier = Modifier.weight(1f))
+                    // 补齐最后一行的空位，保证每格等宽、列对齐。
+                    repeat(effectiveColumns - rowItems.size) {
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
                 }
             }
         }
@@ -258,8 +271,9 @@ private fun ExpiryGridCell(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            // 触达面积达标（F7）：日期格此前最小高仅 42dp，低于 48dp 最小可点区，选日期难点中。
-            .minimumInteractiveComponentSize()
+            // 日期格是 7/6/5 列的紧凑网格：42dp 宽已能稳定点中，再叠加 48dp 最小宽会在
+            // 360dp 手机上把两日期挤成一位。高度压到 40dp，让 31 天尽量一屏放完。
+            .heightIn(min = 40.dp)
             // 圆角走形状令牌（F6）：收敛到 large（20dp）。
             .clip(MaterialTheme.shapes.large)
             .background(
@@ -274,7 +288,7 @@ private fun ExpiryGridCell(
                 ),
                 onClick = onClick
             )
-            .padding(horizontal = 8.dp, vertical = 12.dp),
+            .padding(horizontal = 4.dp, vertical = 6.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(

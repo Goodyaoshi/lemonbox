@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -44,6 +43,7 @@ import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.OrangeTint
 import com.goodyaoshi.lemonbox.ui.theme.StatusNormal
 import com.goodyaoshi.lemonbox.ui.theme.StatusWarning
+import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarmDeep
 import com.goodyaoshi.lemonbox.ui.theme.TagOrange
 import com.goodyaoshi.lemonbox.ui.theme.TagOrangeText
 import com.goodyaoshi.lemonbox.ui.theme.TagRed
@@ -95,7 +95,7 @@ fun ItemCard(
         modifier = cardModifier,
         // 圆角走形状令牌（F6）：与卡片 large 档位对齐。
         shape = MaterialTheme.shapes.large,
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(14.dp),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp),
         shadowElevation = 12.dp,
         onClick = onClick
     ) {
@@ -142,7 +142,7 @@ fun ItemCard(
                     model = primaryImageModel,
                     contentDescription = item.name,
                     modifier = Modifier
-                        .size(62.dp)
+                        .size(56.dp)
                         // 圆角走形状令牌（F6）。
                         .clip(MaterialTheme.shapes.medium),
                     contentScale = ContentScale.Crop
@@ -150,7 +150,7 @@ fun ItemCard(
             } else {
                 Box(
                     modifier = Modifier
-                        .size(62.dp)
+                        .size(56.dp)
                         // 圆角走形状令牌（F6）。
                         .clip(MaterialTheme.shapes.medium)
                         .background(OrangeStart.copy(alpha = 0.12f)),
@@ -174,110 +174,28 @@ fun ItemCard(
             ) {
                 Text(
                     text = item.name,
-                    // 字号走主题字阶（F6）：titleSmall 为 14sp。
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
+                    // 名称是列表的主信息，给到 titleMedium（16sp），与极简记物的清单标题同档。
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
                     color = TextPrimary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
 
-                itemDetail.categoryName?.let { category ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = categoryIconFor(itemDetail.categoryIcon),
-                            contentDescription = null,
-                            modifier = Modifier.size(13.dp),
-                            tint = OrangeStart
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = category,
-                            // 字号走主题字阶（F6）：bodySmall 为 12sp。
-                            style = MaterialTheme.typography.bodySmall,
-                            color = OrangeStart,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
+                // 分类与位置合成一行：列表先回答「是什么、放哪儿」，价格与数量放右侧。
+                val meta = listOfNotNull(
+                    itemDetail.categoryName?.takeIf { it.isNotBlank() },
+                    itemDetail.locationName?.takeIf { it.isNotBlank() }
+                ).joinToString(" · ")
+                Text(
+                    text = meta.ifBlank { "未归类" },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
 
-                itemDetail.locationName?.let { location ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.LocationOn,
-                            contentDescription = null,
-                            modifier = Modifier.size(13.dp),
-                            tint = TextSecondary
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = location,
-                            // 字号走主题字阶（F6）：bodySmall 为 12sp。
-                            style = MaterialTheme.typography.bodySmall,
-                            color = TextSecondary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Text(
-                        text = if (item.trackMode == Item.TRACK_CONSUMABLE && item.consumedQuantity > 0) {
-                            "剩余 ${item.quantity}${item.unit} · 已用 ${item.consumedQuantity}"
-                        } else {
-                            "数量 ${item.quantity}${item.unit}"
-                        },
-                        // 字号走主题字阶（F6）：bodySmall 为 12sp。
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextSecondary
-                    )
-                    item.price?.let { price ->
-                        Text(
-                            text = DateUtil.formatCurrency(price),
-                            // 字号走主题字阶（F6）：bodySmall 为 12sp。
-                            style = MaterialTheme.typography.bodySmall,
-                            color = TextSecondary
-                        )
-                    }
-                }
-
-                // 使用周期：只对持续使用型展示「用了多少天 / 日均」，按件消耗型看库存即可。
-                val usageDayCount = if (item.trackMode == Item.TRACK_DURABLE) {
-                    Item.usageDays(
-                        startUseTime = item.startUseTime,
-                        purchaseDate = item.purchaseDate,
-                        createdAt = item.createdAt,
-                        usageEndedAt = item.usageEndedAt,
-                        usageStatus = item.usageStatus,
-                        disposition = item.disposition
-                    )
-                } else {
-                    0
-                }
-                if (usageDayCount > 0) {
-                    val dailyCost = Item.averageDailyCost(item.price, item.quantity, usageDayCount)
-                    Text(
-                        text = if (dailyCost != null) {
-                            "已用 ${usageDayCount}天 ｜ 日均 ${DateUtil.formatCurrency(dailyCost)}"
-                        } else {
-                            "已用 ${usageDayCount}天"
-                        },
-                        // 字号走主题字阶（F6）：labelLarge 为 14sp。
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Medium,
-                        color = TextPrimary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-
-                // 状态标签并列展示：三个维度（去向 / 待买 / 使用状态）互不挤出，
-                // 到期倒计时恒显，避免「只看得到一个标签」而漏掉关键信息。
+                // 状态标签只留前两枚，其余收成「+N」：卡片不再被四五个标签撑高。
                 val statusTags = buildList {
                     if (item.disposition != Item.DISPOSITION_IN_STOCK) {
                         val (container, content) =
@@ -293,7 +211,9 @@ fun ItemCard(
                     if (item.needRestock) {
                         add(Triple("待买", TagOrange, TagOrangeText))
                     }
-                    if (item.usageStatus != Item.USAGE_IN_USE) {
+                    if (item.usageStatus != Item.USAGE_IN_USE &&
+                        !(item.needRestock && item.usageStatus == Item.USAGE_USED_UP)
+                    ) {
                         val (container, content) =
                             itemStatusColors(StatusDimension.USAGE, item.usageStatus)
                         add(
@@ -317,17 +237,48 @@ fun ItemCard(
 
                 if (statusTags.isNotEmpty()) {
                     FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        statusTags.forEach { (text, container, content) ->
+                        statusTags.take(2).forEach { (text, container, content) ->
                             PillTag(
                                 text = text,
                                 backgroundColor = container,
                                 contentColor = content
                             )
                         }
+                        if (statusTags.size > 2) {
+                            PillTag(
+                                text = "+${statusTags.size - 2}",
+                                backgroundColor = SurfaceWarmDeep,
+                                contentColor = TextSecondary
+                            )
+                        }
                     }
+                }
+            }
+
+            Spacer(modifier = Modifier.width(10.dp))
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                Text(
+                    text = "${item.quantity}${item.unit}",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = TextPrimary,
+                    maxLines = 1
+                )
+                item.price?.let { price ->
+                    // 列表显示这件东西的估值（单价 × 数量），与页头「估值」同口径；
+                    // 单价留在详情页，避免两个价格在列表里打架。
+                    Text(
+                        text = DateUtil.formatCurrency(price * item.quantity.coerceAtLeast(0)),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary,
+                        maxLines = 1
+                    )
                 }
             }
 

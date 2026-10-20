@@ -84,7 +84,9 @@ fun LedgerStatsScreen(
     val monthKey = yearMonth.toString()
     // 分类配色统一走共享色槽（P2）：扇区与图例都按分类身份取色，排序变化不再换色。
     // 饼图避开红绿语义对（P2）：红绿色盲不友好，剔除 StatusExpired(红)/StatusNormal(绿)。
-    val palette = categorySolidColors().filterNot { it == StatusExpired || it == StatusNormal }
+    val expiredColor = StatusExpired
+    val normalColor = StatusNormal
+    val palette = categorySolidColors().filterNot { it == expiredColor || it == normalColor }
     // 饼图与图例只展示占比前几名 + 「其它」（P2-17）：此前图例把全部分类再列一遍，
     // 与紧接着的「分类排行」卡重复，分类一多页面就被撑长。完整金额仍在排行卡里保留。
     val displaySlices = remember(slices) { chartSlices(slices) }

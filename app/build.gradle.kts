@@ -73,6 +73,12 @@ android {
             buildConfigField("boolean", "IMAGE_CLOUD_SUPPORTED", "false")
             buildConfigField("boolean", "TEXT_SYNC_SUPPORTED", "true")
             buildConfigField("String", "SYNC_BASE_URL", syncBaseUrl.asBuildConfigLiteral())
+            // 本机 / CI 的 Android 模拟器是 x86_64，而正式包只发 arm64-v8a。
+            // debug 额外带一份 x86_64 原生库，方便在模拟器上做 UI 走查与截图；
+            // release 的 ABI 配置不变，不会增大分发包。
+            ndk {
+                abiFilters += "x86_64"
+            }
         }
 
         release {

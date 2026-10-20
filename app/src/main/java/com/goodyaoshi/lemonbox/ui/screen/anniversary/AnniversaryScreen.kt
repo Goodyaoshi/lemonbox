@@ -25,8 +25,6 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.DatePicker
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -35,7 +33,6 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
-import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -55,6 +52,7 @@ import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.DeleteCopy
 import com.goodyaoshi.lemonbox.ui.components.EmptyState
+import com.goodyaoshi.lemonbox.ui.components.ExpiryPickerDialog
 import com.goodyaoshi.lemonbox.ui.components.LemonFab
 import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
 import com.goodyaoshi.lemonbox.ui.components.PillTag
@@ -73,8 +71,9 @@ import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
 import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
 import com.goodyaoshi.lemonbox.ui.viewmodel.AnniversaryRow
 import com.goodyaoshi.lemonbox.ui.viewmodel.AnniversaryViewModel
-import java.time.Instant
-import java.time.ZoneOffset
+import com.goodyaoshi.lemonbox.util.DateUtil
+import java.time.LocalDate
+import java.time.ZoneId
 
 /**
  * 纪念日列表页：在一起的累计、生日/周年、考试倒数都收在这，
@@ -202,12 +201,24 @@ fun AnniversaryScreen(
             }
         }
         if (showTogetherDatePicker) {
-            DatePickerCardDialog(
+            val initialMillis = remember(togetherStartDate) {
+                togetherStartDate
+                    ?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+                    ?.atStartOfDay(ZoneId.systemDefault())
+                    ?.toInstant()
+                    ?.toEpochMilli()
+            }
+            ExpiryPickerDialog(
+                selectedDateMillis = initialMillis,
                 title = "在一起起始日",
-                initialDate = togetherStartDate,
-                onDismiss = { showTogetherDatePicker = false },
-                onConfirm = { date ->
-                    viewModel.setTogetherStartDate(date)
+                yearRange = (LocalDate.now().year - 80)..LocalDate.now().year,
+                onDismissRequest = { showTogetherDatePicker = false },
+                onClear = {
+                    viewModel.setTogetherStartDate(null)
+                    showTogetherDatePicker = false
+                },
+                onConfirm = { millis ->
+                    viewModel.setTogetherStartDate(millis?.let(DateUtil::formatDate))
                     showTogetherDatePicker = false
                 }
             )
@@ -290,42 +301,6 @@ private fun SettingRow(
                 .clickable(role = Role.Button, onClick = onAction)
                 .padding(horizontal = 10.dp, vertical = 6.dp)
         )
-    }
-}
-
-/** 日期选择弹窗：以 yyyy-MM-dd 文本回调；点「清除」回传 null 表示取消设置。 */
-@Composable
-@OptIn(ExperimentalMaterial3Api::class)
-private fun DatePickerCardDialog(
-    title: String,
-    initialDate: String?,
-    onDismiss: () -> Unit,
-    onConfirm: (String?) -> Unit
-) {
-    // DatePicker 以 UTC 毫秒表示日期，这里统一用 UTC 换算，避免时区导致日期偏移一天。
-    val initialMillis = remember(initialDate) {
-        initialDate
-            ?.let { runCatching { java.time.LocalDate.parse(it) }.getOrNull() }
-            ?.atStartOfDay(ZoneOffset.UTC)
-            ?.toInstant()
-            ?.toEpochMilli()
-    }
-    val pickerState = rememberDatePickerState(initialSelectedDateMillis = initialMillis)
-    AppDialog(
-        title = title,
-        onDismissRequest = onDismiss,
-        confirmText = "确定",
-        onConfirm = {
-            onConfirm(
-                pickerState.selectedDateMillis?.let {
-                    Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate().toString()
-                }
-            )
-        },
-        secondaryText = initialDate?.let { "清除" },
-        onSecondary = { onConfirm(null) }
-    ) {
-        DatePicker(state = pickerState)
     }
 }
 

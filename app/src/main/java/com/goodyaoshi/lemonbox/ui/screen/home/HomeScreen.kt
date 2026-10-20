@@ -1,8 +1,10 @@
 package com.goodyaoshi.lemonbox.ui.screen.home
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -25,6 +27,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.QrCodeScanner
@@ -48,6 +51,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -60,6 +66,7 @@ import com.goodyaoshi.lemonbox.data.local.entity.ItemDetail
 import com.goodyaoshi.lemonbox.data.repository.WeeklyMealDay
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.DeleteCopy
+import com.goodyaoshi.lemonbox.ui.components.DividerLine
 import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.EditorSelectionChip
@@ -67,15 +74,15 @@ import com.goodyaoshi.lemonbox.ui.components.LedgerBudgetBar
 import com.goodyaoshi.lemonbox.ui.components.rememberBottomBarClearance
 import com.goodyaoshi.lemonbox.ui.components.PillTag
 import com.goodyaoshi.lemonbox.ui.components.SectionHeader
+import com.goodyaoshi.lemonbox.ui.theme.Background
 import com.goodyaoshi.lemonbox.ui.theme.CardWhite
+import com.goodyaoshi.lemonbox.ui.theme.DividerSoft
 import com.goodyaoshi.lemonbox.ui.theme.LemonEnd
 import com.goodyaoshi.lemonbox.ui.theme.LemonStart
-import com.goodyaoshi.lemonbox.ui.theme.OnLemon
-import com.goodyaoshi.lemonbox.ui.theme.OnLemonSoft
-import com.goodyaoshi.lemonbox.ui.theme.OnScrim
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.OrangeTint
 import com.goodyaoshi.lemonbox.ui.theme.StatusExpired
+import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarm
 import com.goodyaoshi.lemonbox.ui.theme.TagGreen
 import com.goodyaoshi.lemonbox.ui.theme.TagGreenText
 import com.goodyaoshi.lemonbox.ui.theme.TagOrangeText
@@ -94,6 +101,9 @@ import com.goodyaoshi.lemonbox.util.LedgerMath
 import kotlinx.coroutines.delay
 import java.time.LocalDate
 import java.time.LocalTime
+import java.time.format.DateTimeFormatter
+import java.time.format.TextStyle
+import java.util.Locale
 
 /**
  * 今日页只回答三件事：今天有什么要办的、今天吃什么、这个月花了多少。
@@ -143,62 +153,65 @@ fun HomeScreen(
         AppDecorativeBackground()
 
         Column(modifier = Modifier.fillMaxSize()) {
-            HeroHeader(togetherLabel = togetherDays, nickname = nickname)
+            HomeHeader(
+                togetherLabel = togetherDays,
+                nickname = nickname,
+                eventCount = todayEvents.size
+            )
 
-            // 搜索入口行（IA-1/P2-5）：首页不做搜索，这里只是「去家当找东西」的导航入口，
-            // 用图标 + 文案 + 右箭头表达跳转，不再复刻家当页真搜索框的外形与操作说明式占位。
+            // 首页只留一个搜索入口：整条可点去家当，右侧扫码是同一身体里的附属动作。
+            // 此前搜索和扫码各占一枚等重的浅绿胶囊，像两个并列的主按钮，反而不知道该点哪个。
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .padding(horizontal = 20.dp, vertical = 12.dp)
             ) {
                 Row(
                     modifier = Modifier
                         .weight(1f)
                         .height(52.dp)
-                        // 形状走形状令牌（F6）：圆角收敛到 CircleShape 胶囊。
                         .clip(CircleShape)
-                        .background(OrangeTint)
-                        // 整条即入口，声明 Button 角色并给出动作说明（F8），热区即 52dp。
+                        .background(CardWhite)
+                        .border(1.dp, DividerSoft, CircleShape)
                         .clickable(onClickLabel = "去家当搜索", role = Role.Button) {
                             onSearchInHousehold("")
                         }
-                        .padding(horizontal = 16.dp),
+                        .padding(start = 16.dp, end = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
                         imageVector = Icons.Default.Search,
                         contentDescription = null,
                         tint = OrangeStart,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(19.dp)
                     )
                     Spacer(modifier = Modifier.width(10.dp))
                     Text(
-                        text = "去家当找东西 ›",
-                        // 字号走主题字阶（F6）：labelLarge 为 14sp。
+                        text = "找东西、查库存",
                         style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Medium,
-                        color = TextPrimary,
+                        color = TextHint,
                         modifier = Modifier.weight(1f)
                     )
-                }
-                Spacer(modifier = Modifier.width(10.dp))
-                Box(
-                    modifier = Modifier
-                        .size(52.dp)
-                        // 形状走形状令牌（F6）：圆形统一用 CircleShape。
-                        .clip(CircleShape)
-                        .background(OrangeTint)
-                        .clickable(onClick = onNavigateToScan),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.QrCodeScanner,
-                        contentDescription = "扫码",
-                        tint = OrangeStart,
-                        modifier = Modifier.size(22.dp)
+                    Box(
+                        modifier = Modifier
+                            .width(1.dp)
+                            .height(20.dp)
+                            .background(DividerSoft)
                     )
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .clickable(onClick = onNavigateToScan),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.QrCodeScanner,
+                            contentDescription = "扫码",
+                            tint = OrangeStart,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                 }
             }
 
@@ -292,77 +305,116 @@ fun HomeScreen(
     }
 }
 
+/**
+ * 首页头部：把「今天过得怎么样」放在第一眼，而不是再报一遍产品名。
+ *
+ * 旧版是一整块高饱和柠檬黄，34sp 品牌名占掉首屏最贵的位置；用户每天打开看到的是
+ * 自己已经知道的名字。现在品牌退成顶部一行小字，问候、日期和「第几天」成为主角，
+ * 底色只留一层极浅的暖面与一束柠檬光，饱和黄只出现在小圆点与主按钮上。
+ */
 @Composable
-private fun HeroHeader(togetherLabel: String?, nickname: String) {
+private fun HomeHeader(
+    togetherLabel: String?,
+    nickname: String,
+    eventCount: Int
+) {
     val hour = rememberCurrentHour()
     val lateNight = isLateNight(hour)
-    // 称呼直接拼进问候，如「柠檬，早上好」：产品名「柠檬百宝箱」与昵称「柠檬」都含同一个词，
-    // 这是产品设定（给柠檬做的百宝箱），不是需要回避的重复。
     val greeting = "$nickname，${greetingFor(hour)}"
+    val dateLabel = remember {
+        val today = LocalDate.now()
+        today.format(DateTimeFormatter.ofPattern("M月d日", Locale.CHINA)) + " " +
+            today.dayOfWeek.getDisplayName(TextStyle.FULL, Locale.CHINA)
+    }
+    val subtitle = when {
+        lateNight -> "都收好了，早点睡吧"
+        eventCount > 0 -> "今天有 $eventCount 件事，一件件来"
+        else -> "今天没有要紧事，慢慢过"
+    }
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .background(
-                brush = Brush.verticalGradient(
-                    colors = listOf(LemonStart, LemonEnd)
-                ),
-                shape = RoundedCornerShape(bottomStart = 36.dp, bottomEnd = 36.dp)
-            )
-    ) {
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .background(
+            // 形状走形状令牌：头部与页面底之间用 28dp 的下圆角收口。
+            .clip(RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp))
+            .background(Brush.verticalGradient(colors = listOf(SurfaceWarm, Background)))
+            // 唯一的装饰：右上角一束柠檬光。不用渐变铺满整块 header。
+            .drawBehind {
+                val center = Offset(size.width * 0.94f, 0f)
+                val radius = size.width * 0.72f
+                drawCircle(
                     brush = Brush.radialGradient(
-                        // 硬编码白改走语义色令牌（F5）：OnScrim 即纯白，明暗通用。
-                        colors = listOf(OnScrim.copy(alpha = 0.24f), Color.Transparent),
-                        radius = 620f
+                        colors = listOf(LemonStart.copy(alpha = 0.20f), Color.Transparent),
+                        center = center,
+                        radius = radius
                     ),
-                    shape = RoundedCornerShape(bottomStart = 36.dp, bottomEnd = 36.dp)
+                    radius = radius,
+                    center = center
                 )
-        )
-
+            }
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .statusBarsPadding()
-                .padding(horizontal = 20.dp, vertical = 16.dp)
+                .padding(horizontal = 20.dp)
+                .padding(top = 14.dp, bottom = 18.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = greeting,
-                    color = OnLemonSoft,
-                    style = MaterialTheme.typography.labelMedium
+                    text = BrandCopy.APP_NAME,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TextSecondary
                 )
-                // 只有你们懂的数字：建过累计型纪念日（如「在一起」）才会出现，否则 Hero 保持原样。
-                if (togetherLabel != null) {
-                    Spacer(modifier = Modifier.weight(1f))
+                Spacer(modifier = Modifier.weight(1f))
+                Text(
+                    text = dateLabel,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = TextSecondary
+                )
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                text = greeting,
+                style = MaterialTheme.typography.headlineLarge,
+                color = TextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodyMedium,
+                color = TextSecondary
+            )
+            // 只有你们懂的数字：建过累计型纪念日（如「在一起」）才会出现。
+            if (togetherLabel != null) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(OrangeTint)
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(6.dp)
+                            .clip(CircleShape)
+                            .background(LemonStart)
+                    )
+                    Spacer(modifier = Modifier.width(7.dp))
                     Text(
                         text = togetherLabel,
-                        color = OnLemonSoft,
-                        style = MaterialTheme.typography.labelMedium,
-                        modifier = Modifier
-                            .clip(CircleShape)
-                            // 硬编码白改走语义色令牌（F5）。
-                            .background(OnScrim.copy(alpha = 0.18f))
-                            .padding(horizontal = 10.dp, vertical = 4.dp)
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = OrangeStart
                     )
                 }
             }
-            Text(
-                text = BrandCopy.APP_NAME,
-                color = OnLemon,
-                style = MaterialTheme.typography.displaySmall
-            )
-            Text(
-                text = if (lateNight) "都收好了，早点睡吧" else "账、饭、家当，我都替你记着",
-                color = OnLemonSoft,
-                style = MaterialTheme.typography.labelLarge
-            )
         }
     }
 }
@@ -424,7 +476,7 @@ private fun TodaySection(
     val finishScale = remember { Animatable(1f) }
     LaunchedEffect(justFinished) {
         if (justFinished) {
-            finishScale.snapTo(0.9f)
+            finishScale.snapTo(0.96f)
             finishScale.animateTo(1f, tween(durationMillis = 200))
         }
     }
@@ -443,16 +495,15 @@ private fun TodaySection(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 18.dp)
+            .padding(horizontal = 20.dp, vertical = 16.dp)
     ) {
         SectionHeader(
             title = "今天的事",
-            subtitle = if (events.isNotEmpty()) "共 ${events.size} 件" else null,
             // IA-1：空态与满态都给管理入口，主动管理不再只藏在「我的」二级页。
             // 文案取「待办」而非「提醒」：该入口跳的是「待办提醒」页，只管得着 chips 里的
             // 「提醒」一类（临期 / 待买各自有页面）。早先写「管理提醒」，与 chip 标签字面
             // 相同，容易让人以为点它能管理全部四类。
-            action = "管理待办 ›",
+            action = "管理待办",
             onActionClick = onManageReminders
         )
         Spacer(modifier = Modifier.height(10.dp))
@@ -487,7 +538,7 @@ private fun TodaySection(
                 },
                 shape = MaterialTheme.shapes.large,
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
-                containerColor = CardWhite.copy(alpha = 0.72f),
+                containerColor = CardWhite,
                 shadowElevation = 8.dp
             ) {
                 Row(
@@ -542,25 +593,27 @@ private fun TodaySection(
         } else {
             AppSurfaceCard(
                 shape = MaterialTheme.shapes.large,
-                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
+                contentPadding = PaddingValues(vertical = 4.dp),
                 shadowElevation = 12.dp
             ) {
-                Column {
-                    visibleEvents.forEach { event ->
-                        TodayEventRow(
-                            event = event,
-                            onClick = { onEventClick(event) },
-                            onComplete = { onComplete(event) },
-                            onIgnore = { onIgnore(event) }
-                        )
+                visibleEvents.forEachIndexed { index, event ->
+                    if (index > 0) {
+                        DividerLine(modifier = Modifier.padding(horizontal = 14.dp))
                     }
-                    if (collapsible) {
-                        TodayEventExpandRow(
-                            hiddenCount = shownEvents.size - TODAY_EVENT_PREVIEW_COUNT,
-                            expanded = expanded,
-                            onToggle = { expanded = !expanded }
-                        )
-                    }
+                    TodayEventRow(
+                        event = event,
+                        onClick = { onEventClick(event) },
+                        onComplete = { onComplete(event) },
+                        onIgnore = { onIgnore(event) }
+                    )
+                }
+                if (collapsible) {
+                    DividerLine(modifier = Modifier.padding(horizontal = 14.dp))
+                    TodayEventExpandRow(
+                        hiddenCount = shownEvents.size - TODAY_EVENT_PREVIEW_COUNT,
+                        expanded = expanded,
+                        onToggle = { expanded = !expanded }
+                    )
                 }
             }
         }
@@ -629,12 +682,18 @@ private fun TodayEventExpandRow(
     expanded: Boolean,
     onToggle: () -> Unit
 ) {
+    // 展开/收起用箭头方向表达状态，避免一个「›」在展开后仍指向右边。
+    val arrowAngle by animateFloatAsState(
+        targetValue = if (expanded) 180f else 0f,
+        animationSpec = tween(durationMillis = 200),
+        label = "todayExpandArrow"
+    )
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(MaterialTheme.shapes.medium)
             .clickable(onClick = onToggle)
-            .padding(horizontal = 10.dp, vertical = 10.dp),
+            .padding(horizontal = 14.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -646,11 +705,12 @@ private fun TodayEventExpandRow(
             color = OrangeStart
         )
         Icon(
-            imageVector = Icons.Default.ChevronRight,
+            imageVector = Icons.Default.ExpandMore,
             contentDescription = null,
             tint = OrangeStart,
             modifier = Modifier
                 .size(18.dp)
+                .rotate(arrowAngle)
                 .padding(start = 2.dp)
         )
     }
@@ -682,14 +742,13 @@ private fun TodayEventRow(
             .fillMaxWidth()
             .clip(MaterialTheme.shapes.medium)
             .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 8.dp),
+            .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        // 一行一个图标就够：不再给每类事项套 36dp 的彩色方块，
+        // 首页因此少掉三种色块，眼睛先读到的是事项本身。
         Box(
-            modifier = Modifier
-                .size(36.dp)
-                .clip(MaterialTheme.shapes.medium)
-                .background(accent.copy(alpha = 0.12f)),
+            modifier = Modifier.size(28.dp),
             contentAlignment = Alignment.Center
         ) {
             Icon(
@@ -699,7 +758,7 @@ private fun TodayEventRow(
                 modifier = Modifier.size(20.dp)
             )
         }
-        Spacer(modifier = Modifier.width(10.dp))
+        Spacer(modifier = Modifier.width(8.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = event.title,
@@ -799,68 +858,61 @@ private fun AnniversarySection(
     ) {
         SectionHeader(
             title = "纪念日",
-            action = "全部 ›",
+            action = "全部",
             onActionClick = onOpen,
-            modifier = Modifier.padding(top = 12.dp, bottom = 10.dp)
+            modifier = Modifier.padding(top = 8.dp, bottom = 10.dp)
         )
         AppSurfaceCard(
             shape = MaterialTheme.shapes.large,
-            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
+            contentPadding = PaddingValues(vertical = 4.dp),
             shadowElevation = 12.dp
         ) {
-            Column {
-                rows.forEach { row ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(MaterialTheme.shapes.medium)
-                            // IA-3：点这一行直达该纪念日的编辑页，就地改名字/日期。
-                            .clickable { onOpenEdit(row.anniversary.id) }
-                            .padding(horizontal = 10.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(MaterialTheme.shapes.medium)
-                                .background(OrangeStart.copy(alpha = 0.12f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Favorite,
-                                contentDescription = null,
-                                tint = OrangeStart,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = row.name,
-                                // 字号走主题字阶（F6）：titleSmall 为 14sp。
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.SemiBold,
-                                color = TextPrimary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                text = row.statusText,
-                                // 字号走主题字阶（F6）：bodySmall 为 12sp。
-                                style = MaterialTheme.typography.bodySmall,
-                                color = TextSecondary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.padding(top = 1.dp)
-                            )
-                        }
-                        Icon(
-                            imageVector = Icons.Default.ChevronRight,
-                            contentDescription = null,
-                            tint = TextHint,
-                            modifier = Modifier.size(16.dp)
+            rows.forEachIndexed { index, row ->
+                if (index > 0) {
+                    DividerLine(modifier = Modifier.padding(horizontal = 14.dp))
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(MaterialTheme.shapes.medium)
+                        // IA-3：点这一行直达该纪念日的编辑页，就地改名字/日期。
+                        .clickable { onOpenEdit(row.anniversary.id) }
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Favorite,
+                        contentDescription = null,
+                        tint = OrangeStart,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = row.name,
+                            // 字号走主题字阶（F6）：titleSmall 为 14sp。
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = TextPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = row.statusText,
+                            // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(top = 1.dp)
                         )
                     }
+                    Icon(
+                        imageVector = Icons.Default.ChevronRight,
+                        contentDescription = null,
+                        tint = TextHint,
+                        modifier = Modifier.size(16.dp)
+                    )
                 }
             }
         }
@@ -883,14 +935,14 @@ private fun TodayMealCard(
     ) {
         SectionHeader(
             title = "今天吃什么",
-            subtitle = "按家里现有食材安排，缺的主料会自动进待买",
+            subtitle = "用现有食材安排，缺料自动进待买",
             // 卡片整体即主入口（P3-4）：去掉节标题里与之同目的地的重复「去安排 ›」。
-            modifier = Modifier.padding(top = 12.dp)
+            modifier = Modifier.padding(top = 8.dp)
         )
         Spacer(modifier = Modifier.height(10.dp))
         AppSurfaceCard(
             shape = MaterialTheme.shapes.large,
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
             shadowElevation = 12.dp,
             onClick = onGoPlan
         ) {
@@ -922,8 +974,7 @@ private fun TodayMealCard(
                         PillTag(
                             text = "做了",
                             backgroundColor = OrangeStart,
-                            // 硬编码白改走语义色令牌（F5）。
-                            contentColor = OnScrim,
+                            contentColor = MaterialTheme.colorScheme.onPrimary,
                             onClick = onCooked
                         )
                     }
@@ -978,7 +1029,7 @@ private fun MonthSpendingBar(
         SectionHeader(
             title = "本月账",
             // 预算条整体即主入口（P3-4）：去掉节标题里与之同目的地的重复「去记账 ›」。
-            modifier = Modifier.padding(top = 12.dp, bottom = 10.dp)
+            modifier = Modifier.padding(top = 8.dp, bottom = 10.dp)
         )
         LedgerBudgetBar(
             title = when {

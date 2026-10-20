@@ -58,9 +58,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.goodyaoshi.lemonbox.data.local.entity.Category
 import com.goodyaoshi.lemonbox.data.local.entity.Item
 import com.goodyaoshi.lemonbox.data.local.entity.ItemDetail
 import com.goodyaoshi.lemonbox.util.DateUtil
@@ -70,6 +73,7 @@ import com.goodyaoshi.lemonbox.data.local.entity.StatusDimension
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.DeleteCopy
+import com.goodyaoshi.lemonbox.ui.components.categoryIconFor
 import com.goodyaoshi.lemonbox.ui.components.LemonFab
 import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
 import com.goodyaoshi.lemonbox.ui.components.rememberBottomBarClearance
@@ -94,6 +98,7 @@ import com.goodyaoshi.lemonbox.ui.components.statusOptionsFor
 import com.goodyaoshi.lemonbox.ui.theme.CardWhite
 import com.goodyaoshi.lemonbox.ui.theme.DividerSoft
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
+import com.goodyaoshi.lemonbox.ui.theme.OrangeTint
 import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarmDeep
 import com.goodyaoshi.lemonbox.ui.theme.TagRed
 import com.goodyaoshi.lemonbox.ui.theme.TagRedText
@@ -150,16 +155,37 @@ fun HouseholdScreen(
     }
     val results by viewModel.results.collectAsState()
     val allItems by viewModel.allItems.collectAsState()
-    // 家当总览（对齐极简记物的资产统计）：只算在库、未删除的物品，价值 = 单价 × 剩余数量。
+    // 家当总览（对齐极简记物的资产统计）：只算真正在库、未删除的物品。
+    // needRestock 的待买项在数据层也是 Item（usageStatus=USED_UP），不能算进「在库」，
+    // 否则页头数字会和下方「在库」筛选胶囊对不上。
     val inStockItems = remember(allItems) {
         allItems.filter {
-            it.item.deletedAt == null && it.item.disposition == Item.DISPOSITION_IN_STOCK
+            it.item.deletedAt == null &&
+                it.item.disposition == Item.DISPOSITION_IN_STOCK &&
+                it.item.usageStatus != Item.USAGE_USED_UP
         }
     }
     val totalValueCents = remember(inStockItems) {
         inStockItems.sumOf { detail ->
             val price = detail.item.price ?: return@sumOf 0L
             (price * 100.0).roundToLong() * detail.item.quantity.coerceAtLeast(0)
+        }
+    }
+    // 极简记物的核心指标是「日均成本」；这里只用现有字段（价格、购买日、使用天数）算，
+    // 不为它新增字段。按件消耗品没有「持有天数」概念，不参与日均。
+    val dailyCost = remember(inStockItems) {
+        inStockItems.sumOf { detail ->
+            val item = detail.item
+            if (item.trackMode != Item.TRACK_DURABLE) return@sumOf 0.0
+            val days = Item.usageDays(
+                startUseTime = item.startUseTime,
+                purchaseDate = item.purchaseDate,
+                createdAt = item.createdAt,
+                usageEndedAt = item.usageEndedAt,
+                usageStatus = item.usageStatus,
+                disposition = item.disposition
+            )
+            if (days <= 0) 0.0 else Item.averageDailyCost(item.price, item.quantity, days) ?: 0.0
         }
     }
     val filter by viewModel.filter.collectAsState()
@@ -169,7 +195,6 @@ fun HouseholdScreen(
     // 家当域的计数（待买 / 临期 / 回收站）与入口同源，均在本页 ViewModel（I9）。
     val toBuyCount by viewModel.toBuyCount.collectAsState()
     val expiringCount by viewModel.expiringCount.collectAsState()
-    val trashCount by viewModel.trashCount.collectAsState()
     // 批量模式（GAP-7）：整理大扫除时逐个滑动太碎，接入选中即批量处理的既有范式。
     val isSelectionMode by viewModel.isSelectionMode.collectAsState()
     val selectedIds by viewModel.selectedIds.collectAsState()
@@ -339,29 +364,29 @@ fun HouseholdScreen(
                         style = MaterialTheme.typography.headlineLarge,
                         color = TextPrimary
                     )
+                    Spacer(modifier = Modifier.weight(1f))
+                    // 设置与回收站不是「待买 / 到期」这类高频内容入口，收成标题行右侧图标，
+                    // 把下面的胶囊行让给真正要天天点的两件事。
+                    HeaderIconButton(
+                        icon = Icons.Default.Widgets,
+                        contentDescription = "家当设置",
+                        onClick = onNavigateToCategory
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    HeaderIconButton(
+                        icon = Icons.Default.History,
+                        contentDescription = "回收站",
+                        onClick = onNavigateToTrash
+                    )
                 }
-                Text(
-                    text = "搜索与筛选都在这里，条件可以自由叠加。",
-                    // 字号走主题字阶（F6）：bodyMedium 为 14sp。
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = TextSecondary,
-                    modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
-                )
-                // 家当域入口行（I9）：把「家当」的子页面收拢回它所属的 Tab 根。
-                // 用暖色弱化胶囊承载「导航」，与下方白底/选中态的筛选胶囊区分，避免两类语义混淆。
+                // 家当域入口行（I9）：只保留「待买 / 到期」两个高频入口。
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState())
-                        .padding(bottom = 12.dp),
+                        .padding(top = 10.dp, bottom = 12.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    HeaderActionPill(
-                        icon = Icons.Default.Widgets,
-                        label = "家当设置",
-                        onClick = onNavigateToCategory
-                    )
                     HeaderActionPill(
                         icon = Icons.Default.ShoppingCart,
                         label = "待买",
@@ -374,12 +399,6 @@ fun HouseholdScreen(
                         badge = expiringCount,
                         onClick = onNavigateToExpiry
                     )
-                    HeaderActionPill(
-                        icon = Icons.Default.History,
-                        label = "回收站",
-                        badge = trashCount,
-                        onClick = onNavigateToTrash
-                    )
                 }
                 SearchBar(
                     value = query,
@@ -388,25 +407,93 @@ fun HouseholdScreen(
                     showMagicIconWhenEmpty = false,
                     modifier = Modifier.fillMaxWidth()
                 )
-                // 在库总览：数量与估值（只算填了价格的物品），一眼看到家里资产规模。
+                // 资产总览：在库 / 估值 / 日均，三组数字像资产清单的抬头。
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 10.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(top = 14.dp),
+                    verticalAlignment = Alignment.Bottom
                 ) {
-                    Text(
-                        text = "在库 ${inStockItems.size} 件",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextSecondary
+                    AssetStat(
+                        label = "在库",
+                        value = "${inStockItems.size} 件",
+                        horizontalAlignment = Alignment.Start,
+                        modifier = Modifier.weight(1f)
                     )
-                    if (totalValueCents > 0) {
-                        Text(
-                            text = "估值 ${DateUtil.formatCurrency(LedgerMath.centsToYuan(totalValueCents))}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = TextSecondary
-                        )
+                    AssetStat(
+                        label = "估值",
+                        value = when {
+                            inStockItems.isEmpty() -> "—"
+                            totalValueCents > 0 -> DateUtil.formatCurrency(LedgerMath.centsToYuan(totalValueCents))
+                            else -> "未记价格"
+                        },
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.weight(1f)
+                    )
+                    AssetStat(
+                        label = "日均",
+                        value = if (dailyCost > 0) DateUtil.formatCurrency(dailyCost) else "—",
+                        horizontalAlignment = Alignment.End,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                // 参考极简记物的分类图标入口：一级分类直接露出一排，少一次「筛选 → 选分类」。
+                // 常用的分类排在前面；都不常用时把内置「食品」放第一位。
+                val categoryUsage = remember(allItems) {
+                    allItems.groupingBy { it.item.categoryId }.eachCount()
+                }
+                val topCategories = categories
+                    .filter { it.parentId == null }
+                    .sortedWith(
+                        compareByDescending<Category> { categoryUsage[it.id] ?: 0 }
+                            .thenByDescending { it.isProtected }
+                            .thenBy { it.name }
+                    )
+                    .take(10)
+                // 没有在库物品时，分类条只是空筛选入口，藏起来给小屏空态留出高度。
+                if (inStockItems.isNotEmpty() && topCategories.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(top = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        topCategories.forEach { category ->
+                            val selected = filter.categoryId == category.id
+                            Row(
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .background(if (selected) OrangeTint else CardWhite)
+                                    .border(
+                                        width = 1.dp,
+                                        color = if (selected) OrangeStart else DividerSoft,
+                                        shape = CircleShape
+                                    )
+                                    .minimumInteractiveComponentSize()
+                                    .clickable {
+                                        viewModel.selectCategory(if (selected) null else category.id)
+                                    }
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = categoryIconFor(category.icon),
+                                    contentDescription = null,
+                                    tint = if (selected) OrangeStart else TextSecondary,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                                Spacer(modifier = Modifier.width(5.dp))
+                                Text(
+                                    text = category.name,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                                    color = if (selected) OrangeStart else TextSecondary,
+                                    maxLines = 1
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -502,34 +589,77 @@ fun HouseholdScreen(
             }
 
             if (results.isEmpty()) {
-                // P2-2：区分「库为空」与「仅筛选无结果」两套文案与动作——对空库说「放宽筛选」
-                // 既没有条件可放宽、也没有条件可重置，动作应是「快速录入」。
-                if (allItems.isEmpty()) {
-                    EmptyState(
-                        title = "还没有家当",
-                        message = "把家里的东西录进来，就能在这里搜索、筛选和管理了。",
-                        actionLabel = "快速录入",
-                        actionIcon = Icons.Default.Add,
-                        onAction = onNavigateToSave,
-                        modifier = Modifier.padding(top = 24.dp)
-                    )
-                } else {
-                    EmptyState(
-                        title = "没有找到匹配物品",
-                        message = if (query.isBlank()) {
-                            "当前筛选条件下还没有物品，可以放宽一些条件。"
-                        } else {
-                            "可以更换关键词，或者去掉部分筛选条件。"
-                        },
-                        // 有家当却筛不出来，往往是自己把筛选收窄了（I5）：给一键「重置」，清关键词 + 恢复默认筛选。
-                        actionLabel = "重置筛选条件",
-                        actionIcon = Icons.Default.Close,
-                        onAction = {
-                            viewModel.updateQuery("")
-                            viewModel.resetFilter()
-                        },
-                        modifier = Modifier.padding(top = 24.dp)
-                    )
+                // 空态可能比剩余高度高（小屏 + 分类条 + 筛选行）；放进可滚动区并留出底栏占位，
+                // 否则「快速录入 / 去看待买」会被底部导航盖住。
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState())
+                        .padding(bottom = rememberBottomBarClearance(extra = 16.dp))
+                ) {
+                    // P2-2：区分「库为空」与「仅筛选无结果」两套文案与动作——对空库说「放宽筛选」
+                    // 既没有条件可放宽、也没有条件可重置，动作应是「快速录入」。
+                    if (allItems.isEmpty()) {
+                        EmptyState(
+                            title = "还没有家当",
+                            message = "把家里的东西录进来，就能在这里搜索、筛选和管理了。",
+                            actionLabel = "快速录入",
+                            actionIcon = Icons.Default.Add,
+                            onAction = onNavigateToSave,
+                            compact = true,
+                            modifier = Modifier.padding(top = 16.dp)
+                        )
+                    } else {
+                        val toBuyInLibrary = presetCounts[LibraryPreset.TO_BUY] ?: 0
+                        val usedUpInLibrary = presetCounts[LibraryPreset.USED_UP] ?: 0
+                        when {
+                            // 默认落在「在库」而库里只有待买/已用完时，别再说「放宽筛选」——
+                            // 她需要知道东西在哪个分区，以及下一步点哪里。
+                            query.isBlank() && currentPreset == LibraryPreset.IN_STOCK && toBuyInLibrary > 0 -> {
+                                EmptyState(
+                                    title = "现在没有在库物品",
+                                    message = "有 $toBuyInLibrary 件在待买清单；买到后会回到这里。",
+                                    actionLabel = "去看待买",
+                                    actionIcon = Icons.Default.ShoppingCart,
+                                    onAction = onNavigateToToBuy,
+                                compact = true,
+                                modifier = Modifier.padding(top = 16.dp)
+                                )
+                            }
+
+                            query.isBlank() && currentPreset == LibraryPreset.IN_STOCK && usedUpInLibrary > 0 -> {
+                                EmptyState(
+                                    title = "现在没有在库物品",
+                                    message = "有 $usedUpInLibrary 件已用完；补货或归位后会回到这里。",
+                                    actionLabel = "查看已用完",
+                                    actionIcon = Icons.Default.History,
+                                    onAction = { viewModel.selectPreset(LibraryPreset.USED_UP) },
+                                compact = true,
+                                modifier = Modifier.padding(top = 16.dp)
+                                )
+                            }
+
+                            else -> {
+                                EmptyState(
+                                    title = "没有找到匹配物品",
+                                    message = if (query.isBlank()) {
+                                        "当前筛选条件下还没有物品，可以放宽一些条件。"
+                                    } else {
+                                        "可以更换关键词，或者去掉部分筛选条件。"
+                                    },
+                                    // 有家当却筛不出来，往往是自己把筛选收窄了（I5）：给一键「重置」，清关键词 + 恢复默认筛选。
+                                    actionLabel = "重置筛选条件",
+                                    actionIcon = Icons.Default.Close,
+                                    onAction = {
+                                        viewModel.updateQuery("")
+                                        viewModel.resetFilter()
+                                },
+                                compact = true,
+                                modifier = Modifier.padding(top = 16.dp)
+                                )
+                            }
+                        }
+                    }
                 }
             } else {
                 LazyColumn(
@@ -1188,6 +1318,53 @@ private data class LibrarySection(
     val title: String,
     val items: List<ItemDetail>
 )
+
+@Composable
+private fun AssetStat(
+    label: String,
+    value: String,
+    horizontalAlignment: Alignment.Horizontal,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier, horizontalAlignment = horizontalAlignment) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            color = TextSecondary
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = TextPrimary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(top = 2.dp)
+        )
+    }
+}
+
+@Composable
+private fun HeaderIconButton(
+    icon: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .size(44.dp)
+            .clip(CircleShape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = TextSecondary,
+            modifier = Modifier.size(20.dp)
+        )
+    }
+}
 
 private fun buildSections(
     items: List<ItemDetail>,

@@ -9,25 +9,28 @@
   避免 token 被意外发往第三方。
 -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self'; font-src 'self' data:" />
-<meta name="theme-color" content="#FDFBF7" media="(prefers-color-scheme: light)" />
-<meta name="theme-color" content="#17150F" media="(prefers-color-scheme: dark)" />
+<meta name="theme-color" content="#FAFDF6" media="(prefers-color-scheme: light)" />
+<meta name="theme-color" content="#161F19" media="(prefers-color-scheme: dark)" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="default" />
 <title>柠檬百宝箱</title>
 <style>
 :root{
-  --bg:#FDFBF7; --card:#FFFFFF; --card-2:#F6F1E9; --line:#EDE6DC;
-  --text:#2B2622; --sub:#7C736A; --hint:#AFA69C;
-  --brand:#EE9420; --brand-soft:#FBEFDD; --lemon:#F7D046; --danger:#D9534F;
-  --shadow:0 6px 20px rgba(120,95,60,.10);
+  /* 与安卓端共用一套叶绿 / 柠檬语义色：网页不是另一个品牌，只是同一份数据的另一扇窗。 */
+  --bg:#FAFDF6; --card:#FFFFFF; --card-2:#F1F8EA; --line:#E6EFDD;
+  --text:#2F3A2C; --sub:#52614C; --hint:#66745F;
+  --brand:#3D7A2B; --brand-soft:#F1F8EA; --lemon:#EFC22E; --danger:#C6433A;
+  --on-brand:#FFFFFF;
+  --shadow:0 2px 8px rgba(47,58,44,.06);
   --r-lg:20px; --r-md:14px; --r-sm:10px;
 }
 @media (prefers-color-scheme: dark){
   :root{
-    --bg:#17150F; --card:#231F19; --card-2:#2C2720; --line:#332D25;
-    --text:#F3EEE7; --sub:#A79C92; --hint:#7E746A;
-    --brand:#F0A23C; --brand-soft:#3A2E1C; --lemon:#E7C33F; --danger:#E4786F;
-    --shadow:0 6px 20px rgba(0,0,0,.35);
+    --bg:#161F19; --card:#1F2B22; --card-2:#243026; --line:#2E3B30;
+    --text:#E8F0E4; --sub:#AAB8A4; --hint:#8A9683;
+    --brand:#7CC95C; --brand-soft:#212E1E; --lemon:#E7C33F; --danger:#F08B84;
+    --on-brand:#10240C;
+    --shadow:0 1px 0 rgba(255,255,255,.04);
   }
 }
 *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
@@ -49,7 +52,7 @@ body{
 .topbar-in{max-width:600px; margin:0 auto; padding:10px 16px; display:flex; align-items:center; gap:10px}
 .logo{
   width:34px;height:34px;border-radius:12px; flex:none;
-  background:linear-gradient(140deg,var(--lemon),var(--brand));
+  background:linear-gradient(140deg,var(--lemon),#F7D64A);
   display:grid;place-items:center;font-size:19px;
 }
 .topbar h1{font-size:17px; margin:0; font-weight:700; letter-spacing:.2px}
@@ -57,7 +60,7 @@ body{
 .top-actions{margin-left:auto; display:flex; gap:6px}
 .iconbtn{
   border:1px solid var(--line); background:var(--card); color:var(--text);
-  min-width:40px;min-height:40px; border-radius:12px; font-size:16px; cursor:pointer;
+  min-width:44px;min-height:44px; border-radius:12px; font-size:16px; cursor:pointer;
   display:grid; place-items:center;
 }
 .iconbtn:disabled{opacity:.45}
@@ -66,9 +69,9 @@ h2.sect{
   font-size:13px; color:var(--sub); font-weight:600; letter-spacing:.3px;
   margin:22px 0 8px; display:flex; align-items:center; gap:8px;
 }
-h2.sect::before{content:""; width:4px;height:13px;border-radius:2px;background:var(--brand)}
 .card{
   background:var(--card); border-radius:var(--r-lg);
+  border:1px solid var(--line);
   box-shadow:var(--shadow); overflow:hidden;
 }
 .card.pad{padding:14px}
@@ -107,7 +110,7 @@ h2.sect::before{content:""; width:4px;height:13px;border-radius:2px;background:v
   display:inline-flex; align-items:center; justify-content:center; gap:6px;
   background:var(--card-2); color:var(--text);
 }
-.btn.primary{background:linear-gradient(135deg,var(--lemon),var(--brand)); color:#3A2A06}
+.btn.primary{background:var(--brand); color:var(--on-brand)}
 .btn.ghost{background:transparent; color:var(--brand); border:1px solid var(--line)}
 .btn.danger{background:transparent; color:var(--danger)}
 .btn.block{width:100%}
@@ -126,10 +129,10 @@ label.f > span{display:block; font-size:12.5px; color:var(--sub); margin-bottom:
 .seg{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px}
 .seg .chip{
   border:1px solid var(--line); background:var(--card-2); color:var(--sub);
-  border-radius:999px; padding:8px 14px; font-size:13.5px; cursor:pointer; min-height:38px;
+  border-radius:999px; padding:8px 14px; font-size:13.5px; cursor:pointer; min-height:44px;
   display:inline-flex; align-items:center;
 }
-.seg .chip.on{background:var(--brand); border-color:var(--brand); color:#fff}
+.seg .chip.on{background:var(--brand); border-color:var(--brand); color:var(--on-brand)}
 .seg .chip.on.plain{background:var(--brand-soft); color:var(--brand); border-color:transparent}
 
 /* 底部导航 */
@@ -153,6 +156,10 @@ label.f > span{display:block; font-size:12.5px; color:var(--sub); margin-bottom:
 .scrim{position:fixed; inset:0; background:rgba(30,24,16,.42); z-index:40;
   display:flex; align-items:flex-end; justify-content:center}
 @media (min-width:520px){ .scrim{align-items:center} }
+/* 桌面浏览器不把内容锁在 600px 手机壳里：给到 760px，手机上完全不变。 */
+@media (min-width:900px){
+  .shell,.topbar-in,.tabbar-in{max-width:760px}
+}
 .sheet{
   background:var(--card); width:100%; max-width:600px;
   border-radius:22px 22px 0 0; max-height:88vh; overflow:auto;
@@ -184,6 +191,11 @@ label.f > span{display:block; font-size:12.5px; color:var(--sub); margin-bottom:
 .kv .k{color:var(--sub); flex:none; min-width:76px}
 .kv .v{flex:1; word-break:break-word}
 a{color:var(--brand)}
+:focus-visible{outline:2px solid var(--brand); outline-offset:2px}
+.row:focus-visible{outline-offset:-2px}
+@media (prefers-reduced-motion: reduce){
+  *{scroll-behavior:auto !important; transition-duration:.01ms !important}
+}
 </style>
 </head>
 <body>
@@ -251,6 +263,7 @@ const uuid = () => (crypto.randomUUID ? crypto.randomUUID()
 /** 极简 DOM 构造器：字符串一律走 textContent，杜绝把用户数据当 HTML 注入。 */
 function h(tag, attrs, ...kids) {
   const node = document.createElement(tag);
+  let hasClick = false;
   if (attrs) {
     for (const [k, v] of Object.entries(attrs)) {
       if (v === null || v === undefined || v === false) continue;
@@ -261,12 +274,18 @@ function h(tag, attrs, ...kids) {
       else if (k.startsWith("on") && typeof v === "function") {
         // 事件名必须小写：onClick.slice(2) 是 "Click"，addEventListener("Click")
         // 永远不会触发，表现为所有按钮点了没反应（登录按钮因此不发请求）。
+        if (k === "onClick") hasClick = true;
         node.addEventListener(k.slice(2).toLowerCase(), v);
       }
       else if (k === "value") node.value = v;
       else if (k === "checked" || k === "disabled" || k === "selected") node[k] = !!v;
       else node.setAttribute(k, v);
     }
+  }
+  // 列表行是 div，不是 <button>；补上键盘焦点与角色，否则只能鼠标/触摸点。
+  if (hasClick && node.classList.contains("row")) {
+    node.tabIndex = 0;
+    node.setAttribute("role", "button");
   }
   for (const kid of kids.flat()) {
     if (kid === null || kid === undefined || kid === false) continue;
@@ -302,6 +321,7 @@ const S = {
   since: 0,
   tab: "items",
   busy: false, syncing: false, lastSyncAt: null, conflictCount: 0,
+  ledgerLimit: 60,
   pendingRefresh: false
 };
 const rk = (c, k) => c + "\u0000" + k;
@@ -334,12 +354,12 @@ function loadSession() {
 function saveSession(token, username, expiresAt) {
   S.token = token; S.username = username; S.expiresAt = expiresAt || 0;
   // 新会话从 0 开始拉全量；本次会话内后续同步才走增量。
-  S.records.clear(); S.since = 0;
+  S.records.clear(); S.since = 0; S.ledgerLimit = 60;
   try { localStorage.setItem(LS_KEY, JSON.stringify({ token, username, expiresAt })); } catch (_) {}
 }
 function clearSession() {
   S.token = null; S.username = null; S.expiresAt = 0;
-  S.records.clear(); S.lastSyncAt = null; S.since = 0;
+  S.records.clear(); S.lastSyncAt = null; S.since = 0; S.ledgerLimit = 60;
   try { localStorage.removeItem(LS_KEY); } catch (_) {}
 }
 
@@ -402,7 +422,13 @@ function adopt(ch) {
 
 async function syncNow(quiet) {
   if (S.syncing || !S.token) return;
-  S.syncing = true; render();
+  // 背景同步不能重建正在输入的页面：搜索框、备注框在 focus 时被 render 掉，
+  // 用户会看到自己刚输入的字消失。只刷新顶栏的同步态，等输入结束后的下一次渲染再更新列表。
+  const isTyping = () => {
+    const a = document.activeElement;
+    return !!a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && !!a.closest("#view");
+  };
+  S.syncing = true; renderTopbar();
   try {
     const { changes, truncated, lastSeq } = await pullAll();
     for (const ch of changes) adopt(ch);
@@ -419,7 +445,8 @@ async function syncNow(quiet) {
   } catch (e) {
     if (!quiet) snack("同步失败：" + e.message);
   } finally {
-    S.syncing = false; render();
+    S.syncing = false;
+    if (isTyping()) renderTopbar(); else render();
   }
 }
 
@@ -687,34 +714,58 @@ function itemsOf() {
 /* ---- 家当 ---- */
 function viewItems(root) {
   root.append(h("h2", { class: "sect", text: "家当" }));
-  const items = itemsOf();
-  if (!items.length) {
-    root.append(emptyCard("🧺", "还没有家当", "点右下角「＋」录入第一件东西；录入后两台设备都会看到。"));
-  }
-  const card = h("div", { class: "card" });
-  for (const r of items) {
-    const d = r.data;
-    const cat = nameOf(COLL.CATEGORIES, d.categorySyncId);
-    const loc = nameOf(COLL.LOCATIONS, d.locationSyncId);
-    const bits = [];
-    if (cat) bits.push(cat);
-    if (loc) bits.push(loc);
-    if (d.trackMode === 0) bits.push(`${d.quantity}${d.unit || ""}`);
-    const days = d.expireTime ? daysUntil(d.expireTime) : null;
-    const badges = [];
-    if (d.needRestock) badges.push(["brand", "要补货"]);
-    if (days !== null) badges.push([days < 0 ? "warn" : "", days < 0 ? `过期 ${-days} 天` : days === 0 ? "今天到期" : `${days} 天后到期`]);
-    if (d.usageStatus === USAGE.USED_UP) badges.push(["", "已用完"]);
-    card.append(h("div", { class: "row", onClick: () => itemSheet(r) },
-      h("div", { class: "ico", text: "🧺" }),
-      h("div", { class: "grow" },
-        h("div", { class: "t", text: d.name || "未命名" }),
-        h("div", { class: "s", text: bits.join(" · ") || "未归类" }),
-        badges.length ? h("div", { style: "margin-top:5px;display:flex;gap:6px;flex-wrap:wrap" },
-          badges.map(([k, t]) => h("span", { class: "pill " + k, text: t }))) : null),
-      h("div", { class: "chev", text: "›" })));
-  }
-  root.append(card);
+  const all = itemsOf();
+  const search = textInput("", "搜索名称、分类或位置");
+  search.setAttribute("aria-label", "搜索家当");
+  const summary = h("div", { class: "small muted", style: "margin:8px 2px 0" });
+  const list = h("div");
+  root.append(search, summary, list);
+
+  const metaOf = (r) => [nameOf(COLL.CATEGORIES, r.data.categorySyncId), nameOf(COLL.LOCATIONS, r.data.locationSyncId)].filter(Boolean).join(" · ");
+  const paint = () => {
+    const q = search.value.trim().toLowerCase();
+    const items = q
+      ? all.filter((r) => `${r.data.name || ""} ${metaOf(r)}`.toLowerCase().includes(q))
+      : all;
+    // 与安卓家当页同口径：件数与估值只算真正在库的东西，待买项不计入资产。
+    const owned = all.filter((r) => !(r.data.needRestock && r.data.usageStatus === USAGE.USED_UP));
+    const value = owned.reduce((sum, r) => sum + (Number(r.data.price) || 0) * Math.max(0, Number(r.data.quantity) || 0), 0);
+    summary.textContent = all.length
+      ? `在库 ${owned.length} 件 · 估值 ¥${yuan(Math.round(value * 100))}`
+      : "";
+    list.innerHTML = "";
+    if (!items.length) {
+      list.append(all.length
+        ? emptyCard("🔎", "没有找到匹配物品", "换个名称、分类或位置关键词试试。")
+        : emptyCard("🧺", "还没有家当", "点右下角「＋」录入第一件东西；录入后两台设备都会看到。"));
+      return;
+    }
+    const card = h("div", { class: "card" });
+    for (const r of items) {
+      const d = r.data;
+      const isToBuy = d.needRestock && d.usageStatus === USAGE.USED_UP;
+      const bits = [];
+      const meta = metaOf(r);
+      if (meta) bits.push(meta);
+      if (d.trackMode === 0) bits.push(isToBuy ? `想买 ${d.quantity}${d.unit || ""}` : `${d.quantity}${d.unit || ""}`);
+      const days = d.expireTime ? daysUntil(d.expireTime) : null;
+      const badges = [];
+      if (d.needRestock) badges.push(["brand", "要补货"]);
+      if (days !== null) badges.push([days < 0 ? "warn" : "", days < 0 ? `过期 ${-days} 天` : days === 0 ? "今天到期" : `${days} 天后到期`]);
+      if (!isToBuy && d.usageStatus === USAGE.USED_UP) badges.push(["", "已用完"]);
+      card.append(h("div", { class: "row", onClick: () => (isToBuy ? toBuySheet(r) : itemSheet(r)) },
+        h("div", { class: "ico", text: "🧺" }),
+        h("div", { class: "grow" },
+          h("div", { class: "t", text: d.name || "未命名" }),
+          h("div", { class: "s", text: bits.join(" · ") || "未归类" }),
+          badges.length ? h("div", { style: "margin-top:5px;display:flex;gap:6px;flex-wrap:wrap" },
+            badges.map(([k, t]) => h("span", { class: "pill " + k, text: t }))) : null),
+        h("div", { class: "chev", text: "›" })));
+    }
+    list.append(card);
+  };
+  search.oninput = paint;
+  paint();
 }
 
 function itemSheet(r) {
@@ -803,6 +854,7 @@ function newItemSheet() {
     const name = textInput("", "例如：牛奶");
     const qty = textInput(1, "1", "number");
     const unit = textInput("件", "件");
+    const price = textInput("", "单价（元）", "number");
     const expire = h("input", { type: "date", value: "" });
     const cats = categoriesOf(), locs = locationsOf();
     const catSel = selectInput([["", "未分类"], ...cats.map((x) => [x.data.syncId, x.data.name])], "");
@@ -812,7 +864,9 @@ function newItemSheet() {
       h("div", { style: "display:flex;gap:10px" },
         h("div", { style: "flex:1" }, field("数量", qty)),
         h("div", { style: "flex:1" }, field("单位", unit))),
-      field("到期日（可空）", expire),
+      h("div", { style: "display:flex;gap:10px" },
+        h("div", { style: "flex:1" }, field("单价（元）", price)),
+        h("div", { style: "flex:1" }, field("到期日（可空）", expire))),
       field("分类", catSel),
       field("位置", locSel)
     );
@@ -821,6 +875,7 @@ function newItemSheet() {
         if (!name.value.trim()) throw new Error("名称不能为空");
         const data = blank(COLL.ITEMS, {
           name: name.value.trim(), quantity: Math.max(0, Number(qty.value) || 0), unit: unit.value.trim() || "件",
+          price: price.value === "" ? null : Number(price.value),
           expireTime: expire.value ? dayStart(expire.value) : null,
           categorySyncId: catSel.value || null, locationSyncId: locSel.value || null,
         });
@@ -855,7 +910,7 @@ function viewLedger(root) {
     return;
   }
   const card = h("div", { class: "card" });
-  for (const r of recs.slice(0, 60)) {
+  for (const r of recs.slice(0, S.ledgerLimit)) {
     const d = r.data;
     const t = Number(d.type);
     const cat = nameOf(COLL.LEDGER_CATS, d.categorySyncId);
@@ -867,6 +922,11 @@ function viewLedger(root) {
         h("div", { class: "t", text: (t === 1 ? "+" : t === 0 ? "−" : "") + "¥" + yuan(d.amount) }),
         h("div", { class: "s", text: `${LEDGER_TYPE[t] || "记账"} · ${fmtTime(d.recordTime)}  ${sub}` })),
       h("div", { class: "chev", text: "›" })));
+  }
+  if (recs.length > S.ledgerLimit) {
+    card.append(h("div", { class: "row", style: "justify-content:center", onClick: () => { S.ledgerLimit += 60; render(); } },
+      h("div", { class: "grow", style: "text-align:center;color:var(--brand);font-weight:600",
+        text: `显示更多（还有 ${recs.length - S.ledgerLimit} 条）` })));
   }
   root.append(card);
 }
@@ -939,7 +999,7 @@ function viewToBuy(root) {
   const c1 = h("div", { class: "card" });
   for (const r of need) {
     const cat = nameOf(COLL.CATEGORIES, r.data.categorySyncId);
-    c1.append(h("div", { class: "row", onClick: () => itemSheet(r) },
+    c1.append(h("div", { class: "row", onClick: () => toBuySheet(r) },
       h("div", { class: "ico", text: "🛒" }),
       h("div", { class: "grow" },
         h("div", { class: "t", text: r.data.name || "未命名" }),
@@ -952,7 +1012,7 @@ function viewToBuy(root) {
     root.append(h("h2", { class: "sect", text: "已用完，建议补货" }));
     const c2 = h("div", { class: "card" });
     for (const r of ranOut) {
-      c2.append(h("div", { class: "row", onClick: () => itemSheet(r) },
+      c2.append(h("div", { class: "row", onClick: () => toBuySheet(r) },
         h("div", { class: "ico", text: "🫙" }),
         h("div", { class: "grow" }, h("div", { class: "t", text: r.data.name || "未命名" }),
           h("div", { class: "s", text: "已用完，还没标记补货" })),
@@ -963,14 +1023,35 @@ function viewToBuy(root) {
 }
 
 function bought(r) {
-  const prev = { needRestock: r.data.needRestock, quantity: r.data.quantity };
+  const prev = {
+    needRestock: r.data.needRestock, quantity: r.data.quantity,
+    usageStatus: r.data.usageStatus, purchaseDate: r.data.purchaseDate,
+    startUseTime: r.data.startUseTime, usageEndedAt: r.data.usageEndedAt,
+  };
   busyRun(async () => {
-    await commit(COLL.ITEMS, r.key, (p) => { p.needRestock = false; p.quantity = Math.max(1, Number(p.quantity) || 1); return p; });
+    await commit(COLL.ITEMS, r.key, (p) => {
+      p.needRestock = false;
+      p.quantity = Math.max(1, Number(p.quantity) || 1);
+      // 与安卓 restoreToInUse 对齐：买到后回到「使用中」并记下购买日，
+      // 否则它只会从待买消失、却仍以「已用完」留在库里。
+      p.usageStatus = USAGE.IN_USE;
+      p.purchaseDate = Date.now();
+      p.startUseTime = Date.now();
+      p.usageEndedAt = null;
+      return p;
+    });
     return {
       msg: `「${r.data.name}」已标记买到`,
       // 硬规则：已买到必须可撤销。
-      undo: () => commit(COLL.ITEMS, r.key, (p) => { p.needRestock = prev.needRestock; p.quantity = prev.quantity; return p; })
-        .then(() => snack("已撤销")),
+      undo: () => commit(COLL.ITEMS, r.key, (p) => {
+        p.needRestock = prev.needRestock;
+        p.quantity = prev.quantity;
+        p.usageStatus = prev.usageStatus;
+        p.purchaseDate = prev.purchaseDate;
+        p.startUseTime = prev.startUseTime;
+        p.usageEndedAt = prev.usageEndedAt;
+        return p;
+      }).then(() => snack("已撤销")),
     };
   })();
 }
@@ -984,6 +1065,89 @@ function markNeed(r) {
   })();
 }
 
+/**
+ * 待买项的专用编辑：只改名称 / 数量 / 单位 / 分类 / 给谁，不把「在库 / 已用完」
+ * 这类库存字段暴露出来——待买项在数据层虽然也是 Item，但它还不是家里的东西。
+ */
+function toBuySheet(r) {
+  const d = r.data;
+  sheet("待买项", "买到后点「已买到」才会回到在库；这里只改想买的东西。", (body, close) => {
+    const name = textInput(d.name || "", "例如：牛奶");
+    const qty = textInput(d.quantity || 1, "1", "number");
+    const unit = textInput(d.unit || "件", "件");
+    const cats = categoriesOf();
+    const catSel = selectInput([["", "未分类"], ...cats.map((x) => [x.data.syncId, x.data.name])], d.categorySyncId || "");
+    const whom = chipGroup([["", "不标注"], ["self", FOR_WHOM.self], ["partner", FOR_WHOM.partner], ["shared", FOR_WHOM.shared]], d.forWhom || "", () => {}, true);
+    body.append(
+      field("名称", name),
+      h("div", { style: "display:flex;gap:10px" },
+        h("div", { style: "flex:1" }, field("数量", qty)),
+        h("div", { style: "flex:1" }, field("单位", unit))),
+      field("分类", catSel),
+      h("div", { style: "font-size:12.5px;color:var(--sub);margin:8px 0 5px", text: "给谁的" }),
+      whom.node
+    );
+    body.append(h("div", { class: "sheet-actions" },
+      h("button", { class: "btn primary", text: S.busy ? "保存中…" : "保存", disabled: S.busy, onClick: busyRun(async () => {
+        if (!name.value.trim()) throw new Error("名称不能为空");
+        await commit(COLL.ITEMS, r.key, (p) => {
+          p.name = name.value.trim();
+          p.quantity = Math.max(1, Number(qty.value) || 1);
+          p.unit = unit.value.trim() || "件";
+          p.categorySyncId = catSel.value || null;
+          p.forWhom = whom.get() || null;
+          p.needRestock = true;
+          return p;
+        });
+        close();
+        return { msg: "已保存待买项" };
+      }) }),
+      h("button", { class: "btn danger", text: "删除", onClick: busyRun(async () => {
+        close();
+        await softDelete(COLL.ITEMS, r.key);
+        return { msg: "已从待买移除", undo: () => unDelete(COLL.ITEMS, r.key).then(() => snack("已恢复")) };
+      }) })));
+  });
+}
+
+function newToBuySheet() {
+  sheet("添加待买项", "只记要买的东西；买到后点「已买到」再归位到家当。", (body, close) => {
+    const name = textInput("", "例如：牛奶");
+    const qty = textInput(1, "1", "number");
+    const unit = textInput("件", "件");
+    const cats = categoriesOf();
+    const catSel = selectInput([["", "未分类"], ...cats.map((x) => [x.data.syncId, x.data.name])], "");
+    const whom = chipGroup([["", "不标注"], ["self", FOR_WHOM.self], ["partner", FOR_WHOM.partner], ["shared", FOR_WHOM.shared]], "", () => {}, true);
+    body.append(
+      field("名称", name),
+      h("div", { style: "display:flex;gap:10px" },
+        h("div", { style: "flex:1" }, field("数量", qty)),
+        h("div", { style: "flex:1" }, field("单位", unit))),
+      field("分类", catSel),
+      h("div", { style: "font-size:12.5px;color:var(--sub);margin:8px 0 5px", text: "给谁的" }),
+      whom.node
+    );
+    body.append(h("div", { class: "sheet-actions" },
+      h("button", { class: "btn primary", text: S.busy ? "保存中…" : "添加", disabled: S.busy, onClick: busyRun(async () => {
+        if (!name.value.trim()) throw new Error("名称不能为空");
+        const data = blank(COLL.ITEMS, {
+          name: name.value.trim(),
+          quantity: Math.max(1, Number(qty.value) || 1),
+          unit: unit.value.trim() || "件",
+          categorySyncId: catSel.value || null,
+          forWhom: whom.get() || null,
+          needRestock: true,
+          usageStatus: USAGE.USED_UP,
+          disposition: DISPO.IN_STOCK,
+        });
+        await create(COLL.ITEMS, data, () => data.syncId);
+        close();
+        return { msg: "已加入待买" };
+      }) }),
+      h("button", { class: "btn", text: "取消", onClick: close })));
+  });
+}
+
 /* ---- 提醒 ---- */
 function viewReminders(root) {
   const list = liveOf(COLL.REMINDERS).sort((a, b) => (a.data.nextFireAt || 0) - (b.data.nextFireAt || 0));
@@ -993,11 +1157,14 @@ function viewReminders(root) {
   for (const r of list) {
     const d = r.data;
     const done = d.completedAt != null;
+    const when = d.repeatType && d.repeatType !== "ONCE" && d.nextFireAt
+      ? `下次 ${fmtTime(d.nextFireAt)}`
+      : (d.targetDate || "");
     card.append(h("div", { class: "row", onClick: () => reminderSheet(r) },
       h("div", { class: "ico", text: done ? "✅" : d.enabled ? "⏰" : "🔕" }),
       h("div", { class: "grow" },
         h("div", { class: "t", text: d.title || "未命名" }),
-        h("div", { class: "s", text: `${REPEAT_LABEL[d.repeatType] || d.repeatType} · ${d.fireTime || ""}${d.targetDate ? " · " + d.targetDate : ""}${done ? " · 已完成" : ""}` })),
+        h("div", { class: "s", text: `${REPEAT_LABEL[d.repeatType] || d.repeatType} · ${d.fireTime || ""}${when ? " · " + when : ""}${done ? " · 已完成" : ""}` })),
       h("span", { class: "pill", text: d.enabled ? "开启" : "关闭" })));
   }
   root.append(card);
@@ -1005,21 +1172,33 @@ function viewReminders(root) {
 
 function reminderSheet(r) {
   const d = r ? r.data : blank(COLL.REMINDERS);
+  const isRepeating = !!r && (d.repeatType || "ONCE") !== "ONCE";
   sheet(r ? "编辑提醒" : "新增提醒", null, (body, close) => {
     const title = textInput(d.title || "", "例如：今晚解冻肉");
     const date = h("input", { type: "date", value: d.targetDate || dayKey(Date.now()) });
     const time = textInput(d.fireTime || "19:00", "19:00");
     const note = textInput(d.note || "", "备注（可空）");
     body.append(field("事情", title), field("日期", date), field("时间（HH:mm）", time), field("备注", note));
+    if (isRepeating) {
+      body.append(h("div", { class: "small muted", style: "margin-top:2px", text:
+        "这是一条周期提醒，频率（每天 / 每周几 / 隔几天）请在手机端修改；这里只改日期与时间，不会把周期重置成一次性。" }));
+    }
     body.append(h("div", { class: "sheet-actions" },
       h("button", { class: "btn primary", text: S.busy ? "保存中…" : "保存", disabled: S.busy, onClick: busyRun(async () => {
         if (!title.value.trim()) throw new Error("先写下要提醒的事");
         if (!/^\d{1,2}:\d{2}$/.test(time.value.trim())) throw new Error("时间格式要像 19:00");
+        const nextAt = nextFireFor(
+          { repeatType: r ? (d.repeatType || "ONCE") : "ONCE", intervalDays: d.intervalDays },
+          date.value || dayKey(Date.now()), time.value.trim()
+        );
+        if (nextAt <= Date.now()) throw new Error("这个提醒时间已经过去了，请改成未来的时间");
         const fields = {
           title: title.value.trim(), targetDate: date.value || dayKey(Date.now()),
-          fireTime: time.value.trim(), note: note.value, repeatType: "ONCE",
-          nextFireAt: dayStart(date.value || dayKey(Date.now())) + hhmm(time.value.trim()),
+          fireTime: time.value.trim(), note: note.value,
+          nextFireAt: nextAt,
         };
+        // 编辑已有周期提醒时不写 repeatType：旧实现无条件写 ONCE，会把「每周浇花」静默变成一次性。
+        if (!r) fields.repeatType = "ONCE";
         if (r) await commit(COLL.REMINDERS, r.key, (p) => { Object.assign(p, fields); return p; });
         else { const data = blank(COLL.REMINDERS, fields); await create(COLL.REMINDERS, data, () => data.syncId); }
         close();
@@ -1032,6 +1211,21 @@ function reminderSheet(r) {
   });
 }
 const hhmm = (s) => { const [hh, mm] = s.split(":").map(Number); return ((hh || 0) * 3600 + (mm || 0) * 60) * 1000; };
+
+/**
+ * 周期提醒的「下一次」必须落在未来。只改日期/时间时，如果算出来已经过去，
+ * 按频率往后推（每天 +1 天、每周 +7 天、隔几天 +intervalDays），
+ * 否则页面会显示「下次 09:00」却是今天早上已经过去的时间，手机端也不会再响。
+ */
+function nextFireFor(d, dateStr, timeStr) {
+  const base = dayStart(dateStr) + hhmm(timeStr);
+  const type = d.repeatType || "ONCE";
+  if (type === "ONCE" || base > Date.now()) return base;
+  const stepDays = type === "INTERVAL" ? Math.max(1, Number(d.intervalDays) || 1) : type === "WEEKLY" ? 7 : 1;
+  let next = base;
+  while (next <= Date.now()) next += stepDays * 86400000;
+  return next;
+}
 
 /* ---- 纪念日 ---- */
 function viewAnniversaries(root) {
@@ -1054,18 +1248,22 @@ function viewAnniversaries(root) {
 
 function anniversarySheet(r) {
   const d = r ? r.data : blank(COLL.ANNIVERSARIES);
+  const wasLunar = !!d.isLunar;
   sheet(r ? "编辑纪念日" : "新增纪念日", null, (body, close) => {
     const name = textInput(d.name || "", "例如：她的生日");
-    const date = h("input", { type: "date", value: d.date || dayKey(Date.now()) });
+    // 农历日期不能用公历 input 直接改：锁住日期，避免把农历 8/15 写成随便一个公历日。
+    const date = h("input", { type: "date", value: d.date || dayKey(Date.now()), disabled: wasLunar });
     let type = Number(d.type || 0);
-    const lunar = chipGroup([[false, "公历"], [true, "农历"]], !!d.isLunar, () => {}, true);
     body.append(field("名称", name),
       chipGroup([[0, "倒数日"], [1, "正数日"], [2, "生日"]], type, (v) => { type = Number(v); }).node,
-      field("日期", date), h("div", { class: "small muted", text: "历法" }), lunar.node);
+      field("日期", date));
+    body.append(h("div", { class: "small muted", style: "margin:2px 0 8px", text: wasLunar
+      ? "这是农历纪念日，农历月 / 日请在手机端修改；网页端锁定日期，避免公历与农历错位。"
+      : "公历纪念日。农历纪念日请在手机端创建。" }));
     body.append(h("div", { class: "sheet-actions" },
       h("button", { class: "btn primary", text: S.busy ? "保存中…" : "保存", disabled: S.busy, onClick: busyRun(async () => {
         if (!name.value.trim()) throw new Error("名称不能为空");
-        const fields = { name: name.value.trim(), date: date.value || dayKey(Date.now()), type, isLunar: lunar.get() === true };
+        const fields = { name: name.value.trim(), date: date.value || d.date, type, isLunar: wasLunar };
         if (r) await commit(COLL.ANNIVERSARIES, r.key, (p) => { Object.assign(p, fields); return p; });
         else { const data = blank(COLL.ANNIVERSARIES, fields); await create(COLL.ANNIVERSARIES, data, () => data.syncId); }
         close();
@@ -1103,13 +1301,24 @@ function capsuleSheet(r) {
     const title = textInput(d.title || "", "标题");
     const unlock = h("input", { type: "date", value: d.unlockAt ? dayKey(d.unlockAt) : dayKey(Date.now() + 30 * 86400000) });
     const content = h("textarea", { text: d.content || "", placeholder: "想说的话" });
-    const opened = (d.unlockAt || 0) <= Date.now();
-    body.append(field("标题", title), field("解锁日", unlock), field("内容", content));
-    if (!opened && r) body.append(h("div", { class: "small muted", text: "还没到解锁日，内容先藏着——想看可以看，但自觉一点 🙂" }));
+    const locked = !!r && (d.unlockAt || 0) > Date.now();
+    body.append(field("标题", title), field("解锁日", unlock));
+    if (locked) {
+      // 时间胶囊的价值就是「到那天才能打开」：解锁前连内容输入框都不出现，
+      // 否则任何登录网页的人都能直接读走还没到期的信。
+      body.append(h("div", { class: "small muted", style: "margin:2px 0 10px", text:
+        `还有 ${Math.max(1, daysUntil(d.unlockAt))} 天解锁。解锁后才能查看与修改内容。` }));
+    } else {
+      body.append(field("内容", content));
+    }
     body.append(h("div", { class: "sheet-actions" },
       h("button", { class: "btn primary", text: S.busy ? "保存中…" : "保存", disabled: S.busy, onClick: busyRun(async () => {
         if (!title.value.trim()) throw new Error("标题不能为空");
-        const fields = { title: title.value.trim(), content: content.value, unlockAt: unlock.value ? dayStart(unlock.value) : Date.now() };
+        const fields = {
+          title: title.value.trim(),
+          content: locked ? d.content : content.value,
+          unlockAt: unlock.value ? dayStart(unlock.value) : Date.now(),
+        };
         if (r) await commit(COLL.CAPSULES, r.key, (p) => { Object.assign(p, fields); return p; });
         else { const data = blank(COLL.CAPSULES, fields); await create(COLL.CAPSULES, data, () => data.syncId); }
         close();
@@ -1446,7 +1655,7 @@ function renderTopbar() {
       h("div", { class: "who", text: S.username ? `已登录 · ${S.username}` : "网页版" })));
   const actions = h("div", { class: "top-actions" });
   if (S.token) {
-    actions.append(h("button", { class: "iconbtn", title: "同步", text: S.syncing ? "…" : "⟳",
+    actions.append(h("button", { class: "iconbtn", title: "同步", "aria-label": "同步", text: S.syncing ? "…" : "⟳",
       disabled: S.syncing || S.busy, onClick: () => syncNow(false) }));
   }
   inner.append(actions);
@@ -1493,14 +1702,14 @@ function render() {
 
 /** 悬浮「＋」：按当前栏目给对应的新建动作。 */
 function addFab(root) {
-  const fabFor = { items: newItemSheet, ledger: () => ledgerSheet(null), tobuy: newItemSheet };
+  const fabFor = { items: newItemSheet, ledger: () => ledgerSheet(null), tobuy: newToBuySheet };
   const fn = fabFor[S.tab];
   if (!fn) return;
   const fab = h("button", {
     class: "fab", title: "新增",
     style: "position:fixed;right:16px;bottom:calc(84px + env(safe-area-inset-bottom));z-index:35;" +
-      "width:54px;height:54px;border-radius:18px;border:0;cursor:pointer;font-size:26px;color:#3A2A06;" +
-      "background:linear-gradient(135deg,var(--lemon),var(--brand));box-shadow:var(--shadow)",
+      "width:54px;height:54px;border-radius:18px;border:0;cursor:pointer;font-size:26px;color:#3A2E10;" +
+      "background:linear-gradient(135deg,var(--lemon),#F7D64A);box-shadow:var(--shadow)",
     text: "＋", onClick: fn,
   });
   document.body.append(fab);
@@ -1515,6 +1724,16 @@ window.addEventListener("focus", () => { if (S.token && !S.syncing && Date.now()
 // 每次重渲染先清掉上一帧遗留的悬浮按钮。
 const _render = render;
 render = function () { document.querySelectorAll(".fab").forEach((n) => n.remove()); _render(); };
+// 列表行是 div；让 Enter / Space 与点击等价（鼠标和读屏之外的键盘用户）。
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Enter" && e.key !== " ") return;
+  const target = e.target;
+  const row = target && target.closest ? target.closest('.row[role="button"]') : null;
+  if (!row) return;
+  if (target !== row && target.closest("button")) return;
+  e.preventDefault();
+  row.click();
+});
 </script>
 </body>
 </html>

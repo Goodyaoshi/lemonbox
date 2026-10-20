@@ -1,5 +1,6 @@
 package com.goodyaoshi.lemonbox.ui.components
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -57,10 +58,8 @@ import com.goodyaoshi.lemonbox.ui.theme.GlassWhite
 import com.goodyaoshi.lemonbox.ui.theme.LemonEnd
 import com.goodyaoshi.lemonbox.ui.theme.LemonStart
 import com.goodyaoshi.lemonbox.ui.theme.LocalLemonPalette
-import com.goodyaoshi.lemonbox.ui.theme.MintSoft
 import com.goodyaoshi.lemonbox.ui.theme.OnLemon
 import com.goodyaoshi.lemonbox.ui.theme.OrangeGlow
-import com.goodyaoshi.lemonbox.ui.theme.OrangeLight
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.ShadowSpot
 import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarmDeep
@@ -86,6 +85,12 @@ fun appGlassStyle(blurAlpha: Float = 0.55f): HazeStyle {
     )
 }
 
+/**
+ * 页面底：只保留顶部一层极淡的暖光。
+ *
+ * 原先铺了三团径向光斑（暖黄 / 浅绿 / 薄荷），等于给每个页面都加了三层渐变装饰，
+ * 内容卡反而要靠更重的阴影才能浮起来。现在把装饰收成一束，页面靠留白与 1dp 分隔线组织。
+ */
 @Composable
 fun AppDecorativeBackground(modifier: Modifier = Modifier) {
     val palette = LocalLemonPalette.current
@@ -100,36 +105,13 @@ fun AppDecorativeBackground(modifier: Modifier = Modifier) {
     ) {
         Box(
             modifier = Modifier
-                .size(260.dp)
-                .offset(x = (-70).dp, y = (-50).dp)
-                .clip(CircleShape)
-                .background(
-                    Brush.radialGradient(
-                        colors = listOf(OrangeGlow.copy(alpha = 0.34f), Color.Transparent)
-                    )
-                )
-        )
-        Box(
-            modifier = Modifier
-                .size(320.dp)
+                .size(280.dp)
                 .align(Alignment.TopEnd)
-                .offset(x = 72.dp, y = (-76).dp)
+                .offset(x = 96.dp, y = (-120).dp)
                 .clip(CircleShape)
                 .background(
                     Brush.radialGradient(
-                        colors = listOf(OrangeLight.copy(alpha = 0.85f), Color.Transparent)
-                    )
-                )
-        )
-        Box(
-            modifier = Modifier
-                .size(240.dp)
-                .align(Alignment.BottomEnd)
-                .offset(x = 56.dp, y = 48.dp)
-                .clip(CircleShape)
-                .background(
-                    Brush.radialGradient(
-                        colors = listOf(MintSoft.copy(alpha = 0.75f), Color.Transparent)
+                        colors = listOf(OrangeGlow.copy(alpha = 0.22f), Color.Transparent)
                     )
                 )
         )
@@ -143,7 +125,7 @@ private val BottomBarMinTouchTarget = 48.dp
 internal val BottomBarRowMinHeight = 64.dp
 
 /** 底栏内容区上下内边距：与 `LemonBottomBar` 的 `contentPadding` 保持一致。 */
-internal val BottomBarContentPadding = 7.dp
+internal val BottomBarContentPadding = 8.dp
 
 /** 底栏卡片在屏幕上的上下外距：与 `LemonBottomBar` 调用处的 `padding(vertical)` 保持一致。 */
 internal val BottomBarOuterMargin = 8.dp
@@ -240,27 +222,39 @@ fun AppSurfaceCard(
     // 圆角走形状令牌（F6）：与全 App 卡片统一收敛到 extraLarge（24dp）。
     shape: Shape = MaterialTheme.shapes.extraLarge,
     contentPadding: PaddingValues = PaddingValues(20.dp),
-    containerColor: Color = CardWhite.copy(alpha = 0.96f),
-    shadowElevation: Dp = 18.dp,
+    containerColor: Color = CardWhite,
+    shadowElevation: Dp = 2.dp,
+    /**
+     * 是否作为真正的浮层使用（对话框、悬浮面板）。
+     *
+     * 普通内容卡只留 2dp 的柔光，靠 1dp 描边和留白分组；只有盖在页面之上的浮层
+     * 才需要明显的 elevation。此前所有卡片都带 8–18dp 阴影，整页像一摞浮起来的白盒子，
+     * 层级反而靠阴影大小猜。
+     */
+    floating: Boolean = false,
     enabled: Boolean = true,
     onClick: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
+    val resolvedElevation = if (floating) shadowElevation else shadowElevation.coerceAtMost(2.dp)
     val cardModifier = modifier.shadow(
-        elevation = shadowElevation,
+        elevation = resolvedElevation,
         shape = shape,
-        ambientColor = OrangeStart.copy(alpha = 0.08f),
+        ambientColor = OrangeStart.copy(alpha = 0.06f),
         spotColor = ShadowSpot
     )
     val colors = CardDefaults.cardColors(containerColor = containerColor)
     val elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    // 1dp 描边定义边界，阴影只负责一点点浮起感；两者不叠加成厚重的「卡片套餐」。
+    val border = BorderStroke(1.dp, DividerSoft)
 
     if (onClick == null) {
         Card(
             modifier = cardModifier,
             shape = shape,
             colors = colors,
-            elevation = elevation
+            elevation = elevation,
+            border = border
         ) {
             Column(
                 modifier = Modifier
@@ -277,6 +271,7 @@ fun AppSurfaceCard(
             shape = shape,
             colors = colors,
             elevation = elevation,
+            border = border,
             interactionSource = remember { MutableInteractionSource() }
         ) {
             Column(

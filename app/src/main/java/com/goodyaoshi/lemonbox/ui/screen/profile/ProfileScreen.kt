@@ -1,6 +1,7 @@
 package com.goodyaoshi.lemonbox.ui.screen.profile
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -38,10 +39,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -59,8 +57,8 @@ import com.goodyaoshi.lemonbox.ui.theme.DividerSoft
 import com.goodyaoshi.lemonbox.ui.theme.LemonEnd
 import com.goodyaoshi.lemonbox.ui.theme.LemonStart
 import com.goodyaoshi.lemonbox.ui.theme.OnLemon
-import com.goodyaoshi.lemonbox.ui.theme.OnLemonSoft
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
+import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarm
 import com.goodyaoshi.lemonbox.ui.theme.TagOrange
 import com.goodyaoshi.lemonbox.ui.theme.TagOrangeText
 import com.goodyaoshi.lemonbox.ui.theme.TextHint
@@ -102,68 +100,55 @@ fun ProfileScreen(
                     .padding(horizontal = 20.dp, vertical = 12.dp)
                     // 圆角走形状令牌（F6）：卡片统一收敛到 extraLarge（24dp）。
                     .clip(MaterialTheme.shapes.extraLarge)
-                    .background(
-                        Brush.linearGradient(
-                            colors = listOf(LemonStart, LemonEnd)
-                        )
-                    )
+                    .background(SurfaceWarm)
+                    .border(1.dp, DividerSoft, MaterialTheme.shapes.extraLarge)
                     .clickable {
                         nicknameInput = nickname
                         showNicknameDialog = true
                     }
-                    .drawBehind {
-                        // 装饰圆只画不占位，避免把卡片撑出下半截空白
-                        val radius = 74.dp.toPx()
-                        val circleCenter = Offset(size.width - radius, radius)
-                        drawCircle(
-                            brush = Brush.radialGradient(
-                                colors = listOf(Color.White.copy(alpha = 0.24f), Color.Transparent),
-                                center = circleCenter,
-                                radius = radius * 2f
-                            ),
-                            radius = radius * 2f,
-                            center = circleCenter
-                        )
-                    }
             ) {
-                Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(46.dp)
-                                .clip(CircleShape)
-                                .background(OnLemon.copy(alpha = 0.14f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = nickname.take(1),
-                                color = OnLemon,
-                                // 字号走主题字阶（F6）：头像首字与昵称同为 headlineMedium。
-                                style = MaterialTheme.typography.headlineMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                        Spacer(modifier = Modifier.size(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = nickname,
-                                style = MaterialTheme.typography.headlineMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = OnLemon
-                            )
-                            Text(
-                                text = "你的小日子，交给我照顾",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = OnLemonSoft
-                            )
-                        }
-                        Icon(
-                            imageVector = Icons.Default.Edit,
-                            contentDescription = "修改称呼",
-                            tint = OnLemonSoft,
-                            modifier = Modifier.size(18.dp)
+                Row(
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // 柠檬黄只留在头像这一小块：它仍是品牌色，但不再铺满整张个人卡。
+                    Box(
+                        modifier = Modifier
+                            .size(52.dp)
+                            .clip(CircleShape)
+                            .background(
+                                Brush.linearGradient(colors = listOf(LemonStart, LemonEnd))
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = nickname.take(1),
+                            color = OnLemon,
+                            // 字号走主题字阶（F6）：头像首字与昵称同为 headlineMedium。
+                            style = MaterialTheme.typography.headlineMedium,
+                            fontWeight = FontWeight.Bold
                         )
                     }
+                    Spacer(modifier = Modifier.size(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = nickname,
+                            style = MaterialTheme.typography.headlineMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
+                        Text(
+                            text = "你的小日子，交给我照顾",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                    }
+                    Icon(
+                        imageVector = Icons.Default.Edit,
+                        contentDescription = "修改称呼",
+                        tint = TextSecondary,
+                        modifier = Modifier.size(18.dp)
+                    )
                 }
             }
 

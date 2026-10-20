@@ -25,22 +25,30 @@ val OnLemon = Color(0xFF3A2E10)       // 柠檬黄上的主文字（深橄榄）
 val OnLemonSoft = Color(0xE63A2E10)   // 柠檬黄上的次级文字
 
 // ---- 状态色 ----
-val StatusExpired = Color(0xFFE2574C)
-val StatusNormal = Color(0xFF4E9B37)
-val StatusWarning = Color(0xFFD9A11F)
-val StatusInfo = Color(0xFF4E8F86)
+// 浅色模式下这些都承载 11–14sp 的文字，色值按「白底 ≥ 4.5:1」反推，
+// 否则「已过期」「待买」这类关键状态在户外光线下会先糊掉。
+// 深色模式必须换成亮一档的同色系，否则同一枚红字在深绿黑底上只剩 3:1。
+internal val LightStatusExpired = Color(0xFFC6433A)
+internal val LightStatusNormal = Color(0xFF3D7A2B)
+internal val LightStatusWarning = Color(0xFF8F690C)
+internal val LightStatusInfo = Color(0xFF2F6B64)
+internal val DarkStatusExpired = Color(0xFFF08B84)
+internal val DarkStatusNormal = Color(0xFF8FD06A)
+internal val DarkStatusWarning = Color(0xFFE0B84A)
+internal val DarkStatusInfo = Color(0xFF7FBFB4)
 
 // ---- 标签底色 / 文字色（浅色原始值；深色见 DarkTag*，对外经主题感知 getter 暴露）----
+// 底色保持不变，只把文字压深：标签面积小、字号只有 11sp，必须先保证读得清。
 internal val LightTagBlue = Color(0xFFE7F3F1)
-internal val LightTagBlueText = Color(0xFF4E8F86)
+internal val LightTagBlueText = Color(0xFF2F6B64)
 internal val LightTagGreen = Color(0xFFE4F3DA)
-internal val LightTagGreenText = Color(0xFF4E9B37)
+internal val LightTagGreenText = Color(0xFF2F6B26)
 internal val LightTagOrange = Color(0xFFFBF3D3)
-internal val LightTagOrangeText = Color(0xFF9A7B1E)
+internal val LightTagOrangeText = Color(0xFF7A5C12)
 internal val LightTagPurple = Color(0xFFF3EEFA)
-internal val LightTagPurpleText = Color(0xFF8B6FC4)
+internal val LightTagPurpleText = Color(0xFF62479B)
 internal val LightTagRed = Color(0xFFFCEDEA)
-internal val LightTagRedText = Color(0xFFD9534F)
+internal val LightTagRedText = Color(0xFFB23A35)
 
 // ---- 品牌色板：柠檬（主）+ 薄荷（辅）+ 叶绿 ----
 val LemonCream = Color(0xFFFCFEF8)
@@ -57,7 +65,7 @@ val WarmHint = Color(0xFF8A9683)
 
 // ---- 主题无关的辅助强调 ----
 val MintAccent = Color(0xFF6BCB77)       // 辅助强调（位置、成功）
-val SageAccent = Color(0xFF5A9E8F)       // 次级操作（编辑）用的柔和青绿
+val SageAccent = Color(0xFF3F7065)       // 次级操作（编辑）用的柔和青绿
 
 // ---- 遮罩与阴影（P2：收敛散落的 Color.Black/White 硬编码）----
 // 遮罩叠在图片或弹层之上，明暗主题下取同一档更自然，故不随主题切换，集中在此便于统一调整。
@@ -88,12 +96,12 @@ internal val LightCardWhite = Color(0xFFFFFFFF)
 internal val LightGlassWhite = Color(0xCCFFFFFF)
 internal val LightDividerSoft = Color(0xFFE6EFDD)
 internal val LightTextPrimary = Color(0xFF2F3A2C)
-internal val LightTextSecondary = Color(0xFF6E7B68)
-internal val LightTextHint = Color(0xFF9AA694)
+internal val LightTextSecondary = Color(0xFF52614C)
+internal val LightTextHint = Color(0xFF66745F)
 internal val LightSurfaceWarm = Color(0xFFF7FBEF)
 internal val LightSurfaceWarmDeep = Color(0xFFEDF5E3)
-internal val LightOrangeStart = Color(0xFF4E9B37)
-internal val LightOrangeEnd = Color(0xFF6FBF4A)
+internal val LightOrangeStart = Color(0xFF3D7A2B)
+internal val LightOrangeEnd = Color(0xFF4F9440)
 internal val LightOrangeTint = Color(0xFFF1F8EA)
 internal val LightOrangeLight = Color(0xFFE4F3DA)
 internal val LightOrangeGlow = Color(0xFFCDE8A8)
@@ -158,6 +166,10 @@ data class LemonPalette(
     val orangeGlow: Color,
     val mintSoft: Color,
     val sageSoft: Color,
+    val statusExpired: Color,
+    val statusNormal: Color,
+    val statusWarning: Color,
+    val statusInfo: Color,
     val glassTint: Color,
     val glassFallback: Color,
     val tagBlue: Color,
@@ -191,6 +203,10 @@ internal val LightLemonPalette = LemonPalette(
     orangeGlow = LightOrangeGlow,
     mintSoft = LightMintSoft,
     sageSoft = LightSageSoft,
+    statusExpired = LightStatusExpired,
+    statusNormal = LightStatusNormal,
+    statusWarning = LightStatusWarning,
+    statusInfo = LightStatusInfo,
     glassTint = Color(0x1AFFFFFF),
     glassFallback = Color(0xE6FFFFFF),
     tagBlue = LightTagBlue,
@@ -224,6 +240,10 @@ internal val DarkLemonPalette = LemonPalette(
     orangeGlow = DarkOrangeGlow,
     mintSoft = DarkMintSoft,
     sageSoft = DarkSageSoft,
+    statusExpired = DarkStatusExpired,
+    statusNormal = DarkStatusNormal,
+    statusWarning = DarkStatusWarning,
+    statusInfo = DarkStatusInfo,
     glassTint = Color(0x14FFFFFF),
     glassFallback = Color(0xE61F2B22),
     tagBlue = DarkTagBlue,
@@ -295,6 +315,19 @@ val MintSoft: Color
 
 val SageSoft: Color
     @Composable @ReadOnlyComposable get() = LocalLemonPalette.current.sageSoft
+
+// ---- 状态色（随主题变化，需在 @Composable 中读取）----
+val StatusExpired: Color
+    @Composable @ReadOnlyComposable get() = LocalLemonPalette.current.statusExpired
+
+val StatusNormal: Color
+    @Composable @ReadOnlyComposable get() = LocalLemonPalette.current.statusNormal
+
+val StatusWarning: Color
+    @Composable @ReadOnlyComposable get() = LocalLemonPalette.current.statusWarning
+
+val StatusInfo: Color
+    @Composable @ReadOnlyComposable get() = LocalLemonPalette.current.statusInfo
 
 // ---- 标签色（随主题变化，需在 @Composable 中读取）----
 val TagBlue: Color

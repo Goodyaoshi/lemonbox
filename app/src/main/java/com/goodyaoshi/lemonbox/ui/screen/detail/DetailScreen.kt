@@ -206,6 +206,9 @@ fun DetailScreen(
 
     val detail = pagerItems.getOrNull(pagerState.currentPage) ?: pagerItems.first()
     val item = detail.item
+    // 手动加入的待买项在数据层是 Item（usageStatus=USED_UP + needRestock），
+    // 详情页不能照搬「已用完 / 在库」的库存语义，否则会同时出现两组互相打架的状态。
+    val isToBuyItem = item.needRestock && item.usageStatus == Item.USAGE_USED_UP
     val imageHashes = item.imageHashList()
 
     // 「需要补货」改动给回执 + 撤销（P2-7）：与家当列表同一套提示范式，
@@ -410,7 +413,7 @@ fun DetailScreen(
                 }
 
                 Spacer(modifier = Modifier.height(20.dp))
-                DetailInfoRow("数量", "${item.quantity} ${item.unit}")
+                DetailInfoRow(if (isToBuyItem) "想买" else "数量", "${item.quantity} ${item.unit}")
                 item.expireTime?.let { expireTime ->
                     val days = DateUtil.daysUntil(expireTime)
                     val (container, content) = when {
@@ -467,21 +470,28 @@ fun DetailScreen(
                     )
                 }
                 DetailInfoRow("添加时间", DateUtil.formatDateTime(item.createdAt))
-                DetailInfoRow(
-                    label = statusDimensionTitle(StatusDimension.USAGE),
-                    value = itemStatusOption(StatusDimension.USAGE, item.usageStatus).label,
-                    tail = { StatusEditHint() },
-                    onClick = { statusPickerDimensionName = StatusDimension.USAGE.name }
-                )
-                DetailInfoRow(
-                    label = statusDimensionTitle(StatusDimension.DISPOSITION),
-                    value = itemStatusOption(
-                        StatusDimension.DISPOSITION,
-                        item.disposition
-                    ).label,
-                    tail = { StatusEditHint() },
-                    onClick = { statusPickerDimensionName = StatusDimension.DISPOSITION.name }
-                )
+                if (!isToBuyItem) {
+                    DetailInfoRow(
+                        label = statusDimensionTitle(StatusDimension.USAGE),
+                        value = itemStatusOption(StatusDimension.USAGE, item.usageStatus).label,
+                        tail = { StatusEditHint() },
+                        onClick = { statusPickerDimensionName = StatusDimension.USAGE.name }
+                    )
+                    DetailInfoRow(
+                        label = statusDimensionTitle(StatusDimension.DISPOSITION),
+                        value = itemStatusOption(
+                            StatusDimension.DISPOSITION,
+                            item.disposition
+                        ).label,
+                        tail = { StatusEditHint() },
+                        onClick = { statusPickerDimensionName = StatusDimension.DISPOSITION.name }
+                    )
+                } else {
+                    DetailInfoRow(
+                        label = "状态",
+                        value = "待买中，买到后回待买页点「已买到」"
+                    )
+                }
                 DetailInfoRow(
                     label = "需要补货",
                     value = if (item.needRestock) "已加入待买清单" else "不需要",
@@ -496,25 +506,27 @@ fun DetailScreen(
                     onClick = { toggleNeedRestock(!item.needRestock) }
                 )
                 DetailInfoRow("备注", item.note.ifBlank { "无" })
-                DetailInfoRow(
-                    label = "记一笔",
-                    value = "把这件东西的花销记进账本",
-                    tail = {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ReceiptLong,
-                            contentDescription = null,
-                            tint = OrangeStart,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    },
-                    onClick = {
-                        onRecordPurchase(
-                            item.id,
-                            LedgerMath.itemPriceToCents(item.price ?: 0.0, item.quantity),
-                            item.name
-                        )
-                    }
-                )
+                if (!isToBuyItem) {
+                    DetailInfoRow(
+                        label = "记一笔",
+                        value = "把这件东西的花销记进账本",
+                        tail = {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ReceiptLong,
+                                contentDescription = null,
+                                tint = OrangeStart,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        },
+                        onClick = {
+                            onRecordPurchase(
+                                item.id,
+                                LedgerMath.itemPriceToCents(item.price ?: 0.0, item.quantity),
+                                item.name
+                            )
+                        }
+                    )
+                }
 
             }
         }

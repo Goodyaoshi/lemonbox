@@ -172,6 +172,7 @@ fun AppModalPanel(
                 shape = MaterialTheme.shapes.extraLarge,
                 contentPadding = contentPadding,
                 shadowElevation = 26.dp,
+                floating = true,
                 content = content
             )
         }

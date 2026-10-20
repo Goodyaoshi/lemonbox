@@ -290,7 +290,7 @@ fun ToBuyScreen(
                                 // 术语统一（P3-23）：入口与落地页共用「补货预测」，不再叫「建议补货」。
                                 title = "补货预测",
                                 subtitle = "按消耗速度算的，点一下加入待买",
-                                action = "全部 ›",
+                                action = "全部",
                                 onActionClick = onOpenRestockForecast,
                                 modifier = Modifier.padding(top = 4.dp)
                             )

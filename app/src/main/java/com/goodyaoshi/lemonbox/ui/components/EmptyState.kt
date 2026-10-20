@@ -49,12 +49,14 @@ fun EmptyState(
     title: String = "还没有内容",
     actionLabel: String? = null,
     actionIcon: ImageVector = Icons.Default.Add,
-    onAction: (() -> Unit)? = null
+    onAction: (() -> Unit)? = null,
+    /** 小屏/页头很高的页面用紧凑版：图标与留白缩小，保证主操作不被底栏盖住。 */
+    compact: Boolean = false
 ) {
     AppSurfaceCard(
         modifier = modifier
             .fillMaxWidth()
-            .padding(20.dp)
+            .padding(if (compact) 14.dp else 20.dp)
     ) {
         Column(
             modifier = Modifier.fillMaxWidth(),
@@ -62,26 +64,30 @@ fun EmptyState(
         ) {
             Box(
                 modifier = Modifier
-                    .size(64.dp)
+                    .size(if (compact) 48.dp else 64.dp)
                     .background(TagOrange, CircleShape),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
-                    modifier = Modifier.size(28.dp),
+                    modifier = Modifier.size(if (compact) 22.dp else 28.dp),
                     tint = OrangeStart
                 )
             }
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(if (compact) 10.dp else 16.dp))
             Text(
                 text = title,
                 // 字号走主题字阶（F6）：与孪生错误态 ErrorState 对齐到 titleMedium。
-                style = MaterialTheme.typography.titleMedium,
+                style = if (compact) {
+                    MaterialTheme.typography.titleSmall
+                } else {
+                    MaterialTheme.typography.titleMedium
+                },
                 color = TextPrimary,
                 textAlign = TextAlign.Center
             )
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(if (compact) 4.dp else 6.dp))
             Text(
                 text = message,
                 // 字号走主题字阶（F6）：与 ErrorState 对齐到 bodySmall。
@@ -91,7 +97,7 @@ fun EmptyState(
             )
             // 两个参数都传齐才渲染按钮，避免出现「有按钮但点了没反应」的空壳。
             if (actionLabel != null && onAction != null) {
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(if (compact) 10.dp else 16.dp))
                 StateActionPill(
                     label = actionLabel,
                     icon = actionIcon,
@@ -115,7 +121,7 @@ internal fun StateActionPill(
     icon: ImageVector,
     onClick: () -> Unit,
     containerColor: Color = OrangeStart,
-    contentColor: Color = Color.White
+    contentColor: Color = MaterialTheme.colorScheme.onPrimary
 ) {
     Row(
         modifier = Modifier

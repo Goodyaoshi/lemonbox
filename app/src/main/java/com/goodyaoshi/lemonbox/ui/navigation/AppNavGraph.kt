@@ -9,12 +9,14 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -56,6 +58,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
@@ -124,6 +128,7 @@ import com.goodyaoshi.lemonbox.ui.scan.ScanActivity
 import com.goodyaoshi.lemonbox.ui.theme.CardWhite
 import com.goodyaoshi.lemonbox.ui.theme.GlassWhite
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
+import com.goodyaoshi.lemonbox.ui.theme.OrangeTint
 import com.goodyaoshi.lemonbox.ui.theme.TextHint
 import com.goodyaoshi.lemonbox.ui.viewmodel.encodeLibraryFilter
 import dev.chrisbanes.haze.HazeState
@@ -1236,16 +1241,30 @@ private fun BottomItem(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val color = if (selected) OrangeStart else TextHint
+    // 选中态不再只靠文字变绿：给当前 Tab 一枚柔和的叶绿底，位置和形状都能一眼认出来。
+    // 只动颜色、150ms 收尾，Tab 切换是高频操作，不做位移或缩放。
+    val color by animateColorAsState(
+        targetValue = if (selected) OrangeStart else TextHint,
+        animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
+        label = "bottomItemColor"
+    )
+    val selectedBackground by animateColorAsState(
+        targetValue = if (selected) OrangeTint else Color.Transparent,
+        animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
+        label = "bottomItemBackground"
+    )
     Column(
         modifier = modifier
-            // 圆角走形状令牌（F6）：选中高亮与卡片小圆角统一到 large（20dp）。
-            .clip(MaterialTheme.shapes.large)
+            // 左右各留 4dp，让选中底色不贴住相邻 Tab。
+            .padding(horizontal = 4.dp)
+            // 选中底色收敛到胶囊，与全 App 的圆角语言一致。
+            .clip(CircleShape)
+            .background(selectedBackground)
             // 命中区兜底到 48dp（F7）：视觉尺寸可以小巧，热区不能缩水。
             .minimumInteractiveComponentSize()
             // 声明为 Tab 角色，读屏可正确播报「标签页」（F16）。
             .clickable(role = Role.Tab, onClick = onClick)
-            .padding(vertical = 4.dp),
+            .padding(vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Icon(

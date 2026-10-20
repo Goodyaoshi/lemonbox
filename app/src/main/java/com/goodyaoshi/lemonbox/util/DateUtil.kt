@@ -109,16 +109,27 @@ object DateUtil {
         return match.groupValues[1] + unit
     }
 
-    /** 编码 → 到期时间戳（以今天为基准）；非法返回 null。 */
-    fun expiryQuickTimestamp(code: String): Long? {
+    /**
+     * 编码 → 到期时间戳。
+     *
+     * [baseDateMillis] 是「起算日」：家当录入页传生产日期（没有生产日期则购买日期），
+     * 没传才从今天起算。此前一律用今天，选「7天」会把生产日期在三天前的牛奶算成
+     * 七天后才过期，多算了三天。
+     */
+    fun expiryQuickTimestamp(code: String, baseDateMillis: Long? = null): Long? {
         val match = expiryCodeRegex.matchEntire(code.trim().lowercase()) ?: return null
         val value = match.groupValues[1].toLongOrNull() ?: return null
         if (value <= 0) return null
+        val base = baseDateMillis
+            ?.let { Instant.ofEpochMilli(it).atZone(zoneId).toLocalDate() }
+            ?: LocalDate.now(zoneId)
+        fun atStartOfDay(date: LocalDate): Long =
+            date.atStartOfDay(zoneId).toInstant().toEpochMilli()
         return when (match.groupValues[2]) {
-            "d" -> daysFromNow(value)
-            "w" -> daysFromNow(value * 7)
-            "m" -> monthsFromNow(value)
-            "y" -> monthsFromNow(value * 12)
+            "d" -> atStartOfDay(base.plusDays(value))
+            "w" -> atStartOfDay(base.plusDays(value * 7))
+            "m" -> atStartOfDay(base.plusMonths(value))
+            "y" -> atStartOfDay(base.plusMonths(value * 12))
             else -> null
         }
     }

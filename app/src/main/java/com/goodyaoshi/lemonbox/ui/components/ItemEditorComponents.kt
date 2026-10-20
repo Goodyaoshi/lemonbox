@@ -1,7 +1,7 @@
 package com.goodyaoshi.lemonbox.ui.components
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.focusable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -38,8 +38,11 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
+import com.goodyaoshi.lemonbox.ui.theme.CardWhite
+import com.goodyaoshi.lemonbox.ui.theme.DividerSoft
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.OrangeTint
 import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarmDeep
@@ -114,27 +117,39 @@ fun EditorInputBox(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            BasicTextField(
-                value = value,
-                onValueChange = onValueChange,
-                modifier = Modifier
-                    .weight(1f)
-                    .onFocusChanged {
-                        if (it.isFocused) {
-                            onFocus?.invoke()
-                        }
-                    }
-                    .focusable(enabled = !readOnly),
-                singleLine = singleLine,
-                readOnly = readOnly,
-                visualTransformation = visualTransformation,
-                keyboardOptions = keyboardOptions,
-                // 字号走主题字阶（F6）：titleMedium 为 16sp。
-                textStyle = MaterialTheme.typography.titleMedium.copy(
-                    color = TextPrimary
-                ),
-                cursorBrush = SolidColor(OrangeStart)
-            )
+            if (readOnly) {
+                // 只读日期框整块都由调用方的 clickable 打开选择器；不能再放 BasicTextField，
+                // 它会吞掉中间区域的点击，导致只有右侧日历图标能点开。
+                Text(
+                    text = value.ifBlank { placeholder },
+                    style = MaterialTheme.typography.titleMedium,
+                    color = if (value.isBlank()) TextHint else TextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+            } else {
+                BasicTextField(
+                    value = value,
+                    onValueChange = onValueChange,
+                    modifier = Modifier
+                        .weight(1f)
+                        .onFocusChanged {
+                            if (it.isFocused) {
+                                onFocus?.invoke()
+                            }
+                        },
+                    singleLine = singleLine,
+                    readOnly = false,
+                    visualTransformation = visualTransformation,
+                    keyboardOptions = keyboardOptions,
+                    // 字号走主题字阶（F6）：titleMedium 为 16sp。
+                    textStyle = MaterialTheme.typography.titleMedium.copy(
+                        color = TextPrimary
+                    ),
+                    cursorBrush = SolidColor(OrangeStart)
+                )
+            }
             trailingContent?.invoke()
         }
     }
@@ -152,7 +167,14 @@ fun EditorSelectionChip(
         modifier = modifier
             // 圆角走形状令牌（F6）：胶囊收敛到 CircleShape。
             .clip(CircleShape)
-            .background(if (selected) OrangeStart.copy(alpha = 0.12f) else OrangeTint)
+            // 选中态改成实心叶绿 + 白字：原先只是把浅绿底加深 12%，在户外几乎看不出
+            // 哪一枚是选中的。未选中的白底描边也让它们从页面底上立起来。
+            .background(if (selected) OrangeStart else CardWhite)
+            .border(
+                width = 1.dp,
+                color = if (selected) OrangeStart else DividerSoft,
+                shape = CircleShape
+            )
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -162,7 +184,7 @@ fun EditorSelectionChip(
             Icon(
                 imageVector = it,
                 contentDescription = null,
-                tint = if (selected) OrangeStart else TextSecondary,
+                tint = if (selected) MaterialTheme.colorScheme.onPrimary else TextSecondary,
                 modifier = Modifier.size(14.dp)
             )
             androidx.compose.foundation.layout.Spacer(modifier = Modifier.size(4.dp))
@@ -172,7 +194,7 @@ fun EditorSelectionChip(
             // 字号走主题字阶（F6）：bodyMedium 为 14sp。
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.Medium,
-            color = if (selected) OrangeStart else TextSecondary
+            color = if (selected) MaterialTheme.colorScheme.onPrimary else TextSecondary
         )
     }
 }
