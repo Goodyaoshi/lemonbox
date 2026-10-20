@@ -249,8 +249,9 @@ fun SyncDiagnosticsScreen(
                         )
                     } else {
                         Text(
-                            text = "这些条目推送时被服务端判为「两边都改过」，本机已改为服务端版本。" +
-                                "留痕里的“本机值”是冲突发生那一刻你的改动，如需找回可在对应页面重新编辑。",
+                            text = "这些条目推送时发现两边都改过，已按「较新的改动为准」合并：" +
+                                "较新的一版在两台设备上一致，较旧的一版被替换。留痕里的“本机值”" +
+                                "是冲突发生那一刻你的改动，如需找回可在对应页面重新编辑。",
                             style = MaterialTheme.typography.bodySmall,
                             color = TextHint
                         )
@@ -373,6 +374,16 @@ private fun ConflictEntryCard(
                 entry.updatedBy.takeIf { it.isNotBlank() }?.let { " · 由 $it 改在服务端" }.orEmpty(),
             style = MaterialTheme.typography.labelMedium,
             color = TextHint
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = if (entry.resolution == ConflictLogEntry.RESOLUTION_LOCAL) {
+                "结果：本机改动更晚，已推上服务端，两边一致为本机那版"
+            } else {
+                "结果：服务端那版更晚，本机已改为服务端版本"
+            },
+            style = MaterialTheme.typography.labelMedium,
+            color = TextSecondary
         )
         Spacer(modifier = Modifier.height(6.dp))
         if (diffs.isEmpty()) {

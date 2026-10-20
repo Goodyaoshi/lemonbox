@@ -25,6 +25,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -35,7 +39,7 @@ data class RemoteSyncResult(
     val pulled: Int,
     val merged: Int,
     val message: String,
-    /** 服务端判定「两边都改过」而未覆盖的条数（这些条目服务端版本胜出）。 */
+    /** 两边都改过而分出胜负的条数（按「较新的改动为准」收场，内容一致的不计）。 */
     val conflicts: Int = 0
 )
 
@@ -62,6 +66,9 @@ data class RemoteSyncState(
  *    会让失败那批被永久跨过且毫无提示。
  * 2. 推：只推本机 `dirty = 1` 的那一小批（连同整块设置 `preferences`），每条带 `baseSeq`
  *    ＝本机上次见到的服务端序号；服务端发现有人在这之后改过就**不覆盖**，只回报冲突。
+ *    冲突按「较新者胜」收场（见 [resolveConflicts]）：本机 `updatedAt` 更新就把本机版
+ *    带着服务端当前序号重推上去，让对端下一轮拉走；服务端较新才落地服务端版本。
+ *    缺了这一步，两台设备各自改过同一条时就成了「谁先推谁占位」，后改的那份永远堵在本机。
  *
  * 增量的三个要点（P6）：
  *  - **只推脏记录**：不再每次把整库当快照推上去，往返体积与序号消耗都只跟「这次真正改了什么」相关。
@@ -250,6 +257,7 @@ class RemoteSyncManager @Inject constructor(
      * 每条带 [PushChange.baseSeq]＝本机上次见到的服务端序号（本地 `serverSeq` 列），
      * 所以「本机自己写过、服务端按设备排除掉」的记录也有正确的进度，不会被一律判成冲突。
      *
+     * 撞上冲突按「较新者胜」收场（见 [resolveConflicts]）。
      * 服务端单次上限 200 条，故本地先分批再逐批发；一批批推完为止。
      */
     private suspend fun push(pending: Map<String, Map<String, Long>>): PushOutcome {
@@ -281,14 +289,84 @@ class RemoteSyncManager @Inject constructor(
             )
             // 服务端已写下的：把序号记回本机并清脏，否则下一轮还会推同一条（服务端不比对载荷）。
             response.applied.forEach { markLanded(it.collection, it.key, it.seq) }
-            // 判为冲突的：把服务端那一版**连同内容**落地到本机并记留痕，再把序号对齐清脏。
-            // 只对齐序号不落地内容，会让本机与服务端各留各的值——这是最隐蔽的静默分叉
-            // （界面还提示「已保留服务端版本」，实际本机还是旧值）。
-            if (response.conflicts.isNotEmpty()) landConflicts(batch, response.conflicts)
             applied += response.applied.size
-            conflicts += response.conflicts.size
+            conflicts += resolveConflicts(batch, response.conflicts)
         }
         return PushOutcome(applied = applied, conflicts = conflicts)
+    }
+
+    /**
+     * 推送冲突的收场（LWW）：两台设备各改过同一条时，**较新的改动胜出**，而不是谁先推谁占位。
+     *
+     * 冲突本身只说明「服务端比我上次见到的新」，不说明服务端那版内容更晚——先推的设备
+     * 完全可能带着更旧的 `updatedAt`。逐条对比两版载荷的更新时间：
+     *  - 两版内容一致：只是序号落后，对齐序号即可，不计冲突也不留痕——没有分岔就没有「改过」；
+     *  - 本机较新：带着服务端当前序号把本机版重推一次（服务端见 `baseSeq` 相等即放行），
+     *    对端下一轮拉走。这是较新改动到达另一台设备的唯一通路：只落地服务端版并清脏的话，
+     *    本机这版就永远堵在本机，另一台设备再也看不到；
+     *  - 服务端较新（或比不出先后，如旧服务端不带载荷）：按既有 [landConflicts] 落地服务端版本。
+     * 重推期间又被别人改了（再撞冲突）就退回「服务端为准」，下一轮同步自会再收敛。
+     *
+     * 返回真正分过岔的条数，供回执与界面提示。
+     */
+    private suspend fun resolveConflicts(batch: List<SyncRecord>, conflicts: List<PushConflict>): Int {
+        if (conflicts.isEmpty()) return 0
+        val serverWins = mutableListOf<PushConflict>()
+        val localWins = mutableListOf<Pair<PushConflict, SyncRecord>>()
+        var diverged = 0
+
+        conflicts.forEach { conflict ->
+            val local = batch.firstOrNull {
+                it.collection == conflict.collection && it.key == conflict.key
+            }
+            when {
+                // 两版一模一样：只是序号落后，对齐即可。
+                local != null && conflict.payload == local.payload && conflict.deleted == local.deleted ->
+                    markLanded(conflict.collection, conflict.key, conflict.seq)
+                // 本机改得更晚：先占住服务端的是旧版，把本机版送上去才算「较新者胜」。
+                local != null && payloadUpdatedAt(local.payload) > payloadUpdatedAt(conflict.payload) -> {
+                    localWins += conflict to local
+                    diverged++
+                }
+                // 服务端较新（或载荷缺失比不出）：按既有路径落地服务端版本。
+                else -> {
+                    serverWins += conflict
+                    diverged++
+                }
+            }
+        }
+
+        if (localWins.isNotEmpty()) {
+            val retry = client.push(localWins.map { (conflict, local) ->
+                PushChange(
+                    collection = local.collection,
+                    key = local.key,
+                    payload = local.payload,
+                    baseSeq = conflict.seq,
+                    deleted = local.deleted
+                )
+            })
+            retry.applied.forEach { markLanded(it.collection, it.key, it.seq) }
+            // 重推期间又被别人改了：与真正的服务端胜出一起走落地路径，下一轮同步再收敛。
+            serverWins += retry.conflicts
+            val retrySeq = retry.applied.associate { (it.collection to it.key) to it.seq }
+            conflictStore.append(localWins.map { (conflict, local) ->
+                ConflictLogEntry(
+                    collection = conflict.collection,
+                    key = conflict.key,
+                    seq = retrySeq[conflict.collection to conflict.key] ?: conflict.seq,
+                    baseSeq = conflict.baseSeq,
+                    localPayload = local.payload,
+                    remotePayload = conflict.payload,
+                    at = System.currentTimeMillis(),
+                    updatedBy = conflict.updatedBy,
+                    resolution = ConflictLogEntry.RESOLUTION_LOCAL
+                )
+            })
+        }
+
+        if (serverWins.isNotEmpty()) landConflicts(batch, serverWins)
+        return diverged
     }
 
     /** 记下「这一条已在服务端」：写回服务端序号、清脏；整块设置另把序号存进 sync_state。 */
@@ -510,13 +588,13 @@ private data class PullOutcome(
     val merged: Int
 )
 
-/** 推送的汇总：服务端已写下的条数与「未覆盖」的冲突条数。 */
+/** 推送的汇总：服务端已写下的条数与冲突分出胜负的条数。 */
 private data class PushOutcome(val applied: Int, val conflicts: Int)
 
 /**
  * 一次同步的用户回执文案。
  *
- * 抽成顶层纯函数以便单测：冲突提示是用户唯一能察觉「自己的改动没上去」的线索，
+ * 抽成顶层纯函数以便单测：冲突提示是用户唯一能察觉「两边都改过同一条」的线索，
  * 漏拼接或拼错（比如 0 条也报冲突）会直接误导用户，而这类字符串问题编译器不管。
  *
  * [conflicts] 为 0 时不出现冲突字样——每次同步都挂一句「0 条冲突」纯属噪声。
@@ -527,8 +605,26 @@ internal fun remoteSyncMessage(pushed: Int, pulled: Int, conflicts: Int): String
         append("同步完成")
         if (pushed > 0) append("，上传 $pushed 条")
         if (pulled > 0) append("，收到 $pulled 条")
-        if (conflicts > 0) append("，$conflicts 条两边都改过，以服务端为准")
+        if (conflicts > 0) append("，$conflicts 条两边都改过，已按较新的改动为准")
     }
+}
+
+/**
+ * 从快照载荷里取 `updatedAt`（毫秒）；缺字段或解不开按 0。
+ *
+ * 冲突取舍只比这一个数：所有实体快照都有同名的更新时间字段，按「取字段」而非逐类型
+ * 反序列化，省掉为 14 种 Snapshot 各写一套比较器。取不到时按 0 处理会让「本机较新」
+ * 的判断保守地倾向服务端，宁可少推一轮也不与对端乒乓。
+ */
+internal fun payloadUpdatedAt(payload: String?): Long {
+    if (payload.isNullOrBlank()) return 0L
+    return runCatching {
+        (Json.parseToJsonElement(payload) as? JsonObject)
+            ?.get("updatedAt")
+            ?.jsonPrimitive
+            ?.longOrNull
+            ?: 0L
+    }.getOrDefault(0L)
 }
 
 /** 集合名 → 界面中文标签（P9 诊断页）。 */
