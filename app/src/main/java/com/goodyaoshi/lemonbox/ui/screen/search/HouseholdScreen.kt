@@ -63,6 +63,9 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.data.local.entity.Item
 import com.goodyaoshi.lemonbox.data.local.entity.ItemDetail
+import com.goodyaoshi.lemonbox.util.DateUtil
+import com.goodyaoshi.lemonbox.util.LedgerMath
+import kotlin.math.roundToLong
 import com.goodyaoshi.lemonbox.data.local.entity.StatusDimension
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
@@ -147,6 +150,18 @@ fun HouseholdScreen(
     }
     val results by viewModel.results.collectAsState()
     val allItems by viewModel.allItems.collectAsState()
+    // 家当总览（对齐极简记物的资产统计）：只算在库、未删除的物品，价值 = 单价 × 剩余数量。
+    val inStockItems = remember(allItems) {
+        allItems.filter {
+            it.item.deletedAt == null && it.item.disposition == Item.DISPOSITION_IN_STOCK
+        }
+    }
+    val totalValueCents = remember(inStockItems) {
+        inStockItems.sumOf { detail ->
+            val price = detail.item.price ?: return@sumOf 0L
+            (price * 100.0).roundToLong() * detail.item.quantity.coerceAtLeast(0)
+        }
+    }
     val filter by viewModel.filter.collectAsState()
     val presetCounts by viewModel.presetCounts.collectAsState()
     val categories by viewModel.categories.collectAsState()
@@ -373,6 +388,27 @@ fun HouseholdScreen(
                     showMagicIconWhenEmpty = false,
                     modifier = Modifier.fillMaxWidth()
                 )
+                // 在库总览：数量与估值（只算填了价格的物品），一眼看到家里资产规模。
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 10.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "在库 ${inStockItems.size} 件",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                    if (totalValueCents > 0) {
+                        Text(
+                            text = "估值 ${DateUtil.formatCurrency(LedgerMath.centsToYuan(totalValueCents))}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                    }
+                }
             }
 
             Row(
