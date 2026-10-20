@@ -24,7 +24,13 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -42,6 +48,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -63,6 +70,7 @@ import com.goodyaoshi.lemonbox.ui.components.EditorSelectionChip
 import com.goodyaoshi.lemonbox.ui.components.InlineNotice
 import com.goodyaoshi.lemonbox.ui.components.PillTag
 import com.goodyaoshi.lemonbox.ui.components.SegmentedTabs
+import com.goodyaoshi.lemonbox.ui.theme.Background
 import com.goodyaoshi.lemonbox.ui.theme.CardWhite
 import com.goodyaoshi.lemonbox.ui.theme.OnScrim
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
@@ -92,18 +100,33 @@ internal fun MealDayTabRow(
     onSelect: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    LazyRow(
-        modifier = modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(horizontal = 20.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        itemsIndexed(days, key = { _, item -> item.dateKey }) { itemIndex, item ->
-            MealDayTab(
-                day = item,
-                selected = itemIndex == selectedIndex,
-                onClick = { onSelect(itemIndex) }
-            )
+    Box(modifier = modifier.fillMaxWidth()) {
+        LazyRow(
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(horizontal = 20.dp),
+            // 7 天在常见 411dp 宽度下能完整放下；更窄的屏幕仍可横滑。
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            itemsIndexed(days, key = { _, item -> item.dateKey }) { itemIndex, item ->
+                MealDayTab(
+                    day = item,
+                    selected = itemIndex == selectedIndex,
+                    onClick = { onSelect(itemIndex) }
+                )
+            }
         }
+        // 右缘渐隐：日期多于屏宽时给出「还能继续滑」的视觉提示。
+        Box(
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .width(18.dp)
+                .height(52.dp)
+                .background(
+                    Brush.horizontalGradient(
+                        colors = listOf(Color.Transparent, Background)
+                    )
+                )
+        )
     }
 }
 
@@ -148,25 +171,27 @@ private fun MealDayTab(
 ) {
     Column(
         modifier = Modifier
+            // 触达面积不低于 48dp；视觉上收紧到 48dp 左右，让 7 天尽量一屏放下。
+            .minimumInteractiveComponentSize()
             // 圆角走形状令牌（F6）：medium 为 16dp。
             .clip(MaterialTheme.shapes.medium)
             .background(if (selected) OrangeStart else SurfaceWarmDeep)
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(horizontal = 9.dp, vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
             text = day.dayLabel,
-            // 字号走主题字阶（F6）：labelLarge 为 14sp。
-            style = MaterialTheme.typography.labelLarge,
+            style = MaterialTheme.typography.labelMedium,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-            color = if (selected) Color.White else TextSecondary
+            color = if (selected) Color.White else TextSecondary,
+            maxLines = 1
         )
         Text(
             text = day.shortDate,
-            // 字号走主题字阶（F6），并满足说明文字 ≥12sp（F7）。
-            style = MaterialTheme.typography.labelMedium,
+            style = MaterialTheme.typography.labelSmall,
             color = if (selected) Color.White.copy(alpha = 0.85f) else TextHint,
+            maxLines = 1,
             modifier = Modifier.padding(top = 1.dp)
         )
     }
@@ -301,6 +326,7 @@ internal fun DayMealActionRow(
     onEdit: () -> Unit,
     onPrepReminder: () -> Unit
 ) {
+    var editMenuExpanded by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
@@ -345,7 +371,8 @@ internal fun DayMealActionRow(
         } else {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 MealActionButton(
                     label = "做了",
@@ -359,12 +386,28 @@ internal fun DayMealActionRow(
                     modifier = Modifier.weight(1f),
                     onClick = onReroll
                 )
-                MealActionButton(
-                    label = "编辑一餐",
-                    primary = false,
-                    modifier = Modifier.weight(1f),
-                    onClick = onEdit
-                )
+                // 「编辑一餐」是低频的修正动作，不与该餐的两个主流程按钮争同一层视觉重量。
+                Box {
+                    IconButton(onClick = { editMenuExpanded = true }) {
+                        Icon(
+                            imageVector = Icons.Default.MoreVert,
+                            contentDescription = "更多操作",
+                            tint = TextSecondary
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = editMenuExpanded,
+                        onDismissRequest = { editMenuExpanded = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("编辑一餐") },
+                            onClick = {
+                                editMenuExpanded = false
+                                onEdit()
+                            }
+                        )
+                    }
+                }
             }
         }
     }

@@ -26,6 +26,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.ShowChart
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CalendarMonth
@@ -34,7 +36,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.Savings
@@ -43,6 +45,7 @@ import androidx.compose.material.icons.filled.Wallet
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
@@ -73,15 +76,14 @@ import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.EmptyState
 import com.goodyaoshi.lemonbox.ui.components.AMOUNT_TNUM
 import com.goodyaoshi.lemonbox.ui.components.LedgerAssetChip
-import com.goodyaoshi.lemonbox.ui.components.HeaderActionPill
 import com.goodyaoshi.lemonbox.ui.components.LedgerBudgetBar
-import com.goodyaoshi.lemonbox.ui.components.LedgerMonthBar
 import com.goodyaoshi.lemonbox.ui.components.LedgerSummaryCard
 import com.goodyaoshi.lemonbox.ui.components.PillTag
 import com.goodyaoshi.lemonbox.ui.components.SectionHeader
 import com.goodyaoshi.lemonbox.ui.components.SelectionActionButton
 import com.goodyaoshi.lemonbox.ui.components.SelectionTopBar
 import com.goodyaoshi.lemonbox.ui.components.SkeletonList
+import com.goodyaoshi.lemonbox.ui.components.TabPageHeader
 import com.goodyaoshi.lemonbox.ui.components.SwipeActionSpec
 import com.goodyaoshi.lemonbox.ui.components.SwipeRevealItem
 import com.goodyaoshi.lemonbox.ui.components.ledgerIconFor
@@ -169,96 +171,104 @@ fun LedgerScreen(
                 .fillMaxWidth()
                 .statusBarsPadding()
         ) {
-            Column(
+            TabPageHeader(
+                title = "记账",
+                subtitle = "${yearMonth.year}年${yearMonth.monthValue}月 · 每一笔都算数",
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp)
-                    .padding(top = 10.dp)
-            ) {
-                Text(
-                    text = "记账",
-                    style = MaterialTheme.typography.headlineMedium,
-                    color = TextPrimary
-                )
-                Text(
-                    text = "每一笔都算数",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TextSecondary
-                )
-            }
-
-            // 页头胶囊行（IA-4）：高频入口「预算 / 统计 / 分类」保持外露直达，低频入口
-            // 「资产负债 / 记账计划 / 收支趋势 / 年度回顾」收进「更多」菜单——七枚平铺时低频
-            // 功能事实不可发现，视觉噪音也挤压流水主体。收纳后常规屏四枚放得下即不滚动，极窄屏兜底仍可横滚。
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp)
-                    .padding(top = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                HeaderActionPill(icon = Icons.Filled.Savings, label = "预算", onClick = onNavigateToBudget)
-                HeaderActionPill(icon = Icons.Filled.PieChart, label = "统计", onClick = onNavigateToStats)
-                HeaderActionPill(icon = Icons.Filled.Category, label = "分类", onClick = onNavigateToCategories)
-                // 「更多」胶囊：锚点 Box 同时包住胶囊与 DropdownMenu，菜单展开时贴着胶囊下方弹出；
-                // 四项文案与落地页标题统一（P3-10），点选即执行对应跳转并收起菜单。
-                Box {
-                    HeaderActionPill(
-                        icon = Icons.Filled.MoreHoriz,
-                        label = "更多 ▾",
-                        onClick = { moreMenuExpanded = true }
-                    )
-                    DropdownMenu(
-                        expanded = moreMenuExpanded,
-                        onDismissRequest = { moreMenuExpanded = false }
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("资产负债") },
-                            leadingIcon = { Icon(Icons.Filled.Wallet, contentDescription = null) },
-                            onClick = {
-                                moreMenuExpanded = false
-                                onNavigateToAssets()
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("记账计划") },
-                            leadingIcon = { Icon(Icons.Filled.Repeat, contentDescription = null) },
-                            onClick = {
-                                moreMenuExpanded = false
-                                onNavigateToPlan()
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("收支趋势") },
-                            leadingIcon = { Icon(Icons.AutoMirrored.Filled.ShowChart, contentDescription = null) },
-                            onClick = {
-                                moreMenuExpanded = false
-                                onNavigateToTrend()
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("年度回顾") },
-                            leadingIcon = { Icon(Icons.Filled.CalendarMonth, contentDescription = null) },
-                            onClick = {
-                                moreMenuExpanded = false
-                                onNavigateToAnnualReview()
-                            }
+                    .padding(top = 6.dp),
+                actions = {
+                    IconButton(onClick = viewModel::prevMonth) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                            contentDescription = "上个月",
+                            tint = TextSecondary
                         )
                     }
+                    IconButton(onClick = viewModel::nextMonth) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = "下个月",
+                            tint = TextSecondary
+                        )
+                    }
+                    // 预算、统计、分类与四个低频入口统一收进「更多」，
+                    // 页头只保留翻月和菜单两个动作，首屏让给流水。
+                    Box {
+                        IconButton(onClick = { moreMenuExpanded = true }) {
+                            Icon(
+                                imageVector = Icons.Filled.MoreVert,
+                                contentDescription = "更多",
+                                tint = TextSecondary
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = moreMenuExpanded,
+                            onDismissRequest = { moreMenuExpanded = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("预算") },
+                                leadingIcon = { Icon(Icons.Filled.Savings, contentDescription = null) },
+                                onClick = {
+                                    moreMenuExpanded = false
+                                    onNavigateToBudget()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("统计") },
+                                leadingIcon = { Icon(Icons.Filled.PieChart, contentDescription = null) },
+                                onClick = {
+                                    moreMenuExpanded = false
+                                    onNavigateToStats()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("分类") },
+                                leadingIcon = { Icon(Icons.Filled.Category, contentDescription = null) },
+                                onClick = {
+                                    moreMenuExpanded = false
+                                    onNavigateToCategories()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("资产负债") },
+                                leadingIcon = { Icon(Icons.Filled.Wallet, contentDescription = null) },
+                                onClick = {
+                                    moreMenuExpanded = false
+                                    onNavigateToAssets()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("记账计划") },
+                                leadingIcon = { Icon(Icons.Filled.Repeat, contentDescription = null) },
+                                onClick = {
+                                    moreMenuExpanded = false
+                                    onNavigateToPlan()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("收支趋势") },
+                                leadingIcon = {
+                                    Icon(Icons.AutoMirrored.Filled.ShowChart, contentDescription = null)
+                                },
+                                onClick = {
+                                    moreMenuExpanded = false
+                                    onNavigateToTrend()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("年度回顾") },
+                                leadingIcon = { Icon(Icons.Filled.CalendarMonth, contentDescription = null) },
+                                onClick = {
+                                    moreMenuExpanded = false
+                                    onNavigateToAnnualReview()
+                                }
+                            )
+                        }
+                    }
                 }
-            }
-
-            // 固定月份条：翻流水时也能随时换月（与统计页一致，不嵌在滚动列表里）。
-            Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-                LedgerMonthBar(
-                    year = yearMonth.year,
-                    month = yearMonth.monthValue,
-                    onPrev = viewModel::prevMonth,
-                    onNext = viewModel::nextMonth
-                )
-            }
+            )
 
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),

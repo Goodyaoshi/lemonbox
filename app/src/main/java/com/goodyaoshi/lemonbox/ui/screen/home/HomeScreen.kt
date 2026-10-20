@@ -186,11 +186,20 @@ fun HomeScreen(
                         modifier = Modifier.size(19.dp)
                     )
                     Spacer(modifier = Modifier.width(10.dp))
+                    // 这是「去家当搜索」的入口，不是输入框：用实心文字 + 右箭头
+                    // 明确它的跳转语义，避免用户点下去才发现键盘不会出现。
                     Text(
-                        text = "找东西、查库存",
+                        text = "去家当搜索",
                         style = MaterialTheme.typography.labelLarge,
-                        color = TextHint,
+                        fontWeight = FontWeight.SemiBold,
+                        color = TextPrimary,
                         modifier = Modifier.weight(1f)
+                    )
+                    Icon(
+                        imageVector = Icons.Default.ChevronRight,
+                        contentDescription = null,
+                        tint = TextHint,
+                        modifier = Modifier.size(18.dp)
                     )
                     Box(
                         modifier = Modifier
@@ -200,7 +209,7 @@ fun HomeScreen(
                     )
                     Box(
                         modifier = Modifier
-                            .size(44.dp)
+                            .size(48.dp)
                             .clip(CircleShape)
                             .clickable(onClick = onNavigateToScan),
                         contentAlignment = Alignment.Center

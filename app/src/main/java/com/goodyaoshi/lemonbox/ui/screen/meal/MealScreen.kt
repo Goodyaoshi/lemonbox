@@ -50,6 +50,7 @@ import com.goodyaoshi.lemonbox.ui.components.EmptyState
 import com.goodyaoshi.lemonbox.ui.components.HeaderActionPill
 import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
 import com.goodyaoshi.lemonbox.ui.components.SkeletonList
+import com.goodyaoshi.lemonbox.ui.components.TabPageHeader
 import com.goodyaoshi.lemonbox.ui.components.rememberBottomBarClearance
 import com.goodyaoshi.lemonbox.ui.theme.TagOrange
 import com.goodyaoshi.lemonbox.ui.theme.TagOrangeText
@@ -185,38 +186,27 @@ fun MealScreen(
                 .statusBarsPadding()
                 .navigationBarsPadding()
         ) {
-            Row(
+            TabPageHeader(
+                title = "吃饭",
+                subtitle = "排好一餐，缺料自动进待买",
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "吃饭",
-                        style = MaterialTheme.typography.headlineMedium,
-                        color = TextPrimary
+                    .padding(horizontal = 20.dp)
+                    .padding(top = 6.dp, bottom = 2.dp),
+                actions = {
+                    // 两个低频入口保留「图标 + 文字」胶囊，但不再单独占一整行。
+                    HeaderActionPill(
+                        icon = Icons.Default.RestaurantMenu,
+                        label = "菜谱库",
+                        onClick = onNavigateToRecipeLibrary
                     )
-                    Text(
-                        text = "排好一餐，缺的主料自动进待买；做完点「做了」扣库存。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextSecondary,
-                        modifier = Modifier.padding(top = 2.dp)
+                    HeaderActionPill(
+                        icon = Icons.Default.CalendarMonth,
+                        label = "$planDays 天",
+                        onClick = { showPlanDays = true }
                     )
                 }
-                // 低频入口统一「图标+文字」小胶囊（与记账页预算/统计同款）：菜谱库、计划天数
-                HeaderActionPill(
-                    icon = Icons.Default.RestaurantMenu,
-                    label = "菜谱库",
-                    onClick = onNavigateToRecipeLibrary
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                HeaderActionPill(
-                    icon = Icons.Default.CalendarMonth,
-                    label = "$planDays 天",
-                    onClick = { showPlanDays = true }
-                )
-            }
+            )
 
             // 固定日期条：常驻页头下方，往下翻菜单也能随时换天。
             if (weekPlan.isNotEmpty()) {

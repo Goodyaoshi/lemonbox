@@ -2,7 +2,6 @@ package com.goodyaoshi.lemonbox.ui.screen.search
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
@@ -17,6 +16,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -33,16 +33,22 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Widgets
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -58,12 +64,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.goodyaoshi.lemonbox.data.local.entity.Category
 import com.goodyaoshi.lemonbox.data.local.entity.Item
 import com.goodyaoshi.lemonbox.data.local.entity.ItemDetail
 import com.goodyaoshi.lemonbox.util.DateUtil
@@ -73,22 +77,20 @@ import com.goodyaoshi.lemonbox.data.local.entity.StatusDimension
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.DeleteCopy
-import com.goodyaoshi.lemonbox.ui.components.categoryIconFor
 import com.goodyaoshi.lemonbox.ui.components.LemonFab
 import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
 import com.goodyaoshi.lemonbox.ui.components.rememberBottomBarClearance
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.EmptyState
-import com.goodyaoshi.lemonbox.ui.components.HeaderActionPill
 import com.goodyaoshi.lemonbox.ui.components.HierarchicalPickerDialog
 import com.goodyaoshi.lemonbox.ui.components.ItemActionHandlers
 import com.goodyaoshi.lemonbox.ui.components.ItemCard
 import com.goodyaoshi.lemonbox.ui.components.ItemMoreActionsDialog
 import com.goodyaoshi.lemonbox.ui.components.SearchBar
-import com.goodyaoshi.lemonbox.ui.components.SectionHeader
 import com.goodyaoshi.lemonbox.ui.components.SelectionActionButton
 import com.goodyaoshi.lemonbox.ui.components.SelectionTopBar
 import com.goodyaoshi.lemonbox.ui.components.SwipeRevealItem
+import com.goodyaoshi.lemonbox.ui.components.TabPageHeader
 import com.goodyaoshi.lemonbox.ui.components.TreeNode
 import com.goodyaoshi.lemonbox.ui.components.buildItemSwipeActions
 import com.goodyaoshi.lemonbox.ui.components.buildTreePathLabel
@@ -96,9 +98,7 @@ import com.goodyaoshi.lemonbox.ui.components.itemStatusColors
 import com.goodyaoshi.lemonbox.ui.components.statusDimensionTitle
 import com.goodyaoshi.lemonbox.ui.components.statusOptionsFor
 import com.goodyaoshi.lemonbox.ui.theme.CardWhite
-import com.goodyaoshi.lemonbox.ui.theme.DividerSoft
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
-import com.goodyaoshi.lemonbox.ui.theme.OrangeTint
 import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarmDeep
 import com.goodyaoshi.lemonbox.ui.theme.TagRed
 import com.goodyaoshi.lemonbox.ui.theme.TagRedText
@@ -192,8 +192,8 @@ fun HouseholdScreen(
     val presetCounts by viewModel.presetCounts.collectAsState()
     val categories by viewModel.categories.collectAsState()
     val locations by viewModel.locations.collectAsState()
-    // 家当域的计数（待买 / 临期 / 回收站）与入口同源，均在本页 ViewModel（I9）。
-    val toBuyCount by viewModel.toBuyCount.collectAsState()
+    // 家当域的计数（临期 / 回收站）与入口同源，均在本页 ViewModel（I9）。
+    // 待买数量已经由筛选胶囊承载，不再在页头重复一枚入口。
     val expiringCount by viewModel.expiringCount.collectAsState()
     // 批量模式（GAP-7）：整理大扫除时逐个滑动太碎，接入选中即批量处理的既有范式。
     val isSelectionMode by viewModel.isSelectionMode.collectAsState()
@@ -203,6 +203,7 @@ fun HouseholdScreen(
     var pendingDeleteItem by remember { mutableStateOf<Item?>(null) }
     val appSnackbar = LocalAppSnackbar.current
     var showFilterSheet by remember { mutableStateOf(false) }
+    var showOverflow by remember { mutableStateOf(false) }
     var pickerTarget by remember { mutableStateOf<PickerTarget?>(null) }
     // 用户自定义预设（SE1）：点击应用、长按删除；删除前确认，删完可撤销。
     val userPresets by viewModel.userFilterPresets.collectAsState()
@@ -285,6 +286,19 @@ fun HouseholdScreen(
     val sections = remember(results, effectiveGrouping) {
         buildSections(results, effectiveGrouping)
     }
+    // 已选条件与筛选胶囊放在同一行：页头不再出现第二条横向滚动区。
+    val activeChips = buildActiveChips(
+        filter = filter,
+        preset = currentPreset,
+        categoryPath = categoryPath,
+        locationPath = locationPath,
+        onClearUsage = { viewModel.clearUsageStatuses() },
+        onClearDisposition = { viewModel.clearDispositions() },
+        onClearRestock = { viewModel.setNeedRestockOnly(false) },
+        onClearCategory = { viewModel.selectCategory(null) },
+        onClearLocation = { viewModel.selectLocation(null) },
+        onClearGrouping = { viewModel.setGrouping(LibraryGrouping.NONE) }
+    )
 
     val itemRow: @Composable (ItemDetail) -> Unit = { itemDetail ->
         if (isSelectionMode) {
@@ -333,348 +347,87 @@ fun HouseholdScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
-                .padding(top = 10.dp)
+                .padding(top = 6.dp)
         ) {
-            Column(modifier = Modifier.padding(horizontal = 20.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    // 从首页搜索带词跳入时展示返回箭头，否则用户只能靠系统手势离开（IA-2 追加）。
-                    if (showBackArrow && onBack != null) {
-                        Box(
-                            modifier = Modifier
-                                // 触达面积达标（F7）：外框对齐 48dp（原 38dp）。
-                                .size(48.dp)
-                                .clip(CircleShape)
-                                .background(CardWhite.copy(alpha = 0.96f))
-                                .border(1.dp, DividerSoft, CircleShape)
-                                .clickable { onBack.invoke() },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "返回",
-                                tint = TextPrimary,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(10.dp))
-                    }
-                    Text(
-                        text = "家当",
-                        // 页面主标题统一（F6）：走 headlineLarge（28sp），不再用 30sp。
-                        style = MaterialTheme.typography.headlineLarge,
-                        color = TextPrimary
-                    )
-                    Spacer(modifier = Modifier.weight(1f))
-                    // 设置与回收站不是「待买 / 到期」这类高频内容入口，收成标题行右侧图标，
-                    // 把下面的胶囊行让给真正要天天点的两件事。
-                    HeaderIconButton(
-                        icon = Icons.Default.Widgets,
-                        contentDescription = "家当设置",
-                        onClick = onNavigateToCategory
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    HeaderIconButton(
-                        icon = Icons.Default.History,
-                        contentDescription = "回收站",
-                        onClick = onNavigateToTrash
-                    )
-                }
-                // 家当域入口行（I9）：只保留「待买 / 到期」两个高频入口。
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 10.dp, bottom = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    HeaderActionPill(
-                        icon = Icons.Default.ShoppingCart,
-                        label = "待买",
-                        badge = toBuyCount,
-                        onClick = onNavigateToToBuy
-                    )
-                    HeaderActionPill(
-                        icon = Icons.Default.Notifications,
-                        label = "到期",
-                        badge = expiringCount,
-                        onClick = onNavigateToExpiry
-                    )
-                }
-                SearchBar(
-                    value = query,
-                    onValueChange = viewModel::updateQuery,
-                    placeholder = "搜索物品、分类、位置或备注",
-                    showMagicIconWhenEmpty = false,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                // 资产总览：在库 / 估值 / 日均，三组数字像资产清单的抬头。
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 14.dp),
-                    verticalAlignment = Alignment.Bottom
-                ) {
-                    AssetStat(
-                        label = "在库",
-                        value = "${inStockItems.size} 件",
-                        horizontalAlignment = Alignment.Start,
-                        modifier = Modifier.weight(1f)
-                    )
-                    AssetStat(
-                        label = "估值",
-                        value = when {
-                            inStockItems.isEmpty() -> "—"
-                            totalValueCents > 0 -> DateUtil.formatCurrency(LedgerMath.centsToYuan(totalValueCents))
-                            else -> "未记价格"
-                        },
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.weight(1f)
-                    )
-                    AssetStat(
-                        label = "日均",
-                        value = if (dailyCost > 0) DateUtil.formatCurrency(dailyCost) else "—",
-                        horizontalAlignment = Alignment.End,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-                // 参考极简记物的分类图标入口：一级分类直接露出一排，少一次「筛选 → 选分类」。
-                // 常用的分类排在前面；都不常用时把内置「食品」放第一位。
-                val categoryUsage = remember(allItems) {
-                    allItems.groupingBy { it.item.categoryId }.eachCount()
-                }
-                val topCategories = categories
-                    .filter { it.parentId == null }
-                    .sortedWith(
-                        compareByDescending<Category> { categoryUsage[it.id] ?: 0 }
-                            .thenByDescending { it.isProtected }
-                            .thenBy { it.name }
-                    )
-                    .take(10)
-                // 没有在库物品时，分类条只是空筛选入口，藏起来给小屏空态留出高度。
-                if (inStockItems.isNotEmpty() && topCategories.isNotEmpty()) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState())
-                            .padding(top = 12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        topCategories.forEach { category ->
-                            val selected = filter.categoryId == category.id
-                            Row(
-                                modifier = Modifier
-                                    .clip(CircleShape)
-                                    .background(if (selected) OrangeTint else CardWhite)
-                                    .border(
-                                        width = 1.dp,
-                                        color = if (selected) OrangeStart else DividerSoft,
-                                        shape = CircleShape
-                                    )
-                                    .minimumInteractiveComponentSize()
-                                    .clickable {
-                                        viewModel.selectCategory(if (selected) null else category.id)
-                                    }
-                                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = categoryIconFor(category.icon),
-                                    contentDescription = null,
-                                    tint = if (selected) OrangeStart else TextSecondary,
-                                    modifier = Modifier.size(15.dp)
-                                )
-                                Spacer(modifier = Modifier.width(5.dp))
-                                Text(
-                                    text = category.name,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                                    color = if (selected) OrangeStart else TextSecondary,
-                                    maxLines = 1
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            Row(
+            HouseholdTopBar(
+                showBackArrow = showBackArrow,
+                onBack = onBack,
+                expiringCount = expiringCount,
+                showOverflow = showOverflow,
+                onShowOverflow = { showOverflow = it },
+                onOpenExpiry = onNavigateToExpiry,
+                onOpenCategory = onNavigateToCategory,
+                onOpenTrash = onNavigateToTrash
+            )
+            LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp)
-                    .padding(top = 14.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .weight(1f),
+                contentPadding = PaddingValues(
+                    start = 20.dp,
+                    end = 20.dp,
+                    top = 8.dp,
+                    bottom = rememberBottomBarClearance(extra = 38.dp)
+                ),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                FilterEntryChip(
-                    activeCount = filter.activeConditionCount,
-                    selected = filter.activeConditionCount > 0,
-                    onClick = { showFilterSheet = true }
-                )
-                presetChipOrder.forEach { preset ->
-                    PresetChip(
-                        label = preset.label,
-                        count = presetCounts[preset] ?: 0,
-                        selected = currentPreset == preset,
-                        onClick = { viewModel.selectPreset(preset) }
+                item(key = "search") {
+                    SearchBar(
+                        value = query,
+                        onValueChange = viewModel::updateQuery,
+                        placeholder = "搜索物品、分类、位置或备注",
+                        showMagicIconWhenEmpty = false,
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
-                // 用户自定义预设（SE1）：点击应用、长按删除。
-                // P3-8：长按是隐藏手势，补一条可被读屏读出的说明，让「能删」可发现。
-                userPresets.forEach { preset ->
-                    PresetChip(
-                        label = preset.label,
-                        count = null,
-                        selected = filter == preset.filter,
-                        onClick = { viewModel.applyUserPreset(preset) },
-                        onLongClick = { pendingDeletePreset = preset },
-                        contentDescription = "${preset.label}，长按可删除"
-                    )
-                }
-                if (filter != LibraryFilter()) {
-                    PresetChip(
-                        label = "＋ 存为预设",
-                        count = null,
-                        selected = false,
-                        onClick = {
+                item(key = "filters") {
+                    HouseholdFilterRow(
+                        filter = filter,
+                        currentPreset = currentPreset,
+                        presetCounts = presetCounts,
+                        userPresets = userPresets,
+                        activeChips = activeChips,
+                        onOpenFilter = { showFilterSheet = true },
+                        onSelectPreset = viewModel::selectPreset,
+                        onApplyUserPreset = viewModel::applyUserPreset,
+                        onDeleteUserPreset = { pendingDeletePreset = it },
+                        onSavePreset = {
                             viewModel.saveCurrentFilterAsPreset()
                             appSnackbar?.postMessage("筛选已存成预设")
-                        }
+                        },
+                        onResetFilter = viewModel::resetFilter
                     )
                 }
-            }
-
-            val activeChips = buildActiveChips(
-                filter = filter,
-                preset = currentPreset,
-                categoryPath = categoryPath,
-                locationPath = locationPath,
-                onClearUsage = { viewModel.clearUsageStatuses() },
-                onClearDisposition = { viewModel.clearDispositions() },
-                onClearRestock = { viewModel.setNeedRestockOnly(false) },
-                onClearCategory = { viewModel.selectCategory(null) },
-                onClearLocation = { viewModel.selectLocation(null) },
-                onClearGrouping = { viewModel.setGrouping(LibraryGrouping.NONE) }
-            )
-
-            if (activeChips.isNotEmpty()) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState())
-                        .padding(horizontal = 20.dp)
-                        .padding(top = 10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    activeChips.forEach { chip ->
-                        ActiveConditionChip(label = chip.label, onRemove = chip.onRemove)
-                    }
-                    Text(
-                        text = "清空",
-                        // 字号走主题字阶（F6）：labelMedium 为 12sp。
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Medium,
-                        color = TextSecondary,
-                        modifier = Modifier
-                            // 触达面积达标（F7/P2-6）：热区对齐 48dp（视觉尺寸不变）。
-                            .minimumInteractiveComponentSize()
-                            .clip(CircleShape)
-                            // 可点文本声明 Button 角色（F8）。
-                            .clickable(role = Role.Button) { viewModel.resetFilter() }
-                            .padding(horizontal = 6.dp, vertical = 4.dp)
-                    )
-                }
-            }
-
-            if (results.isEmpty()) {
-                // 空态可能比剩余高度高（小屏 + 分类条 + 筛选行）；放进可滚动区并留出底栏占位，
-                // 否则「快速录入 / 去看待买」会被底部导航盖住。
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .verticalScroll(rememberScrollState())
-                        .padding(bottom = rememberBottomBarClearance(extra = 16.dp))
-                ) {
-                    // P2-2：区分「库为空」与「仅筛选无结果」两套文案与动作——对空库说「放宽筛选」
-                    // 既没有条件可放宽、也没有条件可重置，动作应是「快速录入」。
-                    if (allItems.isEmpty()) {
-                        EmptyState(
-                            title = "还没有家当",
-                            message = "把家里的东西录进来，就能在这里搜索、筛选和管理了。",
-                            actionLabel = "快速录入",
-                            actionIcon = Icons.Default.Add,
-                            onAction = onNavigateToSave,
-                            compact = true,
-                            modifier = Modifier.padding(top = 16.dp)
+                if (inStockItems.isNotEmpty()) {
+                    item(key = "summary") {
+                        HouseholdSummaryLine(
+                            totalValueCents = totalValueCents,
+                            dailyCost = dailyCost
                         )
-                    } else {
-                        val toBuyInLibrary = presetCounts[LibraryPreset.TO_BUY] ?: 0
-                        val usedUpInLibrary = presetCounts[LibraryPreset.USED_UP] ?: 0
-                        when {
-                            // 默认落在「在库」而库里只有待买/已用完时，别再说「放宽筛选」——
-                            // 她需要知道东西在哪个分区，以及下一步点哪里。
-                            query.isBlank() && currentPreset == LibraryPreset.IN_STOCK && toBuyInLibrary > 0 -> {
-                                EmptyState(
-                                    title = "现在没有在库物品",
-                                    message = "有 $toBuyInLibrary 件在待买清单；买到后会回到这里。",
-                                    actionLabel = "去看待买",
-                                    actionIcon = Icons.Default.ShoppingCart,
-                                    onAction = onNavigateToToBuy,
-                                compact = true,
-                                modifier = Modifier.padding(top = 16.dp)
-                                )
-                            }
-
-                            query.isBlank() && currentPreset == LibraryPreset.IN_STOCK && usedUpInLibrary > 0 -> {
-                                EmptyState(
-                                    title = "现在没有在库物品",
-                                    message = "有 $usedUpInLibrary 件已用完；补货或归位后会回到这里。",
-                                    actionLabel = "查看已用完",
-                                    actionIcon = Icons.Default.History,
-                                    onAction = { viewModel.selectPreset(LibraryPreset.USED_UP) },
-                                compact = true,
-                                modifier = Modifier.padding(top = 16.dp)
-                                )
-                            }
-
-                            else -> {
-                                EmptyState(
-                                    title = "没有找到匹配物品",
-                                    message = if (query.isBlank()) {
-                                        "当前筛选条件下还没有物品，可以放宽一些条件。"
-                                    } else {
-                                        "可以更换关键词，或者去掉部分筛选条件。"
-                                    },
-                                    // 有家当却筛不出来，往往是自己把筛选收窄了（I5）：给一键「重置」，清关键词 + 恢复默认筛选。
-                                    actionLabel = "重置筛选条件",
-                                    actionIcon = Icons.Default.Close,
-                                    onAction = {
-                                        viewModel.updateQuery("")
-                                        viewModel.resetFilter()
-                                },
-                                compact = true,
-                                modifier = Modifier.padding(top = 16.dp)
-                                )
-                            }
-                        }
                     }
                 }
-            } else {
-                LazyColumn(
-                    contentPadding = PaddingValues(
-                        start = 20.dp,
-                        end = 20.dp,
-                        top = 16.dp,
-                        bottom = rememberBottomBarClearance(extra = 38.dp)
-                    ),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    item {
-                        if (isSelectionMode) {
-                            // 批量模式（GAP-7）：页头换成选择操作条；全选口径跟随当前筛选结果，
-                            // 与待买 / 回收站的批量范式保持一致。
+
+                if (results.isEmpty()) {
+                    item(key = "empty") {
+                        HouseholdEmptyState(
+                            allItemsEmpty = allItems.isEmpty(),
+                            query = query,
+                            currentPreset = currentPreset,
+                            presetCounts = presetCounts,
+                            onNavigateToSave = onNavigateToSave,
+                            onNavigateToToBuy = onNavigateToToBuy,
+                            onSelectPreset = viewModel::selectPreset,
+                            onReset = {
+                                viewModel.updateQuery("")
+                                viewModel.resetFilter()
+                            }
+                        )
+                    }
+                } else {
+                    if (isSelectionMode) {
+                        // 批量模式（GAP-7）：页头换成选择操作条；全选口径跟随当前筛选结果，
+                        // 与待买 / 回收站的批量范式保持一致。
+                        item(key = "selection") {
                             SelectionTopBar(
                                 selectedCount = selectedIds.size,
                                 allSelected = results.isNotEmpty() &&
@@ -726,24 +479,20 @@ fun HouseholdScreen(
                                     onClick = { viewModel.exitSelectionMode() }
                                 )
                             }
-                        } else {
-                            SectionHeader(
+                        }
+                    } else {
+                        item(key = "results-header") {
+                            HouseholdResultsHeader(
                                 title = if (query.isNotBlank()) {
                                     "搜索结果"
                                 } else {
                                     currentPreset?.label ?: "自定义筛选"
                                 },
-                                subtitle = "共 ${results.size} 件物品",
-                                action = if (results.isNotEmpty()) "批量" else null,
-                                onActionClick = if (results.isNotEmpty()) {
-                                    {
-                                        openedItemId = null
-                                        viewModel.enterSelectionMode()
-                                    }
-                                } else {
-                                    null
-                                },
-                                modifier = Modifier.padding(bottom = 4.dp)
+                                count = results.size,
+                                onBatch = {
+                                    openedItemId = null
+                                    viewModel.enterSelectionMode()
+                                }
                             )
                         }
                     }
@@ -754,10 +503,10 @@ fun HouseholdScreen(
                     } else {
                         sections.forEach { section ->
                             item(key = "section_${section.title}") {
-                                SectionHeader(
+                                HouseholdResultsHeader(
                                     title = section.title,
-                                    subtitle = "共 ${section.items.size} 件",
-                                    modifier = Modifier.padding(top = 6.dp, bottom = 2.dp)
+                                    count = section.items.size,
+                                    modifier = Modifier.padding(top = 6.dp)
                                 )
                             }
                             items(section.items, key = { it.item.id }) { itemDetail ->
@@ -968,7 +717,7 @@ private fun FilterEntryChip(
     Box {
         AppSurfaceCard(
             shape = CircleShape,
-            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 9.dp),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 9.dp),
             containerColor = if (selected) OrangeStart.copy(alpha = 0.12f) else CardWhite,
             shadowElevation = 8.dp,
             onClick = onClick
@@ -1029,7 +778,7 @@ private fun PresetChip(
 ) {
     AppSurfaceCard(
         shape = CircleShape,
-        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 9.dp),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 9.dp),
         containerColor = if (selected) OrangeStart.copy(alpha = 0.12f) else CardWhite,
         shadowElevation = 8.dp,
         // 需要长按手势时接管到内容层 combinedClickable，整卡点击与长按才不冲突。
@@ -1239,6 +988,8 @@ private fun SelectableChip(
 ) {
     Box(
         modifier = Modifier
+            // 筛选面板里的选项也走 48dp 最小触控热区；视觉高度仍由内容决定。
+            .minimumInteractiveComponentSize()
             .clip(CircleShape)
             .background(if (selected) accent.copy(alpha = 0.14f) else SurfaceWarmDeep)
             .clickable(onClick = onClick)
@@ -1320,49 +1071,300 @@ private data class LibrarySection(
 )
 
 @Composable
-private fun AssetStat(
-    label: String,
-    value: String,
-    horizontalAlignment: Alignment.Horizontal,
-    modifier: Modifier = Modifier
+private fun HouseholdTopBar(
+    showBackArrow: Boolean,
+    onBack: (() -> Unit)?,
+    expiringCount: Int,
+    showOverflow: Boolean,
+    onShowOverflow: (Boolean) -> Unit,
+    onOpenExpiry: () -> Unit,
+    onOpenCategory: () -> Unit,
+    onOpenTrash: () -> Unit
 ) {
-    Column(modifier = modifier, horizontalAlignment = horizontalAlignment) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodySmall,
-            color = TextSecondary
+    val back = onBack
+    TabPageHeader(
+        title = "家当",
+        modifier = Modifier.padding(horizontal = 20.dp),
+        leading = if (showBackArrow && back != null) {
+            {
+                IconButton(onClick = back) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "返回",
+                        tint = TextPrimary
+                    )
+                }
+            }
+        } else {
+            null
+        },
+        actions = {
+            IconButton(onClick = onOpenExpiry) {
+                BadgedBox(
+                    badge = {
+                        if (expiringCount > 0) {
+                            Badge { Text(expiringCount.toString()) }
+                        }
+                    }
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Notifications,
+                        contentDescription = if (expiringCount > 0) {
+                            "到期提醒，$expiringCount 项"
+                        } else {
+                            "到期提醒"
+                        },
+                        tint = TextSecondary
+                    )
+                }
+            }
+            Box {
+                IconButton(onClick = { onShowOverflow(true) }) {
+                    Icon(
+                        imageVector = Icons.Default.MoreVert,
+                        contentDescription = "更多",
+                        tint = TextSecondary
+                    )
+                }
+                DropdownMenu(
+                    expanded = showOverflow,
+                    onDismissRequest = { onShowOverflow(false) }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("家当设置") },
+                        leadingIcon = {
+                            Icon(Icons.Default.Widgets, contentDescription = null)
+                        },
+                        onClick = {
+                            onShowOverflow(false)
+                            onOpenCategory()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("回收站") },
+                        leadingIcon = {
+                            Icon(Icons.Default.History, contentDescription = null)
+                        },
+                        onClick = {
+                            onShowOverflow(false)
+                            onOpenTrash()
+                        }
+                    )
+                }
+            }
+        }
+    )
+}
+
+@Composable
+private fun HouseholdFilterRow(
+    filter: LibraryFilter,
+    currentPreset: LibraryPreset?,
+    presetCounts: Map<LibraryPreset, Int>,
+    userPresets: List<UserFilterPreset>,
+    activeChips: List<ActiveCondition>,
+    onOpenFilter: () -> Unit,
+    onSelectPreset: (LibraryPreset) -> Unit,
+    onApplyUserPreset: (UserFilterPreset) -> Unit,
+    onDeleteUserPreset: (UserFilterPreset) -> Unit,
+    onSavePreset: () -> Unit,
+    onResetFilter: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        FilterEntryChip(
+            activeCount = filter.activeConditionCount,
+            selected = filter.activeConditionCount > 0,
+            onClick = onOpenFilter
         )
-        Text(
-            text = value,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = TextPrimary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(top = 2.dp)
-        )
+        presetChipOrder.forEach { preset ->
+            PresetChip(
+                label = preset.label,
+                count = presetCounts[preset] ?: 0,
+                selected = currentPreset == preset,
+                onClick = { onSelectPreset(preset) }
+            )
+        }
+        // 用户自定义预设（SE1）：点击应用、长按删除。
+        // P3-8：长按是隐藏手势，补一条可被读屏读出的说明，让「能删」可发现。
+        userPresets.forEach { preset ->
+            PresetChip(
+                label = preset.label,
+                count = null,
+                selected = filter == preset.filter,
+                onClick = { onApplyUserPreset(preset) },
+                onLongClick = { onDeleteUserPreset(preset) },
+                contentDescription = "${preset.label}，长按可删除"
+            )
+        }
+        // 已选条件与预设共用一条横向滚动区，不再额外占一行。
+        activeChips.forEach { chip ->
+            ActiveConditionChip(label = chip.label, onRemove = chip.onRemove)
+        }
+        if (filter != LibraryFilter()) {
+            PresetChip(
+                label = "＋ 存为预设",
+                count = null,
+                selected = false,
+                onClick = onSavePreset
+            )
+        }
+        if (activeChips.isNotEmpty()) {
+            Text(
+                text = "清空",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Medium,
+                color = TextSecondary,
+                modifier = Modifier
+                    .minimumInteractiveComponentSize()
+                    .clip(CircleShape)
+                    .clickable(role = Role.Button, onClick = onResetFilter)
+                    .padding(horizontal = 6.dp, vertical = 4.dp)
+            )
+        }
     }
 }
 
 @Composable
-private fun HeaderIconButton(
-    icon: ImageVector,
-    contentDescription: String,
-    onClick: () -> Unit
+private fun HouseholdSummaryLine(
+    totalValueCents: Long,
+    dailyCost: Double
 ) {
-    Box(
-        modifier = Modifier
-            .size(44.dp)
-            .clip(CircleShape)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center
+    val valueText = if (totalValueCents > 0) {
+        DateUtil.formatCurrency(LedgerMath.centsToYuan(totalValueCents))
+    } else {
+        "未记价格"
+    }
+    val dailyText = if (dailyCost > 0) DateUtil.formatCurrency(dailyCost) else "—"
+    Text(
+        text = "估值 $valueText · 日均 $dailyText",
+        style = MaterialTheme.typography.bodySmall,
+        color = TextSecondary,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis
+    )
+}
+
+@Composable
+private fun HouseholdResultsHeader(
+    title: String,
+    count: Int,
+    modifier: Modifier = Modifier,
+    onBatch: (() -> Unit)? = null
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .heightIn(min = 40.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = contentDescription,
-            tint = TextSecondary,
-            modifier = Modifier.size(20.dp)
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = TextPrimary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
         )
+        Text(
+            text = "共 $count 件",
+            style = MaterialTheme.typography.bodySmall,
+            color = TextSecondary,
+            maxLines = 1,
+            modifier = Modifier.padding(start = 8.dp)
+        )
+        if (onBatch != null) {
+            Text(
+                text = "批量",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = OrangeStart,
+                modifier = Modifier
+                    .minimumInteractiveComponentSize()
+                    .clip(CircleShape)
+                    .clickable(role = Role.Button, onClick = onBatch)
+                    .padding(horizontal = 8.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun HouseholdEmptyState(
+    allItemsEmpty: Boolean,
+    query: String,
+    currentPreset: LibraryPreset?,
+    presetCounts: Map<LibraryPreset, Int>,
+    onNavigateToSave: () -> Unit,
+    onNavigateToToBuy: () -> Unit,
+    onSelectPreset: (LibraryPreset) -> Unit,
+    onReset: () -> Unit
+) {
+    val topPadding = Modifier.padding(top = 8.dp)
+    if (allItemsEmpty) {
+        EmptyState(
+            title = "还没有家当",
+            message = "把家里的东西录进来，就能在这里搜索、筛选和管理了。",
+            actionLabel = "快速录入",
+            actionIcon = Icons.Default.Add,
+            onAction = onNavigateToSave,
+            compact = true,
+            modifier = topPadding
+        )
+        return
+    }
+
+    val toBuyInLibrary = presetCounts[LibraryPreset.TO_BUY] ?: 0
+    val usedUpInLibrary = presetCounts[LibraryPreset.USED_UP] ?: 0
+    when {
+        // 默认落在「在库」而库里只有待买/已用完时，别再说「放宽筛选」——
+        // 她需要知道东西在哪个分区，以及下一步点哪里。
+        query.isBlank() && currentPreset == LibraryPreset.IN_STOCK && toBuyInLibrary > 0 -> {
+            EmptyState(
+                title = "现在没有在库物品",
+                message = "有 $toBuyInLibrary 件在待买清单；买到后会回到这里。",
+                actionLabel = "去看待买",
+                actionIcon = Icons.Default.ShoppingCart,
+                onAction = onNavigateToToBuy,
+                compact = true,
+                modifier = topPadding
+            )
+        }
+
+        query.isBlank() && currentPreset == LibraryPreset.IN_STOCK && usedUpInLibrary > 0 -> {
+            EmptyState(
+                title = "现在没有在库物品",
+                message = "有 $usedUpInLibrary 件已用完；补货或归位后会回到这里。",
+                actionLabel = "查看已用完",
+                actionIcon = Icons.Default.History,
+                onAction = { onSelectPreset(LibraryPreset.USED_UP) },
+                compact = true,
+                modifier = topPadding
+            )
+        }
+
+        else -> {
+            EmptyState(
+                title = "没有找到匹配物品",
+                message = if (query.isBlank()) {
+                    "当前筛选条件下还没有物品，可以放宽一些条件。"
+                } else {
+                    "可以更换关键词，或者去掉部分筛选条件。"
+                },
+                // 有家当却筛不出来，往往是自己把筛选收窄了（I5）：给一键「重置」，清关键词 + 恢复默认筛选。
+                actionLabel = "重置筛选条件",
+                actionIcon = Icons.Default.Close,
+                onAction = onReset,
+                compact = true,
+                modifier = topPadding
+            )
+        }
     }
 }
 
