@@ -36,8 +36,8 @@ android {
         // （major*1000000 + minor*10000 + patch*100），与 CI 从 tag 推导的规则一致
         // （见 .github/workflows/release.yml），保证只增不减。
         // 版本号只在用户明确要求时调整，不自动变更。
-        versionCode = (findProperty("lemonVersionCode") as String?)?.toIntOrNull() ?: 1700
-        versionName = (findProperty("lemonVersionName") as String?) ?: "0.0.17"
+        versionCode = (findProperty("lemonVersionCode") as String?)?.toIntOrNull() ?: 1800
+        versionName = (findProperty("lemonVersionName") as String?) ?: "0.0.18"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         // 原生库 ABI 收敛（F17）：本应用以「直接分发 APK」为主（见文件末尾的 copyReleaseApkForDistribution），
