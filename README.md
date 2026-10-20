@@ -67,7 +67,7 @@
   密钥只在服务端，客户端凭登录态换取预签名地址。
 - 🔑 **云端账号**：账号密码由服务端预先配置，客户端只能登录、不内置任何账号；会话令牌由
   Android Keystore（AES-256-GCM）加密存本机。
-- 🔒 **应用锁**：可设 PIN，进入 App 需验证。
+- 🔒 **应用锁**：暂未实现；当前进入 App 不做 PIN 验证。
 - 🧩 **桌面小组件 / 快捷方式**：不解锁就能看到待买清单、今天的事和本月支出。
 - ✨ **沉浸式 UI**：柠檬系配色、大圆角卡片、毛玻璃悬浮导航、沉浸式顶部布局，支持浅色 / 深色 / 跟随系统。
 
@@ -115,7 +115,6 @@
 │  │  │  ├─ search/         # 本地搜索解析与过滤
 │  │  │  ├─ settings/       # 应用设置（SharedPreferences + StateFlow）
 │  │  │  ├─ ocr/            # 离线 OCR 模型管理与文字解析
-│  │  │  ├─ export/         # 可读报告导出
 │  │  │  ├─ forecast/       # 补货预测
 │  │  │  ├─ update/         # 应用内更新检查
 │  │  │  └─ widget/         # 桌面小组件数据
@@ -131,7 +130,7 @@
 │  │  ├─ LemonApplication.kt
 │  │  └─ MainActivity.kt
 │  └─ src/main/res/         # 图标、主题、字符串、图片资源
-├─ app/schemas/             # Room 数据库 schema 导出（当前 DB 版本 36；历史版本 1-9 未导出）
+├─ app/schemas/             # Room 数据库 schema 导出（当前 DB 版本 37；历史版本 1-9 未导出）
 └─ server/                  # 同步服务端（Cloudflare Worker + D1 schema + 部署说明）
 ```
 
@@ -230,6 +229,37 @@ adb install -r .\app\build\outputs\apk\debug\app-debug.apk
 另需绑定一个 D1 数据库（绑定名 `DB`），表结构见 `server/schema.sql`，种子与接口说明见
 `server/worker.js` 头部注释。账号用管理接口预置（服务端不回显密码），客户端只能登录。
 
+### 发布前检查清单
+
+1. **D1 表结构**（幂等，新增了登录限流表）：
+
+```bash
+npx wrangler d1 execute DB --remote --file server/schema.sql
+```
+
+2. **旧网页家当修复**（可选；只在旧版网页创建过家当时需要）：
+
+```bash
+npx wrangler d1 execute DB --remote --file server/fix-legacy-items.sql
+```
+
+3. **部署 Worker**（Web、MCP、限流、Cron 一起生效）：
+
+```bash
+npx wrangler deploy
+```
+
+4. **构建 release APK**：需要 `local.properties` 或 CI Secrets 提供
+   `LEMON_KEYSTORE_PATH` / `LEMON_KEYSTORE_PASSWORD` / `LEMON_KEY_ALIAS` / `LEMON_KEY_PASSWORD`；
+   缺签名时 Gradle 会直接失败，不会回退 debug 签名。
+
+```bash
+./gradlew assembleRelease
+```
+
+5. **装到手机后逐项确认**：`/health` 可访问 → 登录 → 「数据中心 → 同步诊断」对账 →
+   通知权限 → 「数据中心 → 本地备份」导出一次。
+
 客户端唯一需要知道的是**公开域名**：构建时经 `LEMON_SYNC_BASE_URL` 注入
 `BuildConfig.SYNC_BASE_URL`（当前默认 `https://lemonbox.goodyaoshi.eu.cc`）。
 默认域名是免费二级域，存在被 DNS 污染/阻断的风险；客户端因此支持：
@@ -290,6 +320,8 @@ Cron（`wrangler.jsonc` 的 `triggers.crons`），清理过期会话与 24 小�
 - `使用状态`：未使用 / 使用中 / 已用完。
 - `处置状态`：在库 / 已借出 / 已送人 / 已丢弃（业务状态，区别于删除）。
 - `回收站`：删除后进入软删除区，30 天内可恢复。
+- `本地备份`：数据中心可导出 ZIP（含本机仍在的图片）并从 ZIP 合并恢复；
+  云同步需要登录与网络，本地备份是换机 / 卸载 / 清数据前的最后一份离线保险。
 
 ### 到期提醒说明
 
