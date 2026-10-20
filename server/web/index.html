@@ -258,7 +258,11 @@ function h(tag, attrs, ...kids) {
       else if (k === "text") node.textContent = v;
       else if (k === "html") node.innerHTML = v;             // 仅用于本地常量图标
       else if (k === "style") node.style.cssText = v;
-      else if (k.startsWith("on") && typeof v === "function") node.addEventListener(k.slice(2), v);
+      else if (k.startsWith("on") && typeof v === "function") {
+        // 事件名必须小写：onClick.slice(2) 是 "Click"，addEventListener("Click")
+        // 永远不会触发，表现为所有按钮点了没反应（登录按钮因此不发请求）。
+        node.addEventListener(k.slice(2).toLowerCase(), v);
+      }
       else if (k === "value") node.value = v;
       else if (k === "checked" || k === "disabled" || k === "selected") node[k] = !!v;
       else node.setAttribute(k, v);
