@@ -68,3 +68,14 @@ CREATE TABLE IF NOT EXISTS conflicts (
   at         INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_conflicts_at ON conflicts(at);
+
+-- 登录失败限流：按 IP / 账号两个桶计数，窗口内失败过多短暂锁定。
+-- 表缺失时 worker 会放行（见 worker.js 的 safeLoginBlockedSeconds），不会把所有人挡在门外。
+CREATE TABLE IF NOT EXISTS login_failures (
+  bucket        TEXT PRIMARY KEY,
+  failures      INTEGER NOT NULL DEFAULT 0,
+  first_at      INTEGER NOT NULL,
+  last_at       INTEGER NOT NULL,
+  blocked_until INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_login_failures_last ON login_failures(last_at);

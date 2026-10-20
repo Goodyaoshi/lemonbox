@@ -21,6 +21,9 @@ const PBKDF2_ITERATIONS = 100000;
 const SESSION_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 const PUSH_MAX_CHANGES = 200;
 const PULL_MAX_LIMIT = 500;
+/** push 请求体与单条载荷上限：防止一次请求把 D1/Worker 内存打满。 */
+const PUSH_MAX_BODY_BYTES = 2 * 1024 * 1024;
+const PUSH_MAX_RECORD_CHARS = 64 * 1024;
 const PRESIGN_MAX_TTL = 600;
 const PRESIGN_DEFAULT_TTL = 300;
 /** 空请求体的 SHA-256（GET / HEAD / DELETE 用）。 */
@@ -245,7 +248,131 @@ async function signedS3Fetch(env, { method, key = "", query = null }) {
 
 /* ------------------------------------------------------------------ 会话与账号 */
 
-async function requireSession(request, env) {
+/**
+ * 登录失败限流：按「IP + 账号」两个桶计数，窗口内失败过多就短暂锁定。
+ *
+ * 无状态 Worker 不能把计数放内存，故落在 D1；表缺失或 D1 抖动时一律**放行**，
+ * 宁可暂时不限流，也不能因为限流表没建好把所有人挡在登录页外。
+ */
+const LOGIN_WINDOW_MS = 5 * 60 * 1000;
+const LOGIN_MAX_FAILURES = 10;
+const LOGIN_BLOCK_MS = 5 * 60 * 1000;
+
+function clientIp(request) {
+  const raw = request.headers.get("CF-Connecting-IP") ||
+    request.headers.get("X-Forwarded-For") ||
+    "local";
+  return String(raw).split(",")[0].trim() || "local";
+}
+
+function loginBuckets(request, username) {
+  return [`ip:${clientIp(request)}`, `user:${username.toLowerCase()}`];
+}
+
+async function loginBlockedSeconds(env, buckets) {
+  const now = Date.now();
+  for (const bucket of buckets) {
+    const row = await env.DB.prepare(
+      "SELECT blocked_until FROM login_failures WHERE bucket = ?",
+    )
+      .bind(bucket)
+      .first();
+    if (row && Number(row.blocked_until) > now) {
+      return Math.ceil((Number(row.blocked_until) - now) / 1000);
+    }
+  }
+  return 0;
+}
+
+async function safeLoginBlockedSeconds(env, buckets) {
+  try {
+    return await loginBlockedSeconds(env, buckets);
+  } catch (e) {
+    return 0;
+  }
+}
+
+async function recordLoginFailure(env, buckets) {
+  const now = Date.now();
+  for (const bucket of buckets) {
+    const row = await env.DB.prepare(
+      "SELECT failures, first_at, last_at FROM login_failures WHERE bucket = ?",
+    )
+      .bind(bucket)
+      .first();
+    const withinWindow = row && Number(row.last_at) >= now - LOGIN_WINDOW_MS;
+    const failures = withinWindow ? Number(row.failures) + 1 : 1;
+    const firstAt = withinWindow ? Number(row.first_at) : now;
+    const blockedUntil = failures >= LOGIN_MAX_FAILURES ? now + LOGIN_BLOCK_MS : 0;
+    await env.DB.prepare(
+      "INSERT INTO login_failures(bucket, failures, first_at, last_at, blocked_until) " +
+        "VALUES(?,?,?,?,?) " +
+        "ON CONFLICT(bucket) DO UPDATE SET failures=excluded.failures, " +
+        "first_at=excluded.first_at, last_at=excluded.last_at, blocked_until=excluded.blocked_until",
+    )
+      .bind(bucket, failures, firstAt, now, blockedUntil)
+      .run();
+  }
+  // 顺手清掉一天前的记录，避免桶无限增长。
+  await env.DB.prepare("DELETE FROM login_failures WHERE last_at < ?")
+    .bind(now - 24 * 60 * 60 * 1000)
+    .run();
+}
+
+async function safeRecordLoginFailure(env, buckets) {
+  try {
+    await recordLoginFailure(env, buckets);
+  } catch (e) {
+    /* 限流表未建好时不影响登录本身 */
+  }
+}
+
+async function safeClearLoginFailures(env, buckets) {
+  try {
+    await env.DB.batch(
+      buckets.map((bucket) =>
+        env.DB.prepare("DELETE FROM login_failures WHERE bucket = ?").bind(bucket)
+      ),
+    );
+  } catch (e) {
+    /* 同上 */
+  }
+}
+
+async function handleLogin(request, env) {
+  const body = await request.json().catch(() => null);
+  if (!body || !body.username || !body.password) return fail("缺少账号或密码");
+  const username = String(body.username).trim();
+  const deviceId = String(body.deviceId || "").trim();
+  if (!deviceId) return fail("缺少设备标识");
+
+  const buckets = loginBuckets(request, username);
+  const retryAfter = await safeLoginBlockedSeconds(env, buckets);
+  if (retryAfter > 0) {
+    return new Response(
+      JSON.stringify({ error: `登录失败次数过多，请 ${retryAfter} 秒后再试` }),
+      {
+        status: 429,
+        headers: {
+          "content-type": "application/json; charset=utf-8",
+          "retry-after": String(retryAfter),
+        },
+      },
+    );
+  }
+
+  const user = await env.DB.prepare("SELECT * FROM users WHERE name = ?").bind(username).first();
+  // 账号不存在与密码错误给同一句话，避免枚举出有哪些账号。
+  if (!user) {
+    await safeRecordLoginFailure(env, buckets);
+    return fail("账号或密码不正确", 401);
+  }
+  const hash = await pbkdf2Hex(String(body.password), user.salt, user.iterations);
+  if (!equalConstantTime(hash, user.hash)) {
+    await safeRecordLoginFailure(env, buckets);
+    return fail("账号或密码不正确", 401);
+  }
+  await safeClearLoginFailures(env, buckets);
   const header = request.headers.get("Authorization") || "";
   const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
   if (!token) return fail("未登录", 401);
@@ -342,6 +469,10 @@ async function handleAdminUsers(request, env) {
 /* ------------------------------------------------------------------ 记录同步 */
 
 async function handlePush(request, env, session) {
+  const contentLength = Number(request.headers.get("content-length") || 0);
+  if (contentLength > PUSH_MAX_BODY_BYTES) {
+    return fail("请求体过大，请分批推送", 413);
+  }
   const body = await request.json().catch(() => null);
   const changes = body && Array.isArray(body.changes) ? body.changes : [];
   if (!changes.length) return json({ applied: [], conflicts: [], hasMore: false });
@@ -351,6 +482,9 @@ async function handlePush(request, env, session) {
   for (const change of changes) {
     if (!change || !change.collection || !change.key || typeof change.payload !== "string") {
       return fail("变更条目缺少 collection / key / payload");
+    }
+    if (change.payload.length > PUSH_MAX_RECORD_CHARS) {
+      return fail(`单条记录载荷过大（上限 ${PUSH_MAX_RECORD_CHARS} 字符）`, 413);
     }
   }
 
@@ -449,11 +583,12 @@ async function handlePush(request, env, session) {
 
 async function handlePull(request, env, session) {
   const params = new URL(request.url).searchParams;
-  const since = Math.max(0, Number(params.get("since") || 0));
-  const limit = Math.min(
-    Math.max(1, Number(params.get("limit") || PULL_MAX_LIMIT)),
-    PULL_MAX_LIMIT,
-  );
+  const sinceRaw = Number(params.get("since") || 0);
+  const since = Number.isFinite(sinceRaw) ? Math.max(0, Math.floor(sinceRaw)) : 0;
+  const limitRaw = Number(params.get("limit") || PULL_MAX_LIMIT);
+  const limit = Number.isFinite(limitRaw)
+    ? Math.min(Math.max(1, Math.floor(limitRaw)), PULL_MAX_LIMIT)
+    : PULL_MAX_LIMIT;
 
   // 排除「本设备自己写的」：同一账号的另一台设备仍会收到，不能被用户身份误排。
   // 例外：includeSelf=1（诊断页的「以服务端为准重建」）不排除自己——重建后本机是空的，
@@ -524,9 +659,21 @@ async function handleStats(env) {
 
 /* --------------------------------------------------------------- 对象存储网关 */
 
+/**
+ * 只允许图片对象键：`images/<内容哈希>.jpg`。
+ * 共享桶场景下不能信任客户端给的任意 key，否则一个登录用户就能 probe/delete/list 到
+ * 桶里与业务无关的对象。前缀之外的 key 一律拒绝。
+ */
+const BLOB_KEY_PATTERN = /^images\/[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+function validBlobKey(key) {
+  return typeof key === "string" && BLOB_KEY_PATTERN.test(key);
+}
+
 async function handleBlobUrl(request, env) {
   const body = await request.json().catch(() => null);
   if (!body || !body.key) return fail("缺少 key");
+  if (!validBlobKey(body.key)) return fail("非法的对象键", 400);
   const op = body.op === "put" ? "put" : "get";
   const method = op === "put" ? "PUT" : "GET";
   const ttl = Math.min(Math.max(30, Number(body.ttlSeconds || PRESIGN_DEFAULT_TTL)), PRESIGN_MAX_TTL);
@@ -537,6 +684,7 @@ async function handleBlobUrl(request, env) {
 async function handleBlobProbe(request, env) {
   const body = await request.json().catch(() => null);
   if (!body || !body.key) return fail("缺少 key");
+  if (!validBlobKey(body.key)) return fail("非法的对象键", 400);
   const response = await signedS3Fetch(env, { method: "HEAD", key: String(body.key) });
   if (response.status === 404) return json({ exists: false, status: 404 });
   if (response.status >= 200 && response.status < 300) {
@@ -552,6 +700,7 @@ async function handleBlobProbe(request, env) {
 async function handleBlobDelete(request, env) {
   const body = await request.json().catch(() => null);
   if (!body || !body.key) return fail("缺少 key");
+  if (!validBlobKey(body.key)) return fail("非法的对象键", 400);
   const response = await signedS3Fetch(env, { method: "DELETE", key: String(body.key) });
   // S3 对不存在的键同样返回成功：删除意图已达成即算成功。
   if (response.status >= 200 && response.status < 300) return json({ ok: true });
@@ -560,9 +709,12 @@ async function handleBlobDelete(request, env) {
 
 async function handleBlobList(request, env) {
   const params = new URL(request.url).searchParams;
-  const prefix = params.get("prefix") || "";
-  const query = { "list-type": "2" };
-  if (prefix) query.prefix = prefix;
+  const prefix = params.get("prefix") || "images/";
+  // 空 prefix 也收敛到 images/：共享桶里不该让任意登录用户枚举整桶对象。
+  if (prefix !== "images" && !prefix.startsWith("images/")) {
+    return fail("只允许列举 images/ 前缀", 403);
+  }
+  const query = { "list-type": "2", prefix };
   const token = params.get("continuation-token");
   if (token) query["continuation-token"] = token;
 
@@ -827,6 +979,20 @@ function safeParse(text) {
 
 /* ---------------------------------------------------------------------- 路由 */
 
+/** 定时清理：过期会话与一天前的登录失败桶；不做业务数据清理。 */
+async function cleanupExpired(env) {
+  const now = Date.now();
+  try {
+    await env.DB.batch([
+      env.DB.prepare("DELETE FROM sessions WHERE expires_at < ?").bind(now),
+      env.DB.prepare("DELETE FROM login_failures WHERE last_at < ?")
+        .bind(now - 24 * 60 * 60 * 1000),
+    ]);
+  } catch (e) {
+    // Cron 失败不该影响任何请求；下次再清即可。
+  }
+}
+
 export default {
   async fetch(request, env) {
     const { pathname } = new URL(request.url);
@@ -854,5 +1020,9 @@ export default {
     } catch (e) {
       return fail(`服务端异常：${e && e.message ? e.message : e}`, 500);
     }
+  },
+
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(cleanupExpired(env));
   },
 };

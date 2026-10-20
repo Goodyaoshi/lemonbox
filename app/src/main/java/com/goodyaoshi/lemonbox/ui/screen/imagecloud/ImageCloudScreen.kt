@@ -409,6 +409,13 @@ fun ImageCloudScreen(
                                 isError = false
                             )
                         }
+                        if (remoteSync.lastTruncated) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            NoticeLine(
+                                text = "本次只拉取了部分变更，请再点一次「立即同步」继续",
+                                isError = false
+                            )
+                        }
                         Spacer(modifier = Modifier.height(12.dp))
                         if (remoteSync.running) {
                             Text(

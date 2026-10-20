@@ -214,7 +214,7 @@ adb install -r .\app\build\outputs\apk\debug\app-debug.apk
 | 多设备数据同步 | 可选，默认开启 | 需先登录云端账号；文字数据按权威序号增量推拉，各设备各自合并 |
 | 同步服务端地址 | GitHub Secret `LEMON_SYNC_BASE_URL` | 公开域名，不含任何密钥；本地自测写进 `local.properties` 的同名 Gradle 属性 |
 | 对象存储凭据 | Worker Secret | endpoint / region / bucket / prefix / accessKey / secretKey 只存服务端，客户端不接触 |
-| 云存储功能开关 | `app/build.gradle.kts` | `IMAGE_CLOUD_SUPPORTED`：仅 release 包为 true，debug 包一律关闭以免测试数据写入真实存储桶 |
+| 云存储功能开关 | `app/build.gradle.kts` | `IMAGE_CLOUD_SUPPORTED`：仅 release 为 true，debug 不写真实存储桶；`TEXT_SYNC_SUPPORTED`：debug/release 均为 true，文字同步可在 debug 包联调 |
 
 ### 同步服务端配置（发布维护用）
 
@@ -245,6 +245,19 @@ adb install -r .\app\build\outputs\apk\debug\app-debug.apk
 让证书与 SNI 对不上。DoH 只替换「域名 → IP」这一步，后续仍按域名完成 TLS 校验，
 行为与普通 HTTPS 一致。
 
+**历史数据修复**：旧版网页创建的家当载荷缺少 `deletedAt`。App 新版已能容忍并正常解码；
+若某台设备的水位已经越过这些记录，需要让服务端历史载荷也补齐，并在设备上重建：
+
+```bash
+npx wrangler d1 execute DB --remote --file server/fix-legacy-items.sql
+```
+
+然后在 App 的「同步诊断」里执行「以服务端为准重建」（或重置 `PULL_WATERMARK`）。
+
+**登录限流与清理**：同一 IP / 账号 5 分钟内失败 10 次会锁定 5 分钟（429 + `Retry-After`）；
+限流表缺失或 D1 异常时自动放行，不会把所有人挡在登录页外。Worker 配置了每日 03:00 的
+Cron（`wrangler.jsonc` 的 `triggers.crons`），清理过期会话与 24 小时前的失败桶。
+
 ### 多设备数据同步说明
 
 - **默认开启**，但真正的门槛是「是否已登录云端账号」——没登录时不会动作，数据只在本机。
@@ -254,6 +267,10 @@ adb install -r .\app\build\outputs\apk\debug\app-debug.apk
   + 设置页「立即同步」。
 - 删除靠软删墓碑传播；两边都改过的条目会在同步区提示「有 N 条已取较新的一方」——
   需要逐条对比时用局域网同步（那里有勾选与字段级差异）。
+- **拉取上限**：App 每次最多 40 页 × 500 条、Web 最多 60 页 × 500 条；达到上限会在
+  回执/设置页提示「还有更多变更，请再次同步」，不再静默当作「已是最新」。
+- **偏好冲突**：`PreferencesSnapshot` 现在带 `updatedAt`，偏好内容冲突也按「较新者胜」，
+  不再无条件保留服务端版本；`applySynced*` 落地远端内容时不会反过来把时间戳刷新成现在。
 - 覆盖范围：物品、分类、位置、记账（含**模板**与**周期记账规则**）、预算、账户、纪念日、
   待办提醒、时间胶囊、打包清单、菜谱与菜单、自定义状态、提醒设置。**图片本体单列**——
   是否上传由「图片上传」开关决定，与文字同步互不影响。

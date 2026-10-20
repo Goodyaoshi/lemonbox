@@ -1361,7 +1361,8 @@ class AppBackupManager @Inject constructor(
                 nickname = appPreferences.nickname.value,
                 ledgerMonthStartDay = appPreferences.ledgerMonthStartDay.value,
                 budgetReminderEnabled = appPreferences.budgetReminderEnabled.value,
-                mealPlanDays = appPreferences.mealPlanDays.value
+                mealPlanDays = appPreferences.mealPlanDays.value,
+                updatedAt = appPreferences.preferencesUpdatedAt.value
             )
         )
 

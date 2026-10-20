@@ -70,6 +70,25 @@ class AppPreferences @Inject constructor(
         _themeMode.value = mode
     }
 
+    private val _preferencesUpdatedAt = MutableStateFlow(
+        preferences.getLong(KEY_PREFERENCES_UPDATED_AT, 0L)
+    )
+
+    /**
+     * 参与同步的偏好内容最近一次**本机用户修改**的时间戳。
+     *
+     * 不能每次导出都用 `now`：`preferences` 是整块恒推的，若导出时间每次都变，
+     * 任何冲突都会判成本机更新，反而会把对端刚改的设置覆盖掉。
+     * `applySynced*` 落地远端内容时也不更新它——否则远端版本会被当成新修改再推回去。
+     */
+    val preferencesUpdatedAt: StateFlow<Long> = _preferencesUpdatedAt.asStateFlow()
+
+    private fun touchPreferences() {
+        val now = MonotonicClock.now()
+        preferences.edit().putLong(KEY_PREFERENCES_UPDATED_AT, now).apply()
+        _preferencesUpdatedAt.value = now
+    }
+
     private val _nickname = MutableStateFlow(loadNickname())
 
     /** 她的昵称：首页问候、「我的」页与通知里的称呼都用它；可在「我的」页修改。 */
@@ -80,6 +99,7 @@ class AppPreferences @Inject constructor(
         val normalized = value.trim().take(MAX_NICKNAME_LENGTH).ifBlank { UserCopy.NICKNAME }
         preferences.edit().putString(KEY_NICKNAME, normalized).apply()
         _nickname.value = normalized
+        touchPreferences()
     }
 
     private fun loadNickname(): String =
@@ -112,6 +132,7 @@ class AppPreferences @Inject constructor(
     /** 设置起始日；传 null 表示清除。同时刷新 updatedAt，供多设备合并比较。 */
     fun setTogetherStartDate(date: String?) {
         persistTogetherStartDate(normalizeTogetherDate(date), MonotonicClock.now())
+        touchPreferences()
     }
 
     /** 设置首页计数前缀；留空回落到默认「我们」。 */
@@ -119,6 +140,7 @@ class AppPreferences @Inject constructor(
         val normalized = value.trim().take(MAX_TOGETHER_LABEL_LENGTH).ifBlank { DEFAULT_TOGETHER_LABEL_NAME }
         preferences.edit().putString(KEY_TOGETHER_LABEL_NAME, normalized).apply()
         _togetherLabelName.value = normalized
+        touchPreferences()
     }
 
     private fun persistTogetherStartDate(date: String?, updatedAt: Long) {
@@ -170,6 +192,7 @@ class AppPreferences @Inject constructor(
     fun setBudgetReminderEnabled(enabled: Boolean) {
         preferences.edit().putBoolean(KEY_BUDGET_REMINDER_ENABLED, enabled).apply()
         _budgetReminderEnabled.value = enabled
+        touchPreferences()
     }
 
     private val _ledgerMonthStartDay = MutableStateFlow(
@@ -186,6 +209,7 @@ class AppPreferences @Inject constructor(
         val normalized = day.coerceIn(1, 28)
         preferences.edit().putInt(KEY_LEDGER_MONTH_START_DAY, normalized).apply()
         _ledgerMonthStartDay.value = normalized
+        touchPreferences()
     }
 
     private val _reminderLadder = MutableStateFlow(loadReminderLadder())
@@ -215,6 +239,7 @@ class AppPreferences @Inject constructor(
             .apply()
         _reminderLadder.value = normalized
         _reminderDays.value = normalized.maxOrNull() ?: DEFAULT_REMINDER_DAYS
+        touchPreferences()
     }
 
     /**
@@ -250,6 +275,7 @@ class AppPreferences @Inject constructor(
             .putString(KEY_REMINDER_TIMES, normalized.joinToString(REMINDER_TIME_SEPARATOR))
             .apply()
         _reminderTimes.value = normalized
+        touchPreferences()
     }
 
     private fun loadReminderTimes(): List<String> {
@@ -524,12 +550,14 @@ class AppPreferences @Inject constructor(
     fun setMealPrepDayShift(dayShift: Int) {
         preferences.edit().putInt(KEY_MEAL_PREP_DAY_SHIFT, dayShift).apply()
         _mealPrepDayShift.value = dayShift
+        touchPreferences()
     }
 
     fun setMealPrepFireTime(time: String) {
         if (!time.matches(TIME_FORMAT)) return
         preferences.edit().putString(KEY_MEAL_PREP_FIRE_TIME, time).apply()
         _mealPrepFireTime.value = time
+        touchPreferences()
     }
 
     fun setLastSyncAt(timestamp: Long) {
@@ -575,6 +603,7 @@ class AppPreferences @Inject constructor(
             .putString(KEY_WEEKLY_MENU, StructuredPreferenceMigrations.encodeWeeklyMenu(menu))
             .apply()
         _weeklyMenu.value = menu
+        touchPreferences()
     }
 
     /**
@@ -609,6 +638,7 @@ class AppPreferences @Inject constructor(
             .putString(KEY_COOKED_MENU_DATES, updated.joinToString(SEARCH_SEPARATOR))
             .apply()
         _cookedMenuDates.value = updated
+        touchPreferences()
     }
 
     /** 撤销「做了」（GAP-12）：把某天从已做集合里移除，配合库存快照一起回滚。 */
@@ -619,6 +649,7 @@ class AppPreferences @Inject constructor(
             .putString(KEY_COOKED_MENU_DATES, updated.joinToString(SEARCH_SEPARATOR))
             .apply()
         _cookedMenuDates.value = updated
+        touchPreferences()
     }
 
     private fun loadCookedMenuDates(): Set<String> =
@@ -660,6 +691,7 @@ class AppPreferences @Inject constructor(
             .putInt(nextCodeKey(dimension), nextCode + 1)
             .apply()
         _customStatuses.value = updated
+        touchPreferences()
         return true
     }
 
@@ -669,6 +701,7 @@ class AppPreferences @Inject constructor(
         if (updated.size == _customStatuses.value.size) return
         preferences.edit().putString(KEY_CUSTOM_STATUSES, encodeCustomStatuses(updated)).apply()
         _customStatuses.value = updated
+        touchPreferences()
     }
 
     /**
@@ -690,6 +723,7 @@ class AppPreferences @Inject constructor(
         }
         preferences.edit().putString(KEY_CUSTOM_STATUSES, encodeCustomStatuses(updated)).apply()
         _customStatuses.value = updated
+        touchPreferences()
         return true
     }
 
@@ -766,6 +800,7 @@ class AppPreferences @Inject constructor(
             .putInt(KEY_NEXT_RECIPE_ID, nextId + 1)
             .apply()
         _recipes.value = updated
+        touchPreferences()
         return true
     }
 
@@ -788,6 +823,7 @@ class AppPreferences @Inject constructor(
         }
         preferences.edit().putString(KEY_RECIPES, encodeRecipes(updated)).apply()
         _recipes.value = updated
+        touchPreferences()
         return true
     }
 
@@ -797,6 +833,7 @@ class AppPreferences @Inject constructor(
         if (updated.size == _recipes.value.size) return
         preferences.edit().putString(KEY_RECIPES, encodeRecipes(updated)).apply()
         _recipes.value = updated
+        touchPreferences()
     }
 
     /**
@@ -839,6 +876,7 @@ class AppPreferences @Inject constructor(
         val normalized = days.coerceIn(MIN_MEAL_PLAN_DAYS, MAX_MEAL_PLAN_DAYS)
         preferences.edit().putInt(KEY_MEAL_PLAN_DAYS, normalized).apply()
         _mealPlanDays.value = normalized
+        touchPreferences()
     }
 
     private fun encodeRecipes(recipes: List<Recipe>): String =
@@ -1203,6 +1241,7 @@ class AppPreferences @Inject constructor(
         private const val KEY_MEAL_PLAN_VERSION = "meal_plan_version"
         private const val KEY_BUDGET_REMINDER_ENABLED = "budget_reminder_enabled"
         private const val KEY_LEDGER_MONTH_START_DAY = "ledger_month_start_day"
+    private const val KEY_PREFERENCES_UPDATED_AT = "preferences_updated_at"
 
         /**
          * 用户新增菜谱的起始编号，避开内置菜谱占用的编号段。

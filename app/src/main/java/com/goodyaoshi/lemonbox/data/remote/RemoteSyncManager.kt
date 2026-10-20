@@ -40,7 +40,9 @@ data class RemoteSyncResult(
     val merged: Int,
     val message: String,
     /** 两边都改过而分出胜负的条数（按「较新的改动为准」收场，内容一致的不计）。 */
-    val conflicts: Int = 0
+    val conflicts: Int = 0,
+    /** 本次是否因页数上限只拉了一部分；为真时调用方应提示「再次同步继续」。 */
+    val truncated: Boolean = false
 )
 
 /** 同步的运行状态。 */
@@ -50,7 +52,9 @@ data class RemoteSyncState(
     /** 上次成功同步的时间；从未同步过为 null。 */
     val lastSyncedAt: Long? = null,
     /** 上次同步中服务端报出的冲突条数；用于在界面提示「有内容两边都改过」。 */
-    val lastConflicts: Int = 0
+    val lastConflicts: Int = 0,
+    /** 上次同步是否只拉了一部分（达到 [MAX_PULL_PAGES]），界面据此提示再同步一次。 */
+    val lastTruncated: Boolean = false
 )
 
 /**
@@ -137,14 +141,21 @@ class RemoteSyncManager @Inject constructor(
                 running = false,
                 lastError = null,
                 lastSyncedAt = now,
-                lastConflicts = pushed.conflicts
+                lastConflicts = pushed.conflicts,
+                lastTruncated = pulled.truncated
             )
             RemoteSyncResult(
                 pushed = pushed.applied,
                 pulled = pulled.downloaded,
                 merged = pulled.merged,
                 conflicts = pushed.conflicts,
-                message = remoteSyncMessage(pushed.applied, pulled.downloaded, pushed.conflicts)
+                truncated = pulled.truncated,
+                message = remoteSyncMessage(
+                    pushed.applied,
+                    pulled.downloaded,
+                    pushed.conflicts,
+                    pulled.truncated
+                )
             )
         } catch (e: CancellationException) {
             // 取消要走原始路径：吞掉它会让协程在已取消后继续跑。
@@ -181,6 +192,7 @@ class RemoteSyncManager @Inject constructor(
         var cursor = sinceSeq
         var lastSeq = sinceSeq
         var pageCount = 0
+        var lastHasMore = false
 
         while (pageCount < MAX_PULL_PAGES) {
             pageCount++
@@ -199,14 +211,18 @@ class RemoteSyncManager @Inject constructor(
                 )
             }
             lastSeq = page.lastSeq
+            lastHasMore = page.hasMore
             if (!page.hasMore) break
             // 没前进就不再来一轮：服务端行为异常时无限翻页会把一次同步拖到天荒地老。
             if (page.changes.isEmpty() || lastSeq <= cursor) break
             cursor = lastSeq
         }
 
+        // 达到页数上限且服务端仍说还有：把「没拉完」如实带回去，界面提示再同步一次，
+        // 而不是让用户以为「已是最新」。
+        val truncated = pageCount >= MAX_PULL_PAGES && lastHasMore
         val merged = applyPulledRecords(landed, lastSeq)
-        return PullOutcome(downloaded = landed.size, merged = merged)
+        return PullOutcome(downloaded = landed.size, merged = merged, truncated = truncated)
     }
 
     /**
@@ -585,7 +601,8 @@ private data class LandedRecord(
 /** 拉取的汇总：本轮落地条数与合并计数。 */
 private data class PullOutcome(
     val downloaded: Int,
-    val merged: Int
+    val merged: Int,
+    val truncated: Boolean = false
 )
 
 /** 推送的汇总：服务端已写下的条数与冲突分出胜负的条数。 */
@@ -599,13 +616,19 @@ private data class PushOutcome(val applied: Int, val conflicts: Int)
  *
  * [conflicts] 为 0 时不出现冲突字样——每次同步都挂一句「0 条冲突」纯属噪声。
  */
-internal fun remoteSyncMessage(pushed: Int, pulled: Int, conflicts: Int): String = when {
-    pushed == 0 && pulled == 0 && conflicts == 0 -> "已是最新"
+internal fun remoteSyncMessage(
+    pushed: Int,
+    pulled: Int,
+    conflicts: Int,
+    truncated: Boolean = false
+): String = when {
+    pushed == 0 && pulled == 0 && conflicts == 0 && !truncated -> "已是最新"
     else -> buildString {
         append("同步完成")
         if (pushed > 0) append("，上传 $pushed 条")
         if (pulled > 0) append("，收到 $pulled 条")
         if (conflicts > 0) append("，$conflicts 条两边都改过，已按较新的改动为准")
+        if (truncated) append("；还有更多变更未拉取，请再次同步")
     }
 }
 

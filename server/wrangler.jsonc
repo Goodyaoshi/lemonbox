@@ -38,5 +38,9 @@
       "pattern": "lemonbox.goodyaoshi.eu.cc",
       "custom_domain": true
     }
-  ]
+  ],
+  // 每天 03:00 清理过期会话与登录失败桶；对应 worker.js 的 scheduled()
+  "triggers": {
+    "crons": ["0 3 * * *"]
+  }
 }

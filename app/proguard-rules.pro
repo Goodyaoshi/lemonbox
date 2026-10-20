@@ -19,3 +19,13 @@
 -keep class com.king.zxing.** { *; }
 -keep class com.king.camera.scan.** { *; }
 -dontwarn com.google.zxing.**
+
+# kotlinx.serialization：R8 不能把生成的 serializer 与 @Serializable 类的字段名改掉，
+# 否则 release 包在 decodeFromString 时会找不到字段（debug 包不复现）。
+-keepattributes *Annotation*, InnerClasses
+-dontnote kotlinx.serialization.**
+-keepclassmembers class **$$serializer { *; }
+-keepclasseswithmembers class * {
+    kotlinx.serialization.KSerializer serializer(...);
+}
+-keep @kotlinx.serialization.Serializable class * { *; }

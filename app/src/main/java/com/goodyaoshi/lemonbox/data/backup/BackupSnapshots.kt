@@ -96,8 +96,7 @@ data class CustomStatusSnapshot(
  */
 @Serializable
 data class PreferencesSnapshot(
-    val recipes: List<Recipe> = emptyList(),
-    val weeklyMenu: Map<String, MealSpec> = emptyMap(),
+    val recipes: List<Recipe> = emptyList(),    val weeklyMenu: Map<String, MealSpec> = emptyMap(),
     val cookedMenuDates: Set<String> = emptySet(),
     val customStatuses: List<CustomStatusSnapshot> = emptyList(),
     val reminderLadder: List<Int> = emptyList(),
@@ -118,7 +117,12 @@ data class PreferencesSnapshot(
     /** 预算超支提醒开关；v12 起导出。 */
     val budgetReminderEnabled: Boolean? = null,
     /** 未来 N 天菜谱的天数；v12 起导出。 */
-    val mealPlanDays: Int? = null
+    val mealPlanDays: Int? = null,
+    /**
+     * 本机最近一次修改偏好内容的时间戳；冲突裁决用。
+     * 旧载荷没有该字段，按 0 处理（服务端版本胜），保持向后兼容。
+     */
+    val updatedAt: Long? = null
 )
 
 /**

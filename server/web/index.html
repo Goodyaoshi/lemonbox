@@ -3,6 +3,12 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<!--
+  页面只加载同源脚本/样式与 Cloudflare 的统计脚本；图片来自对象存储的预签名 HTTPS 地址。
+  内联脚本是单文件网页的既有实现，故保留 'unsafe-inline'，但把 connect-src 收在同源，
+  避免 token 被意外发往第三方。
+-->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self'; font-src 'self' data:" />
 <meta name="theme-color" content="#FDFBF7" media="(prefers-color-scheme: light)" />
 <meta name="theme-color" content="#17150F" media="(prefers-color-scheme: dark)" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -361,17 +367,19 @@ async function api(path, opts = {}) {
 /* ------------------------------------------------------------ 同步逻辑 */
 
 /** 全量拉取：从 0 号开始，逐页循环直到服务端说没有更多。 */
+const MAX_PULL_PAGES = 60;
 async function pullAll() {
-  let since = 0, guard = 0;
+  let since = 0, guard = 0, truncated = false;
   const out = [];
   for (;;) {
     const r = await api(`/v1/pull?since=${since}&limit=500&includeSelf=1`);
     for (const ch of (r && r.changes) || []) out.push(ch);
     if (!r || !r.hasMore || !r.changes || !r.changes.length) break;
     since = r.lastSeq;
-    if (++guard > 60) break;
+    // 达到页数上限但服务端仍说还有：把「没拉完」带回去，界面提示再同步一次。
+    if (++guard >= MAX_PULL_PAGES) { truncated = true; break; }
   }
-  return out;
+  return { changes: out, truncated };
 }
 
 function adopt(ch) {
@@ -386,12 +394,16 @@ async function syncNow(quiet) {
   if (S.syncing || !S.token) return;
   S.syncing = true; render();
   try {
-    const changes = await pullAll();
+    const { changes, truncated } = await pullAll();
     for (const ch of changes) adopt(ch);
     S.lastSyncAt = Date.now();
     const st = await api("/v1/stats").catch(() => null);
     S.conflictCount = st ? Number(st.conflictCount || 0) : 0;
-    if (!quiet) snack(`同步完成 · 拉取 ${changes.length} 条变更`);
+    if (!quiet) {
+      snack(truncated
+        ? `同步完成 · 拉取 ${changes.length} 条，还有更多变更，请再同步一次`
+        : `同步完成 · 拉取 ${changes.length} 条变更`);
+    }
   } catch (e) {
     if (!quiet) snack("同步失败：" + e.message);
   } finally {
