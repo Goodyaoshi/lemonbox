@@ -294,6 +294,8 @@ const S = {
   deviceId: null, deviceName: "网页版",
   /** "collection\u0000key" -> { collection, key, data, seq, deleted } */
   records: new Map(),
+  /** 本次会话已拉到的服务端序号；刷新/重新登录后归零，重新全量。 */
+  since: 0,
   tab: "items",
   busy: false, syncing: false, lastSyncAt: null, conflictCount: 0,
   pendingRefresh: false
@@ -327,11 +329,13 @@ function loadSession() {
 }
 function saveSession(token, username, expiresAt) {
   S.token = token; S.username = username; S.expiresAt = expiresAt || 0;
+  // 新会话从 0 开始拉全量；本次会话内后续同步才走增量。
+  S.records.clear(); S.since = 0;
   try { localStorage.setItem(LS_KEY, JSON.stringify({ token, username, expiresAt })); } catch (_) {}
 }
 function clearSession() {
   S.token = null; S.username = null; S.expiresAt = 0;
-  S.records.clear(); S.lastSyncAt = null;
+  S.records.clear(); S.lastSyncAt = null; S.since = 0;
   try { localStorage.removeItem(LS_KEY); } catch (_) {}
 }
 
@@ -366,20 +370,22 @@ async function api(path, opts = {}) {
 
 /* ------------------------------------------------------------ 同步逻辑 */
 
-/** 全量拉取：从 0 号开始，逐页循环直到服务端说没有更多。 */
-const MAX_PULL_PAGES = 60;
+/** 首次从 0 全量；同一会话内从 S.since 增量，刷新/重新登录后归零。 */
+const MAX_PULL_PAGES = 100;
 async function pullAll() {
-  let since = 0, guard = 0, truncated = false;
+  let since = S.since || 0, guard = 0, truncated = false, lastSeq = since;
   const out = [];
   for (;;) {
-    const r = await api(`/v1/pull?since=${since}&limit=500&includeSelf=1`);
+    const r = await api(`/v1/pull?since=${since}&limit=200&includeSelf=1`);
     for (const ch of (r && r.changes) || []) out.push(ch);
-    if (!r || !r.hasMore || !r.changes || !r.changes.length) break;
-    since = r.lastSeq;
+    if (!r) break;
+    lastSeq = Number(r.lastSeq || lastSeq);
+    if (!r.hasMore || !r.changes || !r.changes.length) break;
+    since = lastSeq;
     // 达到页数上限但服务端仍说还有：把「没拉完」带回去，界面提示再同步一次。
     if (++guard >= MAX_PULL_PAGES) { truncated = true; break; }
   }
-  return { changes: out, truncated };
+  return { changes: out, truncated, lastSeq };
 }
 
 function adopt(ch) {
@@ -394,8 +400,10 @@ async function syncNow(quiet) {
   if (S.syncing || !S.token) return;
   S.syncing = true; render();
   try {
-    const { changes, truncated } = await pullAll();
+    const { changes, truncated, lastSeq } = await pullAll();
     for (const ch of changes) adopt(ch);
+    // 落地成功才推进本次会话的增量水位；中途失败时保持旧水位，下次重拉。
+    S.since = lastSeq;
     S.lastSyncAt = Date.now();
     const st = await api("/v1/stats").catch(() => null);
     S.conflictCount = st ? Number(st.conflictCount || 0) : 0;

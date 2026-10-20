@@ -279,9 +279,16 @@ class RemoteSyncManager @Inject constructor(
     private suspend fun push(pending: Map<String, Map<String, Long>>): PushOutcome {
         // 偏好是整块设置、没有 dirty/serverSeq 列，故恒推；它的序号单独记在 sync_state 里。
         val preferencesSeq = remoteSyncDao.state(SyncStateKeys.PREFERENCES_SEQ)
-        val records = backupManager.snapshotRecords().filter { record ->
-            record.collection == SyncCollections.PREFERENCES ||
-                pending[record.collection]?.containsKey(record.key) == true
+        // 没有实体 dirty 时只推整块偏好，不再读全库快照：
+        // Workers 免费档 CPU/内存都紧，空同步读一遍所有表纯属浪费。
+        val hasDirty = pending.values.any { it.isNotEmpty() }
+        val records = if (hasDirty) {
+            backupManager.snapshotRecords().filter { record ->
+                record.collection == SyncCollections.PREFERENCES ||
+                    pending[record.collection]?.containsKey(record.key) == true
+            }
+        } else {
+            listOf(backupManager.preferenceSyncRecord())
         }
         if (records.isEmpty()) return PushOutcome(applied = 0, conflicts = 0)
 
@@ -578,14 +585,14 @@ class RemoteSyncManager @Inject constructor(
          */
         const val LEGACY_PEER_ID = "d1"
 
-        /** 单次拉取条数上限（与服务端 `PULL_MAX_LIMIT` 对齐）。 */
-        const val PULL_LIMIT = 500
+        /** 单次拉取条数上限（与服务端 `PULL_MAX_LIMIT` 对齐；刻意压小以降低单请求 CPU/内存）。 */
+        const val PULL_LIMIT = 200
 
         /** 单次推送条数上限（与服务端 `PUSH_MAX_CHANGES` 对齐）。 */
-        const val PUSH_LIMIT = 200
+        const val PUSH_LIMIT = 100
 
-        /** 一次同步最多翻这么多页，避免服务端异常时无限翻页（500 × 40 = 2 万条）。 */
-        const val MAX_PULL_PAGES = 40
+        /** 一次同步最多翻这么多页，避免服务端异常时无限翻页（200 × 100 = 2 万条）。 */
+        const val MAX_PULL_PAGES = 100
     }
 }
 

@@ -1393,30 +1393,48 @@ class AppBackupManager @Inject constructor(
                     targetAssetSyncId = rule.targetAssetId?.let { ledgerAssetSyncIdById[it] }
                 )
             },
-            preferences = PreferencesSnapshot(
-                recipes = appPreferences.recipesSnapshot(),
-                weeklyMenu = appPreferences.weeklyMenuSnapshot(),
-                cookedMenuDates = appPreferences.cookedMenuDatesSnapshot(),
-                customStatuses = appPreferences.customStatusesSnapshot()
-                    .map { CustomStatusSnapshot.fromOption(it) },
-                reminderLadder = appPreferences.reminderLadder.value,
-                reminderTimes = appPreferences.reminderTimes.value,
-                customReminderTimes = appPreferences.customReminderTimes.value,
-                mealPrepDayShift = appPreferences.mealPrepDayShift.value,
-                mealPrepFireTime = appPreferences.mealPrepFireTime.value,
-                togetherStartDate = appPreferences.togetherStartDateSnapshot(),
-                togetherStartDateUpdatedAt = appPreferences.togetherUpdatedAt.value,
-                togetherLabelName = appPreferences.togetherLabelName.value,
-                nickname = appPreferences.nickname.value,
-                ledgerMonthStartDay = appPreferences.ledgerMonthStartDay.value,
-                budgetReminderEnabled = appPreferences.budgetReminderEnabled.value,
-                mealPlanDays = appPreferences.mealPlanDays.value,
-                updatedAt = appPreferences.preferencesUpdatedAt.value
-            )
+            preferences = buildPreferencesSnapshot()
         )
 
         return BuiltPayload(payload = backup, exportedAt = exportedAt, isEmpty = isEmpty)
     }
+
+    /**
+     * 只构建整块偏好（不读任何同步表）。
+     *
+     * 没有实体 dirty 时，`push` 只推这一块，避免为了几条设置把整库快照读一遍；
+     * CPU/IO 都只跟 SharedPreferences 的大小相关。
+     */
+    private fun buildPreferencesSnapshot(): PreferencesSnapshot = PreferencesSnapshot(
+        recipes = appPreferences.recipesSnapshot(),
+        weeklyMenu = appPreferences.weeklyMenuSnapshot(),
+        cookedMenuDates = appPreferences.cookedMenuDatesSnapshot(),
+        customStatuses = appPreferences.customStatusesSnapshot()
+            .map { CustomStatusSnapshot.fromOption(it) },
+        reminderLadder = appPreferences.reminderLadder.value,
+        reminderTimes = appPreferences.reminderTimes.value,
+        customReminderTimes = appPreferences.customReminderTimes.value,
+        mealPrepDayShift = appPreferences.mealPrepDayShift.value,
+        mealPrepFireTime = appPreferences.mealPrepFireTime.value,
+        togetherStartDate = appPreferences.togetherStartDateSnapshot(),
+        togetherStartDateUpdatedAt = appPreferences.togetherUpdatedAt.value,
+        togetherLabelName = appPreferences.togetherLabelName.value,
+        nickname = appPreferences.nickname.value,
+        ledgerMonthStartDay = appPreferences.ledgerMonthStartDay.value,
+        budgetReminderEnabled = appPreferences.budgetReminderEnabled.value,
+        mealPlanDays = appPreferences.mealPlanDays.value,
+        updatedAt = appPreferences.preferencesUpdatedAt.value
+    )
+
+    /** 只含 `preferences` 的一条同步记录；供没有实体 dirty 时的轻量推送。 */
+    fun preferenceSyncRecord(): SyncRecord = AppBackupPayload(
+        exportedAt = System.currentTimeMillis(),
+        deviceId = "",
+        categories = emptyList(),
+        locations = emptyList(),
+        items = emptyList(),
+        preferences = buildPreferencesSnapshot()
+    ).toSyncRecords().first { it.collection == SyncCollections.PREFERENCES }
 
     private fun unzip(zipFile: File, targetDir: File) {
         ZipInputStream(zipFile.inputStream()).use { zip ->

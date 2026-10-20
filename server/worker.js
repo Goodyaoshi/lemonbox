@@ -17,10 +17,17 @@
  */
 
 const VERSION = "1.0.0";
-const PBKDF2_ITERATIONS = 100000;
+/**
+ * Cloudflare Workers 免费版单次请求 CPU 约 10ms；PBKDF2 100k 次在本机约 38ms，
+ * 线上很容易触发 1102（Exceeded CPU Limit）。这里降到 10k（约 3~4ms），
+ * 配合登录失败限流与 90 天会话；旧账号首次登录成功后会按新迭代数自动重哈希，
+ * 之后不再走 100k。需要更强抗暴力破解时，升级 Workers Paid 后把该值调回 100000。
+ */
+const PBKDF2_ITERATIONS = 10000;
 const SESSION_TTL_MS = 90 * 24 * 60 * 60 * 1000;
-const PUSH_MAX_CHANGES = 200;
-const PULL_MAX_LIMIT = 500;
+/** 单次推送/拉取批量刻意收敛：减少单请求的 CPU、内存与 D1 行数。 */
+const PUSH_MAX_CHANGES = 100;
+const PULL_MAX_LIMIT = 200;
 /** push 请求体与单条载荷上限：防止一次请求把 D1/Worker 内存打满。 */
 const PUSH_MAX_BODY_BYTES = 2 * 1024 * 1024;
 const PUSH_MAX_RECORD_CHARS = 64 * 1024;
@@ -339,6 +346,30 @@ async function safeClearLoginFailures(env, buckets) {
   }
 }
 
+async function requireSession(request, env) {
+  const header = request.headers.get("Authorization") || "";
+  const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
+  if (!token) return fail("未登录", 401);
+  const tokenHash = await sha256Hex(token);
+  const row = await env.DB.prepare(
+    "SELECT s.user_id, s.device_id, s.device_name, s.expires_at, u.name AS user_name " +
+      "FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ?",
+  )
+    .bind(tokenHash)
+    .first();
+  if (!row) return fail("登录已失效，请重新登录", 401);
+  if (row.expires_at < Date.now()) {
+    await env.DB.prepare("DELETE FROM sessions WHERE token_hash = ?").bind(tokenHash).run();
+    return fail("登录已过期，请重新登录", 401);
+  }
+  return {
+    user_id: row.user_id,
+    user_name: row.user_name,
+    device_id: row.device_id,
+    device_name: row.device_name,
+  };
+}
+
 async function handleLogin(request, env) {
   const body = await request.json().catch(() => null);
   if (!body || !body.username || !body.password) return fail("缺少账号或密码");
@@ -373,41 +404,22 @@ async function handleLogin(request, env) {
     return fail("账号或密码不正确", 401);
   }
   await safeClearLoginFailures(env, buckets);
-  const header = request.headers.get("Authorization") || "";
-  const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
-  if (!token) return fail("未登录", 401);
-  const tokenHash = await sha256Hex(token);
-  const row = await env.DB.prepare(
-    "SELECT s.user_id, s.device_id, s.device_name, s.expires_at, u.name AS user_name " +
-      "FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ?",
-  )
-    .bind(tokenHash)
-    .first();
-  if (!row) return fail("登录已失效，请重新登录", 401);
-  if (row.expires_at < Date.now()) {
-    await env.DB.prepare("DELETE FROM sessions WHERE token_hash = ?").bind(tokenHash).run();
-    return fail("登录已过期，请重新登录", 401);
+
+  // 旧账号的 iterations 可能仍是 100000；首次登录成功后按新迭代数重哈希，
+  // 避免之后每次登录都跑一次高 CPU 的 PBKDF2。失败不影响本次登录。
+  if (Number(user.iterations) > PBKDF2_ITERATIONS) {
+    try {
+      const newSalt = randomToken().slice(0, 32);
+      const newHash = await pbkdf2Hex(String(body.password), newSalt, PBKDF2_ITERATIONS);
+      await env.DB.prepare(
+        "UPDATE users SET salt = ?, iterations = ?, hash = ? WHERE id = ?",
+      )
+        .bind(newSalt, PBKDF2_ITERATIONS, newHash, user.id)
+        .run();
+    } catch (e) {
+      /* 重哈希失败不影响本次登录，下次再试 */
+    }
   }
-  return {
-    user_id: row.user_id,
-    user_name: row.user_name,
-    device_id: row.device_id,
-    device_name: row.device_name,
-  };
-}
-
-async function handleLogin(request, env) {
-  const body = await request.json().catch(() => null);
-  if (!body || !body.username || !body.password) return fail("缺少账号或密码");
-  const username = String(body.username).trim();
-  const deviceId = String(body.deviceId || "").trim();
-  if (!deviceId) return fail("缺少设备标识");
-
-  const user = await env.DB.prepare("SELECT * FROM users WHERE name = ?").bind(username).first();
-  // 账号不存在与密码错误给同一句话，避免枚举出有哪些账号。
-  if (!user) return fail("账号或密码不正确", 401);
-  const hash = await pbkdf2Hex(String(body.password), user.salt, user.iterations);
-  if (!equalConstantTime(hash, user.hash)) return fail("账号或密码不正确", 401);
 
   const token = randomToken();
   const now = Date.now();
@@ -603,15 +615,9 @@ async function handlePull(request, env, session) {
   const results = rows.results || [];
   const lastSeq = results.length ? Number(results[results.length - 1].server_seq) : since;
 
-  let hasMore = false;
-  if (results.length === limit) {
-    const more = await env.DB.prepare(
-      "SELECT 1 AS x FROM records WHERE server_seq > ? AND (? = 1 OR updated_by_dev <> ?) LIMIT 1",
-    )
-      .bind(lastSeq, includeSelf ? 1 : 0, session.device_id)
-      .first();
-    hasMore = !!more;
-  }
+  // 用「本页是否取满」判断还有没有下一页；不再额外查一次 D1。
+  // 取满但没有更多时客户端会多拉一次空页，换来每页少一次查询，CPU 更省。
+  const hasMore = results.length === limit;
 
   await env.DB.prepare(
     "INSERT INTO devices(device_id, user_id, name, last_seen_at, last_pull_seq) VALUES(?,?,?,?,?) " +
