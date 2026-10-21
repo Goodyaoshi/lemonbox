@@ -64,8 +64,10 @@ import com.goodyaoshi.lemonbox.ui.theme.TagOrangeText
 import com.goodyaoshi.lemonbox.ui.theme.TextHint
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
 import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
+import com.goodyaoshi.lemonbox.ui.viewmodel.ProfileCloudSummary
 import com.goodyaoshi.lemonbox.ui.viewmodel.ProfileViewModel
 import com.goodyaoshi.lemonbox.util.BrandCopy
+import com.goodyaoshi.lemonbox.util.DateUtil
 
 @Composable
 fun ProfileScreen(
@@ -80,6 +82,7 @@ fun ProfileScreen(
 ) {
     val dueReminderCount by viewModel.dueReminderCount.collectAsState()
     val anniversaryCount by viewModel.anniversaryCount.collectAsState()
+    val cloudSummary by viewModel.cloudSummary.collectAsState()
     val nickname by viewModel.nickname.collectAsState()
     var showNicknameDialog by remember { mutableStateOf(false) }
     var nicknameInput by remember { mutableStateOf("") }
@@ -223,14 +226,14 @@ fun ProfileScreen(
                 MenuRow(
                     icon = Icons.Default.Settings,
                     title = "设置",
-                    subtitle = "外观、提醒时间与备菜提醒",
+                    subtitle = "外观、提醒时间与通知可靠性",
                     onClick = onOpenSettings
                 )
                 DividerSpacer()
                 MenuRow(
                     icon = Icons.Default.Storage,
-                    title = "数据中心",
-                    subtitle = "设备同步、云端同步（账号与图片上传）",
+                    title = "数据与同步",
+                    subtitle = dataCenterSubtitle(cloudSummary),
                     onClick = onOpenDataCenter
                 )
             }
@@ -341,4 +344,12 @@ private fun DividerSpacer() {
             .background(DividerSoft)
             .height(1.dp)
     )
+}
+
+/** 「数据与同步」入口副标题：让用户在点进去之前就知道同步是否在正常工作。 */
+private fun dataCenterSubtitle(summary: ProfileCloudSummary): String = when {
+    !summary.loggedIn -> "未登录 · 数据只在本机"
+    summary.syncing -> "正在同步…"
+    summary.hasError -> "上次同步失败，点此查看"
+    else -> "云同步已开启 · " + DateUtil.relativeSyncText(summary.lastSyncedAt)
 }

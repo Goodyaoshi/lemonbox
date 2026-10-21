@@ -219,13 +219,20 @@ fun AppBackupPayload.toSyncRecords(): List<SyncRecord> = buildList {
 fun syncRecordsToPayload(
     records: List<SyncRecord>,
     deviceId: String,
-    exportedAt: Long = System.currentTimeMillis()
+    exportedAt: Long = System.currentTimeMillis(),
+    /** 单条载荷解不开时回调一次；调用方据此把「静默跳过」变成可见的诊断计数。 */
+    onSkipped: (SyncRecord) -> Unit = {}
 ): AppBackupPayload {
     val byCollection = records.groupBy { it.collection }
 
     fun <T> decode(collection: String, serializer: KSerializer<T>): List<T> =
         byCollection[collection].orEmpty().mapNotNull { record ->
-            runCatching { syncJson.decodeFromString(serializer, record.payload) }.getOrNull()
+            runCatching { syncJson.decodeFromString(serializer, record.payload) }
+                .getOrNull()
+                ?: run {
+                    onSkipped(record)
+                    null
+                }
         }
 
     return AppBackupPayload(
@@ -261,6 +268,10 @@ fun syncRecordsToPayload(
                 runCatching {
                     syncJson.decodeFromString(PreferencesSnapshot.serializer(), record.payload)
                 }.getOrNull()
+                    ?: run {
+                        onSkipped(record)
+                        null
+                    }
             }
     )
 }

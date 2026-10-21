@@ -44,25 +44,29 @@ import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.InlineNotice
 import com.goodyaoshi.lemonbox.ui.components.NoticeVariant
 import com.goodyaoshi.lemonbox.ui.components.SectionTitle
+import com.goodyaoshi.lemonbox.ui.viewmodel.DataCenterUiState
 import com.goodyaoshi.lemonbox.ui.viewmodel.DataCenterViewModel
 import com.goodyaoshi.lemonbox.ui.theme.DividerSoft
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.TextHint
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
+import com.goodyaoshi.lemonbox.util.DateUtil
 
 /**
- * 数据中心（IA-1）：设备同步与云端同步的统一二级页。
- * 从「我的」拆出，让个人设置与数据管理各归其位。
+ * 数据与同步（IA-1）：所有与「数据去哪儿」有关的操作都收在这一页。
  *
- * IA 合并：原先「云端账号」与「云存储与同步」是两个入口，其实是同一件事的两半
- * （先有账号，才有图片上云与多设备对齐），现合并为「云端同步」一个入口，
- * 登录态与开关都收在那一页里，不再让人来回找。
+ * 三层，按用户实际会问的顺序排列：
+ * 1. **自动同步**——登录后由云端在后台完成，这里是它的状态与入口；
+ * 2. **局域网同步**——同一 WiFi 下两台设备都在时的手动对齐；
+ * 3. **本地备份**——不依赖网络与账号的最后一份保险。
+ *
+ * 早先「云端账号」「云存储与同步」「设备同步」是三个并列入口，用户要自己
+ * 拼出它们的关系；现在只有一张状态卡，登录态与上次同步结果在入口就能看到。
  */
 @Composable
 fun DataCenterScreen(
     onBack: () -> Unit,
     onOpenLanSync: () -> Unit,
-    // 云端同步入口（P4 · IA 合并）：登录云账号后图片上云、多设备数据自动对齐，同一页里完成。
     onOpenImageCloud: () -> Unit = {},
     viewModel: DataCenterViewModel = hiltViewModel()
 ) {
@@ -99,15 +103,86 @@ fun DataCenterScreen(
                     )
                 }
                 Text(
-                    text = "数据中心",
+                    text = "数据与同步",
                     style = MaterialTheme.typography.headlineMedium,
                     color = TextPrimary
                 )
             }
 
             SectionTitle(
-                title = "数据同步",
+                title = "自动同步",
                 modifier = Modifier.padding(start = 24.dp, top = 10.dp, bottom = 8.dp)
+            )
+            AppSurfaceCard(
+                modifier = Modifier.padding(horizontal = 20.dp),
+                shape = MaterialTheme.shapes.extraLarge,
+                shadowElevation = 12.dp,
+                onClick = onOpenImageCloud
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(OrangeStart.copy(alpha = 0.12f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CloudUpload,
+                            contentDescription = null,
+                            tint = OrangeStart,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.size(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = if (state.cloudLoggedIn) "云同步已开启" else "云同步未开启",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
+                        Text(
+                            text = cloudSubtitle(state),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextHint
+                        )
+                    }
+                    Icon(
+                        imageVector = Icons.Default.ChevronRight,
+                        contentDescription = null,
+                        tint = TextHint
+                    )
+                }
+                if (!state.cloudLoggedIn) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = "登录并开启 ›",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = OrangeStart
+                    )
+                }
+                if (state.cloudLoggedIn && state.cloudLastError != null) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    InlineNotice(
+                        message = state.cloudLastError.orEmpty(),
+                        variant = NoticeVariant.Danger
+                    )
+                }
+                if (state.cloudLoggedIn && state.cloudSkippedPayloads > 0) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    InlineNotice(
+                        message = "有 ${state.cloudSkippedPayloads} 条服务端记录无法解析，已跳过；" +
+                            "请先导出本地备份，再进云同步查看。",
+                        variant = NoticeVariant.Warning
+                    )
+                }
+            }
+
+            SectionTitle(
+                title = "同一 WiFi",
+                modifier = Modifier.padding(start = 24.dp, top = 22.dp, bottom = 8.dp)
             )
             AppSurfaceCard(
                 modifier = Modifier.padding(horizontal = 20.dp),
@@ -116,24 +191,15 @@ fun DataCenterScreen(
             ) {
                 MenuRow(
                     icon = Icons.Default.Sync,
-                    title = "设备同步",
-                    subtitle = "同一 WiFi 下用配对码互相补齐数据",
+                    title = "局域网同步",
+                    subtitle = "两台设备都在时手动对齐；不经过云端，适合一次性搬运",
                     onClick = onOpenLanSync
-                )
-                DividerSpacer()
-                MenuRow(
-                    icon = Icons.Default.CloudUpload,
-                    title = "云端同步",
-                    // 一个入口覆盖「登录账号 + 图片上云 + 多设备对齐」，仅正式版可用。
-                    subtitle = "登录云账号后图片上云、多设备数据自动对齐，仅正式版可用",
-                    onClick = onOpenImageCloud
                 )
             }
 
-            // 本地备份：不依赖登录与网络，是换机/卸载/清数据前的最后一份保险。
             SectionTitle(
                 title = "本地备份",
-                modifier = Modifier.padding(start = 24.dp, top = 24.dp, bottom = 8.dp)
+                modifier = Modifier.padding(start = 24.dp, top = 22.dp, bottom = 8.dp)
             )
             AppSurfaceCard(
                 modifier = Modifier.padding(horizontal = 20.dp),
@@ -150,7 +216,7 @@ fun DataCenterScreen(
                 MenuRow(
                     icon = Icons.Default.Restore,
                     title = "从备份恢复",
-                    subtitle = "从 ZIP 合并恢复，不会删除现有数据；建议先导出当前备份",
+                    subtitle = "按较新者合并，不会删除现有数据",
                     onClick = {
                         importLauncher.launch(
                             arrayOf(
@@ -162,15 +228,16 @@ fun DataCenterScreen(
                     }
                 )
             }
+
             if (state.busy) {
                 Spacer(modifier = Modifier.height(8.dp))
-                Box(modifier = Modifier.padding(horizontal = 24.dp)) {
+                Box(modifier = Modifier.padding(horizontal = 20.dp)) {
                     InlineNotice(message = "正在处理，请稍候…", variant = NoticeVariant.Info)
                 }
             }
             state.message?.let { message ->
                 Spacer(modifier = Modifier.height(8.dp))
-                Box(modifier = Modifier.padding(horizontal = 24.dp)) {
+                Box(modifier = Modifier.padding(horizontal = 20.dp)) {
                     InlineNotice(
                         message = message,
                         variant = if (state.messageIsError) NoticeVariant.Danger else NoticeVariant.Success
@@ -179,6 +246,15 @@ fun DataCenterScreen(
             }
         }
     }
+}
+
+/** 云同步入口的一行状态：未登录、同步中、失败、或最近一次成功时间。 */
+private fun cloudSubtitle(state: DataCenterUiState): String = when {
+    !state.cloudLoggedIn -> "登录后自动同步数据与图片，本机数据始终保留"
+    state.cloudSyncing -> "正在同步…"
+    state.cloudSkippedPayloads > 0 -> "有 ${state.cloudSkippedPayloads} 条服务端记录未落地，点此查看"
+    state.cloudLastError != null -> "上次同步失败，点此查看"
+    else -> "上次同步：" + DateUtil.relativeSyncText(state.cloudLastSyncedAt)
 }
 
 @Composable

@@ -2,21 +2,34 @@ package com.goodyaoshi.lemonbox.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.goodyaoshi.lemonbox.data.remote.RemoteSyncManager
+import com.goodyaoshi.lemonbox.data.remote.SyncSessionStore
 import com.goodyaoshi.lemonbox.data.repository.AnniversaryRepository
 import com.goodyaoshi.lemonbox.data.repository.ReminderRepository
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import javax.inject.Inject
+
+/** 「我的」页用的一行云同步状态；只够决定入口副标题，不展开细节。 */
+data class ProfileCloudSummary(
+    val loggedIn: Boolean = false,
+    val syncing: Boolean = false,
+    val lastSyncedAt: Long? = null,
+    val hasError: Boolean = false
+)
 
 @HiltViewModel
 class ProfileViewModel @Inject constructor(
     reminderRepository: ReminderRepository,
     anniversaryRepository: AnniversaryRepository,
-    private val appPreferences: AppPreferences
+    private val appPreferences: AppPreferences,
+    sessionStore: SyncSessionStore,
+    remoteSyncManager: RemoteSyncManager
 ) : ViewModel() {
 
     // 家当域的计数（待买 / 临期 / 回收站）已随「家当域」迁到 HouseholdViewModel，此处不再保留。
@@ -37,4 +50,20 @@ class ProfileViewModel @Inject constructor(
     /** 纪念日数量：「常用」组纪念日入口的徽标。 */
     val anniversaryCount: StateFlow<Int> = anniversaryRepository.observeCount()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    /**
+     * 「数据与同步」入口的实时副标题。
+     *
+     * 之前这里只有一句静态的「设备同步、云端同步」，用户看不出同步到底有没有在跑；
+     * 现在登录态、进行中、失败与上次成功时间都直接落在入口上。
+     */
+    val cloudSummary: StateFlow<ProfileCloudSummary> =
+        combine(sessionStore.session, remoteSyncManager.state) { session, sync ->
+            ProfileCloudSummary(
+                loggedIn = session != null,
+                syncing = sync.running,
+                lastSyncedAt = sync.lastSyncedAt,
+                hasError = sync.lastError != null
+            )
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ProfileCloudSummary())
 }

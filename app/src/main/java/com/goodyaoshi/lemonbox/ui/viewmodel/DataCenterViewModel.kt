@@ -6,6 +6,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.goodyaoshi.lemonbox.data.backup.AppBackupManager
 import com.goodyaoshi.lemonbox.data.backup.toUserMessage
+import com.goodyaoshi.lemonbox.data.remote.RemoteSyncManager
+import com.goodyaoshi.lemonbox.data.remote.SyncSessionStore
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -23,24 +25,58 @@ import javax.inject.Inject
 data class DataCenterUiState(
     val busy: Boolean = false,
     val message: String? = null,
-    val messageIsError: Boolean = false
+    val messageIsError: Boolean = false,
+    /** 云同步状态：未登录、上次同步时间与失败原因都要在入口层可见。 */
+    val cloudLoggedIn: Boolean = false,
+    val cloudUsername: String? = null,
+    val cloudSyncing: Boolean = false,
+    val cloudLastSyncedAt: Long? = null,
+    val cloudLastError: String? = null,
+    /** 上次同步因载荷无法解析而跳过的记录数；非 0 时入口直接提示有数据未落地。 */
+    val cloudSkippedPayloads: Int = 0
 )
 
 /**
- * 数据中心里的「本地备份 / 恢复」。
+ * 「数据与同步」页的状态。
  *
- * 这是普通用户唯一的离线保险：云同步需要登录，换机、卸载、清数据时如果没有
- * 一份本机 ZIP，数据就只剩云端那一份。导出时把仍在 `filesDir/images` 的图片
- * 一起打包；已经上传云端并清理本地的图片仍要靠云端取回。
+ * 除了本地备份的导入/导出，还汇总云同步的登录态与最近一次同步结果，
+ * 让用户在进入二级页之前就知道「数据到底同没同步」。
  */
 @HiltViewModel
 class DataCenterViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val backupManager: AppBackupManager
+    private val backupManager: AppBackupManager,
+    private val remoteSyncManager: RemoteSyncManager,
+    private val sessionStore: SyncSessionStore
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(DataCenterUiState())
     val uiState: StateFlow<DataCenterUiState> = _uiState.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            sessionStore.session.collect { session ->
+                _uiState.update {
+                    it.copy(
+                        cloudLoggedIn = session != null,
+                        cloudUsername = session?.username
+                    )
+                }
+            }
+        }
+        viewModelScope.launch {
+            remoteSyncManager.state.collect { sync ->
+                _uiState.update {
+                    it.copy(
+                        cloudSyncing = sync.running,
+                        cloudLastSyncedAt = sync.lastSyncedAt,
+                        cloudLastError = sync.lastError,
+                        cloudSkippedPayloads = sync.lastSkippedPayloads
+                    )
+                }
+            }
+        }
+    }
 
     fun defaultBackupFileName(): String =
         "柠檬百宝箱备份-" +

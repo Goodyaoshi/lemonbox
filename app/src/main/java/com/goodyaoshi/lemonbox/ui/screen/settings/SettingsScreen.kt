@@ -209,12 +209,6 @@ fun SettingsScreen(
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary
                 )
-                Spacer(modifier = Modifier.size(6.dp))
-                Text(
-                    text = "深色模式可跟随系统，也可手动固定。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TextSecondary
-                )
                 Spacer(modifier = Modifier.size(12.dp))
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -244,12 +238,6 @@ fun SettingsScreen(
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary
                 )
-                Spacer(modifier = Modifier.size(6.dp))
-                Text(
-                    text = "通知时间点、备菜预填与预算超支提示。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TextSecondary
-                )
                 Spacer(modifier = Modifier.size(14.dp))
 
                 // ---- 小组：通知时间 ----
@@ -263,7 +251,7 @@ fun SettingsScreen(
                 Text(
                     // 提前几天（提醒阶梯）在家当设置里配，这里明说去处并给出跳转，
                     // 免得用户读完「命中提醒阶梯」却找不到在哪调。
-                    text = "可多选。命中提醒阶梯的物品会在这些时间点汇总通知你。",
+                    text = "可多选；命中提醒阶梯的物品会汇总通知。",
                     style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary
                 )
@@ -490,8 +478,7 @@ fun SettingsScreen(
                 }
                 if (aboutExpanded) {
                     Text(
-                        text = "可检查新版本，也可随时下载安装包（重装、分享给他人）。下载交给浏览器，" +
-                            "完成后在通知栏点开安装包即可。",
+                        text = "检查更新或下载安装包；浏览器下载无法由应用校验。",
                         style = MaterialTheme.typography.bodySmall,
                         color = TextSecondary,
                         modifier = Modifier.padding(top = 6.dp)

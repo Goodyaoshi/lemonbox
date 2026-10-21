@@ -34,6 +34,8 @@ data class SyncDiagnosticsUiState(
     /** 最近一次动作的回执；重建成功后带撤销点路径。 */
     val message: String? = null,
     val messageIsError: Boolean = false,
+    /** 上次同步因载荷无法解析而跳过的记录数；非 0 时页面直接告警。 */
+    val skippedPayloads: Int = 0,
     /** 可撤销的重建备份（仅内存持有：撤销是紧跟着重建的一次动作，不值得持久化）。 */
     val undoZipPath: String? = null
 )
@@ -50,7 +52,12 @@ class SyncDiagnosticsViewModel @Inject constructor(
     private val config: ImageCloudConfig
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(SyncDiagnosticsUiState(ready = config.isLoggedIn()))
+    private val _uiState = MutableStateFlow(
+        SyncDiagnosticsUiState(
+            ready = config.isLoggedIn(),
+            skippedPayloads = remoteSyncManager.state.value.lastSkippedPayloads
+        )
+    )
     val uiState: StateFlow<SyncDiagnosticsUiState> = _uiState.asStateFlow()
 
     init {
@@ -72,6 +79,7 @@ class SyncDiagnosticsViewModel @Inject constructor(
                     busy = false,
                     report = report,
                     conflicts = conflicts,
+                    skippedPayloads = remoteSyncManager.state.value.lastSkippedPayloads,
                     message = if (error != null) "对账失败：${errorMessage(error)}" else null,
                     messageIsError = error != null
                 )

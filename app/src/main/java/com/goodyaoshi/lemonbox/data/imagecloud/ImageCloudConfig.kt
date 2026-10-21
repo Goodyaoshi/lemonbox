@@ -15,7 +15,7 @@ data class ImageCloudReadiness(
     val supported: Boolean,
     /** 是否已登录同步服务端（登录凭证加密存在本机）。 */
     val loggedIn: Boolean,
-    /** 用户是否已打开图片上传开关。 */
+    /** 图片上传是否启用。登录即开启，此字段恒为 true，保留给上传调度判断。 */
     val enabled: Boolean
 ) {
     /** 具备一切条件，可以上传。 */
@@ -39,7 +39,10 @@ data class ImageCloudReadiness(
  * endpoint / region / bucket / AccessKey / SecretKey 全部只存在服务端（Cloudflare Worker），
  * 客户端包内只有一个公开域名 [baseUrl] 与用户登录换来的会话令牌；
  * 每次要读写对象时才向 Worker 换**几分钟有效的预签名 URL**。
- * 因此这里不再有「口令解锁」，配置是否可用只取决于**登录态**。
+ *
+ * 可用的唯一前提是**登录态**：登录即开启同步，退出登录即回到纯本地。
+ * 早期版本还叠加了「图片上传 / 自动上传 / 后台补传 / 多设备同步」四个用户开关，
+ * 它们已从界面移除，见 [ImageCloudPreferences]。
  */
 @Singleton
 class ImageCloudConfig @Inject constructor(
@@ -74,17 +77,10 @@ class ImageCloudConfig @Inject constructor(
         enabled = preferences.enabled.value
     )
 
-    /**
-     * 多设备同步（文字数据）的第一处待补齐事项；都齐时返回 null。
-     *
-     * **与 [readiness] 的区别是刻意的**：这里看 [ImageCloudPreferences.cloudSyncEnabled]，
-     * 不看图片上传开关。两者取舍不同——图片占空间与流量，文字数据体积很小，
-     * 有人只想让数据不丢、不愿把照片传上去。
-     */
+    /** 多设备文字同步的第一处待补齐事项；都齐时返回 null。 */
     fun remoteSyncBlocker(): String? = when {
         !textSyncSupported -> "当前版本不支持云同步，请使用正式版"
-        !isLoggedIn() -> "请先登录柠檬账号"
-        !preferences.cloudSyncEnabled.value -> "多设备同步未开启"
+        !isLoggedIn() -> "登录后会随账号自动同步"
         else -> null
     }
 

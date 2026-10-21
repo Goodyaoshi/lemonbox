@@ -8,7 +8,6 @@ import coil.ImageLoaderFactory
 import com.goodyaoshi.lemonbox.data.imagecloud.CloudImageFetcherFactory
 import com.goodyaoshi.lemonbox.data.imagecloud.CloudImageModelKeyer
 import com.goodyaoshi.lemonbox.data.imagecloud.ImageCloudConfig
-import com.goodyaoshi.lemonbox.data.imagecloud.ImageCloudPreferences
 import com.goodyaoshi.lemonbox.data.imagecloud.ImageCloudSyncScheduler
 import com.goodyaoshi.lemonbox.data.remote.SyncSessionStore
 import com.goodyaoshi.lemonbox.data.repository.LedgerPlanningRepository
@@ -63,9 +62,6 @@ class LemonApplication : Application(), Configuration.Provider, ImageLoaderFacto
     lateinit var cloudImageFetcherFactory: CloudImageFetcherFactory
 
     @Inject
-    lateinit var imageCloudPreferences: ImageCloudPreferences
-
-    @Inject
     lateinit var imageCloudConfig: ImageCloudConfig
 
     @Inject
@@ -94,18 +90,16 @@ class LemonApplication : Application(), Configuration.Provider, ImageLoaderFacto
         WidgetRefreshWorker.schedule(this)
         // 就寝提醒（F15）：按偏好对齐任务（开启则排期，关闭则取消）。
         sleepReminderScheduler.sync()
-        // 图片云端补传（F20）：仅当「正式包 + 用户已开启 + 允许后台补传」三者齐备才排期，
-        // 否则撤掉——避免给没在用该功能的人留下无谓的后台唤醒。
+        // 图片云端补传：登录即开启，任务本身只在不计费网络下运行。
         imageCloudSyncScheduler.syncSchedule(
             supported = imageCloudConfig.supported,
-            enabled = imageCloudPreferences.enabled.value,
-            backgroundSync = imageCloudPreferences.backgroundSync.value
+            enabled = syncSessionStore.isLoggedIn,
+            backgroundSync = true
         )
-        // 多设备同步：按「支持文字同步 + 已登录 + 用户已开启」排期；未登录视为纯本地，不注册后台唤醒。
-        // 文字同步与图片上传用两个开关：debug 包也允许文字同步。
+        // 多设备同步：按「支持文字同步 + 已登录」排期；未登录视为纯本地，不注册后台唤醒。
         cloudSyncScheduler.syncSchedule(
             supported = imageCloudConfig.textSyncSupported,
-            enabled = imageCloudPreferences.cloudSyncEnabled.value && syncSessionStore.isLoggedIn
+            enabled = syncSessionStore.isLoggedIn
         )
         // 即时触发：回到前台 / 本地写入后同步。冷启动的首次 onStart 也在其覆盖内，
         // 故不再单独在此处启动一次同步。

@@ -3,7 +3,7 @@ package com.goodyaoshi.lemonbox.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.goodyaoshi.lemonbox.data.imagecloud.ImageCloudConfig
-import com.goodyaoshi.lemonbox.data.imagecloud.ImageCloudPreferences
+import com.goodyaoshi.lemonbox.data.imagecloud.ImageCloudSyncScheduler
 import com.goodyaoshi.lemonbox.data.remote.RemoteApiException
 import com.goodyaoshi.lemonbox.data.remote.RemoteSyncClient
 import com.goodyaoshi.lemonbox.data.remote.RemoteSyncManager
@@ -58,7 +58,7 @@ class SyncLoginViewModel @Inject constructor(
     private val client: RemoteSyncClient,
     private val sessionStore: SyncSessionStore,
     private val config: ImageCloudConfig,
-    private val preferences: ImageCloudPreferences,
+    private val imageCloudScheduler: ImageCloudSyncScheduler,
     private val appPreferences: AppPreferences,
     private val cloudSyncScheduler: CloudSyncScheduler,
     private val syncManager: RemoteSyncManager,
@@ -215,11 +215,18 @@ class SyncLoginViewModel @Inject constructor(
         }
     }
 
-    /** 同步任务只在「已登录 + 用户开启」时才排期，否则撤掉。 */
+    /** 同步任务只在「支持 + 已登录」时排期；退出登录立即撤掉，不留无谓的后台唤醒。 */
     private fun rescheduleCloudSync() {
+        val loggedIn = sessionStore.isLoggedIn
         cloudSyncScheduler.syncSchedule(
             supported = config.textSyncSupported,
-            enabled = sessionStore.isLoggedIn && preferences.cloudSyncEnabled.value
+            enabled = loggedIn
+        )
+        // 图片与文字是两条后台通道：登录后都要排，退出后都要撤。
+        imageCloudScheduler.syncSchedule(
+            supported = config.supported,
+            enabled = loggedIn,
+            backgroundSync = true
         )
     }
 

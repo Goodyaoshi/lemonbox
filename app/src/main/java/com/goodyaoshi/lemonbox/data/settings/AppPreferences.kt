@@ -486,8 +486,21 @@ class AppPreferences @Inject constructor(
         preferences.getLong(KEY_LAST_SYNC_AT, NO_SYNC_AT).takeIf { it != NO_SYNC_AT }
     )
 
-    /** 上一次成功同步的时间戳（毫秒），从未同步过时为 null。 */
+    /** 上一次**局域网同步**成功的时间戳（毫秒），从未同步过时为 null。 */
     val lastSyncAt: StateFlow<Long?> = _lastSyncAt.asStateFlow()
+
+    private val _cloudLastSyncAt = MutableStateFlow(
+        preferences.getLong(KEY_CLOUD_LAST_SYNC_AT, NO_SYNC_AT).takeIf { it != NO_SYNC_AT }
+    )
+
+    /**
+     * 上一次**云同步**成功的时间戳（毫秒）。
+     *
+     * 与 [lastSyncAt] 分开存储是刻意的：两种同步各走各的通道，共用一个时间戳会让
+     * 「数据中心」和「局域网同步」互相显示对方的同步记录，用户看到的「上次同步」
+     * 与实际发生的操作对不上。历史数据不回填——没有记录就显示「还没有同步过」。
+     */
+    val cloudLastSyncAt: StateFlow<Long?> = _cloudLastSyncAt.asStateFlow()
 
     /** 本机标识，首次访问时生成并持久化；用于标记备份来自哪台设备。 */
     val deviceId: String = preferences.getString(KEY_DEVICE_ID, null)
@@ -560,9 +573,15 @@ class AppPreferences @Inject constructor(
         touchPreferences()
     }
 
+    /** 只由局域网同步调用；云同步请用 [setCloudLastSyncAt]。 */
     fun setLastSyncAt(timestamp: Long) {
         preferences.edit().putLong(KEY_LAST_SYNC_AT, timestamp).apply()
         _lastSyncAt.value = timestamp
+    }
+
+    fun setCloudLastSyncAt(timestamp: Long) {
+        preferences.edit().putLong(KEY_CLOUD_LAST_SYNC_AT, timestamp).apply()
+        _cloudLastSyncAt.value = timestamp
     }
 
     private val _syncReports = MutableStateFlow(loadSyncReports())
@@ -1132,6 +1151,18 @@ class AppPreferences @Inject constructor(
     }
 
     /**
+     * 上次云同步中因载荷损坏/版本不兼容而跳过的服务端记录数。
+     *
+     * 与冲突数同样需要落盘：后台同步跳过一条坏记录后，用户不会收到任何即时提示；
+     * 不做成可见计数，这条记录就等同于永久静默丢失。
+     */
+    fun cloudLastSkippedPayloads(): Int = preferences.getInt(KEY_CLOUD_LAST_SKIPPED_PAYLOADS, 0)
+
+    fun setCloudLastSkippedPayloads(value: Int) {
+        preferences.edit().putInt(KEY_CLOUD_LAST_SKIPPED_PAYLOADS, value).apply()
+    }
+
+    /**
      * 自上次写 base 以来成功推送的增量快照数；用于决定「攒够 N 次变更」时刷新一份 base。
      * 增量攒得多，新设备从 base 起步才划算（否则要重放很多 rev）。
      */
@@ -1265,9 +1296,13 @@ class AppPreferences @Inject constructor(
         /** 上次写全量 checkpoint 的时刻，以及自那时起推送的增量快照数（见 cloudBaseAt 等）。 */
         private const val KEY_CLOUD_BASE_AT = "cloud_base_at"
         private const val KEY_CLOUD_PUSHES_SINCE_BASE = "cloud_pushes_since_base"
+        private const val KEY_CLOUD_LAST_SYNC_AT = "cloud_last_sync_at"
 
         /** 上次云同步的冲突条数；落盘以便后台同步的冲突也能被用户看到。 */
         private const val KEY_CLOUD_LAST_CONFLICTS = "cloud_last_conflicts"
+
+        /** 上次云同步因载荷无法解析而跳过的记录数。 */
+        private const val KEY_CLOUD_LAST_SKIPPED_PAYLOADS = "cloud_last_skipped_payloads"
 
         /**
          * 启动最早期的深色判定（Hilt 注入之前），用于选择启动主题，避免开屏闪白。

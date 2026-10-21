@@ -370,10 +370,22 @@ class AppBackupManager @Inject constructor(
                 markDirty = markDirty
             )
             // v5 起：菜谱/周菜单/自定义状态/提醒设置等偏好内容。
+            //
+            // 整块偏好没有逐条 dirty 位，所有字段共用一个 updatedAt。同步落地时若服务端
+            // 那份更旧（例如另一台设备还没同步到本机刚改的设置），直接合并会把这些字段
+            // 覆盖回旧值；而 `pull` 又发生在 `push` 之前，本机修改会在推上去之前就丢掉。
+            // 因此只有「本地恢复（markDirty=true）」或「服务端不旧于本机」时才应用。
             val prefs = backup.preferences
-            val recipeAdded = prefs?.let { appPreferences.applySyncedRecipes(it.recipes) } ?: 0
+            val applyPreferences = prefs != null && (
+                markDirty || (prefs.updatedAt ?: 0L) >= appPreferences.preferencesUpdatedAt.value
+            )
+            val recipeAdded = if (applyPreferences) {
+                prefs?.let { appPreferences.applySyncedRecipes(it.recipes) } ?: 0
+            } else {
+                0
+            }
             var prefsApplied = false
-            if (prefs != null) {
+            if (applyPreferences) {
                 // 各项先独立求值再合并，避免用 || 短路导致后面的偏好被跳过。
                 val weeklyMenuApplied = appPreferences.applySyncedWeeklyMenu(prefs.weeklyMenu) > 0
                 val cookedApplied = appPreferences.applySyncedCookedDates(prefs.cookedMenuDates) > 0
@@ -1437,9 +1449,16 @@ class AppBackupManager @Inject constructor(
     ).toSyncRecords().first { it.collection == SyncCollections.PREFERENCES }
 
     private fun unzip(zipFile: File, targetDir: File) {
+        val root = targetDir.canonicalFile
         ZipInputStream(zipFile.inputStream()).use { zip ->
             generateSequence { zip.nextEntry }.forEach { entry ->
                 val outFile = File(targetDir, entry.name)
+                // 防 Zip Slip：备份文件来自用户选择的外部文件，entry.name 可能含 `../`
+                // 或绝对路径。不校验就解压会把文件写到应用私有目录之外。
+                val canonical = outFile.canonicalFile
+                if (canonical != root && !canonical.path.startsWith(root.path + File.separator)) {
+                    throw IllegalStateException("备份文件包含非法路径：${entry.name}")
+                }
                 if (entry.isDirectory) {
                     outFile.mkdirs()
                 } else {

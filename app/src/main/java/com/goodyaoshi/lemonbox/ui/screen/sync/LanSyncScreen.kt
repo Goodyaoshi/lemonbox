@@ -115,6 +115,8 @@ fun LanSyncScreen(
     val scanProgress by viewModel.scanProgress.collectAsState()
     val incomingSummary by viewModel.incomingSummary.collectAsState()
     val lastSyncAt by viewModel.lastSyncAt.collectAsState()
+    val cloudLoggedIn by viewModel.cloudLoggedIn.collectAsState()
+    val cloudLastSyncedAt by viewModel.cloudLastSyncedAt.collectAsState()
     val syncReports by viewModel.syncReports.collectAsState()
     val lastTarget by viewModel.lastTarget.collectAsState()
 
@@ -180,22 +182,34 @@ fun LanSyncScreen(
                     )
                 }
                 Text(
-                    text = "设备同步",
+                    text = "局域网同步",
                     style = MaterialTheme.typography.headlineMedium,
                     color = TextPrimary
                 )
             }
 
             Text(
-                text = "连同一个 WiFi（或用一方开热点），一方开启共享、另一方在列表里点一下即可。" +
-                    "全程只在局域网内传输，不经过服务器。",
+                text = "同一 WiFi 下把两台设备的数据手动对齐；不经过云端。",
                 style = MaterialTheme.typography.bodySmall,
                 color = TextSecondary,
                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 2.dp)
             )
 
+            // 说清与自动同步的分工：已登录云同步时，这里只是「同一 WiFi 下更快」的可选路径，
+            // 不是日常必须来的地方。
             Text(
-                text = "上次同步：${DateUtil.relativeSyncText(lastSyncAt)}",
+                text = if (cloudLoggedIn) {
+                    "云同步已开启（${DateUtil.relativeSyncText(cloudLastSyncedAt)}），日常无需来这里。"
+                } else {
+                    "云同步未开启；本页仍可在同一 WiFi 下手动对齐。"
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = TextHint,
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 2.dp)
+            )
+
+            Text(
+                text = "上次局域网同步：${DateUtil.relativeSyncText(lastSyncAt)}",
                 style = MaterialTheme.typography.bodySmall,
                 fontWeight = FontWeight.SemiBold,
                 color = OrangeStart,

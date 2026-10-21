@@ -58,6 +58,8 @@ data class RemoteSyncState(
     val lastSyncedAt: Long? = null,
     /** 上次同步中服务端报出的冲突条数；用于在界面提示「有内容两边都改过」。 */
     val lastConflicts: Int = 0,
+    /** 上次同步中因载荷无法解析而跳过的服务端记录数；非 0 表示有数据没能落地。 */
+    val lastSkippedPayloads: Int = 0,
     /** 上次同步是否只拉了一部分（达到 [MAX_PULL_PAGES]），界面据此提示再同步一次。 */
     val lastTruncated: Boolean = false,
     /**
@@ -115,10 +117,11 @@ class RemoteSyncManager @Inject constructor(
 
     private val _state = MutableStateFlow(
         RemoteSyncState(
-            lastSyncedAt = appPreferences.lastSyncAt.value,
+            lastSyncedAt = appPreferences.cloudLastSyncAt.value,
             // 冲突数从持久化读回：后台同步（约每小时一次）产生的冲突，
             // 用户往往不当场打开设置页，不落盘就永远看不到。
-            lastConflicts = appPreferences.cloudLastConflicts()
+            lastConflicts = appPreferences.cloudLastConflicts(),
+            lastSkippedPayloads = appPreferences.cloudLastSkippedPayloads()
         )
     )
     val state: StateFlow<RemoteSyncState> = _state.asStateFlow()
@@ -292,13 +295,22 @@ class RemoteSyncManager @Inject constructor(
                 pushed = push(loadPendingSeqs())
             }
             val now = System.currentTimeMillis()
-            appPreferences.setLastSyncAt(now)
+            appPreferences.setCloudLastSyncAt(now)
             appPreferences.setCloudLastConflicts(pushed.conflicts)
+            // 坏载荷计数只增不减：本轮水位已经越过它们，下一轮不会再遇到；
+            // 若这里直接写 0，用户就再也看不到「有数据没落地」的线索。
+            // 重建成功后由 rebuildFromServer 显式清零。
+            val skippedPayloads = maxOf(
+                pulled.skippedPayloads,
+                appPreferences.cloudLastSkippedPayloads()
+            )
+            appPreferences.setCloudLastSkippedPayloads(skippedPayloads)
             _state.value = _state.value.copy(
                 running = false,
                 lastError = null,
                 lastSyncedAt = now,
                 lastConflicts = pushed.conflicts,
+                lastSkippedPayloads = skippedPayloads,
                 lastTruncated = pulled.truncated,
                 phase = null
             )
@@ -400,8 +412,13 @@ class RemoteSyncManager @Inject constructor(
         // 达到页数上限且服务端仍说还有：把「没拉完」如实带回去，界面提示再同步一次，
         // 而不是让用户以为「已是最新」。
         val truncated = pageCount >= MAX_PULL_PAGES && lastHasMore
-        val merged = applyPulledRecords(landed, lastSeq)
-        return PullOutcome(downloaded = landed.size, merged = merged, truncated = truncated)
+        val applied = applyPulledRecords(landed, lastSeq)
+        return PullOutcome(
+            downloaded = landed.size,
+            merged = applied.merged,
+            truncated = truncated,
+            skippedPayloads = applied.skipped
+        )
     }
 
     /**
@@ -458,13 +475,29 @@ class RemoteSyncManager @Inject constructor(
             if (!done) truncated = true
         }
 
-        val merged = applyPulledRecords(landed, meta.seq, snapshotDone = true)
+        // 快照未完整拉完时**不能**标记完成，也不能把水位钉到 meta.seq：
+        // 否则截断点之前的剩余记录会被永久跨过。这里保持 SNAPSHOT_DONE=0 与水位不动，
+        // 下一轮同步会重新走快照；已落地的记录重复合并是幂等的。
+        val applied = applyPulledRecords(
+            landed,
+            lastSeq = if (truncated) 0L else meta.seq,
+            snapshotDone = !truncated
+        )
+        if (truncated) {
+            return PullOutcome(
+                downloaded = landed.size,
+                merged = applied.merged,
+                truncated = true,
+                skippedPayloads = applied.skipped
+            )
+        }
         // 快照只覆盖到 meta.seq；之后的变化用增量补齐，避免漏掉快照期间的并发写入。
         val tail = pull(pending, includeSelf = true)
         return PullOutcome(
             downloaded = landed.size + tail.downloaded,
-            merged = merged + tail.merged,
-            truncated = truncated || tail.truncated
+            merged = applied.merged + tail.merged,
+            truncated = tail.truncated,
+            skippedPayloads = applied.skipped + tail.skippedPayloads
         )
     }
 
@@ -478,12 +511,14 @@ class RemoteSyncManager @Inject constructor(
         landed: List<LandedRecord>,
         lastSeq: Long,
         snapshotDone: Boolean = false
-    ): Int {
+    ): ApplyOutcome {
         var merged = 0
+        var skipped = 0
         if (landed.isNotEmpty()) {
             val payload = syncRecordsToPayload(
                 landed.map { SyncRecord(it.collection, it.key, it.payload, it.deleted) },
-                appPreferences.deviceId
+                appPreferences.deviceId,
+                onSkipped = { skipped++ }
             )
             // 走 ZIP 中转而非直传清单：合并通道的入口就是「一个备份文件」，
             // 这样校验（清单 SHA-256）与导入的临时文件清理都沿用既有实现，不必再开一条旁路。
@@ -534,7 +569,7 @@ class RemoteSyncManager @Inject constructor(
                 remoteSyncDao.putState(SyncStateRow(SyncStateKeys.SERVER_ACK, 1L))
             }
         }
-        return merged
+        return ApplyOutcome(merged = merged, skipped = skipped)
     }
 
     /**
@@ -934,6 +969,15 @@ class RemoteSyncManager @Inject constructor(
         // 清库（sync_state 一并清掉），水位显式归零才能从头拉全量。
         appDatabase.clearAllTables()
         remoteSyncDao.putState(SyncStateRow(SyncStateKeys.PULL_WATERMARK, 0L))
+        // 重建的语义是「以服务端为准」：把当前本机偏好的签名先写进 sync_state，
+        // 让随后那轮同步不要因为「偏好哈希为空」而把本机偏好推回服务端。
+        // 偏好本身会随快照从服务端拉回，由既有的合并规则落地。
+        remoteSyncDao.putState(
+            SyncStateRow(
+                SyncStateKeys.PREFERENCES_HASH,
+                payloadHash(backupManager.preferenceSyncRecord().payload)
+            )
+        )
 
         val result = syncNow(includeSelf = true)
         val error = _state.value.lastError
@@ -944,6 +988,7 @@ class RemoteSyncManager @Inject constructor(
                 undoZipPath = undoFile.path
             )
         } else {
+            appPreferences.setCloudLastSkippedPayloads(0)
             RebuildOutcome(success = true, message = "重建完成：${result.message}", undoZipPath = undoFile.path)
         }
     }
@@ -1011,11 +1056,16 @@ private data class LandedRecord(
     val seq: Long
 )
 
+/** 落地结果：合并条数与因载荷无法解析而跳过的条数。 */
+private data class ApplyOutcome(val merged: Int, val skipped: Int)
+
 /** 拉取的汇总：本轮落地条数与合并计数。 */
 private data class PullOutcome(
     val downloaded: Int,
     val merged: Int,
-    val truncated: Boolean = false
+    val truncated: Boolean = false,
+    /** 本轮因载荷无法解析而跳过的记录数；非 0 表示有数据没能落地。 */
+    val skippedPayloads: Int = 0
 )
 
 /** 推送的汇总：服务端已写下的条数与冲突分出胜负的条数。 */

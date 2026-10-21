@@ -104,6 +104,25 @@ class SyncRecordsTest {
     }
 
     @Test
+    fun `解不开的载荷必须通过回调暴露，不能静默跳过`() {
+        // 水位在落地后会越过坏记录；如果这里不回调，调用方就永远不知道有数据没落地。
+        val goodItem = payload().toSyncRecords().single { it.collection == SyncCollections.ITEMS }
+        val badItem = SyncRecord(SyncCollections.ITEMS, "item-bad", "{坏数据")
+        val badPreferences = SyncRecord(SyncCollections.PREFERENCES, "preferences", "null")
+        val skipped = mutableListOf<SyncRecord>()
+
+        val restored = syncRecordsToPayload(
+            listOf(goodItem, badItem, badPreferences),
+            deviceId = "devA",
+            onSkipped = { skipped += it }
+        )
+
+        assertEquals(listOf("item-bad", "preferences"), skipped.map { it.key })
+        assertEquals(1, restored.items.size)
+        assertNull(restored.preferences)
+    }
+
+    @Test
     fun `同步表映射覆盖全部 14 个集合`() {
         // 集合名是跨版本契约，表名是迁移与待推派发的落点：这份映射漏一个，表现就是
         // 「新增了一张同步表、却漏改迁移或漏改派发」，那类数据永远不上传，而编译期

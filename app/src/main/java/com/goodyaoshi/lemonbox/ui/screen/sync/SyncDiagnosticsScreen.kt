@@ -45,6 +45,8 @@ import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.ConflictFieldDiffLine
 import com.goodyaoshi.lemonbox.ui.components.EditorSectionLabel
 import com.goodyaoshi.lemonbox.ui.components.GradientButton
+import com.goodyaoshi.lemonbox.ui.components.InlineNotice
+import com.goodyaoshi.lemonbox.ui.components.NoticeVariant
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.StatusExpired
 import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarmDeep
@@ -116,8 +118,7 @@ fun SyncDiagnosticsScreen(
                             color = TextPrimary
                         )
                         Text(
-                            text = "诊断只对「已登录并开启多设备同步」的设备有意义。"
-                                + "请先在「云端同步」页登录并打开同步开关。",
+                            text = "登录并开启云同步后，这里会显示本机与服务端的逐表对账、冲突留痕与设备列表。",
                             style = MaterialTheme.typography.bodyMedium,
                             color = TextSecondary,
                             modifier = Modifier.padding(top = 6.dp)
@@ -137,6 +138,15 @@ fun SyncDiagnosticsScreen(
                     enabled = !state.busy,
                     onClick = viewModel::refresh
                 )
+
+                if (state.skippedPayloads > 0) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    InlineNotice(
+                        message = "上次同步有 ${state.skippedPayloads} 条服务端记录无法解析，已跳过。" +
+                            "这些记录不会落地到本机；请先导出本地备份，再把此数字反馈给维护者。",
+                        variant = NoticeVariant.Warning
+                    )
+                }
 
                 state.message?.let { message ->
                     Spacer(modifier = Modifier.height(10.dp))
@@ -166,10 +176,8 @@ fun SyncDiagnosticsScreen(
                     Spacer(modifier = Modifier.height(8.dp))
                     AppSurfaceCard(shape = MaterialTheme.shapes.extraLarge, shadowElevation = 12.dp) {
                         Text(
-                            text = "本机与“服务端”分别数一遍：数量对不上，就说明有一方的账不平。" +
-                                "「差」＝本机 live − 服务端 live：正数是本机有记录还没上去，" +
-                                "负数是服务端有记录还没拉下来。对账时刻的服务端序号：${report.serverSeq}，" +
-                                "历史冲突累计 ${report.conflictCount} 条。",
+                            text = "「差」＝本机 − 服务端：正数是有记录还没上传，负数是有记录还没拉下来。" +
+                                "服务端序号 ${report.serverSeq}，历史冲突 ${report.conflictCount} 条。",
                             style = MaterialTheme.typography.bodySmall,
                             color = TextHint
                         )
@@ -251,9 +259,8 @@ fun SyncDiagnosticsScreen(
                         )
                     } else {
                         Text(
-                            text = "这些条目推送时发现两边都改过。逐条实体按「本地优先」收场：" +
-                                "本机版本会重推到服务端，其它设备下一轮同步拉走；整块偏好仍按更新时间新者胜。" +
-                                "留痕里的“本机值”是冲突发生那一刻你的改动，如需找回可在对应页面重新编辑。",
+                            text = "这些条目推送时两边都改过，按本地优先收场：本机版本会重推，其它设备下一轮拉走。" +
+                                "「本机值」是冲突发生那一刻的改动，可回到对应页面重新编辑。",
                             style = MaterialTheme.typography.bodySmall,
                             color = TextHint
                         )
@@ -269,9 +276,8 @@ fun SyncDiagnosticsScreen(
                 Spacer(modifier = Modifier.height(8.dp))
                 AppSurfaceCard(shape = MaterialTheme.shapes.extraLarge, shadowElevation = 12.dp) {
                     Text(
-                        text = "本机优先：把本机全部记录覆盖到服务端同一条记录上，" +
-                            "再拉回其它设备独有的记录。适合「对账显示本机多出/服务端还是旧版本」时使用；" +
-                            "不会删除其它设备独有的数据，但会用本机版本覆盖服务端上同一条记录。",
+                        text = "用本机版本覆盖服务端上的同一条记录，再拉回其它设备独有的记录；" +
+                            "适合确认「本机这份才对」时使用。",
                         style = MaterialTheme.typography.bodySmall,
                         color = TextSecondary
                     )
@@ -302,9 +308,8 @@ fun SyncDiagnosticsScreen(
                     }
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        text = "清空本机全部数据，再从服务端原样拉回一份。当本机的账已经对不上、" +
-                            "且你确认服务端那份才是对的时才用它。重建前会自动在本机留一份备份，" +
-                            "可在重建完成后撤销。",
+                        text = "清空本机后从服务端原样拉回。重建前会自动留一份可撤销的本机备份，" +
+                            "仅在确认服务端那份才对时使用。",
                         style = MaterialTheme.typography.bodySmall,
                         color = TextSecondary
                     )

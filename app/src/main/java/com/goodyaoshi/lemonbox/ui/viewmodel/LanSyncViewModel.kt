@@ -5,6 +5,8 @@ import androidx.lifecycle.viewModelScope
 import com.goodyaoshi.lemonbox.data.backup.BackupChanges
 import com.goodyaoshi.lemonbox.data.backup.BackupMergeResult
 import com.goodyaoshi.lemonbox.data.backup.toUserMessage
+import com.goodyaoshi.lemonbox.data.remote.RemoteSyncManager
+import com.goodyaoshi.lemonbox.data.remote.SyncSessionStore
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import com.goodyaoshi.lemonbox.data.sync.LanSyncManager
 import com.goodyaoshi.lemonbox.data.sync.SyncClient
@@ -15,8 +17,11 @@ import com.goodyaoshi.lemonbox.data.sync.SyncStage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -86,7 +91,9 @@ class LanSyncViewModel @Inject constructor(
     private val lanSyncManager: LanSyncManager,
     private val syncServer: SyncServer,
     private val syncClient: SyncClient,
-    private val appPreferences: AppPreferences
+    private val appPreferences: AppPreferences,
+    sessionStore: SyncSessionStore,
+    remoteSyncManager: RemoteSyncManager
 ) : ViewModel() {
 
     val peers: StateFlow<List<SyncPeer>> = lanSyncManager.peers
@@ -100,8 +107,18 @@ class LanSyncViewModel @Inject constructor(
     /** 本机型号，用于在「本机」卡片上标明这台设备，避免分不清哪台是哪台。 */
     val localDeviceModel: String = lanSyncManager.localDeviceModel
 
-    /** 上一次成功同步的时间戳，用于在界面上提示同步新鲜度。 */
+    /** 上一次成功**局域网同步**的时间戳，用于在界面上提示同步新鲜度。 */
     val lastSyncAt: StateFlow<Long?> = appPreferences.lastSyncAt
+
+    /** 云同步是否已登录：本页据此说明「日常同步已自动完成」，避免用户每次都来这里手动对齐。 */
+    val cloudLoggedIn: StateFlow<Boolean> = sessionStore.session
+        .map { it != null }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    /** 云同步上次成功的时刻；仅用于说明本页与自动同步的分工。 */
+    val cloudLastSyncedAt: StateFlow<Long?> = remoteSyncManager.state
+        .map { it.lastSyncedAt }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     /** 本机被对方连接后，对方数据合并进来的结果。 */
     val incomingSummary: StateFlow<BackupMergeResult?> = syncServer.incomingSummary
