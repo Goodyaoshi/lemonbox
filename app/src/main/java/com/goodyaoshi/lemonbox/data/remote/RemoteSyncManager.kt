@@ -203,6 +203,10 @@ class RemoteSyncManager @Inject constructor(
             processed = 0
         )
         return try {
+            // 旧库升级/导入的历史行可能没有 syncId；全量导出会静默跳过它们。
+            // 先统一回填一次，否则「立即同步」和「以本机为准合并上传」都会
+            // 显示成功但实际一条也推不出去。
+            backfillMissingSyncIdsIfNeeded()
             // 先看服务端轻量元信息：序号没变时连业务数据都不用拉；旧服务端没有
             // /v1/meta 时 runCatching 返回 null，自动回退到原来的纯增量逻辑。
             val meta = runCatching { client.meta() }.getOrNull()
@@ -534,6 +538,45 @@ class RemoteSyncManager @Inject constructor(
     }
 
     /**
+     * 为历史遗留行补 `syncId`：只跑一次，之后由 [SyncStateKeys.SYNC_ID_BACKFILLED] 记住。
+     * 直接走 SupportSQLiteDatabase，避免在 Room 事务里再取连接造成互等。
+     */
+    private suspend fun backfillMissingSyncIdsIfNeeded() {
+        if (remoteSyncDao.state(SyncStateKeys.SYNC_ID_BACKFILLED) == 1L) return
+        withContext(Dispatchers.IO) {
+            val db = appDatabase.openHelper.writableDatabase
+            SyncTables.TABLES.distinct().forEach { table ->
+                db.execSQL(
+                    "UPDATE $table SET syncId = lower(hex(randomblob(16))), dirty = 1, serverSeq = 0 " +
+                        "WHERE syncId IS NULL OR syncId = ''"
+                )
+            }
+        }
+        remoteSyncDao.putState(SyncStateRow(SyncStateKeys.SYNC_ID_BACKFILLED, 1L))
+    }
+
+    /** 按 UTF-8 字节数分批，避免整批 JSON 超过服务端 `PUSH_MAX_BODY_BYTES`。 */
+    private fun chunkForPush(records: List<SyncRecord>): List<List<SyncRecord>> {
+        val batches = mutableListOf<List<SyncRecord>>()
+        var current = mutableListOf<SyncRecord>()
+        var bytes = 0
+        for (record in records) {
+            val size = record.payload.toByteArray(Charsets.UTF_8).size + 160
+            if (current.isNotEmpty() &&
+                (current.size >= PUSH_LIMIT || bytes + size > PUSH_MAX_BATCH_BYTES)
+            ) {
+                batches += current
+                current = mutableListOf()
+                bytes = 0
+            }
+            current += record
+            bytes += size
+        }
+        if (current.isNotEmpty()) batches += current
+        return batches
+    }
+
+    /**
      * 推送本机需要上传的记录（外加恒推的整块设置 `preferences`）。
      *
      * 日常同步只推「本机改过、还没被服务端确认」的行：`dirty = 1` **或** `serverSeq = 0`
@@ -571,11 +614,30 @@ class RemoteSyncManager @Inject constructor(
             preferencesChanged -> listOf(preferences)
             else -> emptyList()
         }
+        if (records.isEmpty() && uploadAll) {
+            // 不能静默返回 0：本机有记录却导不出同步条目，通常是没有 syncId 或载荷解码失败。
+            // 这里把数字带进异常，直接显示在同步回执里，不再让用户以为“已是最新”。
+            val audits = SyncTables.BY_COLLECTION.keys.mapNotNull { remoteSyncDao.tableAudit(it) }
+            val missing = audits.sumOf { it.missingSyncId }
+            val live = audits.sumOf { it.live }
+            if (missing > 0) {
+                throw IllegalStateException(
+                    "本机有 $missing 条记录缺少 syncId，无法上传；请保留数据并反馈这个数字"
+                )
+            }
+            if (live > 0) {
+                throw IllegalStateException(
+                    "本机有 $live 条记录，但无法生成同步载荷（可能载荷损坏）；请先导出本地备份"
+                )
+            }
+        }
         if (records.isEmpty()) return PushOutcome(applied = 0, conflicts = 0)
 
         var applied = 0
         var conflicts = 0
-        val batches = records.chunked(PUSH_LIMIT)
+        // 按 UTF-8 字节数分批：固定 100 条在 payload 较大时会超过服务端 2MB 请求体上限，
+        // 整批被 413 拒绝，表现就是“一条都没上传”。
+        val batches = chunkForPush(records)
         batches.forEachIndexed { index, batch ->
             _state.value = _state.value.copy(
                 phase = "正在上传：第 ${index + 1}/${batches.size} 批，已上传 $applied 条",
@@ -928,6 +990,9 @@ class RemoteSyncManager @Inject constructor(
 
         /** 单次推送条数上限（与服务端 `PUSH_MAX_CHANGES` 对齐）。 */
         const val PUSH_LIMIT = 100
+
+        /** 单批请求体的保守字节上限：服务端 `PUSH_MAX_BODY_BYTES` 是 2MB，留出 JSON 包装余量。 */
+        const val PUSH_MAX_BATCH_BYTES = 1_500_000
 
         /** 一次同步最多翻这么多页，避免服务端异常时无限翻页（200 × 100 = 2 万条）。 */
         const val MAX_PULL_PAGES = 100

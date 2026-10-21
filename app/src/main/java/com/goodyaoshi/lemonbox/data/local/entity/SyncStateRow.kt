@@ -73,4 +73,13 @@ object SyncStateKeys {
      * 下一轮继续全量回灌，避免“instance 已经记成新值、但记录再也没推上去”。
      */
     const val FULL_UPLOAD_REQUIRED = "full_upload_required"
+
+    /**
+     * 是否已经为历史数据回填过 `syncId`。
+     *
+     * 旧版本迁移只为 items/categories/locations 回填过；其它表升级/导入的历史行可能
+     * 仍是 NULL。全量导出会静默跳过这些行，表现为“同步成功、服务端 0 条”。
+     * 首次同步时统一回填一次，并置 1。
+     */
+    const val SYNC_ID_BACKFILLED = "sync_id_backfilled"
 }

@@ -17,7 +17,7 @@
  * 绑定：DB（D1）
  */
 
-const VERSION = "1.0.1";
+const VERSION = "1.0.2";
 /**
  * Cloudflare Workers 免费版单次请求 CPU 约 10ms；PBKDF2 100k 次在本机约 38ms，
  * 线上很容易触发 1102（Exceeded CPU Limit）。这里降到 10k（约 3~4ms），
@@ -41,7 +41,7 @@ const SNAPSHOT_MAX_LIMIT = 500;
 const SNAPSHOT_MAX_BYTES = 256 * 1024;
 /** push 请求体与单条载荷上限：防止一次请求把 D1/Worker 内存打满。 */
 const PUSH_MAX_BODY_BYTES = 2 * 1024 * 1024;
-const PUSH_MAX_RECORD_CHARS = 64 * 1024;
+const PUSH_MAX_RECORD_CHARS = 256 * 1024;
 const PRESIGN_MAX_TTL = 600;
 const PRESIGN_DEFAULT_TTL = 300;
 /** 空请求体的 SHA-256（GET / HEAD / DELETE 用）。 */
