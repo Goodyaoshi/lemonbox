@@ -64,4 +64,13 @@ object SyncStateKeys {
      * 完成后置 1，日常只走轻量 meta + 增量。
      */
     const val SNAPSHOT_DONE = "snapshot_done"
+
+    /**
+     * 需要一次「以本机为准的全量上传」。
+     *
+     * 服务端被清空/重建（序号回到 0、或本机水位比服务端还大）时置 1；
+     * 只有 `uploadAll` 整轮推送成功后才清 0。中途失败时保持 1，
+     * 下一轮继续全量回灌，避免“instance 已经记成新值、但记录再也没推上去”。
+     */
+    const val FULL_UPLOAD_REQUIRED = "full_upload_required"
 }

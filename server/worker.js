@@ -17,7 +17,7 @@
  * 绑定：DB（D1）
  */
 
-const VERSION = "1.0.0";
+const VERSION = "1.0.1";
 /**
  * Cloudflare Workers 免费版单次请求 CPU 约 10ms；PBKDF2 100k 次在本机约 38ms，
  * 线上很容易触发 1102（Exceeded CPU Limit）。这里降到 10k（约 3~4ms），

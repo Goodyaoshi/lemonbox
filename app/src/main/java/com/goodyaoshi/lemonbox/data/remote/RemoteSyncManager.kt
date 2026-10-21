@@ -207,27 +207,52 @@ class RemoteSyncManager @Inject constructor(
             // /v1/meta 时 runCatching 返回 null，自动回退到原来的纯增量逻辑。
             val meta = runCatching { client.meta() }.getOrNull()
             val pendingBeforePull = loadPendingSeqs()
+            val watermark = remoteSyncDao.state(SyncStateKeys.PULL_WATERMARK) ?: 0L
 
-            var forceUpload = forceUploadLocal
+            var forceUpload = forceUploadLocal ||
+                remoteSyncDao.state(SyncStateKeys.FULL_UPLOAD_REQUIRED) == 1L
             var needSnapshot = false
-            if (meta != null && meta.instanceId.isNotBlank()) {
-                val incomingHash = payloadHash(meta.instanceId)
-                val localHash = remoteSyncDao.state(SyncStateKeys.INSTANCE_HASH)
-                val instanceChanged = localHash != null && localHash != incomingHash
-                if (instanceChanged) {
-                    // 服务端被删库/重建：本机是唯一数据源。先重置水位和快照标记，
-                    // 本轮以本机为准全量回灌，再重新快照。
+            if (meta != null) {
+                // 服务端被清空/重建的两种可观测形态：
+                // 1) 全局序号回到 0（reset / 新库）；
+                // 2) 本机水位比服务端当前序号还大（旧水位已越过新库）。
+                val serverWiped = meta.seq == 0L || (watermark > 0L && watermark > meta.seq)
+                var incomingHash: Long? = null
+                var instanceChanged = false
+                if (meta.instanceId.isNotBlank()) {
+                    incomingHash = payloadHash(meta.instanceId)
+                    val localHash = remoteSyncDao.state(SyncStateKeys.INSTANCE_HASH)
+                    instanceChanged = localHash != null && localHash != incomingHash
+                }
+                if (instanceChanged || serverWiped) {
+                    // 本机是唯一数据源：重置水位/快照标记，并持久化「必须全量上传」，
+                    // 直到 uploadAll 完整成功才清掉。这样即使中途断网/被杀进程，
+                    // 下一轮也会继续回灌，而不是因为 instance 已更新就只推 dirty。
                     forceUpload = true
+                    remoteSyncDao.putState(SyncStateRow(SyncStateKeys.FULL_UPLOAD_REQUIRED, 1L))
                     remoteSyncDao.putState(SyncStateRow(SyncStateKeys.PULL_WATERMARK, 0L))
                     remoteSyncDao.putState(SyncStateRow(SyncStateKeys.SNAPSHOT_DONE, 0L))
                     remoteSyncDao.putState(SyncStateRow(SyncStateKeys.PREFERENCES_SEQ, 0L))
                     remoteSyncDao.putState(SyncStateRow(SyncStateKeys.PREFERENCES_HASH, 0L))
                 }
-                remoteSyncDao.putState(SyncStateRow(SyncStateKeys.INSTANCE_HASH, incomingHash))
-                // 首次连接一个空库：本机已标记同步过的记录在服务端并不存在，
-                // 只推 dirty 会让“同步完成”变成“数据只剩本机”。
-                if (localHash == null && meta.seq == 0L) forceUpload = true
+                if (incomingHash != null) {
+                    remoteSyncDao.putState(SyncStateRow(SyncStateKeys.INSTANCE_HASH, incomingHash))
+                }
                 needSnapshot = remoteSyncDao.state(SyncStateKeys.SNAPSHOT_DONE) != 1L
+            }
+            if (meta == null) {
+                // 旧服务端没有 /v1/meta：用 /v1/stats 的 seq 兜底判断「服务端被清空」。
+                // 否则 reset 后 App 会静默走旧增量，dirty=0 的记录永远不会再推上去。
+                val stats = runCatching { client.stats() }.getOrNull()
+                val serverSeq = stats?.seq ?: -1L
+                if (stats != null && (serverSeq == 0L || (watermark > 0L && watermark > serverSeq))) {
+                    forceUpload = true
+                    remoteSyncDao.putState(SyncStateRow(SyncStateKeys.FULL_UPLOAD_REQUIRED, 1L))
+                    remoteSyncDao.putState(SyncStateRow(SyncStateKeys.PULL_WATERMARK, 0L))
+                    remoteSyncDao.putState(SyncStateRow(SyncStateKeys.SNAPSHOT_DONE, 0L))
+                    remoteSyncDao.putState(SyncStateRow(SyncStateKeys.PREFERENCES_SEQ, 0L))
+                    remoteSyncDao.putState(SyncStateRow(SyncStateKeys.PREFERENCES_HASH, 0L))
+                }
             }
 
             val pushed: PushOutcome
@@ -236,6 +261,8 @@ class RemoteSyncManager @Inject constructor(
                 // 本地优先：先覆盖服务端，再拉回别人独有的数据。顺序不能反——
                 // 先拉会把服务端旧版本落地，随后又被本机全量覆盖，白跑一趟。
                 pushed = push(pendingBeforePull, uploadAll = true)
+                // 整轮全量推送完整成功后才清标记；异常/取消时保持 1，下一轮重试。
+                remoteSyncDao.putState(SyncStateRow(SyncStateKeys.FULL_UPLOAD_REQUIRED, 0L))
                 if (needSnapshot) {
                     // push 之后序号已经变了，重新读一次 meta 再钉快照的 upTo。
                     val fresh = runCatching { client.meta(includeCollections = true) }.getOrNull() ?: meta
