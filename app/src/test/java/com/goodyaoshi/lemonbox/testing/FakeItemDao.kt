@@ -99,11 +99,17 @@ class FakeItemDao(
 
     override suspend fun incrementQuantity(id: Long, delta: Int, updatedAt: Long) {
         items.replaceAll { item ->
-            if (item.id == id) item.copy(quantity = item.quantity + delta, updatedAt = updatedAt) else item
+            if (item.id == id) {
+                item.copy(quantity = maxOf(item.quantity + delta, 0), updatedAt = updatedAt)
+            } else {
+                item
+            }
         }
     }
 
-    override suspend fun consumeOnePiece(id: Long, updatedAt: Long) {
+    override suspend fun consumeOnePiece(id: Long, updatedAt: Long): Int {
+        val target = items.firstOrNull { it.id == id } ?: return 0
+        if (target.quantity <= 0) return 0
         items.replaceAll { item ->
             if (item.id == id) {
                 item.copy(
@@ -115,6 +121,7 @@ class FakeItemDao(
                 item
             }
         }
+        return 1
     }
 
     override suspend fun getItemById(id: Long): Item? = items.firstOrNull { it.id == id && it.deletedAt == null }

@@ -18,7 +18,10 @@ internal object Migrations {
                 db.execSQL("ALTER TABLE items ADD COLUMN rating INTEGER")
                 db.execSQL("ALTER TABLE items ADD COLUMN ratedAt INTEGER")
                 SeedDataProvider.normalizeLegacyData(db)
-                SeedDataProvider.ensureSeedData(db)
+                // 这里不能再调用 ensureSeedData：它写 categories/locations 的 syncId/updatedAt，
+                // 而这两列要到 MIGRATION_8_9 才存在。从 v1-v4 升级到新版本会在启动时
+                // 直接抛 "no such column: syncId"，且没有 destructive fallback 可退。
+                // 种子数据统一挪到 8_9（列加完之后）补种。
             }
         }
 
@@ -26,7 +29,6 @@ internal object Migrations {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE items ADD COLUMN deletedAt INTEGER")
                 SeedDataProvider.normalizeLegacyData(db)
-                SeedDataProvider.ensureSeedData(db)
             }
         }
 
@@ -43,14 +45,12 @@ internal object Migrations {
                     """.trimIndent()
                 )
                 SeedDataProvider.normalizeLegacyData(db)
-                SeedDataProvider.ensureSeedData(db)
             }
         }
 
         private val MIGRATION_4_5 = object : Migration(4, 5) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 SeedDataProvider.normalizeLegacyData(db)
-                SeedDataProvider.ensureSeedData(db)
             }
         }
 
@@ -108,6 +108,9 @@ internal object Migrations {
                 db.execSQL("UPDATE items SET updatedAt = createdAt WHERE updatedAt IS NULL")
                 db.execSQL("UPDATE categories SET updatedAt = 0 WHERE updatedAt IS NULL")
                 db.execSQL("UPDATE locations SET updatedAt = 0 WHERE updatedAt IS NULL")
+                // syncId/updatedAt 已就位，此时补种默认分类与位置才是安全的。
+                // 从更老版本升级时，前面几个迁移不再补种，统一在这里补一次（幂等）。
+                SeedDataProvider.ensureSeedData(db)
             }
         }
 

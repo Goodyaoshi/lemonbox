@@ -46,7 +46,9 @@ class ExpiryCheckWorker @AssistedInject constructor(
                 val daysLeft = DateUtil.daysUntil(expireTime)
                 val ladder = Item.decodeReminderDays(item.reminderDays)
                     .ifEmpty { globalLadder }
-                val shouldNotify = daysLeft <= 0 || ladder.any { it.toLong() == daysLeft }
+                // 过期后只提醒当天一次，不再每天重复。原先 `daysLeft <= 0` 会让一件
+                // 早已过期的物品永远出现在每天的汇总通知里，用户既无法忽略也无法处理完。
+                val shouldNotify = daysLeft == 0L || ladder.any { it.toLong() == daysLeft }
                 if (!shouldNotify) {
                     null
                 } else {

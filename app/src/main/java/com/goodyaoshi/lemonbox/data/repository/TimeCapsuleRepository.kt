@@ -46,18 +46,28 @@ class TimeCapsuleRepository @Inject constructor(
     }
 
     suspend fun update(capsule: TimeCapsule) {
-        dao.update(
-            capsule.copy(
-                syncId = capsule.syncId ?: UUID.randomUUID().toString(),
-                updatedAt = MonotonicClock.now(),
-                dirty = true
-            )
+        val saved = capsule.copy(
+            syncId = capsule.syncId ?: UUID.randomUUID().toString(),
+            updatedAt = MonotonicClock.now(),
+            dirty = true
         )
+        dao.update(saved)
+        // 解锁时间可能被改过：先撤掉旧的到期提醒，再按新时间重建。
+        // 不重排会让胶囊永远在旧日期提醒；已打开/已删除的胶囊则不再建提醒。
+        reminderRepository.findActiveBySourceKey(capsuleSourceKey(saved))?.let { reminder ->
+            reminderRepository.delete(reminder)
+        }
+        if (saved.openedAt == null && saved.deletedAt == null && saved.unlockAt > MonotonicClock.now()) {
+            scheduleUnlockReminder(saved)
+        }
     }
 
     /** 首次打开：记录打开时间（已打开过则不重复覆盖），并把待办的到期提醒标为完成。 */
     suspend fun open(capsule: TimeCapsule) {
         if (capsule.openedAt != null) return
+        // 未到解锁时间不允许打开：UI 通常只在解锁后展示入口，但同步落地、深链或误触
+        // 仍可能直接调用到这里。这是「时间胶囊」内容保密的核心边界，不能只靠界面。
+        if (capsule.unlockAt > MonotonicClock.now()) return
         dao.update(
             capsule.copy(
                 openedAt = MonotonicClock.now(),

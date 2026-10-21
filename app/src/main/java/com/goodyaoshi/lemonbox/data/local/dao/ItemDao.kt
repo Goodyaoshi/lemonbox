@@ -156,15 +156,20 @@ interface ItemDao {
     )
     suspend fun getLatestItemByBarcode(barcode: String): Item?
 
-    @Query("UPDATE items SET quantity = quantity + :delta, updatedAt = :updatedAt, dirty = 1 WHERE id = :id")
+    @Query("UPDATE items SET quantity = MAX(quantity + :delta, 0), updatedAt = :updatedAt, dirty = 1 WHERE id = :id")
     suspend fun incrementQuantity(id: Long, delta: Int, updatedAt: Long)
 
-    /** 「用1件」：剩余数量减 1、已消耗数量加 1，用于按件消耗物品的用量统计。 */
+    /**
+     * 「用1件」：剩余数量减 1、已消耗数量加 1，用于按件消耗物品的用量统计。
+     *
+     * `quantity > 0` 是必须的守卫：调用方先读后写，两台设备同步或快速连点都可能
+     * 让两个协程同时看到余量 1，各自扣一次，库存变 -1。返回受影响行数，调用方据此判断。
+     */
     @Query(
         "UPDATE items SET quantity = quantity - 1, consumedQuantity = consumedQuantity + 1, " +
-            "updatedAt = :updatedAt, dirty = 1 WHERE id = :id"
+            "updatedAt = :updatedAt, dirty = 1 WHERE id = :id AND quantity > 0"
     )
-    suspend fun consumeOnePiece(id: Long, updatedAt: Long)
+    suspend fun consumeOnePiece(id: Long, updatedAt: Long): Int
 
     @Query("SELECT * FROM items WHERE id = :id AND deletedAt IS NULL")
     suspend fun getItemById(id: Long): Item?

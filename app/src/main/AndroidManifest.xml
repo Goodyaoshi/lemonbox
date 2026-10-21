@@ -25,6 +25,12 @@
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <!--
+        应用内更新：下载 APK 后由本应用调起系统安装器。Android 8+ 需要该权限；
+        用户仍需在系统设置里为本应用打开「安装未知应用」，代码会给出跳转入口。
+    -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+    <!--
         局域网同步：只在同一 WiFi 内与配对设备互传数据，不访问任何互联网服务。
         即使只使用局域网 socket，Android 也要求声明 INTERNET 权限。
     -->
@@ -76,6 +82,17 @@
                 tools:node="remove" />
         </provider>
 
+        <!-- 应用内更新：把 cacheDir/updates 下已校验的 APK 以 content:// 交给系统安装器 -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -113,7 +130,7 @@
         <receiver
             android:name=".util.BootReceiver"
             android:enabled="true"
-            android:exported="true"
+            android:exported="false"
             android:directBootAware="false">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />

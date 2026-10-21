@@ -78,12 +78,7 @@ private val WHITELIST: Map<String, Set<String>> = mapOf(
     // 传图副产品（P6 白名单）：imageHashes 是本机图片管线的缓存，两台设备各自算得一致；
     // 刷 updatedAt 会让「刚下载完图片」的行在 LWW 里压过对方真实的编辑（改了却被还原），
     // 故同样保持不刷时间戳、不标脏（见 ItemDao.updateImageHashes 的说明）。
-    "ItemDao.kt" to setOf("updateImageHashes"),
-    // 父级重映射（P7 白名单）：接收端合并墓碑时会自己做同样的父子改挂（BackupMergeStrategy），
-    // 子分类/子位置的 parentId 不靠行级 LWW 定胜负，故不需要 updatedAt；
-    // 同文件的 reassignItemsTo* 改的是 items 表、接收端不会自行重映射，必须刷（不在白名单）。
-    "CategoryDao.kt" to setOf("reassignChildren"),
-    "LocationDao.kt" to setOf("reassignChildren")
+    "ItemDao.kt" to setOf("updateImageHashes")
 )
 
 /** 从仓库根或 app 模块目录向上找 DAO 源码目录；都找不到返回 null。 */

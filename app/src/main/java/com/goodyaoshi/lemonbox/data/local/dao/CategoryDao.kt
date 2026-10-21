@@ -48,8 +48,8 @@ interface CategoryDao {
     suspend fun deleteAll()
 
     /** 把重复分类的下级分类改挂到保留项，供去重清理使用。 */
-    @Query("UPDATE categories SET parentId = :toId, dirty = 1 WHERE parentId = :fromId AND id != :toId")
-    suspend fun reassignChildren(fromId: Long, toId: Long)
+    @Query("UPDATE categories SET parentId = :toId, updatedAt = :updatedAt, dirty = 1 WHERE parentId = :fromId AND id != :toId")
+    suspend fun reassignChildren(fromId: Long, toId: Long, updatedAt: Long)
 
     /** 把挂在重复分类上的物品改挂到保留项，供去重清理使用。 */
     @Query(

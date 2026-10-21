@@ -70,7 +70,29 @@ class LedgerPlanningRepository @Inject constructor(
 
     suspend fun setRuleEnabled(id: Long, enabled: Boolean) {
         val rule = ruleDao.getById(id) ?: return
-        ruleDao.update(rule.copy(enabled = enabled, updatedAt = MonotonicClock.now(), dirty = true))
+        val now = System.currentTimeMillis()
+        // 停用期间不补历史账单：重新启用时把游标推进到下一个未来触发点。
+        // 否则 `fireDueRules` 会从停用前的 nextFireAt 一路补到上限（MAX_CATCH_UP），
+        // 一次生成上百条本不该存在的账单。
+        val nextFireAt = if (enabled && rule.nextFireAt <= now) {
+            var next = rule.nextFireAt.takeIf { it > 0 } ?: now
+            var guard = 0
+            while (next <= now && guard < MAX_CATCH_UP) {
+                next = RecurringClock.advance(next, rule.unit, rule.repeatInterval)
+                guard++
+            }
+            next
+        } else {
+            rule.nextFireAt
+        }
+        ruleDao.update(
+            rule.copy(
+                enabled = enabled,
+                nextFireAt = nextFireAt,
+                updatedAt = MonotonicClock.now(),
+                dirty = true
+            )
+        )
     }
 
     suspend fun deleteRule(id: Long) =

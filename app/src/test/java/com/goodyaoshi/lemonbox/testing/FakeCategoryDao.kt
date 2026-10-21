@@ -50,10 +50,10 @@ class FakeCategoryDao(
         categories.clear()
     }
 
-    override suspend fun reassignChildren(fromId: Long, toId: Long) {
+    override suspend fun reassignChildren(fromId: Long, toId: Long, updatedAt: Long) {
         categories.replaceAll { category ->
             if (category.parentId == fromId && category.id != toId) {
-                category.copy(parentId = toId)
+                category.copy(parentId = toId, updatedAt = updatedAt)
             } else {
                 category
             }

@@ -149,11 +149,12 @@ class ItemRepository @Inject constructor(
         if (item.trackMode == Item.TRACK_DURABLE) return
         val now = MonotonicClock.now()
         if (item.quantity > 1) {
-            itemDao.consumeOnePiece(id, now)
+            // 受影响 0 行 = 并发下已被另一端扣到 0，不再继续改状态。
+            if (itemDao.consumeOnePiece(id, now) == 0) return
             return
         }
         if (item.quantity == 1) {
-            itemDao.consumeOnePiece(id, now)
+            if (itemDao.consumeOnePiece(id, now) == 0) return
         }
         itemDao.updateUsageStatus(id, Item.USAGE_USED_UP, now)
         itemDao.updateNeedRestock(id, true, now)

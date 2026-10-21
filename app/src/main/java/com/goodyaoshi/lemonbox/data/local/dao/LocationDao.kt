@@ -55,8 +55,8 @@ interface LocationDao {
     suspend fun countByNameAndParent(name: String, parentId: Long?): Int
 
     /** 把重复位置的下级位置改挂到保留项，供去重清理使用。 */
-    @Query("UPDATE locations SET parentId = :toId, dirty = 1 WHERE parentId = :fromId AND id != :toId")
-    suspend fun reassignChildren(fromId: Long, toId: Long)
+    @Query("UPDATE locations SET parentId = :toId, updatedAt = :updatedAt, dirty = 1 WHERE parentId = :fromId AND id != :toId")
+    suspend fun reassignChildren(fromId: Long, toId: Long, updatedAt: Long)
 
     /** 把挂在重复位置上的物品改挂到保留项，供去重清理使用。 */
     @Query(

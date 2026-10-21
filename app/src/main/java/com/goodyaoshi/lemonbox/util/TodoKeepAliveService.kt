@@ -34,6 +34,9 @@ class TodoKeepAliveService : Service() {
             NotificationHelper.buildKeepAliveNotification(this),
             type
         )
-        return START_STICKY
+        // START_NOT_STICKY：用户关闭保活（设置页会 stopService）后，进程被系统回收时
+        // 不要自动把前台服务与常驻通知复活。原先是 START_STICKY，用户明确关掉后
+        // 仍可能在下次进程重启时重新出现，与开关语义矛盾。
+        return START_NOT_STICKY
     }
 }
