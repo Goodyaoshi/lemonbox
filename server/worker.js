@@ -534,7 +534,9 @@ async function handlePush(request, env, session) {
     const prior = existing.get(`${change.collection}\u0000${change.key}`);
     const baseSeq = Number(change.baseSeq || 0);
     // 有人在我上次见到它之后改过 → 记冲突台账并跳过，绝不静默覆盖。
-    if (prior && Number(prior.server_seq) > baseSeq) {
+    // force=1 只来自用户在诊断页主动执行的「以本机为准合并上传」：那是明确的本地优先动作，
+    // 跳过这个检查，把本机版本直接写到服务端（之后各设备按各自水线拉到它）。
+    if (!change.force && prior && Number(prior.server_seq) > baseSeq) {
       conflicts.push({
         collection: change.collection,
         key: change.key,
@@ -605,29 +607,39 @@ async function handlePull(request, env, session) {
   // 排除「本设备自己写的」：同一账号的另一台设备仍会收到，不能被用户身份误排。
   // 例外：includeSelf=1（诊断页的「以服务端为准重建」）不排除自己——重建后本机是空的，
   // 服务端上很多记录本来就是这台设备推上去的，排除自己就什么也拉不回来。
+  //
+  // 关键：**分页与水线必须按「扫描位置」计算，而不是按过滤后的结果**。
+  // 早先 SQL 里直接排除本设备、再用过滤后的最后一条当 lastSeq，会有一个致命后果：
+  // 一页 200 条恰好全是本设备刚推上去的记录时，过滤后为空，lastSeq 原地不动，
+  // 客户端又因「本页没有变更」直接停止翻页——水位永远卡在这批记录之前，
+  // 其他设备之后写的任何新数据都再也拉不到。现在先按 server_seq 顺序分页扫描，
+  // 返回 scannedSeq（含被过滤行）供客户端推进水线；过滤只影响返回给客户端的 changes。
   const includeSelf = params.get("includeSelf") === "1";
   const rows = await env.DB.prepare(
-    "SELECT collection, record_key, payload, server_seq, deleted, updated_by_user, updated_at " +
-      "FROM records WHERE server_seq > ? AND (? = 1 OR updated_by_dev <> ?) ORDER BY server_seq ASC LIMIT ?",
+    "SELECT collection, record_key, payload, server_seq, deleted, updated_by_user, updated_at, updated_by_dev " +
+      "FROM records WHERE server_seq > ? ORDER BY server_seq ASC LIMIT ?",
   )
-    .bind(since, includeSelf ? 1 : 0, session.device_id, limit)
+    .bind(since, limit)
     .all();
-  const results = rows.results || [];
-  const lastSeq = results.length ? Number(results[results.length - 1].server_seq) : since;
+  const scanned = rows.results || [];
+  const scannedSeq = scanned.length ? Number(scanned[scanned.length - 1].server_seq) : since;
+  const visible = includeSelf
+    ? scanned
+    : scanned.filter((row) => row.updated_by_dev !== session.device_id);
 
   // 用「本页是否取满」判断还有没有下一页；不再额外查一次 D1。
   // 取满但没有更多时客户端会多拉一次空页，换来每页少一次查询，CPU 更省。
-  const hasMore = results.length === limit;
+  const hasMore = scanned.length === limit;
 
   await env.DB.prepare(
     "INSERT INTO devices(device_id, user_id, name, last_seen_at, last_pull_seq) VALUES(?,?,?,?,?) " +
       "ON CONFLICT(device_id) DO UPDATE SET last_seen_at=excluded.last_seen_at, last_pull_seq=excluded.last_pull_seq",
   )
-    .bind(session.device_id, session.user_id, session.device_name, Date.now(), lastSeq)
+    .bind(session.device_id, session.user_id, session.device_name, Date.now(), scannedSeq)
     .run();
 
   return json({
-    changes: results.map((row) => ({
+    changes: visible.map((row) => ({
       collection: row.collection,
       key: row.record_key,
       payload: row.payload,
@@ -636,7 +648,10 @@ async function handlePull(request, env, session) {
       updatedBy: row.updated_by_user,
       updatedAt: Number(row.updated_at),
     })),
-    lastSeq,
+    // lastSeq 保持旧字段名，语义改为「本次扫描到的位置」；scannedSeq 是新名字，
+    // 新客户端优先读它，旧客户端读 lastSeq 也能正确前进。
+    lastSeq: scannedSeq,
+    scannedSeq,
     hasMore,
   });
 }
@@ -777,10 +792,51 @@ function mcpJson(data, status = 200) {
   });
 }
 
+/** MCP 可管理的集合（与 App 的 SyncCollections 对齐）。 */
+const MCP_COLLECTIONS = {
+  items: "家当物品",
+  categories: "家当分类",
+  locations: "存放位置",
+  ledger_records: "账目",
+  ledger_categories: "记账分类",
+  ledger_assets: "账户",
+  ledger_budgets: "预算",
+  ledger_templates: "记账模板",
+  ledger_recurring_rules: "周期记账规则",
+  anniversaries: "纪念日",
+  reminders: "待办提醒",
+  time_capsules: "时间胶囊",
+  packing_trips: "打包行程",
+  packing_items: "打包条目",
+};
+
 /**
- * 极简 MCP（Streamable HTTP，JSON-RPC）。读写、禁删。
- * 刻意不提供 create/delete 工具：新建记录需要客户端 Snapshot 的完整字段模板，
- * 让 AI 凭空拼一份可能产生客户端导入不了的载荷；整理既有数据用手上的记录本身当模板最稳。
+ * `update_settings` 允许 AI 改写的偏好字段。
+ *
+ * 刻意不包含 recipes / weeklyMenu / cookedMenuDates：这些是结构化大对象，
+ * 让 AI 整块覆盖会轻易毁掉用户菜谱库；需要管理菜谱时应使用记录级工具或 App。
+ */
+const MCP_SETTING_FIELDS = new Set([
+  "nickname",
+  "reminderLadder",
+  "reminderTimes",
+  "customReminderTimes",
+  "mealPrepDayShift",
+  "mealPrepFireTime",
+  "budgetReminderEnabled",
+  "ledgerMonthStartDay",
+  "mealPlanDays",
+  "togetherStartDate",
+  "togetherLabelName",
+  "customStatuses",
+]);
+
+/**
+ * 极简 MCP（Streamable HTTP，JSON-RPC）。
+ *
+ * 家庭共享同一份数据（服务端不做 user_id 隔离），MCP_TOKEN 就是家庭的写入口：
+ * 拿到令牌即可读写全部记录。工具覆盖「读、建、改、软删、设置」五类，
+ * 写入一律走服务端序号，App 下一次增量拉取即可看到。
  */
 const MCP_TOOLS = [
   {
@@ -816,15 +872,68 @@ const MCP_TOOLS = [
     name: "update_record",
     description:
       "改单条记录：把 fields 里的字段合并进原载荷后写回（只覆盖给出的字段，其余保持不动）。" +
-      "改之前必须先用 get_record 读一遍，字段名要沿用原载荷里的写法。不允许删除记录。",
+      "改之前必须先用 get_record 读一遍，字段名要沿用原载荷里的写法。" +
+      "可传 expectedSeq（get_record 返回的 seq）做乐观锁；不一致会拒绝而不是覆盖别人的修改。",
     inputSchema: {
       type: "object",
       properties: {
         collection: { type: "string" },
         key: { type: "string" },
         fields: { type: "object" },
+        expectedSeq: { type: "integer", description: "可选：读到时的 seq，用于防止覆盖并发修改" },
       },
       required: ["collection", "key", "fields"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "create_record",
+    description:
+      "新建一条记录。payload 只需给出该集合的业务字段（参考 list_records 返回的同类记录），" +
+      "id/syncId/updatedAt 由服务端统一生成；deletedAt/purgedAt 会被清空。key 可省略（自动用 syncId）。" +
+      "同一 key 已存在时会拒绝，改已有记录请用 update_record。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        collection: { type: "string" },
+        key: { type: "string", description: "可选；不传则自动生成" },
+        payload: { type: "object" },
+      },
+      required: ["collection", "payload"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "delete_record",
+    description:
+      "软删除一条记录：写入 deletedAt 墓碑，App 与网页会同步删除，可在回收站恢复。" +
+      "不会物理删除，也不会动其它记录。",
+    inputSchema: {
+      type: "object",
+      properties: { collection: { type: "string" }, key: { type: "string" } },
+      required: ["collection", "key"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_collections",
+    description: "列出可管理的集合名、中文含义与写入约束。建记录前先看它，collection 必须取这里的键。",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "get_settings",
+    description: "读取家庭设置（昵称、提醒时间/阶梯、记账月起始日、菜单天数、预算提醒等）。",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "update_settings",
+    description:
+      "更新家庭设置：只合并给出的字段，其余保持不变。允许字段见 get_settings；" +
+      "菜谱库/周菜单等结构化内容不在白名单内。",
+    inputSchema: {
+      type: "object",
+      properties: { fields: { type: "object" } },
+      required: ["fields"],
       additionalProperties: false,
     },
   },
@@ -930,47 +1039,206 @@ async function mcpCall(env, name, args) {
     };
   }
   if (name === "update_record") {
-    const collection = String(args.collection || "").trim();
+    const collection = requireMcpCollection(args.collection);
     const key = String(args.key || "").trim();
     const fields = args.fields;
-    if (!collection || !key) throw new Error("缺少 collection 或 key");
+    if (!key) throw new Error("缺少 key");
     if (!fields || typeof fields !== "object" || Array.isArray(fields)) {
       throw new Error("fields 需要是一个字段对象");
     }
     // 跨设备稳定键与墓碑字段不接受 AI 改写：
     //  - id 是本机自增，改了会让别的引用指错行；syncId 是跨设备键，改了就换了一条记录；
-    //  - deletedAt / purgedAt 是删除墓碑，MCP 的设计前提就是「禁删」；
+    //  - deletedAt / purgedAt 是删除墓碑，删除请用 delete_record；
     //  - updatedAt 由服务端统一写，否则 AI 传一个旧值会让 App 端 LWW 判成「不新」而丢弃修改。
     for (const field of Object.keys(fields)) {
       if (field === "id" || field === "syncId") throw new Error(`不允许修改 ${field}`);
-      if (field === "deletedAt" || field === "purgedAt") throw new Error("MCP 不允许删除或恢复记录");
+      if (field === "deletedAt" || field === "purgedAt") throw new Error("删除/恢复请用 delete_record");
       if (field === "updatedAt") throw new Error("updatedAt 由服务端写入，不允许外部指定");
     }
     const row = await env.DB.prepare(
-      "SELECT payload, server_seq FROM records WHERE collection = ? AND record_key = ?",
+      "SELECT payload, server_seq, deleted FROM records WHERE collection = ? AND record_key = ?",
     )
       .bind(collection, key)
       .first();
-    if (!row) throw new Error("记录不存在：不允许凭空创建，先用 get_record 确认 key");
+    if (!row) throw new Error("记录不存在：不允许凭空创建，先用 create_record 或确认 key");
+    if (row.deleted) throw new Error("记录已删除；请先在 App 回收站恢复，或不要修改墓碑记录");
+    const expectedSeq = Number(args.expectedSeq || 0);
+    if (expectedSeq > 0 && Number(row.server_seq) !== expectedSeq) {
+      throw new Error(`记录已被其他设备修改（当前 seq ${row.server_seq}），请重新读取后再改`);
+    }
     const origin = safeParse(row.payload);
     if (!origin || typeof origin !== "object") throw new Error("原载荷不是合法 JSON，拒绝改写");
-    const now = Date.now();
-    const merged = { ...origin, ...fields, updatedAt: now };
+    const merged = { ...origin, ...fields, updatedAt: Date.now() };
     // 只覆盖给出的字段；载荷里的 syncId 不允许被改（改了就跨设备指错行）。
     if (merged.syncId !== origin.syncId) throw new Error("不允许修改 syncId");
-
-    const seqRow = await env.DB.prepare("UPDATE meta SET v = v + 1 WHERE k = 'seq' RETURNING v")
-      .first();
-    const seq = Number(seqRow.v);
-    await env.DB.prepare(
-      "UPDATE records SET payload = ?, server_seq = ?, updated_by_user = ?, updated_by_dev = ?, " +
-        "updated_at = ?, deleted = 0 WHERE collection = ? AND record_key = ?",
-    )
-      .bind(JSON.stringify(merged), seq, "AI助手", MCP_DEVICE_ID, now, collection, key)
-      .run();
+    const { seq } = await writeMcpRecord(env, {
+      collection,
+      key,
+      payload: merged,
+      deleted: false,
+      expectedSeq,
+    });
     return { ok: true, key, seq, appliedFields: Object.keys(fields), updatedBy: "AI助手" };
   }
+  if (name === "create_record") {
+    const collection = requireMcpCollection(args.collection);
+    const input = args.payload;
+    if (!input || typeof input !== "object" || Array.isArray(input)) {
+      throw new Error("payload 需要是一个字段对象");
+    }
+    const key = String(args.key || input.syncId || crypto.randomUUID()).trim();
+    if (!/^[A-Za-z0-9_-]{1,128}$/.test(key)) {
+      throw new Error("key 只能包含字母、数字、下划线和短横线，长度 1-128");
+    }
+    const prior = await env.DB.prepare(
+      "SELECT 1 AS n FROM records WHERE collection = ? AND record_key = ?",
+    )
+      .bind(collection, key)
+      .first();
+    if (prior) throw new Error("记录已存在；修改请用 update_record");
+    const payload = {
+      ...input,
+      id: 0,
+      syncId: key,
+      updatedAt: Date.now(),
+      deletedAt: null,
+    };
+    if ("purgedAt" in payload) payload.purgedAt = null;
+    const { seq } = await writeMcpRecord(env, { collection, key, payload, deleted: false });
+    return { ok: true, collection, key, seq, createdBy: "AI助手" };
+  }
+  if (name === "delete_record") {
+    const collection = requireMcpCollection(args.collection);
+    const key = String(args.key || "").trim();
+    if (!key) throw new Error("缺少 key");
+    const row = await env.DB.prepare(
+      "SELECT payload, server_seq, deleted FROM records WHERE collection = ? AND record_key = ?",
+    )
+      .bind(collection, key)
+      .first();
+    if (!row) throw new Error("记录不存在");
+    if (row.deleted) {
+      return { ok: true, key, alreadyDeleted: true, seq: Number(row.server_seq) };
+    }
+    const origin = safeParse(row.payload) || {};
+    const merged = { ...origin, deletedAt: Date.now() };
+    const { seq } = await writeMcpRecord(env, { collection, key, payload: merged, deleted: true });
+    return { ok: true, key, seq, deleted: true };
+  }
+  if (name === "list_collections") {
+    return Object.entries(MCP_COLLECTIONS).map(([name, label]) => ({
+      name,
+      label,
+      note: "create_record 的 payload 参考同类记录；key 用载荷里的 syncId",
+    }));
+  }
+  if (name === "get_settings") {
+    const row = await env.DB.prepare(
+      "SELECT payload, server_seq, updated_at FROM records " +
+        "WHERE collection = 'preferences' AND record_key = 'preferences'",
+    ).first();
+    if (!row) {
+      return { seq: 0, updatedAt: 0, settings: {}, allowedFields: [...MCP_SETTING_FIELDS] };
+    }
+    const data = safeParse(row.payload) || {};
+    const settings = {};
+    for (const field of MCP_SETTING_FIELDS) {
+      if (field in data) settings[field] = data[field];
+    }
+    return {
+      seq: Number(row.server_seq),
+      updatedAt: Number(row.updated_at),
+      settings,
+      allowedFields: [...MCP_SETTING_FIELDS],
+    };
+  }
+  if (name === "update_settings") {
+    const fields = args.fields;
+    if (!fields || typeof fields !== "object" || Array.isArray(fields)) {
+      throw new Error("fields 需要是一个字段对象");
+    }
+    for (const field of Object.keys(fields)) {
+      if (!MCP_SETTING_FIELDS.has(field)) {
+        throw new Error(`不允许修改设置字段 ${field}；可用：${[...MCP_SETTING_FIELDS].join("、")}`);
+      }
+    }
+    const row = await env.DB.prepare(
+      "SELECT payload FROM records WHERE collection = 'preferences' AND record_key = 'preferences'",
+    ).first();
+    const origin = row ? (safeParse(row.payload) || {}) : {};
+    const merged = { ...origin, ...fields, updatedAt: Date.now() };
+    const { seq } = await writeMcpRecord(env, {
+      collection: "preferences",
+      key: "preferences",
+      payload: merged,
+      deleted: false,
+    });
+    return { ok: true, seq, updatedFields: Object.keys(fields), updatedBy: "AI助手" };
+  }
   throw new Error(`未知工具：${name}`);
+}
+
+/** 校验 collection 在可管理白名单内，并把错误文案说清可用值。 */
+function requireMcpCollection(collection) {
+  const name = String(collection || "").trim();
+  if (!MCP_COLLECTIONS[name]) {
+    throw new Error(
+      `不支持的 collection：${name || "(空)"}。可用：${Object.keys(MCP_COLLECTIONS).join("、")}`,
+    );
+  }
+  return name;
+}
+
+async function nextServerSeq(env) {
+  const row = await env.DB.prepare("UPDATE meta SET v = v + 1 WHERE k = 'seq' RETURNING v").first();
+  return Number(row.v);
+}
+
+/**
+ * 写一条 MCP 记录：统一发号、写 updated_by_user/dev 与时间戳。
+ *
+ * [expectedSeq] > 0 时用条件 UPDATE 做乐观锁，避免「先读后写」覆盖 App 刚推上来的修改；
+ * 0 表示覆盖写（create / settings 整块更新）。
+ */
+async function writeMcpRecord(env, { collection, key, payload, deleted = false, expectedSeq = 0 }) {
+  const text = JSON.stringify(payload);
+  if (text.length > PUSH_MAX_RECORD_CHARS) {
+    throw new Error(`载荷过大（上限 ${PUSH_MAX_RECORD_CHARS} 字符）`);
+  }
+  const seq = await nextServerSeq(env);
+  const now = Date.now();
+  if (expectedSeq > 0) {
+    const result = await env.DB.prepare(
+      "UPDATE records SET payload = ?, server_seq = ?, updated_by_user = ?, updated_by_dev = ?, " +
+        "updated_at = ?, deleted = ? WHERE collection = ? AND record_key = ? AND server_seq = ?",
+    )
+      .bind(
+        text,
+        seq,
+        "AI助手",
+        MCP_DEVICE_ID,
+        now,
+        deleted ? 1 : 0,
+        collection,
+        key,
+        expectedSeq,
+      )
+      .run();
+    if (!result.meta || Number(result.meta.changes) === 0) {
+      throw new Error("记录已被其他设备修改，已拒绝覆盖；请重新读取后再改");
+    }
+    return { seq, now };
+  }
+  await env.DB.prepare(
+    "INSERT INTO records(collection, record_key, payload, server_seq, updated_by_user, updated_by_dev, updated_at, deleted) " +
+      "VALUES(?,?,?,?,?,?,?,?) " +
+      "ON CONFLICT(collection, record_key) DO UPDATE SET payload=excluded.payload, server_seq=excluded.server_seq, " +
+      "updated_by_user=excluded.updated_by_user, updated_by_dev=excluded.updated_by_dev, " +
+      "updated_at=excluded.updated_at, deleted=excluded.deleted",
+  )
+    .bind(collection, key, text, seq, "AI助手", MCP_DEVICE_ID, now, deleted ? 1 : 0)
+    .run();
+  return { seq, now };
 }
 
 const MCP_DEVICE_ID = "mcp";
