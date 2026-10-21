@@ -24,6 +24,23 @@ val syncBaseUrl = (findProperty("LEMON_SYNC_BASE_URL") as String?)
     ?.takeIf { it.isNotBlank() }
     ?: "https://lemonbox.goodyaoshi.eu.cc"
 
+/**
+ * 版本号单一来源：versionName 决定 versionCode。
+ *
+ * CI 会显式传 `-PlemonVersionCode`，但本地/漏传时不能退回一个写死的 1900：
+ * 新包 versionCode 与旧包相同（甚至更小）会被系统判成同版本/降级，应用内更新
+ * 提示「有新版本」却装不上。这里按与 release.yml 相同的规则从 versionName 推导。
+ */
+val defaultVersionName = (findProperty("lemonVersionName") as String?)
+    ?.takeIf { it.isNotBlank() }
+    ?: "0.0.20"
+
+val derivedVersionCode: Int = run {
+    val parts = defaultVersionName.removePrefix("v").split('.')
+    fun part(index: Int): Int = parts.getOrNull(index)?.takeWhile(Char::isDigit)?.toIntOrNull() ?: 0
+    part(0) * 1_000_000 + part(1) * 10_000 + part(2) * 100
+}
+
 android {
     namespace = "com.goodyaoshi.lemonbox"
     compileSdk = 35
@@ -36,8 +53,8 @@ android {
         // （major*1000000 + minor*10000 + patch*100），与 CI 从 tag 推导的规则一致
         // （见 .github/workflows/release.yml），保证只增不减。
         // 版本号只在用户明确要求时调整，不自动变更。
-        versionCode = (findProperty("lemonVersionCode") as String?)?.toIntOrNull() ?: 1900
-        versionName = (findProperty("lemonVersionName") as String?) ?: "0.0.19"
+        versionCode = (findProperty("lemonVersionCode") as String?)?.toIntOrNull() ?: derivedVersionCode
+        versionName = defaultVersionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         // 原生库 ABI 收敛（F17）：本应用以「直接分发 APK」为主（见文件末尾的 copyReleaseApkForDistribution），
