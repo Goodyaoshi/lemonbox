@@ -405,7 +405,7 @@ fun ImageCloudScreen(
                             Spacer(modifier = Modifier.height(4.dp))
                             NoticeLine(
                                 text = "有 ${remoteSync.lastConflicts} 条两边都改过，" +
-                                    "已保留服务端版本（可在「同步诊断」里逐条查看）",
+                                    "已按本地优先合并（可在「同步诊断」里逐条查看）",
                                 isError = false
                             )
                         }
@@ -419,17 +419,44 @@ fun ImageCloudScreen(
                         Spacer(modifier = Modifier.height(12.dp))
                         if (remoteSync.running) {
                             Text(
-                                text = "正在同步…",
+                                text = remoteSync.phase ?: "正在同步…",
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.SemiBold,
                                 color = TextPrimary
                             )
+                            if (remoteSync.processed > 0) {
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = "已处理 ${remoteSync.processed} 条",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = TextHint
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            TextButton(onClick = viewModel::cancelRemoteSync) {
+                                Text(
+                                    text = "取消同步",
+                                    color = StatusExpired,
+                                    style = MaterialTheme.typography.titleSmall
+                                )
+                            }
                         } else {
                             GradientButton(
                                 text = "立即同步",
                                 onClick = viewModel::syncNow,
                                 enabled = state.cloudSyncEnabled
                             )
+                        }
+                        // 失败原因与最近一次回执都要可见：此前远程同步的错误只写进
+                        // RemoteSyncState.lastError，界面从不渲染，用户只看到按钮变成
+                        // 「正在同步…」然后没有任何反馈。
+                        remoteSync.lastError?.let { error ->
+                            Spacer(modifier = Modifier.height(8.dp))
+                            NoticeLine(text = error, isError = true)
+                        }
+                        state.lastSyncMessage?.let { message ->
+                            Spacer(modifier = Modifier.height(8.dp))
+                            NoticeLine(text = message, isError = false)
                         }
                         // 冲突提示「已保留服务端版本」只是结论，逐条证据在诊断页：
                         // 逐表计数、冲突留痕的字段对比都在那里，故入口常驻登录态分支。

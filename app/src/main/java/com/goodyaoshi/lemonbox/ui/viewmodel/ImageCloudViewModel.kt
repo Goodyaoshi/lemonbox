@@ -12,6 +12,7 @@ import com.goodyaoshi.lemonbox.data.remote.RemoteSyncState
 import com.goodyaoshi.lemonbox.data.remote.SyncSessionStore
 import com.goodyaoshi.lemonbox.data.sync.CloudSyncScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -40,7 +41,9 @@ data class ImageCloudUiState(
     val username: String? = null,
     val readinessBlocker: String? = null,
     /** 尚未上传的图片张数（本地算得，不发网络请求）；null 表示还没算过。 */
-    val pendingCount: Int? = null
+    val pendingCount: Int? = null,
+    /** 最近一次手动点「立即同步」的回执（成功/失败/已在同步中），常驻到下一次点击。 */
+    val lastSyncMessage: String? = null
 )
 
 @HiltViewModel
@@ -75,9 +78,22 @@ class ImageCloudViewModel @Inject constructor(
     /** 服务端同步的状态（上次同步时间 / 是否在跑 / 上次错误 / 上次冲突条数）。 */
     val remoteSyncState: StateFlow<RemoteSyncState> = remoteSyncManager.state
 
-    /** 立即执行一次服务端同步。 */
+    /** 手动同步的协程；用于避免连点叠加，也便于页面销毁时随之取消。 */
+    private var remoteSyncJob: Job? = null
+
+    /** 立即执行一次服务端同步，并把结果写成可见回执（不再静默吞掉）。 */
     fun syncNow() {
-        viewModelScope.launch { remoteSyncManager.syncNow() }
+        if (remoteSyncJob?.isActive == true) return
+        remoteSyncJob = viewModelScope.launch {
+            val result = remoteSyncManager.syncNow()
+            _uiState.update { it.copy(lastSyncMessage = result.message) }
+        }
+    }
+
+    /** 取消正在进行的服务端同步；已完成的批次保留，下次从水位继续。 */
+    fun cancelRemoteSync() {
+        remoteSyncManager.cancel()
+        _uiState.update { it.copy(lastSyncMessage = "已取消同步") }
     }
 
     init {

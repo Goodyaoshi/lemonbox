@@ -2,19 +2,25 @@ package com.goodyaoshi.lemonbox.data.remote
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 /**
  * 与同步服务端交互失败。[statusCode] 为 HTTP 状态码，网络层没拿到响应时为 0。
@@ -71,10 +77,10 @@ class RemoteSyncClient @Inject constructor(
     }
 
     /**
-     * 按候选顺序探活 `/health`。阻塞调用，调用方必须已在 IO 线程。
+     * 按候选顺序探活 `/health`。调用方已在 IO 上下文；请求本身可被协程取消。
      * 全部失败时返回第一个候选与逐项失败原因，便于界面直接展示。
      */
-    private fun probeEndpoints(): EndpointProbe {
+    private suspend fun probeEndpoints(): EndpointProbe {
         val all = endpointStore.candidates()
         if (all.isEmpty()) {
             return EndpointProbe("", false, "这个安装包没有配置同步服务器地址")
@@ -91,10 +97,10 @@ class RemoteSyncClient @Inject constructor(
         return EndpointProbe(all.first(), false, failures.joinToString("；"))
     }
 
-    private fun probeOne(base: String): EndpointProbe {
+    private suspend fun probeOne(base: String): EndpointProbe {
         return try {
-            val request = Request.Builder().url("$base/health").get().build()
-            httpClient.newCall(request).execute().use { response ->
+            val httpRequest = Request.Builder().url("$base/health").get().build()
+            httpClient.newCall(httpRequest).await().use { response ->
                 val text = response.body?.string().orEmpty()
                 val ok = response.isSuccessful && runCatching {
                     json.parseToJsonElement(text)
@@ -108,6 +114,8 @@ class RemoteSyncClient @Inject constructor(
                     detail = if (ok) "已连接 $base" else "$base 返回 HTTP ${response.code}"
                 )
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             EndpointProbe(base, false, "$base：${NetworkError.describe(e)}")
         }
@@ -219,7 +227,7 @@ class RemoteSyncClient @Inject constructor(
     }
 
     /** 取当前会话令牌带上去发一次请求；未登录时直接抛，不白跑一趟必然 401 的请求。 */
-    private fun authedRequest(method: String, path: String, body: String?): String {
+    private suspend fun authedRequest(method: String, path: String, body: String?): String {
         val session = sessionStore.current()
             ?: throw RemoteApiException(401, "请先登录柠檬账号")
         return try {
@@ -255,7 +263,7 @@ class RemoteSyncClient @Inject constructor(
         withContext(Dispatchers.IO) { authedRequest(method, path, body) }
 
     /** 发一个请求并读回响应体；非 2xx 抛 [RemoteApiException]。 */
-    private fun request(
+    private suspend fun request(
         method: String,
         path: String,
         body: String?,
@@ -273,7 +281,9 @@ class RemoteSyncClient @Inject constructor(
             .readTimeout(readTimeoutMs.toLong(), TimeUnit.MILLISECONDS)
             .build()
         return try {
-            client.newCall(builder.build()).execute().use { response ->
+            // await 而不是 execute：协程被取消（用户点「取消同步」/ 总超时）时要中止
+            // 正在进行的网络请求。阻塞式 execute 不响应取消，会让状态永远停在「正在同步」。
+            client.newCall(builder.build()).await().use { response ->
                 val text = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {
                     throw RemoteApiException(response.code, errorMessage(response.code, text))
@@ -290,6 +300,25 @@ class RemoteSyncClient @Inject constructor(
         } catch (e: Exception) {
             throw RemoteApiException(0, "请求失败：${e.message ?: e.javaClass.simpleName}（地址：$endpoint）")
         }
+    }
+
+    /**
+     * 把 OkHttp 的异步请求桥接成可取消的挂起调用。
+     *
+     * 不能用阻塞的 `execute()`：它在协程被取消时不会返回，「取消同步」与总超时都
+     * 只能干等一个最长 60 秒的读超时，界面就表现为一直卡在「正在同步…」。
+     */
+    private suspend fun Call.await(): Response = suspendCancellableCoroutine { continuation ->
+        continuation.invokeOnCancellation { cancel() }
+        enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                if (!continuation.isCancelled) continuation.resumeWithException(e)
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                if (continuation.isCancelled) response.close() else continuation.resume(response)
+            }
+        })
     }
 
     /** 优先用服务端自带的说明，其次按状态码给兜底文案。 */

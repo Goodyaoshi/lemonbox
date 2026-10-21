@@ -29,6 +29,8 @@ data class SyncDiagnosticsUiState(
     val busy: Boolean = false,
     /** 重建确认弹窗。 */
     val showRebuildConfirm: Boolean = false,
+    /** 「以本机为准合并上传」确认弹窗。 */
+    val showUploadLocalConfirm: Boolean = false,
     /** 最近一次动作的回执；重建成功后带撤销点路径。 */
     val message: String? = null,
     val messageIsError: Boolean = false,
@@ -80,6 +82,33 @@ class SyncDiagnosticsViewModel @Inject constructor(
     fun showRebuildConfirm() = _uiState.update { it.copy(showRebuildConfirm = true) }
 
     fun dismissRebuildConfirm() = _uiState.update { it.copy(showRebuildConfirm = false) }
+
+    fun showUploadLocalConfirm() = _uiState.update { it.copy(showUploadLocalConfirm = true) }
+
+    fun dismissUploadLocalConfirm() = _uiState.update { it.copy(showUploadLocalConfirm = false) }
+
+    /**
+     * 以本机为准合并上传：本机全量记录强制覆盖服务端同一条记录，再拉回其它设备独有的记录。
+     *
+     * 与「以服务端为准重建」正好相反，解决的是对账页最常见的差异：本机有、服务端没有，
+     * 或服务端还停在旧版本。完成后立即重新对账，让用户看到差异是否归零。
+     */
+    fun uploadLocalEverything() {
+        if (_uiState.value.busy) return
+        _uiState.update { it.copy(showUploadLocalConfirm = false, busy = true, message = null) }
+        viewModelScope.launch {
+            val result = remoteSyncManager.uploadLocalEverything()
+            val error = remoteSyncManager.state.value.lastError
+            _uiState.update { state ->
+                state.copy(
+                    busy = false,
+                    message = result.message,
+                    messageIsError = error != null
+                )
+            }
+            refresh()
+        }
+    }
 
     /** 以服务端为准重建：二次确认后执行；完成（无论成败）都带撤销点回执。 */
     fun rebuildFromServer() {

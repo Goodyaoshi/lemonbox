@@ -33,11 +33,11 @@ class RemoteSyncMessageTest {
     }
 
     @Test
-    fun `有冲突时说清按较新的改动为准`() {
+    fun `有冲突时说清按本地优先合并`() {
         val message = remoteSyncMessage(pushed = 0, pulled = 2, conflicts = 5)
         assertTrue(message.contains("5 条"))
-        assertTrue(message.contains("较新"))
-        // 旧文案的「以服务端为准」不再成立：收场规则是较新者胜，可能落在任何一方。
+        assertTrue(message.contains("本地优先"))
+        // 旧文案的「以服务端为准」不再成立：逐条实体冲突时本机版本会重推。
         assertFalse(message.contains("以服务端为准"))
     }
 
@@ -45,7 +45,7 @@ class RemoteSyncMessageTest {
     fun `只有冲突、没有推拉时也要给出说明`() {
         val message = remoteSyncMessage(pushed = 0, pulled = 0, conflicts = 2)
         assertTrue(message.contains("2 条"))
-        assertTrue(message.contains("较新"))
+        assertTrue(message.contains("本地优先"))
     }
 }
 

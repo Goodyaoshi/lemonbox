@@ -34,18 +34,23 @@ data class ConflictLogEntry(
     /** 服务端上最后改这条的人（账号名），冲突提示里说明「是谁盖的」。 */
     val updatedBy: String = "",
     /**
-     * 这条冲突最终怎么收场的：[RESOLUTION_LOCAL] ＝本机改动更晚、已重推上服务端，
-     * 两边最终一致为本机那版；[RESOLUTION_SERVER] ＝服务端那版更晚，本机已改为服务端版本。
+     * 这条冲突最终怎么收场的：[RESOLUTION_LOCAL] ＝本机改动已重推上服务端，
+     * 两边最终一致为本机那版；[RESOLUTION_SERVER] ＝服务端那版更新，本机已改为服务端版本；
+     * [RESOLUTION_PENDING] ＝本机优先但重推时又撞上新的服务端改动，本机版本保留、
+     * 已排队到下一轮继续上传（内容不丢，只是还没送达对端）。
      * 旧留痕没有这个字段，缺省按 [RESOLUTION_SERVER] 解释（当时的规则就是服务端胜出）。
      */
     val resolution: String = RESOLUTION_SERVER
 ) {
     companion object {
-        /** 冲突收场：本机较新改动已推上服务端。 */
+        /** 冲突收场：本机改动已推上服务端。 */
         const val RESOLUTION_LOCAL = "local"
 
         /** 冲突收场：已采用服务端版本。 */
         const val RESOLUTION_SERVER = "server"
+
+        /** 冲突收场：本机版本保留，下一轮同步继续重推。 */
+        const val RESOLUTION_PENDING = "pending"
     }
 }
 

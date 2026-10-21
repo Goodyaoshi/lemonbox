@@ -11,6 +11,7 @@ import com.goodyaoshi.lemonbox.data.backup.syncRecordsToPayload
 import com.goodyaoshi.lemonbox.data.imagecloud.ImageCloudConfig
 import com.goodyaoshi.lemonbox.data.local.dao.RemoteSyncDao
 import com.goodyaoshi.lemonbox.data.local.dao.SyncTableAudit
+import com.goodyaoshi.lemonbox.data.local.dao.localStamp
 import com.goodyaoshi.lemonbox.data.local.dao.markSynced
 import com.goodyaoshi.lemonbox.data.local.dao.pendingSeqs
 import com.goodyaoshi.lemonbox.data.local.dao.tableAudit
@@ -21,10 +22,14 @@ import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -54,7 +59,16 @@ data class RemoteSyncState(
     /** 上次同步中服务端报出的冲突条数；用于在界面提示「有内容两边都改过」。 */
     val lastConflicts: Int = 0,
     /** 上次同步是否只拉了一部分（达到 [MAX_PULL_PAGES]），界面据此提示再同步一次。 */
-    val lastTruncated: Boolean = false
+    val lastTruncated: Boolean = false,
+    /**
+     * 当前阶段的可读进度（「正在拉取：第 2 页，已收 200 条」）。
+     *
+     * 同步可能在首次登录/大量变更时持续几十秒，只显示「正在同步…」会让用户以为死机；
+     * 界面直接展示这句，[running] 为 false 时应为 null。
+     */
+    val phase: String? = null,
+    /** [phase] 对应的已处理条数（已收 + 已推），供界面显示进度。 */
+    val processed: Int = 0
 )
 
 /**
@@ -110,13 +124,68 @@ class RemoteSyncManager @Inject constructor(
     val state: StateFlow<RemoteSyncState> = _state.asStateFlow()
 
     /**
+     * 同一时刻只允许一轮同步。
+     *
+     * 原先只靠 `_state.running` 做闸门，是「先读后写」的竞态：手动点击与前台/写入触发
+     * 同时进来时会各自通过检查，两轮同步并发推拉同一条记录。用 Mutex 的 tryLock 做成
+     * 原子的「谁先到谁跑」，后来者立刻拿到明确回执，而不是静默排队。
+     */
+    private val syncMutex = Mutex()
+
+    /** 当前同步协程；供界面「取消同步」中止。 */
+    @Volatile
+    private var activeJob: Job? = null
+
+    /**
      * 执行一次完整同步：先拉别人的变更落地，再推自己的。失败只进状态，不抛给调用方。
      *
      * [includeSelf] 拉取时不排除本设备写过的记录——只有「以服务端为准重建」用它：
      * 重建后本机是空的，服务端上很多记录本就是这台设备写的，排除自己就拉不回全量。
+     *
+     * [forceUploadLocal] 是「以本机为准合并上传」：先把本机**全量**记录强制写到服务端
+     * （跳过 baseSeq 冲突检查），再拉回其它设备独有的记录。用于用户在对账页确认
+     * 「本机这份才是对的、服务端少了/旧了」之后的一次性收敛；日常同步不走这条路。
      */
-    suspend fun syncNow(includeSelf: Boolean = false): RemoteSyncResult = withContext(Dispatchers.IO) {
-        if (_state.value.running) return@withContext RemoteSyncResult(0, 0, 0, "同步正在进行中")
+    suspend fun syncNow(
+        includeSelf: Boolean = false,
+        forceUploadLocal: Boolean = false
+    ): RemoteSyncResult = withContext(Dispatchers.IO) {
+        if (!syncMutex.tryLock()) {
+            // 后台触发（前台切换 / 写入后 15 秒）撞上正在跑的同步是常态，不是错误：
+            // 只回执给调用方，不写 lastError，避免界面莫名弹一条红色提示。
+            return@withContext RemoteSyncResult(0, 0, 0, "同步正在进行中，请稍候再试")
+        }
+        val job = currentCoroutineContext()[Job]
+        activeJob = job
+        try {
+            // 总超时兜底：网络卡住时 OkHttp 自己的超时是按单次请求算的，翻页/重试叠加起来
+            // 仍可能让用户盯着「正在同步…」很久。到点直接停（底下的 Call 会被取消）。
+            withTimeoutOrNull(SYNC_TIMEOUT_MS) {
+                runSync(includeSelf, forceUploadLocal)
+            } ?: timeoutResult()
+        } finally {
+            if (activeJob === job) activeJob = null
+            _state.value = _state.value.copy(running = false, phase = null)
+            syncMutex.unlock()
+        }
+    }
+
+    /** 取消正在进行的同步；已完成的批次保留，下次同步会从水位继续。 */
+    fun cancel() {
+        activeJob?.cancel()
+    }
+
+    private fun timeoutResult(): RemoteSyncResult {
+        val message = "同步超时（${SYNC_TIMEOUT_MS / 1000} 秒），已停止。请检查网络后重试"
+        _state.value = _state.value.copy(running = false, phase = null, lastError = message)
+        return RemoteSyncResult(0, 0, 0, message)
+    }
+
+    /** [syncNow] 的主体；由总超时与互斥锁包裹，这里只管一轮同步本身。 */
+    private suspend fun runSync(
+        includeSelf: Boolean,
+        forceUploadLocal: Boolean
+    ): RemoteSyncResult {
         val blocker = if (!client.isConfigured()) {
             "这个安装包没有配置同步服务器地址"
         } else {
@@ -124,16 +193,30 @@ class RemoteSyncManager @Inject constructor(
         }
         if (blocker != null) {
             _state.value = _state.value.copy(lastError = blocker)
-            return@withContext RemoteSyncResult(0, 0, 0, blocker)
+            return RemoteSyncResult(0, 0, 0, blocker)
         }
 
-        _state.value = _state.value.copy(running = true, lastError = null)
-        try {
-            // 脏账本读两次：拉取前那次决定「跳过哪些本机未上传的改动」，
-            // 拉取后那次决定「还剩哪些要推」——落地会清掉一批脏位，沿用旧账本会白白重推一遍。
-            val pendingBeforePull = loadPendingSeqs()
-            val pulled = pull(pendingBeforePull, includeSelf)
-            val pushed = push(loadPendingSeqs())
+        _state.value = _state.value.copy(
+            running = true,
+            lastError = null,
+            phase = "准备同步…",
+            processed = 0
+        )
+        return try {
+            val pushed: PushOutcome
+            val pulled: PullOutcome
+            if (forceUploadLocal) {
+                // 本地优先：先覆盖服务端，再拉回别人独有的数据。顺序不能反——
+                // 先拉会把服务端旧版本落地，随后又被本机全量覆盖，白跑一趟。
+                pushed = push(loadPendingSeqs(), uploadAll = true)
+                pulled = pull(loadPendingSeqs(), includeSelf)
+            } else {
+                // 脏账本读两次：拉取前那次决定「跳过哪些本机未上传的改动」，
+                // 拉取后那次决定「还剩哪些要推」——落地会清掉一批脏位，沿用旧账本会白白重推一遍。
+                val pendingBeforePull = loadPendingSeqs()
+                pulled = pull(pendingBeforePull, includeSelf)
+                pushed = push(loadPendingSeqs())
+            }
             val now = System.currentTimeMillis()
             appPreferences.setLastSyncAt(now)
             appPreferences.setCloudLastConflicts(pushed.conflicts)
@@ -142,7 +225,8 @@ class RemoteSyncManager @Inject constructor(
                 lastError = null,
                 lastSyncedAt = now,
                 lastConflicts = pushed.conflicts,
-                lastTruncated = pulled.truncated
+                lastTruncated = pulled.truncated,
+                phase = null
             )
             RemoteSyncResult(
                 pushed = pushed.applied,
@@ -150,23 +234,35 @@ class RemoteSyncManager @Inject constructor(
                 merged = pulled.merged,
                 conflicts = pushed.conflicts,
                 truncated = pulled.truncated,
-                message = remoteSyncMessage(
-                    pushed.applied,
-                    pulled.downloaded,
-                    pushed.conflicts,
-                    pulled.truncated
-                )
+                message = if (forceUploadLocal) {
+                    "已按本机为准合并上传：" +
+                        remoteSyncMessage(pushed.applied, pulled.downloaded, pushed.conflicts, pulled.truncated)
+                } else {
+                    remoteSyncMessage(
+                        pushed.applied,
+                        pulled.downloaded,
+                        pushed.conflicts,
+                        pulled.truncated
+                    )
+                }
             )
         } catch (e: CancellationException) {
             // 取消要走原始路径：吞掉它会让协程在已取消后继续跑。
-            _state.value = _state.value.copy(running = false)
+            _state.value = _state.value.copy(running = false, phase = null)
             throw e
         } catch (e: Exception) {
             val message = e.message ?: "同步失败，请稍后重试"
-            _state.value = _state.value.copy(running = false, lastError = message)
+            _state.value = _state.value.copy(running = false, phase = null, lastError = message)
             RemoteSyncResult(0, 0, 0, message)
         }
     }
+
+    /**
+     * 「以本机为准合并上传」：把本机全量记录覆盖到服务端，再拉回其它设备独有的记录。
+     * 对账页在「本机与服务端数量/内容对不上」时提供这个动作。
+     */
+    suspend fun uploadLocalEverything(): RemoteSyncResult =
+        syncNow(forceUploadLocal = true)
 
     /** 本机全部「改过、还没被服务端确认」的记录：集合名 → (syncId → 本地 serverSeq)。 */
     private suspend fun loadPendingSeqs(): Map<String, Map<String, Long>> =
@@ -210,12 +306,21 @@ class RemoteSyncManager @Inject constructor(
                     seq = change.seq
                 )
             }
-            lastSeq = page.lastSeq
+            // 水位按「扫描位置」推进，而不是按本页可见记录的最后一条：
+            // 服务端会过滤掉本设备自己写过的行，一页 200 条可能全被过滤而 changes 为空，
+            // 但扫描位置其实已经到了 200。继续用旧水位就会永远卡在这批记录前面，
+            // 另一台设备之后写的任何新数据都拉不到。
+            val advance = if (page.scannedSeq > 0) page.scannedSeq else page.lastSeq
             lastHasMore = page.hasMore
+            _state.value = _state.value.copy(
+                phase = "正在拉取：第 $pageCount 页，已收 ${landed.size} 条",
+                processed = landed.size
+            )
+            if (advance <= cursor) break
+            lastSeq = advance
+            cursor = advance
+            // 注意：**不要**在 changes 为空时 break——整页可能恰好都是本机记录。
             if (!page.hasMore) break
-            // 没前进就不再来一轮：服务端行为异常时无限翻页会把一次同步拖到天荒地老。
-            if (page.changes.isEmpty() || lastSeq <= cursor) break
-            cursor = lastSeq
         }
 
         // 达到页数上限且服务端仍说还有：把「没拉完」如实带回去，界面提示再同步一次，
@@ -231,29 +336,47 @@ class RemoteSyncManager @Inject constructor(
      * 复用而不另写一套合并：那套规则（按 syncId 对齐、较新者胜、墓碑传播、父级重映射、
      * 内置数据补齐）早已为多设备一致调过，服务端同步只是换了个「数据从哪来」的入口。
      */
-    private suspend fun applyPulledRecords(landed: List<LandedRecord>, lastSeq: Long): Int =
+    private suspend fun applyPulledRecords(landed: List<LandedRecord>, lastSeq: Long): Int {
+        var merged = 0
+        if (landed.isNotEmpty()) {
+            val payload = syncRecordsToPayload(
+                landed.map { SyncRecord(it.collection, it.key, it.payload, it.deleted) },
+                appPreferences.deviceId
+            )
+            // 走 ZIP 中转而非直传清单：合并通道的入口就是「一个备份文件」，
+            // 这样校验（清单 SHA-256）与导入的临时文件清理都沿用既有实现，不必再开一条旁路。
+            val file = File(context.cacheDir, "remote-pull-${System.currentTimeMillis()}.zip")
+            try {
+                backupManager.writePayloadZipTo(payload, file)
+                val result = backupManager.importBackup(Uri.fromFile(file))
+                merged = result.totalAdded + result.totalUpdated
+            } finally {
+                file.delete()
+            }
+        }
+        // 关键：合并落地**不能**包在 `appDatabase.withTransaction` 里。
+        // `importBackup` 会调用 `seedProtectedData()`，后者切到 Dispatchers.IO 直接拿
+        // `openHelper.writableDatabase` 执行 SQL；而 Room 的协程事务已经把连接占住，
+        // 另一个线程再去连接池取连接就会与事务线程互等——没有任何异常，同步永远停在
+        // 「正在同步…」。海量用户反馈的卡死正是这条路径。
+        //
+        // 因此顺序改为「先落地（自带幂等），再单独用一个短事务记账」：中途被杀只会让
+        // 下次重复拉取同一批（合并幂等），不会出现「水位推进了但数据没落地」。
         appDatabase.withTransaction {
-            var merged = 0
-            if (landed.isNotEmpty()) {
-                val payload = syncRecordsToPayload(
-                    landed.map { SyncRecord(it.collection, it.key, it.payload, it.deleted) },
-                    appPreferences.deviceId
-                )
-                // 走 ZIP 中转而非直传清单：合并通道的入口就是「一个备份文件」，
-                // 这样校验（清单 SHA-256）与导入的临时文件清理都沿用既有实现，不必再开一条旁路。
-                val file = File(context.cacheDir, "remote-pull-${System.currentTimeMillis()}.zip")
-                try {
-                    backupManager.writePayloadZipTo(payload, file)
-                    val result = backupManager.importBackup(Uri.fromFile(file))
-                    merged = result.totalAdded + result.totalUpdated
-                } finally {
-                    file.delete()
-                }
-                // 合并通道里的墓碑副作用（`markPurged` 等）会把本机行重新标脏，而这些行的
-                // syncId 恰好就在刚拉回的名单里：合并之后再统一清一遍脏并写回服务端序号。
-                // 不做这一步，它们会被当成本机新改动反复推上去；叠加「服务端不比对载荷、
-                // 每次成功推送都发新序号」，就是两台设备之间序号无限递增的乒乓。
-                landed.forEach { markLanded(it.collection, it.key, it.seq) }
+            // 合并通道里的墓碑副作用（`markPurged` 等）会把本机行重新标脏，而这些行的
+            // syncId 恰好就在刚拉回的名单里：合并之后再统一清一遍脏并写回服务端序号。
+            // 不做这一步，它们会被当成本机新改动反复推上去；叠加「服务端不比对载荷、
+            // 每次成功推送都发新序号」，就是两台设备之间序号无限递增的乒乓。
+            //
+            // 但「本机这版比服务端新」是唯一的例外：合并策略按 updatedAt 保留了本机版本、
+            // 跳过了服务端版本。此时若也清脏，本机内容就再也不会被推上去（对账永久差一条）。
+            // 用户明确要求「本地优先」——保留脏位，交给本轮推送把本机版本覆盖到服务端。
+            landed.forEach { record ->
+                val localStamp = remoteSyncDao.localStamp(record.collection, record.key)
+                val localNewer = record.collection != SyncCollections.PREFERENCES &&
+                    localStamp != null &&
+                    localStamp > payloadUpdatedAt(record.payload)
+                markLanded(record.collection, record.key, record.seq, keepDirty = localNewer)
             }
             // 落地成功才推进水位：推进早了会让失败那批被永久跨过且毫无提示。
             if (lastSeq > 0) {
@@ -264,37 +387,51 @@ class RemoteSyncManager @Inject constructor(
             if (remoteSyncDao.state(SyncStateKeys.SERVER_ACK) == null) {
                 remoteSyncDao.putState(SyncStateRow(SyncStateKeys.SERVER_ACK, 1L))
             }
-            merged
         }
+        return merged
+    }
 
     /**
-     * 推送本机 `dirty = 1` 的记录（外加恒推的整块设置 `preferences`）。
+     * 推送本机需要上传的记录（外加恒推的整块设置 `preferences`）。
+     *
+     * 日常同步只推「本机改过、还没被服务端确认」的行：`dirty = 1` **或** `serverSeq = 0`
+     * （后者是历史遗留/从本地备份恢复、从未上过服务端的记录，不补推就永远对不上）。
+     * [uploadAll] 为真时改为推送本机全量快照，并带 `force = true` 跳过冲突检查——
+     * 只由用户在诊断页主动执行「以本机为准合并上传」触发。
      *
      * 每条带 [PushChange.baseSeq]＝本机上次见到的服务端序号（本地 `serverSeq` 列），
      * 所以「本机自己写过、服务端按设备排除掉」的记录也有正确的进度，不会被一律判成冲突。
      *
-     * 撞上冲突按「较新者胜」收场（见 [resolveConflicts]）。
+     * 撞上冲突按「本地优先」收场（见 [resolveConflicts]）。
      * 服务端单次上限 200 条，故本地先分批再逐批发；一批批推完为止。
      */
-    private suspend fun push(pending: Map<String, Map<String, Long>>): PushOutcome {
+    private suspend fun push(
+        pending: Map<String, Map<String, Long>>,
+        uploadAll: Boolean = false
+    ): PushOutcome {
         // 偏好是整块设置、没有 dirty/serverSeq 列，故恒推；它的序号单独记在 sync_state 里。
         val preferencesSeq = remoteSyncDao.state(SyncStateKeys.PREFERENCES_SEQ)
         // 没有实体 dirty 时只推整块偏好，不再读全库快照：
         // Workers 免费档 CPU/内存都紧，空同步读一遍所有表纯属浪费。
         val hasDirty = pending.values.any { it.isNotEmpty() }
-        val records = if (hasDirty) {
-            backupManager.snapshotRecords().filter { record ->
+        val records = when {
+            uploadAll -> backupManager.snapshotRecords()
+            hasDirty -> backupManager.snapshotRecords().filter { record ->
                 record.collection == SyncCollections.PREFERENCES ||
                     pending[record.collection]?.containsKey(record.key) == true
             }
-        } else {
-            listOf(backupManager.preferenceSyncRecord())
+            else -> listOf(backupManager.preferenceSyncRecord())
         }
         if (records.isEmpty()) return PushOutcome(applied = 0, conflicts = 0)
 
         var applied = 0
         var conflicts = 0
-        records.chunked(PUSH_LIMIT).forEach { batch ->
+        val batches = records.chunked(PUSH_LIMIT)
+        batches.forEachIndexed { index, batch ->
+            _state.value = _state.value.copy(
+                phase = "正在上传：第 ${index + 1}/${batches.size} 批，已上传 $applied 条",
+                processed = applied
+            )
             val response = client.push(
                 batch.map { record ->
                     PushChange(
@@ -306,7 +443,8 @@ class RemoteSyncManager @Inject constructor(
                         } else {
                             pending[record.collection]?.get(record.key) ?: 0L
                         },
-                        deleted = record.deleted
+                        deleted = record.deleted,
+                        force = uploadAll
                     )
                 }
             )
@@ -319,16 +457,19 @@ class RemoteSyncManager @Inject constructor(
     }
 
     /**
-     * 推送冲突的收场（LWW）：两台设备各改过同一条时，**较新的改动胜出**，而不是谁先推谁占位。
+     * 推送冲突的收场：**本地优先**，同时不让整块偏好被旧版本盖掉。
      *
-     * 冲突本身只说明「服务端比我上次见到的新」，不说明服务端那版内容更晚——先推的设备
-     * 完全可能带着更旧的 `updatedAt`。逐条对比两版载荷的更新时间：
-     *  - 两版内容一致：只是序号落后，对齐序号即可，不计冲突也不留痕——没有分岔就没有「改过」；
-     *  - 本机较新：带着服务端当前序号把本机版重推一次（服务端见 `baseSeq` 相等即放行），
-     *    对端下一轮拉走。这是较新改动到达另一台设备的唯一通路：只落地服务端版并清脏的话，
-     *    本机这版就永远堵在本机，另一台设备再也看不到；
-     *  - 服务端较新（或比不出先后，如旧服务端不带载荷）：按既有 [landConflicts] 落地服务端版本。
-     * 重推期间又被别人改了（再撞冲突）就退回「服务端为准」，下一轮同步自会再收敛。
+     * 冲突本身只说明「服务端比我上次见到的新」，不说明服务端那版内容更晚。用户明确要求
+     * 「本地优先」：只要本机还有未上传的改动（dirty=1 或 serverSeq=0），就把本机版本
+     * 带着服务端当前序号重推一次，让服务端与其它设备最终收敛到本机这版——多个设备各自的
+     * 数据因此都能合并进服务端，而不是被某个先推的旧版本永久占位。
+     *
+     * 例外是整块偏好 `preferences`：它没有逐条 dirty 位、每次同步都恒推，若也无条件本地胜，
+     * 一台没改过设置的设备就会把另一台刚改的设置整块盖回去。故偏好仍按载荷的 `updatedAt`
+     * 比较，只有本机确实更晚才重推。
+     *
+     * 重推期间又被别人改了（再撞冲突）**不覆盖本机**：保留脏位、留痕为
+     * [ConflictLogEntry.RESOLUTION_PENDING]，下一轮同步继续以本机版本重推。
      *
      * 返回真正分过岔的条数，供回执与界面提示。
      */
@@ -342,18 +483,30 @@ class RemoteSyncManager @Inject constructor(
             val local = batch.firstOrNull {
                 it.collection == conflict.collection && it.key == conflict.key
             }
+            val sameContent = local != null &&
+                conflict.payload == local.payload &&
+                conflict.deleted == local.deleted
             when {
                 // 两版一模一样：只是序号落后，对齐即可。
-                local != null && conflict.payload == local.payload && conflict.deleted == local.deleted ->
-                    markLanded(conflict.collection, conflict.key, conflict.seq)
-                // 本机改得更晚：先占住服务端的是旧版，把本机版送上去才算「较新者胜」。
-                local != null && payloadUpdatedAt(local.payload) > payloadUpdatedAt(conflict.payload) -> {
-                    localWins += conflict to local
+                sameContent -> markLanded(conflict.collection, conflict.key, conflict.seq)
+                // 本地没有对应记录（不应发生）：只能采用服务端版本。
+                local == null -> {
+                    serverWins += conflict
                     diverged++
                 }
-                // 服务端较新（或载荷缺失比不出）：按既有路径落地服务端版本。
+                // 整块偏好：只有本机确实改得更晚才本地胜，避免旧设置盖掉新设置。
+                conflict.collection == SyncCollections.PREFERENCES -> {
+                    if (payloadUpdatedAt(local.payload) > payloadUpdatedAt(conflict.payload)) {
+                        localWins += conflict to local
+                        diverged++
+                    } else {
+                        serverWins += conflict
+                        diverged++
+                    }
+                }
+                // 逐条实体：本地优先。本机这版尚未被服务端确认，就送上去。
                 else -> {
-                    serverWins += conflict
+                    localWins += conflict to local
                     diverged++
                 }
             }
@@ -370,20 +523,38 @@ class RemoteSyncManager @Inject constructor(
                 )
             })
             retry.applied.forEach { markLanded(it.collection, it.key, it.seq) }
-            // 重推期间又被别人改了：与真正的服务端胜出一起走落地路径，下一轮同步再收敛。
-            serverWins += retry.conflicts
+            // 重推又撞冲突：保持本机脏位，不落地服务端版本；下一轮同步再试。
+            // 这里必须显式写回 serverSeq 并保留 dirty —— 本机记录可能原本是
+            // `dirty=0, serverSeq=0` 的补推记录，不标脏下一轮就不会再推，本机版本
+            // 会永远停在本地。写入冲突序号后，下一轮 baseSeq 与服务端对齐即可直写。
+            val stillConflicting = retry.conflicts
+                .map { it.collection to it.key }
+                .toSet()
+            val localWinsByKey = localWins.associate { (conflict, _) ->
+                (conflict.collection to conflict.key) to conflict
+            }
+            retry.conflicts.forEach { conflict ->
+                markLanded(conflict.collection, conflict.key, conflict.seq, keepDirty = true)
+            }
             val retrySeq = retry.applied.associate { (it.collection to it.key) to it.seq }
             conflictStore.append(localWins.map { (conflict, local) ->
+                val stillPending = (conflict.collection to conflict.key) in stillConflicting
                 ConflictLogEntry(
                     collection = conflict.collection,
                     key = conflict.key,
-                    seq = retrySeq[conflict.collection to conflict.key] ?: conflict.seq,
+                    seq = retrySeq[conflict.collection to conflict.key]
+                        ?: localWinsByKey[conflict.collection to conflict.key]?.seq
+                        ?: conflict.seq,
                     baseSeq = conflict.baseSeq,
                     localPayload = local.payload,
                     remotePayload = conflict.payload,
                     at = System.currentTimeMillis(),
                     updatedBy = conflict.updatedBy,
-                    resolution = ConflictLogEntry.RESOLUTION_LOCAL
+                    resolution = if (stillPending) {
+                        ConflictLogEntry.RESOLUTION_PENDING
+                    } else {
+                        ConflictLogEntry.RESOLUTION_LOCAL
+                    }
                 )
             })
         }
@@ -392,9 +563,19 @@ class RemoteSyncManager @Inject constructor(
         return diverged
     }
 
-    /** 记下「这一条已在服务端」：写回服务端序号、清脏；整块设置另把序号存进 sync_state。 */
-    private suspend fun markLanded(collection: String, key: String, seq: Long) {
-        remoteSyncDao.markSynced(collection, key, seq)
+    /**
+     * 记下「这一条已在服务端」：写回服务端序号；[keepDirty] 为真时保留脏位。
+     *
+     * 整块设置另把序号存进 sync_state。`keepDirty` 只对逐条实体有意义：
+     * 拉取时发现本机这版更新、合并策略跳过了服务端版本，就保留脏位让本轮推送覆盖服务端。
+     */
+    private suspend fun markLanded(
+        collection: String,
+        key: String,
+        seq: Long,
+        keepDirty: Boolean = false
+    ) {
+        remoteSyncDao.markSynced(collection, key, seq, dirty = keepDirty)
         if (collection == SyncCollections.PREFERENCES) {
             remoteSyncDao.putState(SyncStateRow(SyncStateKeys.PREFERENCES_SEQ, seq))
         }
@@ -413,20 +594,22 @@ class RemoteSyncManager @Inject constructor(
      */
     private suspend fun landConflicts(batch: List<SyncRecord>, conflicts: List<PushConflict>) {
         val landable = conflicts.filter { it.payload.isNotEmpty() }
-        appDatabase.withTransaction {
-            if (landable.isNotEmpty()) {
-                val payload = syncRecordsToPayload(
-                    landable.map { SyncRecord(it.collection, it.key, it.payload, it.deleted) },
-                    appPreferences.deviceId
-                )
-                val file = File(context.cacheDir, "remote-conflict-${System.currentTimeMillis()}.zip")
-                try {
-                    backupManager.writePayloadZipTo(payload, file)
-                    backupManager.importBackup(Uri.fromFile(file))
-                } finally {
-                    file.delete()
-                }
+        if (landable.isNotEmpty()) {
+            val payload = syncRecordsToPayload(
+                landable.map { SyncRecord(it.collection, it.key, it.payload, it.deleted) },
+                appPreferences.deviceId
+            )
+            val file = File(context.cacheDir, "remote-conflict-${System.currentTimeMillis()}.zip")
+            try {
+                backupManager.writePayloadZipTo(payload, file)
+                backupManager.importBackup(Uri.fromFile(file))
+            } finally {
+                file.delete()
             }
+        }
+        // 同 applyPulledRecords：importBackup 会跨线程直接使用 SQLite，必须放在 Room
+        // 事务之外；记账本身很短，单独一个事务即可。
+        appDatabase.withTransaction {
             conflicts.forEach { markLanded(it.collection, it.key, it.seq) }
         }
         conflictStore.append(
@@ -593,6 +776,9 @@ class RemoteSyncManager @Inject constructor(
 
         /** 一次同步最多翻这么多页，避免服务端异常时无限翻页（200 × 100 = 2 万条）。 */
         const val MAX_PULL_PAGES = 100
+
+        /** 一轮同步的总超时：到点中止并给出可读回执，不让界面无限停在「正在同步…」。 */
+        const val SYNC_TIMEOUT_MS = 5 * 60 * 1000L
     }
 }
 
@@ -634,7 +820,7 @@ internal fun remoteSyncMessage(
         append("同步完成")
         if (pushed > 0) append("，上传 $pushed 条")
         if (pulled > 0) append("，收到 $pulled 条")
-        if (conflicts > 0) append("，$conflicts 条两边都改过，已按较新的改动为准")
+        if (conflicts > 0) append("，$conflicts 条两边都改过，已按本地优先合并")
         if (truncated) append("；还有更多变更未拉取，请再次同步")
     }
 }

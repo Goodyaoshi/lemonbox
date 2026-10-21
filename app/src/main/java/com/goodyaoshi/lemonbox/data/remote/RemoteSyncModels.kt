@@ -49,7 +49,14 @@ data class PushChange(
      * 服务端发现实际序号更大（有人在我之后改过）就**不覆盖**，只回报冲突。
      */
     val baseSeq: Long,
-    val deleted: Boolean = false
+    val deleted: Boolean = false,
+    /**
+     * 强制写入，跳过 `baseSeq` 冲突检查。
+     *
+     * 只用于用户在诊断页主动执行的「以本机为准合并上传」：这是明确的本地优先动作，
+     * 把本机全量数据覆盖到服务端同一条记录上。日常同步不置位，仍走冲突→本地重推。
+     */
+    val force: Boolean = false
 )
 
 /** 一次推送的请求体；设备身份由会话令牌携带，不在报文里重复。 */
@@ -105,6 +112,14 @@ data class PullChange(
 @Serializable
 data class PullResponse(
     val changes: List<PullChange> = emptyList(),
+    /**
+     * 本次分页实际扫描到的服务端序号（**含被「排除本设备」过滤掉的行**）。
+     *
+     * 不能用 [changes] 的最后一条来推进水位：整页恰好都是本设备自己写的记录时，
+     * changes 为空而扫描位置其实前进了。旧服务端不返回该字段，客户端回退读 [lastSeq]。
+     */
+    val scannedSeq: Long = 0,
+    /** 兼容旧字段：新服务端返回的值与 [scannedSeq] 相同。 */
     val lastSeq: Long = 0,
     val hasMore: Boolean = false
 )

@@ -167,7 +167,9 @@ fun SyncDiagnosticsScreen(
                     AppSurfaceCard(shape = MaterialTheme.shapes.extraLarge, shadowElevation = 12.dp) {
                         Text(
                             text = "本机与“服务端”分别数一遍：数量对不上，就说明有一方的账不平。" +
-                                "对账时刻的服务端序号：${report.serverSeq}，历史冲突累计 ${report.conflictCount} 条。",
+                                "「差」＝本机 live − 服务端 live：正数是本机有记录还没上去，" +
+                                "负数是服务端有记录还没拉下来。对账时刻的服务端序号：${report.serverSeq}，" +
+                                "历史冲突累计 ${report.conflictCount} 条。",
                             style = MaterialTheme.typography.bodySmall,
                             color = TextHint
                         )
@@ -249,9 +251,9 @@ fun SyncDiagnosticsScreen(
                         )
                     } else {
                         Text(
-                            text = "这些条目推送时发现两边都改过，已按「较新的改动为准」合并：" +
-                                "较新的一版在两台设备上一致，较旧的一版被替换。留痕里的“本机值”" +
-                                "是冲突发生那一刻你的改动，如需找回可在对应页面重新编辑。",
+                            text = "这些条目推送时发现两边都改过。逐条实体按「本地优先」收场：" +
+                                "本机版本会重推到服务端，其它设备下一轮同步拉走；整块偏好仍按更新时间新者胜。" +
+                                "留痕里的“本机值”是冲突发生那一刻你的改动，如需找回可在对应页面重新编辑。",
                             style = MaterialTheme.typography.bodySmall,
                             color = TextHint
                         )
@@ -259,6 +261,23 @@ fun SyncDiagnosticsScreen(
                     state.conflicts.forEach { entry ->
                         Spacer(modifier = Modifier.height(12.dp))
                         ConflictEntryCard(entry = entry, diffsProvider = viewModel::diffsFor)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(22.dp))
+                EditorSectionLabel(label = "合并上传")
+                Spacer(modifier = Modifier.height(8.dp))
+                AppSurfaceCard(shape = MaterialTheme.shapes.extraLarge, shadowElevation = 12.dp) {
+                    Text(
+                        text = "本机优先：把本机全部记录覆盖到服务端同一条记录上，" +
+                            "再拉回其它设备独有的记录。适合「对账显示本机多出/服务端还是旧版本」时使用；" +
+                            "不会删除其它设备独有的数据，但会用本机版本覆盖服务端上同一条记录。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    TextButton(onClick = viewModel::showUploadLocalConfirm, enabled = !state.busy) {
+                        Text(text = "以本机为准合并上传…", color = OrangeStart)
                     }
                 }
 
@@ -304,6 +323,18 @@ fun SyncDiagnosticsScreen(
                         destructiveConfirm = true,
                         onConfirm = viewModel::rebuildFromServer,
                         onDismissRequest = viewModel::dismissRebuildConfirm
+                    )
+                }
+
+                if (state.showUploadLocalConfirm) {
+                    AppDialog(
+                        title = "把本机数据合并上传到服务端？",
+                        subtitle = "本机全部记录会以本机版本覆盖服务端上的同一条记录，然后拉回其它设备独有的记录；" +
+                            "不会删除其它设备独有的数据。适合确认「本机这份才是对的」时使用。",
+                        confirmText = "以本机为准上传",
+                        destructiveConfirm = true,
+                        onConfirm = viewModel::uploadLocalEverything,
+                        onDismissRequest = viewModel::dismissUploadLocalConfirm
                     )
                 }
             }
@@ -377,10 +408,12 @@ private fun ConflictEntryCard(
         )
         Spacer(modifier = Modifier.height(4.dp))
         Text(
-            text = if (entry.resolution == ConflictLogEntry.RESOLUTION_LOCAL) {
-                "结果：本机改动更晚，已推上服务端，两边一致为本机那版"
-            } else {
-                "结果：服务端那版更晚，本机已改为服务端版本"
+            text = when (entry.resolution) {
+                ConflictLogEntry.RESOLUTION_LOCAL ->
+                    "结果：本机优先，已推上服务端，两边一致为本机那版"
+                ConflictLogEntry.RESOLUTION_PENDING ->
+                    "结果：本机版本已保留；重推时服务端又被改过，已排队到下一轮继续上传"
+                else -> "结果：服务端版本更新，本机已改为服务端版本"
             },
             style = MaterialTheme.typography.labelMedium,
             color = TextSecondary
