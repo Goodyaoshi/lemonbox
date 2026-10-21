@@ -32,4 +32,4 @@
 - 用户可见文案用中文，简洁、说清去处与后果。
 - 新增依赖前先确认现有依赖能否完成。
 
-详细检查清单与复盘模板见 `.github/engineering-checklist.md`，本次审计报告见 `.github/audit-2026-10-21.md`。
+详细检查清单与复盘模板见项目记忆 `sync-data-integrity-rules`。
