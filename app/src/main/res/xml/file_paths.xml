@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    应用内更新下载目录：只把 cacheDir/updates 暴露给系统安装器，
+    不暴露数据库、图片或其它私有文件。
+-->
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <cache-path name="updates" path="updates/" />
+</paths>

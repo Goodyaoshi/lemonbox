@@ -512,6 +512,7 @@ fun SettingsScreen(
                             )
                             Text(
                                 text = when {
+                                    updateState.downloading -> "正在下载并校验安装包…"
                                     updateState.checking -> "正在检查更新…"
                                     else -> "从 GitHub Release 获取最新版本"
                                 },
@@ -547,14 +548,32 @@ fun SettingsScreen(
                                 color = TextPrimary
                             )
                             Text(
-                                text = "交给浏览器下载，完成后在通知栏点开安装",
+                                text = if (updateState.downloading) {
+                                    val percent = updateState.downloadProgress
+                                    if (percent >= 0f) {
+                                        "正在下载 ${(percent * 100).toInt()}%，校验通过后打开安装器"
+                                    } else {
+                                        "正在下载，校验通过后打开安装器"
+                                    }
+                                } else {
+                                    "应用内下载，校验 SHA-256 与签名后安装"
+                                },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = TextSecondary
                             )
                         }
                         ActionPillButton(
-                            label = "去下载",
-                            onClick = { showDownloadChoice = true }
+                            label = if (updateState.downloading) "下载中…" else "校验安装",
+                            onClick = { viewModel.downloadAndInstall() }
+                        )
+                    }
+                    // 浏览器下载保留为兜底：个别 ROM 不允许应用内调起安装器。
+                    // 它无法由应用校验，因此不作为默认路径。
+                    TextButton(onClick = { showDownloadChoice = true }) {
+                        Text(
+                            text = "改用浏览器下载（不校验，兜底）",
+                            color = TextSecondary,
+                            style = MaterialTheme.typography.bodySmall
                         )
                     }
                     updateState.message?.let { message ->
@@ -622,10 +641,24 @@ fun SettingsScreen(
                     },
                     dismissText = "稍后"
                 ) {
-                    // 应用内安装已移除：安装授权在各机型上普遍拿不到，统一交给浏览器下载，
-                    // 完成后在通知栏点开安装包，是各 ROM 放行度最高的路径。
                     Text(
-                        text = "请选择下载方式，完成后在通知栏点开安装包即可更新：",
+                        text = "推荐应用内校验安装：先比对发布方 SHA-256，再比对安装包签名与当前应用，" +
+                            "两者都通过才会打开系统安装器。即使下载走了加速代理，签名不符也装不上。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondary
+                    )
+                    TextButton(
+                        onClick = { viewModel.downloadAndInstall() },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "校验安装（推荐）",
+                            color = OrangeStart,
+                            style = MaterialTheme.typography.titleSmall
+                        )
+                    }
+                    Text(
+                        text = "个别机型不允许应用内调起安装器时，可改用浏览器下载（应用无法校验）：",
                         style = MaterialTheme.typography.bodySmall,
                         color = TextSecondary
                     )
@@ -653,7 +686,8 @@ fun SettingsScreen(
                 AppDialog(
                     title = "下载安装包",
                     onDismissRequest = { showDownloadChoice = false },
-                    subtitle = "选择下载方式；完成后在通知栏点开安装包即可。两个地址内容相同，加速方式不可用时换直连。",
+                    subtitle = "浏览器下载无法由应用校验，仅作为应用内安装失败时的兜底；" +
+                        "两个地址内容相同，加速方式不可用时换直连。",
                     dismissText = "取消"
                 ) {
                     Row(

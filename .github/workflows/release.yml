@@ -103,6 +103,14 @@ jobs:
         # 之前「柠檬百宝箱.apk」被服务端改成了 default.apk，故改用 ASCII 命名固定下载名。
         run: cp app/build/outputs/apk/release/app-release.apk "lemonbox-${{ steps.version.outputs.name }}.apk"
 
+      - name: Generate SHA-256 checksum
+        # 应用内「下载并校验安装」会读取这个同名 .sha256 资产；缺失时仍会做签名校验，
+        # 但多一层完整性校验能让代理/镜像篡改更容易被立刻发现。
+        run: |
+          sha256sum "lemonbox-${{ steps.version.outputs.name }}.apk" \
+            | awk '{print $1}' > "lemonbox-${{ steps.version.outputs.name }}.apk.sha256"
+          cat "lemonbox-${{ steps.version.outputs.name }}.apk.sha256"
+
       - name: Delete existing release for this tag
         # 对同一 tag 重新发布时，先删除旧 Release 及其资产（例如曾被 GitHub 改名的 default.apk），
         # 避免新旧资产并存；首次发布时为 no-op。用 runner 自带 GITHUB_TOKEN，无需本地凭据。
@@ -113,7 +121,9 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v3
         with:
-          files: lemonbox-${{ steps.version.outputs.name }}.apk
+          files: |
+            lemonbox-${{ steps.version.outputs.name }}.apk
+            lemonbox-${{ steps.version.outputs.name }}.apk.sha256
           generate_release_notes: true
           draft: false
           prerelease: false

@@ -7,6 +7,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import com.goodyaoshi.lemonbox.data.settings.ThemeMode
+import com.goodyaoshi.lemonbox.data.update.ApkDownloadResult
+import com.goodyaoshi.lemonbox.data.update.ApkInstallResult
 import com.goodyaoshi.lemonbox.data.update.AppUpdater
 import com.goodyaoshi.lemonbox.data.update.UpdateCheckResult
 import com.goodyaoshi.lemonbox.data.update.UpdateInfo
@@ -32,6 +34,9 @@ data class UpdateUiState(
      * 没有它就只能干看着一句「已是最新版本」。
      */
     val downloadable: UpdateInfo? = null,
+    /** 应用内下载并校验安装包的进度；[downloadProgress] 为 -1 表示总大小未知。 */
+    val downloading: Boolean = false,
+    val downloadProgress: Float = -1f,
     val message: String? = null
 )
 
@@ -227,6 +232,106 @@ class SettingsViewModel @Inject constructor(
                 "没有找到可以打开链接的浏览器"
             }
         )
+    }
+
+    /**
+     * 应用内下载并校验安装：先比对发布方 SHA-256，再比对 APK 签名与当前应用是否一致。
+     *
+     * 与 [downloadInBrowser] 的分工：这里能保证「装上的确实是发布者签名的包」，
+     * 即使下载走了第三方加速；浏览器路径只作为个别 ROM 调不起安装器时的兜底。
+     * 未授予「安装未知应用」时先跳系统授权页，不直接失败。
+     */
+    fun downloadAndInstall() {
+        if (_updateState.value.downloading) return
+        val known = _updateState.value.available ?: _updateState.value.downloadable
+        if (known != null) {
+            startVerifiedInstall(known)
+            return
+        }
+        if (_updateState.value.checking) return
+        _updateState.value = _updateState.value.copy(checking = true, message = null)
+        viewModelScope.launch {
+            when (val result = appUpdater.checkForUpdate()) {
+                is UpdateCheckResult.UpToDate -> {
+                    _updateState.value = _updateState.value.copy(
+                        checking = false,
+                        downloadable = result.info
+                    )
+                    startVerifiedInstall(result.info)
+                }
+
+                is UpdateCheckResult.Available -> {
+                    _updateState.value = _updateState.value.copy(
+                        checking = false,
+                        available = null,
+                        downloadable = result.info
+                    )
+                    startVerifiedInstall(result.info)
+                }
+
+                is UpdateCheckResult.Failed -> _updateState.value = _updateState.value.copy(
+                    checking = false,
+                    message = result.message
+                )
+            }
+        }
+    }
+
+    private fun startVerifiedInstall(info: UpdateInfo) {
+        if (!appUpdater.canInstallPackages()) {
+            appUpdater.openInstallPermissionSettings()
+            _updateState.value = _updateState.value.copy(
+                available = null,
+                message = "请先允许本应用安装未知应用；授权后回来再点「校验安装」"
+            )
+            return
+        }
+        _updateState.value = _updateState.value.copy(
+            downloading = true,
+            downloadProgress = -1f,
+            available = null,
+            message = null
+        )
+        viewModelScope.launch {
+            val result = appUpdater.downloadAndVerify(info) { progress ->
+                _updateState.value = _updateState.value.copy(
+                    downloading = true,
+                    downloadProgress = progress,
+                    message = null
+                )
+            }
+            when (result) {
+                is ApkDownloadResult.Success -> {
+                    _updateState.value = _updateState.value.copy(
+                        downloading = false,
+                        downloadProgress = -1f
+                    )
+                    when (val install = appUpdater.installApk(result.file)) {
+                        ApkInstallResult.Started -> _updateState.value = _updateState.value.copy(
+                            message = "已通过 SHA-256 与签名校验，正在打开系统安装器"
+                        )
+
+                        ApkInstallResult.NeedsPermission -> {
+                            appUpdater.openInstallPermissionSettings()
+                            _updateState.value = _updateState.value.copy(
+                                message = "已通过校验，请先允许安装未知应用后再安装"
+                            )
+                        }
+
+                        is ApkInstallResult.Failed -> _updateState.value = _updateState.value.copy(
+                            message = "已通过校验，但无法打开系统安装器：${install.message}。" +
+                                "可改用浏览器下载。"
+                        )
+                    }
+                }
+
+                is ApkDownloadResult.Failed -> _updateState.value = _updateState.value.copy(
+                    downloading = false,
+                    downloadProgress = -1f,
+                    message = result.message
+                )
+            }
+        }
     }
 
     /** 关闭「新版本」弹窗，保留用户稍后再更新。 */
