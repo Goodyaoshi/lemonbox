@@ -63,9 +63,19 @@ data class PushChange(
 @Serializable
 data class PushRequest(val changes: List<PushChange>)
 
-/** 服务端已写下的记录及其新序号。 */
+/**
+ * 服务端已确认的记录及其序号。
+ *
+ * [noop] 为真表示载荷与墓碑都和服务端一模一样，服务端没有真正写入、也没有消耗新序号，
+ * 只把原序号回给客户端对齐水位。它仍要参与 `markLanded` 清脏，但不应计入「上传条数」。
+ */
 @Serializable
-data class PushApplied(val collection: String, val key: String, val seq: Long = 0)
+data class PushApplied(
+    val collection: String,
+    val key: String,
+    val seq: Long = 0,
+    val noop: Boolean = false
+)
 
 /**
  * 服务端判定「有人在我之后改过」而未覆盖的条目：服务端版本胜出。
@@ -121,7 +131,54 @@ data class PullResponse(
     val scannedSeq: Long = 0,
     /** 兼容旧字段：新服务端返回的值与 [scannedSeq] 相同。 */
     val lastSeq: Long = 0,
-    val hasMore: Boolean = false
+    val hasMore: Boolean = false,
+    /** 服务端当前全局序号；旧服务端不返回，按 0 处理。 */
+    val seq: Long = 0,
+    /**
+     * `since` 比服务端当前序号还大：库被删掉/重建过，旧水位已失效。
+     * 服务端已把本次 `since` 钳到 0，客户端应清空本地水位/缓存并重新走快照。
+     */
+    val resetRequired: Boolean = false
+)
+
+// ---------- 轻量同步元信息与快照（GET /v1/meta、/v1/snapshot） ----------
+
+/** 某个集合的当前规模与最后写入序号。 */
+@Serializable
+data class SyncMetaCollection(
+    val collection: String,
+    /** 活数据条数（不含墓碑）。 */
+    val count: Int = 0,
+    /** 总行数（含墓碑）。 */
+    val total: Int = 0,
+    /** 该集合最后一条的全局序号。 */
+    val version: Long = 0
+)
+
+/**
+ * 同步元信息：客户端每次同步先看这里。
+ *
+ * [instanceId] 是服务端实例标识，删库重建后会变；[seq] 不变时客户端连业务数据都不用拉。
+ */
+@Serializable
+data class SyncMetaResponse(
+    val instanceId: String = "",
+    val seq: Long = 0,
+    val collections: List<SyncMetaCollection> = emptyList()
+)
+
+/**
+ * 按集合拉回的当前活数据快照（不含墓碑）。
+ *
+ * [nextCursor] 用于同一集合继续翻页；[done] 为真表示该集合已取完。
+ */
+@Serializable
+data class SnapshotResponse(
+    val collection: String = "",
+    val upTo: Long = 0,
+    val changes: List<PullChange> = emptyList(),
+    val nextCursor: Long = 0,
+    val done: Boolean = true
 )
 
 // ---------- 服务端对账统计（P9，GET /v1/stats） ----------

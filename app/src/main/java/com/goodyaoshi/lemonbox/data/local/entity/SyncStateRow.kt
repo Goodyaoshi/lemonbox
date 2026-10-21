@@ -38,4 +38,30 @@ object SyncStateKeys {
      * 「有人在我之后改过」，「同步完成，1 条两边都改过」这条假冲突会永远挂在回执上。
      */
     const val PREFERENCES_SEQ = "preferences_seq"
+
+    /**
+     * 上次成功推送到服务端的 `preferences` 载荷内容签名（SHA-256 前 8 字节）。
+     *
+     * 偏好是整块设置、没有逐条 dirty 位。若每次同步都无条件推它，即使内容一字未改，
+     * 服务端也会给它发一个新序号——所有设备的增量水线于是永远多扫这一行，
+     * 「没有数据变化但同步序号一直涨」就是这么来的。先比签名，没变就不推。
+     */
+    const val PREFERENCES_HASH = "preferences_hash"
+
+    /**
+     * 服务端实例标识的哈希（SHA-256 前 8 字节）。
+     *
+     * `sync_state.value` 是 Long，存不下服务端返回的字符串 instanceId，故存哈希。
+     * 它变化只有一种含义：服务端库被删掉/重建过，本地水位和快照都失效，
+     * 必须先以本机为准回灌，再重新拉快照。
+     */
+    const val INSTANCE_HASH = "instance_hash"
+
+    /**
+     * 是否已经完成过一次「按集合快照」。
+     *
+     * 首次安装 / 重建 / 服务端换库后为 0，同步走 /v1/snapshot；
+     * 完成后置 1，日常只走轻量 meta + 增量。
+     */
+    const val SNAPSHOT_DONE = "snapshot_done"
 }

@@ -2,7 +2,8 @@
  * 柠檬百宝箱 · 同步中枢（Cloudflare Worker 单文件实现）
  *
  * 三个职责，同一份部署：
- *   1. /v1/*        —— 登录 + D1 权威记录同步（server_seq 单调序号取代墙钟与水位线）
+ *   1. /v1/*        —— 登录 + D1 权威记录同步：/v1/meta 轻量探测、/v1/snapshot 按集合快照、
+ *                       /v1/pull（别名 /v1/changes）增量；内容未变的写入不消耗序号
  *   2. /v1/blob/*   —— 自建 S3 兼容存储（Filebase）的密钥只在这里；客户端每次只拿几分钟有效的预签名 URL
  *   3. /mcp         —— MCP 服务端，读写、禁删，供 AI 整理家庭数据
  *
@@ -28,6 +29,16 @@ const SESSION_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 /** 单次推送/拉取批量刻意收敛：减少单请求的 CPU、内存与 D1 行数。 */
 const PUSH_MAX_CHANGES = 100;
 const PULL_MAX_LIMIT = 200;
+/** 快照接口单页上限：快照只读、不写 devices，可以比增量页大一些。 */
+const SNAPSHOT_MAX_LIMIT = 500;
+/**
+ * 快照单页载荷的字符数上限（近似字节）。
+ *
+ * 免费档单请求 CPU 约 10ms；500 条小 payload 没问题，但遇到大 payload 时
+ * JSON 序列化会顶到上限。超过就少返回几条，让客户端按 nextCursor 继续，
+ * 不把整个 500 条硬塞进一次响应。
+ */
+const SNAPSHOT_MAX_BYTES = 256 * 1024;
 /** push 请求体与单条载荷上限：防止一次请求把 D1/Worker 内存打满。 */
 const PUSH_MAX_BODY_BYTES = 2 * 1024 * 1024;
 const PUSH_MAX_RECORD_CHARS = 64 * 1024;
@@ -517,22 +528,32 @@ async function handlePush(request, env, session) {
     }
   }
 
-  // 2) 一次领一批连续序号（RETURNING 拿回发完后的值，倒推起始号）。
-  const count = changes.length;
-  const meta = await env.DB.prepare("UPDATE meta SET v = v + ? WHERE k = 'seq' RETURNING v")
-    .bind(count)
-    .first();
-  const firstSeq = (meta && Number(meta.v) ? Number(meta.v) : 0) - count + 1;
-
   const now = Date.now();
   const statements = [];
   const applied = [];
   const conflicts = [];
+  /** 真正需要写库的变更；只有它们消耗 server_seq。 */
+  const toWrite = [];
 
-  changes.forEach((change, index) => {
-    const seq = firstSeq + index;
+  // 2) 逐条判定。顺序很重要：先判「内容没变」，再判冲突，最后才进入待写队列。
+  //    内容与墓碑都相同 → 服务端已经是这一版，直接把原序号回给客户端清脏，
+  //    不发号、不写库。否则「没有数据变化」的空同步每次都会把序号 +1，
+  //    并把同一行重新标成新版本，让所有设备的水线永远追着它跑。
+  changes.forEach((change) => {
     const prior = existing.get(`${change.collection}\u0000${change.key}`);
     const baseSeq = Number(change.baseSeq || 0);
+
+    if (prior && prior.payload === change.payload && !!prior.deleted === !!change.deleted) {
+      applied.push({
+        collection: change.collection,
+        key: change.key,
+        seq: Number(prior.server_seq),
+        // 明确告诉客户端「这次没有真的写入」：序号原样返回，只用来对齐水位/清脏。
+        noop: true,
+      });
+      return;
+    }
+
     // 有人在我上次见到它之后改过 → 记冲突台账并跳过，绝不静默覆盖。
     // force=1 只来自用户在诊断页主动执行的「以本机为准合并上传」：那是明确的本地优先动作，
     // 跳过这个检查，把本机版本直接写到服务端（之后各设备按各自水线拉到它）。
@@ -556,26 +577,41 @@ async function handlePush(request, env, session) {
       );
       return;
     }
-    statements.push(
-      env.DB.prepare(
-        "INSERT INTO records(collection, record_key, payload, server_seq, updated_by_user, updated_by_dev, updated_at, deleted) " +
-          "VALUES(?,?,?,?,?,?,?,?) " +
-          "ON CONFLICT(collection, record_key) DO UPDATE SET " +
-          "payload=excluded.payload, server_seq=excluded.server_seq, updated_by_user=excluded.updated_by_user, " +
-          "updated_by_dev=excluded.updated_by_dev, updated_at=excluded.updated_at, deleted=excluded.deleted",
-      ).bind(
-        change.collection,
-        change.key,
-        change.payload,
-        seq,
-        session.user_name,
-        session.device_id,
-        now,
-        change.deleted ? 1 : 0,
-      ),
-    );
-    applied.push({ collection: change.collection, key: change.key, seq });
+    toWrite.push(change);
   });
+
+  // 3) 只给真正要写的变更领号（RETURNING 拿回发完后的值，倒推起始号）。
+  //    冲突与幂等条目不再占号：序号空洞只可能来自并发/失败，不再来自每次空同步。
+  let lastSeq = 0;
+  if (toWrite.length) {
+    const meta = await env.DB.prepare("UPDATE meta SET v = v + ? WHERE k = 'seq' RETURNING v")
+      .bind(toWrite.length)
+      .first();
+    const firstSeq = (meta && Number(meta.v) ? Number(meta.v) : 0) - toWrite.length + 1;
+    lastSeq = firstSeq + toWrite.length - 1;
+    toWrite.forEach((change, index) => {
+      const seq = firstSeq + index;
+      statements.push(
+        env.DB.prepare(
+          "INSERT INTO records(collection, record_key, payload, server_seq, updated_by_user, updated_by_dev, updated_at, deleted) " +
+            "VALUES(?,?,?,?,?,?,?,?) " +
+            "ON CONFLICT(collection, record_key) DO UPDATE SET " +
+            "payload=excluded.payload, server_seq=excluded.server_seq, updated_by_user=excluded.updated_by_user, " +
+            "updated_by_dev=excluded.updated_by_dev, updated_at=excluded.updated_at, deleted=excluded.deleted",
+        ).bind(
+          change.collection,
+          change.key,
+          change.payload,
+          seq,
+          session.user_name,
+          session.device_id,
+          now,
+          change.deleted ? 1 : 0,
+        ),
+      );
+      applied.push({ collection: change.collection, key: change.key, seq });
+    });
+  }
 
   if (statements.length) await env.DB.batch(statements);
 
@@ -589,7 +625,7 @@ async function handlePush(request, env, session) {
   return json({
     applied,
     conflicts,
-    lastSeq: firstSeq + count - 1,
+    lastSeq,
     // 请求批次已满说明还可能有余量，让客户端继续推（同时避开 Workers CPU 上限）。
     hasMore: changes.length === PUSH_MAX_CHANGES,
   });
@@ -598,11 +634,22 @@ async function handlePush(request, env, session) {
 async function handlePull(request, env, session) {
   const params = new URL(request.url).searchParams;
   const sinceRaw = Number(params.get("since") || 0);
-  const since = Number.isFinite(sinceRaw) ? Math.max(0, Math.floor(sinceRaw)) : 0;
+  let since = Number.isFinite(sinceRaw) ? Math.max(0, Math.floor(sinceRaw)) : 0;
   const limitRaw = Number(params.get("limit") || PULL_MAX_LIMIT);
   const limit = Number.isFinite(limitRaw)
     ? Math.min(Math.max(1, Math.floor(limitRaw)), PULL_MAX_LIMIT)
     : PULL_MAX_LIMIT;
+
+  // 服务端身份与当前序号：水位比它还大只有一种可能——库被删掉/重建过。
+  // 旧客户端的 since 还停在上一个库的序号上，不钳制就会永远拉空；
+  // 钳到 0 后它会把当前全量当成增量拉走，至少不会丢数据。
+  const metaRow = await env.DB.prepare("SELECT v FROM meta WHERE k = 'seq'").first();
+  const currentSeq = metaRow ? Number(metaRow.v) || 0 : 0;
+  let resetRequired = false;
+  if (since > currentSeq) {
+    since = 0;
+    resetRequired = true;
+  }
 
   // 排除「本设备自己写的」：同一账号的另一台设备仍会收到，不能被用户身份误排。
   // 例外：includeSelf=1（诊断页的「以服务端为准重建」）不排除自己——重建后本机是空的，
@@ -627,16 +674,21 @@ async function handlePull(request, env, session) {
     ? scanned
     : scanned.filter((row) => row.updated_by_dev !== session.device_id);
 
-  // 用「本页是否取满」判断还有没有下一页；不再额外查一次 D1。
-  // 取满但没有更多时客户端会多拉一次空页，换来每页少一次查询，CPU 更省。
-  const hasMore = scanned.length === limit;
+  // 精确判断：本页取满且扫描位置还没到当前最大序号，才真的还有下一页。
+  // 旧实现只看「取满」，数据量正好是 200 的倍数时必然多一次空请求；
+  // 现在多一次很小的 meta 主键读，换掉一整轮 HTTP + D1 往返，整体更快。
+  const hasMore = scanned.length === limit && scannedSeq < currentSeq;
 
-  await env.DB.prepare(
-    "INSERT INTO devices(device_id, user_id, name, last_seen_at, last_pull_seq) VALUES(?,?,?,?,?) " +
-      "ON CONFLICT(device_id) DO UPDATE SET last_seen_at=excluded.last_seen_at, last_pull_seq=excluded.last_pull_seq",
-  )
-    .bind(session.device_id, session.user_id, session.device_name, Date.now(), scannedSeq)
-    .run();
+  // 诊断用的 last_pull_seq 只在整轮拉取结束时写一次。每页一次 UPSERT 意味着
+  // 每个请求固定一次 D1 写，页数多时它比读本身还慢。
+  if (!hasMore) {
+    await env.DB.prepare(
+      "INSERT INTO devices(device_id, user_id, name, last_seen_at, last_pull_seq) VALUES(?,?,?,?,?) " +
+        "ON CONFLICT(device_id) DO UPDATE SET last_seen_at=excluded.last_seen_at, last_pull_seq=excluded.last_pull_seq",
+    )
+      .bind(session.device_id, session.user_id, session.device_name, Date.now(), scannedSeq)
+      .run();
+  }
 
   return json({
     changes: visible.map((row) => ({
@@ -653,6 +705,10 @@ async function handlePull(request, env, session) {
     lastSeq: scannedSeq,
     scannedSeq,
     hasMore,
+    /** `since` 比服务端当前序号还大，说明库被重建过；客户端应清水位/缓存重新快照。 */
+    resetRequired,
+    /** 当前全局序号，客户端可用来判断“是否真的还有变化”。 */
+    seq: currentSeq,
   });
 }
 
@@ -675,6 +731,125 @@ async function handleStats(env) {
     collections: counts.results || [],
     devices: devices.results || [],
     conflictCount: conflictCount ? Number(conflictCount.n) : 0,
+  });
+}
+
+/**
+ * 轻量同步元信息：客户端每次打开 / 回前台先看这里，序号没变就一个字节的业务数据都不用拉。
+ *
+ * 默认**只读 `meta` 与 `sync_meta` 两个主键**，不碰 `records`——这是每次 focus /
+ * 同步都会调用的热路径，不能在这里做全表 GROUP BY。只有首次/重建、客户端确实
+ * 需要按集合快照时，才传 `?collections=1` 做一次集合统计。
+ */
+async function handleMeta(request, env) {
+  const seqRow = await env.DB.prepare("SELECT v FROM meta WHERE k = 'seq'").first();
+  let instanceId = "";
+  try {
+    const row = await env.DB.prepare("SELECT v FROM sync_meta WHERE k = 'instance_id'").first();
+    instanceId = row ? String(row.v) : "";
+  } catch (e) {
+    // 旧库还没执行新 schema：没有 sync_meta 表时按空实例处理，不影响其他接口。
+  }
+  let collections = [];
+  if (new URL(request.url).searchParams.get("collections") === "1") {
+    const cols = await env.DB.prepare(
+      "SELECT collection, SUM(CASE WHEN deleted = 0 THEN 1 ELSE 0 END) AS live, " +
+        "COUNT(*) AS total, MAX(server_seq) AS version " +
+        "FROM records GROUP BY collection ORDER BY collection",
+    ).all();
+    collections = (cols.results || []).map((row) => ({
+      collection: row.collection,
+      count: Number(row.live || 0),
+      total: Number(row.total || 0),
+      version: Number(row.version || 0),
+    }));
+  }
+  return json({
+    instanceId,
+    seq: seqRow ? Number(seqRow.v) : 0,
+    collections,
+  });
+}
+
+/**
+ * 按集合返回「当前活数据」的快照，供首次加载 / 重建使用。
+ *
+ * 不返回墓碑：空客户端没有旧记录需要删除；墓碑只通过增量 `/v1/pull` 传播。
+ * `upTo` 把快照钉在某个全局序号上，保证读到的是一个一致点；客户端随后从
+ * `upTo` 拉增量，补齐快照期间其他设备写入的变化。
+ */
+async function handleSnapshot(request, env) {
+  const params = new URL(request.url).searchParams;
+  const collection = String(params.get("collection") || "").trim();
+  if (!collection) return fail("缺少 collection");
+  if (collection.length > 64) return fail("collection 过长");
+  const cursorRaw = Number(params.get("cursor") || 0);
+  const cursor = Number.isFinite(cursorRaw) ? Math.max(0, Math.floor(cursorRaw)) : 0;
+  const upToRaw = Number(params.get("upTo") || 0);
+  const upTo = Number.isFinite(upToRaw) && upToRaw > 0 ? Math.floor(upToRaw) : 0;
+  const limitRaw = Number(params.get("limit") || SNAPSHOT_MAX_LIMIT);
+  const limit = Number.isFinite(limitRaw)
+    ? Math.min(Math.max(1, Math.floor(limitRaw)), SNAPSHOT_MAX_LIMIT)
+    : SNAPSHOT_MAX_LIMIT;
+
+  const where = ["collection = ?", "deleted = 0", "server_seq > ?"];
+  const binds = [collection, cursor];
+  if (upTo) {
+    where.push("server_seq <= ?");
+    binds.push(upTo);
+  }
+  binds.push(limit);
+  const rows = await env.DB.prepare(
+    "SELECT collection, record_key, payload, server_seq, deleted, updated_by_user, updated_at " +
+      `FROM records WHERE ${where.join(" AND ")} ORDER BY server_seq ASC LIMIT ?`,
+  )
+    .bind(...binds)
+    .all();
+  const list = rows.results || [];
+  // 按 payload 字符数截断单页，避免大载荷把一次响应撑到免费档 CPU/内存上限。
+  // 至少保留一条，保证 nextCursor 一定前进（单条超大记录也不会卡死）。
+  let page = list;
+  let payloadChars = 0;
+  for (let i = 0; i < list.length; i++) {
+    payloadChars += String(list[i].payload || "").length;
+    if (i > 0 && payloadChars > SNAPSHOT_MAX_BYTES) {
+      page = list.slice(0, i);
+      break;
+    }
+  }
+  const truncatedByBytes = page.length < list.length;
+  const nextCursor = page.length ? Number(page[page.length - 1].server_seq) : cursor;
+  // 取满一页时精确探一下后面还有没有行，避免客户端为“正好取满”多拉一次空页。
+  // 快照路径不写 devices，这次索引探测比一整轮 HTTP + D1 往返便宜得多。
+  let done = !truncatedByBytes && page.length < limit;
+  if (!done && !truncatedByBytes) {
+    const probeWhere = ["collection = ?", "deleted = 0", "server_seq > ?"];
+    const probeBinds = [collection, nextCursor];
+    if (upTo) {
+      probeWhere.push("server_seq <= ?");
+      probeBinds.push(upTo);
+    }
+    const probe = await env.DB.prepare(
+      `SELECT 1 AS n FROM records WHERE ${probeWhere.join(" AND ")} LIMIT 1`,
+    )
+      .bind(...probeBinds)
+      .first();
+    done = !probe;
+  }
+  return json({
+    collection,
+    upTo,
+    changes: page.map((row) => ({
+      collection: row.collection,
+      key: row.record_key,
+      payload: row.payload,
+      seq: Number(row.server_seq),
+      deleted: false,
+      updatedBy: row.updated_by_user,
+      updatedAt: Number(row.updated_at),
+    })),
+    nextCursor,
+    done,
   });
 }
 
@@ -1281,6 +1456,9 @@ export default {
 
       if (pathname === "/v1/logout" && request.method === "POST") return await handleLogout(request, env, session);
       if (pathname === "/v1/push" && request.method === "POST") return await handlePush(request, env, session);
+      if (pathname === "/v1/meta" && request.method === "GET") return await handleMeta(request, env);
+      if (pathname === "/v1/snapshot" && request.method === "GET") return await handleSnapshot(request, env);
+      if (pathname === "/v1/changes" && request.method === "GET") return await handlePull(request, env, session);
       if (pathname === "/v1/pull" && request.method === "GET") return await handlePull(request, env, session);
       if (pathname === "/v1/stats" && request.method === "GET") return await handleStats(env);
 

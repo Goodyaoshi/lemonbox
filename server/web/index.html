@@ -317,8 +317,12 @@ const S = {
   deviceId: null, deviceName: "网页版",
   /** "collection\u0000key" -> { collection, key, data, seq, deleted } */
   records: new Map(),
-  /** 本次会话已拉到的服务端序号；刷新/重新登录后归零，重新全量。 */
+  /** 已落地的服务端序号；持久化到 IndexedDB，刷新后从这里增量。 */
   since: 0,
+  /** 服务端实例标识：删库重建后会变，变了就清缓存重新快照。 */
+  instanceId: "",
+  /** IndexedDB 句柄；不可用（隐私模式等）时为 null，退回纯内存。 */
+  cacheDb: null,
   tab: "items",
   busy: false, syncing: false, lastSyncAt: null, conflictCount: 0,
   ledgerLimit: 60,
@@ -353,13 +357,15 @@ function loadSession() {
 }
 function saveSession(token, username, expiresAt) {
   S.token = token; S.username = username; S.expiresAt = expiresAt || 0;
-  // 新会话从 0 开始拉全量；本次会话内后续同步才走增量。
-  S.records.clear(); S.since = 0; S.ledgerLimit = 60;
+  // 新会话/换账号：内存视图和实例标识都作废。缓存由第一次 syncNow 在拉快照前清掉，
+  // 避免“清缓存”和“写新快照”两个异步事务互相覆盖。
+  S.records.clear(); S.since = 0; S.instanceId = ""; S.ledgerLimit = 60;
   try { localStorage.setItem(LS_KEY, JSON.stringify({ token, username, expiresAt })); } catch (_) {}
 }
 function clearSession() {
   S.token = null; S.username = null; S.expiresAt = 0;
-  S.records.clear(); S.lastSyncAt = null; S.since = 0; S.ledgerLimit = 60;
+  S.records.clear(); S.lastSyncAt = null; S.since = 0; S.instanceId = ""; S.ledgerLimit = 60;
+  cacheClear(S.cacheDb);
   try { localStorage.removeItem(LS_KEY); } catch (_) {}
 }
 
@@ -394,59 +400,283 @@ async function api(path, opts = {}) {
 
 /* ------------------------------------------------------------ 同步逻辑 */
 
-/** 首次从 0 全量；同一会话内从 S.since 增量，刷新/重新登录后归零。 */
+/* ------------------------------------------------------------ 本地快照缓存 */
+
+/**
+ * Web 没有本地数据库，但每次打开都从服务端全量重建会让首屏干等几十个请求。
+ * 这里把上一轮成功同步的记录和序号放进 IndexedDB：启动先渲染缓存，
+ * 再用 `/v1/meta` 判断要不要拉增量。服务端始终是权威，缓存只是首屏副本。
+ */
+const CACHE_DB = "lemonbox.cache.v2";
+const CACHE_RECORDS = "records";
+const CACHE_META = "meta";
+const CACHE_META_KEY = "state";
+const SNAPSHOT_LIMIT = 500;
 const MAX_PULL_PAGES = 100;
-async function pullAll() {
-  let since = S.since || 0, guard = 0, truncated = false, lastSeq = since;
-  const out = [];
-  for (;;) {
-    const r = await api(`/v1/pull?since=${since}&limit=200&includeSelf=1`);
-    for (const ch of (r && r.changes) || []) out.push(ch);
-    if (!r) break;
-    lastSeq = Number(r.lastSeq || lastSeq);
-    if (!r.hasMore || !r.changes || !r.changes.length) break;
-    since = lastSeq;
-    // 达到页数上限但服务端仍说还有：把「没拉完」带回去，界面提示再同步一次。
-    if (++guard >= MAX_PULL_PAGES) { truncated = true; break; }
+
+function cacheOpen() {
+  return new Promise((resolve) => {
+    if (!("indexedDB" in window)) return resolve(null);
+    let req;
+    try { req = indexedDB.open(CACHE_DB, 1); } catch (_) { return resolve(null); }
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(CACHE_RECORDS)) db.createObjectStore(CACHE_RECORDS, { keyPath: "rk" });
+      if (!db.objectStoreNames.contains(CACHE_META)) db.createObjectStore(CACHE_META, { keyPath: "k" });
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => resolve(null);
+  });
+}
+function cacheDone(tx) {
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve(true);
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+async function cacheLoad(db) {
+  if (!db) return null;
+  try {
+    const meta = await new Promise((resolve, reject) => {
+      const r = db.transaction(CACHE_META, "readonly").objectStore(CACHE_META).get(CACHE_META_KEY);
+      r.onsuccess = () => resolve(r.result || null);
+      r.onerror = () => reject(r.error);
+    });
+    if (!meta) return null;
+    const rows = await new Promise((resolve, reject) => {
+      const r = db.transaction(CACHE_RECORDS, "readonly").objectStore(CACHE_RECORDS).getAll();
+      r.onsuccess = () => resolve(r.result || []);
+      r.onerror = () => reject(r.error);
+    });
+    return { meta, rows };
+  } catch (_) { return null; }
+}
+function cacheRow(row) {
+  return {
+    rk: rk(row.collection, row.key), collection: row.collection, key: row.key,
+    data: row.data, seq: Number(row.seq || 0), deleted: !!row.deleted,
+  };
+}
+async function cachePutRecords(db, rows) {
+  if (!db || !rows || !rows.length) return;
+  try {
+    const tx = db.transaction(CACHE_RECORDS, "readwrite");
+    const store = tx.objectStore(CACHE_RECORDS);
+    for (const row of rows) store.put(cacheRow(row));
+    await cacheDone(tx);
+  } catch (_) { /* 缓存失败不影响在线数据 */ }
+}
+async function cachePutState(db) {
+  if (!db) return;
+  try {
+    const tx = db.transaction(CACHE_META, "readwrite");
+    tx.objectStore(CACHE_META).put({
+      k: CACHE_META_KEY, instanceId: S.instanceId, seq: Number(S.since || 0),
+      username: S.username || "", savedAt: S.lastSyncAt || Date.now(),
+    });
+    await cacheDone(tx);
+  } catch (_) {}
+}
+async function cacheClear(db) {
+  if (!db) return;
+  try {
+    const tx = db.transaction([CACHE_RECORDS, CACHE_META], "readwrite");
+    tx.objectStore(CACHE_RECORDS).clear();
+    tx.objectStore(CACHE_META).clear();
+    await cacheDone(tx);
+  } catch (_) {}
+}
+
+/** 启动时把缓存灌回内存；账号不匹配就丢弃。返回是否真的用上了缓存。 */
+async function loadCachedSnapshot() {
+  S.cacheDb = await cacheOpen();
+  const cached = await cacheLoad(S.cacheDb);
+  if (!cached || !cached.meta || !S.token) return false;
+  if (cached.meta.username && cached.meta.username !== S.username) {
+    await cacheClear(S.cacheDb);
+    return false;
   }
-  return { changes: out, truncated, lastSeq };
+  S.records.clear();
+  for (const row of cached.rows) {
+    if (!row || !row.collection || !row.key) continue;
+    S.records.set(rk(row.collection, row.key), {
+      collection: row.collection, key: row.key, data: row.data,
+      seq: Number(row.seq || 0), deleted: !!row.deleted,
+    });
+  }
+  S.instanceId = String(cached.meta.instanceId || "");
+  S.since = Number(cached.meta.seq || 0);
+  S.lastSyncAt = Number(cached.meta.savedAt || 0) || null;
+  return true;
+}
+
+/** 小并发上限的 map，避免 14 个集合同时打满浏览器连接数。 */
+async function mapLimit(items, limit, fn) {
+  let index = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (index < items.length) await fn(items[index++]);
+  });
+  await Promise.all(workers);
 }
 
 function adopt(ch) {
   let data = null;
-  try { data = JSON.parse(ch.payload); } catch (_) { return; }
-  S.records.set(rk(ch.collection, ch.key), {
+  try { data = JSON.parse(ch.payload); } catch (_) { return null; }
+  const row = {
     collection: ch.collection, key: ch.key, data, seq: Number(ch.seq || 0), deleted: !!ch.deleted,
+  };
+  S.records.set(rk(ch.collection, ch.key), row);
+  return row;
+}
+
+/** 从 since 起拉增量；返回落地记录和新的水位。 */
+async function pullChanges(startSince) {
+  let since = startSince || 0, guard = 0, lastSeq = since, resetRequired = false, truncated = false;
+  const changed = [];
+  for (;;) {
+    const r = await api(`/v1/pull?since=${since}&limit=200&includeSelf=1`);
+    if (!r) break;
+    resetRequired = resetRequired || !!r.resetRequired;
+    for (const ch of r.changes || []) {
+      const row = adopt(ch);
+      if (row) changed.push(row);
+    }
+    lastSeq = Number(r.scannedSeq || r.lastSeq || lastSeq);
+    if (!r.hasMore) break;
+    if (++guard >= MAX_PULL_PAGES) { truncated = true; break; }
+    since = lastSeq;
+  }
+  return { changed, lastSeq, resetRequired, truncated };
+}
+
+/**
+ * 首次/重建：按集合拉「当前活数据」快照。各集合并行，谁先到谁先渲染，
+ * 不再让首屏等一整条全局序号流。`upTo` 钉住一个一致点，之后用增量补齐。
+ */
+async function pullSnapshot(meta) {
+  const snapshotSeq = Number(meta.seq || 0);
+  const names = (meta.collections || []).map((c) => c && c.collection).filter(Boolean);
+  const list = names.length ? [...new Set(names)] : Object.values(COLL);
+  const changed = [];
+  await mapLimit(list, 4, async (collection) => {
+    let cursor = 0, guard = 0;
+    for (;;) {
+      const r = await api(`/v1/snapshot?collection=${encodeURIComponent(collection)}` +
+        `&cursor=${cursor}&upTo=${snapshotSeq}&limit=${SNAPSHOT_LIMIT}`);
+      if (!r) return;
+      for (const ch of r.changes || []) {
+        const row = adopt(ch);
+        if (row) changed.push(row);
+      }
+      if (r.done || Number(r.nextCursor) <= cursor) break;
+      cursor = Number(r.nextCursor);
+      if (++guard >= 200) break;
+    }
+    // 一个集合到手就先画出来；用户正在输入时不重绘，避免吞掉半截文字。
+    if (!isEditingPage()) render();
   });
+  return { changed, snapshotSeq };
+}
+
+function isEditingPage() {
+  const a = document.activeElement;
+  return !!a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && !!a.closest("#view");
 }
 
 async function syncNow(quiet) {
   if (S.syncing || !S.token) return;
-  // 背景同步不能重建正在输入的页面：搜索框、备注框在 focus 时被 render 掉，
-  // 用户会看到自己刚输入的字消失。只刷新顶栏的同步态，等输入结束后的下一次渲染再更新列表。
-  const isTyping = () => {
-    const a = document.activeElement;
-    return !!a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && !!a.closest("#view");
-  };
   S.syncing = true; renderTopbar();
+  let changed = [], truncated = false;
   try {
-    const { changes, truncated, lastSeq } = await pullAll();
-    for (const ch of changes) adopt(ch);
-    // 落地成功才推进本次会话的增量水位；中途失败时保持旧水位，下次重拉。
-    S.since = lastSeq;
+    // /v1/meta 只是轻量探测：序号没变时，后台同步连一行业务数据都不拉。
+    let meta = null;
+    try { meta = await api("/v1/meta"); } catch (_) { meta = null; }
+
+    if (!meta) {
+      // 旧服务端没有 /v1/meta：退回原来的增量/全量拉取，保证还能用。
+      const inc = await pullChanges(S.since || 0);
+      changed = inc.changed;
+      truncated = inc.truncated;
+      S.since = inc.lastSeq;
+    } else {
+      const seq = Number(meta.seq || 0);
+      const instanceId = String(meta.instanceId || "");
+      if (!instanceId) {
+        // 旧库还没执行新 schema：没有实例标识，也没有快照接口，保持纯增量。
+        const inc = await pullChanges(S.since || 0);
+        changed = inc.changed;
+        truncated = inc.truncated;
+        S.since = inc.lastSeq;
+      } else {
+      const instanceChanged = !!S.instanceId && !!instanceId && instanceId !== S.instanceId;
+      const needSnapshot = !S.instanceId || instanceChanged || S.since > seq || (S.since === 0 && seq > 0);
+
+      if (needSnapshot) {
+        if (!S.instanceId || instanceChanged) {
+          // 新会话 / 服务端换了库：旧缓存全部作废，重新从服务端快照建立视图。
+          S.records.clear();
+          S.since = 0;
+          await cacheClear(S.cacheDb);
+        }
+        S.instanceId = instanceId;
+        if (seq === 0) {
+          // 空库：没有快照可拉。若缓存里还有旧数据，以服务端为准清掉。
+          if (S.records.size) { S.records.clear(); await cacheClear(S.cacheDb); }
+          S.since = 0;
+        } else {
+          // 只有真正要拉快照时才请求集合统计；日常 /v1/meta 不碰 records。
+          const snapshotMeta = await api("/v1/meta?collections=1").catch(() => meta);
+          const snap = await pullSnapshot(snapshotMeta);
+          S.since = snap.snapshotSeq;
+          changed = changed.concat(snap.changed);
+          // 快照期间其他设备/本页写入的变化，用增量补齐到当前序号。
+          const inc = await pullChanges(snap.snapshotSeq);
+          changed = changed.concat(inc.changed);
+          S.since = inc.lastSeq;
+          truncated = inc.truncated;
+        }
+      } else if (seq !== S.since) {
+        const inc = await pullChanges(S.since);
+        if (inc.resetRequired) {
+          S.records.clear();
+          await cacheClear(S.cacheDb);
+          S.instanceId = instanceId;
+          S.since = 0;
+          const snapshotMeta = await api("/v1/meta?collections=1").catch(() => meta);
+          const snap = await pullSnapshot(snapshotMeta);
+          changed = changed.concat(snap.changed);
+          const inc2 = await pullChanges(snap.snapshotSeq);
+          changed = changed.concat(inc2.changed);
+          S.since = inc2.lastSeq;
+          truncated = inc2.truncated;
+        } else {
+          changed = inc.changed;
+          S.since = inc.lastSeq;
+          truncated = inc.truncated;
+        }
+      }
+      }
+      // seq 没变：一行业务数据都不拉，只刷新“上次同步”。
+    }
+
     S.lastSyncAt = Date.now();
-    const st = await api("/v1/stats").catch(() => null);
-    S.conflictCount = st ? Number(st.conflictCount || 0) : 0;
+    await cachePutRecords(S.cacheDb, changed);
+    await cachePutState(S.cacheDb);
+    // 冲突数只在用户主动同步时查一次；后台同步不再为它多跑一个全表 GROUP BY。
     if (!quiet) {
+      const st = await api("/v1/stats").catch(() => null);
+      if (st) S.conflictCount = Number(st.conflictCount || 0);
+      const pulled = changed.length;
       snack(truncated
-        ? `同步完成 · 拉取 ${changes.length} 条，还有更多变更，请再同步一次`
-        : `同步完成 · 拉取 ${changes.length} 条变更`);
+        ? `同步完成 · 拉取 ${pulled} 条，还有更多变更，请再同步一次`
+        : pulled ? `同步完成 · 拉取 ${pulled} 条变更` : "已是最新");
     }
   } catch (e) {
     if (!quiet) snack("同步失败：" + e.message);
   } finally {
     S.syncing = false;
-    if (isTyping()) renderTopbar(); else render();
+    if (isEditingPage()) renderTopbar(); else render();
   }
 }
 
@@ -471,14 +701,17 @@ async function commit(collection, key, mutate, options = {}) {
   const conflicts = (r && r.conflicts) || [];
   if (conflicts.length) {
     const c = conflicts[0];
-    adopt({ collection: c.collection, key: c.key, payload: c.payload, seq: c.seq, deleted: c.deleted });
+    const row = adopt({ collection: c.collection, key: c.key, payload: c.payload, seq: c.seq, deleted: c.deleted });
+    if (row) cachePutRecords(S.cacheDb, [row]);
     render();
     throw new Error("这条记录刚在别的设备上改过，已换成最新版本，请重新修改一次");
   }
   const applied = (r && r.applied && r.applied[0]) || null;
-  S.records.set(rk(collection, key), {
+  const written = {
     collection, key, data: payload, seq: applied ? Number(applied.seq) : baseSeq + 1, deleted,
-  });
+  };
+  S.records.set(rk(collection, key), written);
+  cachePutRecords(S.cacheDb, [written]);
   render();
   return payload;
 }
@@ -595,14 +828,17 @@ async function create(collection, fields, keyOf) {
   if (conflicts.length) {
     const c = conflicts[0];
     // 极罕见（同一条刚被别的设备建过）：采纳服务端版本并如实告知，不静默丢弃。
-    adopt({ collection: c.collection, key: c.key, payload: c.payload, seq: c.seq, deleted: c.deleted });
+    const row = adopt({ collection: c.collection, key: c.key, payload: c.payload, seq: c.seq, deleted: c.deleted });
+    if (row) cachePutRecords(S.cacheDb, [row]);
     render();
     throw new Error("这条记录刚在别的设备上建过，已换成最新版本");
   }
   const applied = (r && r.applied && r.applied[0]) || null;
-  S.records.set(rk(collection, key), {
+  const written = {
     collection, key, data, seq: applied ? Number(applied.seq) : 0, deleted: false,
-  });
+  };
+  S.records.set(rk(collection, key), written);
+  cachePutRecords(S.cacheDb, [written]);
   render();
   return data;
 }
@@ -1813,7 +2049,12 @@ function addFab(root) {
 
 loadSession();
 render();
-if (S.token) syncNow(true);
+(async () => {
+  // 先读 IndexedDB 里的上一轮快照，立即把列表画出来；再向服务端要增量。
+  const hadCache = await loadCachedSnapshot();
+  if (hadCache) render();
+  if (S.token) syncNow(true);
+})();
 window.addEventListener("focus", () => { if (S.token && !S.syncing && Date.now() - (S.lastSyncAt || 0) > 60000) syncNow(true); });
 // 每次重渲染先清掉上一帧遗留的悬浮按钮。
 const _render = render;

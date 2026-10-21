@@ -26,6 +26,16 @@ CREATE TABLE IF NOT EXISTS records (
 CREATE INDEX IF NOT EXISTS idx_records_seq ON records(server_seq);
 CREATE INDEX IF NOT EXISTS idx_records_coll_seq ON records(collection, server_seq);
 CREATE INDEX IF NOT EXISTS idx_records_dev_seq ON records(updated_by_dev, server_seq);
+-- 快照接口按「集合 + 活数据 + 序号」翻页；没有它时 WHERE deleted = 0 只能逐行过滤。
+CREATE INDEX IF NOT EXISTS idx_records_coll_live_seq ON records(collection, deleted, server_seq);
+
+-- 实例标识：删库/重建后随机生成一次。客户端把它当作「服务端身份」，
+-- 一旦变化就知道本地水位和缓存全部失效，需要重新快照/回灌本机数据。
+CREATE TABLE IF NOT EXISTS sync_meta (
+  k TEXT PRIMARY KEY,
+  v TEXT NOT NULL
+);
+INSERT OR IGNORE INTO sync_meta(k, v) VALUES ('instance_id', lower(hex(randomblob(16))));
 
 -- 账号：只在服务端配置，客户端无法注册
 CREATE TABLE IF NOT EXISTS users (

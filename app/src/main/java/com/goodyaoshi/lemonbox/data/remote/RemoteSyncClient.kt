@@ -226,6 +226,46 @@ class RemoteSyncClient @Inject constructor(
         json.decodeFromString(SyncStatsResponse.serializer(), authedRequest("GET", "/v1/stats", body = null))
     }
 
+    /**
+     * 轻量同步元信息：实例标识、当前全局序号与各集合规模。
+     *
+     * 旧服务端没有该接口时会抛 [RemoteApiException]（404）；调用方用 runCatching
+     * 回退到纯增量，不因为缺接口而阻断同步。
+     */
+    suspend fun meta(includeCollections: Boolean = false): SyncMetaResponse =
+        withContext(Dispatchers.IO) {
+            // 日常只取 instanceId/seq；`?collections=1` 会做一次按集合 GROUP BY，
+            // 只在首次/重建、确实要拉快照时用，避免每次 focus 都扫 records。
+            val query = if (includeCollections) "?collections=1" else ""
+            json.decodeFromString(
+                SyncMetaResponse.serializer(),
+                authedRequest("GET", "/v1/meta$query", body = null)
+            )
+        }
+
+    /**
+     * 按集合拉当前活数据快照。[upTo] 钉住一个全局序号，保证读到的是一个一致点；
+     * [cursor] 为上一页最后一条的序号，[done] 为真表示该集合已取完。
+     *
+     * `collection` 只来自本地固定的 [com.goodyaoshi.lemonbox.data.backup.SyncTables]
+     * 或服务端 meta 返回的集合名（均为 ASCII），直接拼进查询串即可。
+     */
+    suspend fun snapshot(
+        collection: String,
+        cursor: Long,
+        upTo: Long,
+        limit: Int = SNAPSHOT_LIMIT
+    ): SnapshotResponse = withContext(Dispatchers.IO) {
+        json.decodeFromString(
+            SnapshotResponse.serializer(),
+            authedRequest(
+                "GET",
+                "/v1/snapshot?collection=$collection&cursor=$cursor&upTo=$upTo&limit=$limit",
+                body = null
+            )
+        )
+    }
+
     /** 取当前会话令牌带上去发一次请求；未登录时直接抛，不白跑一趟必然 401 的请求。 */
     private suspend fun authedRequest(method: String, path: String, body: String?): String {
         val session = sessionStore.current()
@@ -345,6 +385,9 @@ class RemoteSyncClient @Inject constructor(
 
         /** 推拉一批记录的超时：一批最多几百条，给足读回的时间。 */
         const val DATA_TIMEOUT_MS = 60_000
+
+        /** 快照单页条数（与服务端 `SNAPSHOT_MAX_LIMIT` 对齐）。 */
+        const val SNAPSHOT_LIMIT = 500
 
         val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
     }

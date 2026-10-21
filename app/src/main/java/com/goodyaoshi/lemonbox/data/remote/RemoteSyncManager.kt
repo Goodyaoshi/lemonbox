@@ -203,18 +203,61 @@ class RemoteSyncManager @Inject constructor(
             processed = 0
         )
         return try {
+            // 先看服务端轻量元信息：序号没变时连业务数据都不用拉；旧服务端没有
+            // /v1/meta 时 runCatching 返回 null，自动回退到原来的纯增量逻辑。
+            val meta = runCatching { client.meta() }.getOrNull()
+            val pendingBeforePull = loadPendingSeqs()
+
+            var forceUpload = forceUploadLocal
+            var needSnapshot = false
+            if (meta != null && meta.instanceId.isNotBlank()) {
+                val incomingHash = payloadHash(meta.instanceId)
+                val localHash = remoteSyncDao.state(SyncStateKeys.INSTANCE_HASH)
+                val instanceChanged = localHash != null && localHash != incomingHash
+                if (instanceChanged) {
+                    // 服务端被删库/重建：本机是唯一数据源。先重置水位和快照标记，
+                    // 本轮以本机为准全量回灌，再重新快照。
+                    forceUpload = true
+                    remoteSyncDao.putState(SyncStateRow(SyncStateKeys.PULL_WATERMARK, 0L))
+                    remoteSyncDao.putState(SyncStateRow(SyncStateKeys.SNAPSHOT_DONE, 0L))
+                    remoteSyncDao.putState(SyncStateRow(SyncStateKeys.PREFERENCES_SEQ, 0L))
+                    remoteSyncDao.putState(SyncStateRow(SyncStateKeys.PREFERENCES_HASH, 0L))
+                }
+                remoteSyncDao.putState(SyncStateRow(SyncStateKeys.INSTANCE_HASH, incomingHash))
+                // 首次连接一个空库：本机已标记同步过的记录在服务端并不存在，
+                // 只推 dirty 会让“同步完成”变成“数据只剩本机”。
+                if (localHash == null && meta.seq == 0L) forceUpload = true
+                needSnapshot = remoteSyncDao.state(SyncStateKeys.SNAPSHOT_DONE) != 1L
+            }
+
             val pushed: PushOutcome
             val pulled: PullOutcome
-            if (forceUploadLocal) {
+            if (forceUpload) {
                 // 本地优先：先覆盖服务端，再拉回别人独有的数据。顺序不能反——
                 // 先拉会把服务端旧版本落地，随后又被本机全量覆盖，白跑一趟。
-                pushed = push(loadPendingSeqs(), uploadAll = true)
-                pulled = pull(loadPendingSeqs(), includeSelf)
+                pushed = push(pendingBeforePull, uploadAll = true)
+                if (needSnapshot) {
+                    // push 之后序号已经变了，重新读一次 meta 再钉快照的 upTo。
+                    val fresh = runCatching { client.meta(includeCollections = true) }.getOrNull() ?: meta
+                    pulled = if (fresh != null) {
+                        pullSnapshot(fresh, loadPendingSeqs())
+                    } else {
+                        pull(loadPendingSeqs(), includeSelf)
+                    }
+                } else {
+                    pulled = pull(loadPendingSeqs(), includeSelf)
+                }
             } else {
                 // 脏账本读两次：拉取前那次决定「跳过哪些本机未上传的改动」，
                 // 拉取后那次决定「还剩哪些要推」——落地会清掉一批脏位，沿用旧账本会白白重推一遍。
-                val pendingBeforePull = loadPendingSeqs()
-                pulled = pull(pendingBeforePull, includeSelf)
+                pulled = if (needSnapshot && meta != null) {
+                    // 快照需要集合清单；日常 meta 不带 collections，避免全表统计。
+                    val snapshotMeta = runCatching { client.meta(includeCollections = true) }
+                        .getOrNull() ?: meta
+                    pullSnapshot(snapshotMeta, pendingBeforePull)
+                } else {
+                    pull(pendingBeforePull, includeSelf)
+                }
                 pushed = push(loadPendingSeqs())
             }
             val now = System.currentTimeMillis()
@@ -234,7 +277,7 @@ class RemoteSyncManager @Inject constructor(
                 merged = pulled.merged,
                 conflicts = pushed.conflicts,
                 truncated = pulled.truncated,
-                message = if (forceUploadLocal) {
+                message = if (forceUpload) {
                     "已按本机为准合并上传：" +
                         remoteSyncMessage(pushed.applied, pulled.downloaded, pushed.conflicts, pulled.truncated)
                 } else {
@@ -331,12 +374,80 @@ class RemoteSyncManager @Inject constructor(
     }
 
     /**
+     * 首次 / 重建 / 服务端换库：按集合拉服务端当前活数据快照。
+     *
+     * 与 [pull] 的区别：
+     * - 只按集合翻页，不扫墓碑，也不因为本设备自己的写入而多翻空页；
+     * - 用 [SyncMetaResponse.seq] 钉住一致点，快照期间其他设备的写入随后由 [pull] 补齐；
+     * - 完成后把 `SNAPSHOT_DONE` 置 1，日常同步不再走这条路。
+     */
+    private suspend fun pullSnapshot(
+        meta: SyncMetaResponse,
+        pending: Map<String, Map<String, Long>>
+    ): PullOutcome {
+        val landed = mutableListOf<LandedRecord>()
+        var truncated = false
+        // 日常 meta 为避免全表统计不返回 collections；统计请求失败时回退到本地固定集合，
+        // 多几个空集合请求，但不能因为「没拿到清单」而漏拉数据。
+        val collections = meta.collections
+            .map { it.collection }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .ifEmpty { SyncTables.BY_COLLECTION.keys.toList() }
+
+        collections.forEachIndexed { index, collection ->
+            var cursor = 0L
+            var pages = 0
+            var done = false
+            while (pages < MAX_PULL_PAGES) {
+                pages++
+                val page = client.snapshot(collection, cursor, meta.seq)
+                page.changes.forEach { change ->
+                    val col = change.collection.ifBlank { collection }
+                    // 本机这条也改过且还没推上去：先留本机改动，随后由 push 处理。
+                    if (pending[col]?.containsKey(change.key) == true) return@forEach
+                    landed += LandedRecord(
+                        collection = col,
+                        key = change.key,
+                        payload = change.payload,
+                        deleted = change.deleted,
+                        seq = change.seq
+                    )
+                }
+                _state.value = _state.value.copy(
+                    phase = "正在拉取快照：${index + 1}/${collections.size} 个集合",
+                    processed = landed.size
+                )
+                if (page.done || page.nextCursor <= cursor) {
+                    done = true
+                    break
+                }
+                cursor = page.nextCursor
+            }
+            if (!done) truncated = true
+        }
+
+        val merged = applyPulledRecords(landed, meta.seq, snapshotDone = true)
+        // 快照只覆盖到 meta.seq；之后的变化用增量补齐，避免漏掉快照期间的并发写入。
+        val tail = pull(pending, includeSelf = true)
+        return PullOutcome(
+            downloaded = landed.size + tail.downloaded,
+            merged = merged + tail.merged,
+            truncated = truncated || tail.truncated
+        )
+    }
+
+    /**
      * 把拉回的一批记录重组为一份清单，走既有的合并通道落地，并把水位与记账一起写进同一个事务。
      *
      * 复用而不另写一套合并：那套规则（按 syncId 对齐、较新者胜、墓碑传播、父级重映射、
      * 内置数据补齐）早已为多设备一致调过，服务端同步只是换了个「数据从哪来」的入口。
      */
-    private suspend fun applyPulledRecords(landed: List<LandedRecord>, lastSeq: Long): Int {
+    private suspend fun applyPulledRecords(
+        landed: List<LandedRecord>,
+        lastSeq: Long,
+        snapshotDone: Boolean = false
+    ): Int {
         var merged = 0
         if (landed.isNotEmpty()) {
             val payload = syncRecordsToPayload(
@@ -382,6 +493,10 @@ class RemoteSyncManager @Inject constructor(
             if (lastSeq > 0) {
                 remoteSyncDao.putState(SyncStateRow(SyncStateKeys.PULL_WATERMARK, lastSeq))
             }
+            // 快照完成标记与水位同事务写入：下次同步不再重复走全量快照。
+            if (snapshotDone) {
+                remoteSyncDao.putState(SyncStateRow(SyncStateKeys.SNAPSHOT_DONE, 1L))
+            }
             // 首次成功落地＝服务端已开始确认本机数据；写一次 server_ack 标记，
             // 供启动清理据此判断「墓碑可以被物理清除」的前提（P6-d）。
             if (remoteSyncDao.state(SyncStateKeys.SERVER_ACK) == null) {
@@ -409,18 +524,25 @@ class RemoteSyncManager @Inject constructor(
         pending: Map<String, Map<String, Long>>,
         uploadAll: Boolean = false
     ): PushOutcome {
-        // 偏好是整块设置、没有 dirty/serverSeq 列，故恒推；它的序号单独记在 sync_state 里。
+        // 偏好是整块设置、没有 dirty/serverSeq 列；它的序号单独记在 sync_state 里。
         val preferencesSeq = remoteSyncDao.state(SyncStateKeys.PREFERENCES_SEQ)
+        // 内容签名：载荷没变就不推。否则每次「回到前台 / 写后」的空同步都会推一次
+        // preferences，服务端给它发新号，所有设备的增量水线都要多扫这一行。
+        val preferences = backupManager.preferenceSyncRecord()
+        val preferencesHash = payloadHash(preferences.payload)
+        val preferencesChanged =
+            remoteSyncDao.state(SyncStateKeys.PREFERENCES_HASH) != preferencesHash
         // 没有实体 dirty 时只推整块偏好，不再读全库快照：
         // Workers 免费档 CPU/内存都紧，空同步读一遍所有表纯属浪费。
         val hasDirty = pending.values.any { it.isNotEmpty() }
         val records = when {
             uploadAll -> backupManager.snapshotRecords()
             hasDirty -> backupManager.snapshotRecords().filter { record ->
-                record.collection == SyncCollections.PREFERENCES ||
-                    pending[record.collection]?.containsKey(record.key) == true
+                pending[record.collection]?.containsKey(record.key) == true ||
+                    (record.collection == SyncCollections.PREFERENCES && preferencesChanged)
             }
-            else -> listOf(backupManager.preferenceSyncRecord())
+            preferencesChanged -> listOf(preferences)
+            else -> emptyList()
         }
         if (records.isEmpty()) return PushOutcome(applied = 0, conflicts = 0)
 
@@ -448,9 +570,15 @@ class RemoteSyncManager @Inject constructor(
                     )
                 }
             )
-            // 服务端已写下的：把序号记回本机并清脏，否则下一轮还会推同一条（服务端不比对载荷）。
+            // 服务端已写下的：把序号记回本机并清脏。服务端对「载荷完全相同」的条目
+            // 不再发号，而是回原序号，所以清脏同样成立，且不会产生序号增长。
             response.applied.forEach { markLanded(it.collection, it.key, it.seq) }
-            applied += response.applied.size
+            applied += response.applied.count { !it.noop }
+            if (response.applied.any { it.collection == SyncCollections.PREFERENCES }) {
+                remoteSyncDao.putState(
+                    SyncStateRow(SyncStateKeys.PREFERENCES_HASH, preferencesHash)
+                )
+            }
             conflicts += resolveConflicts(batch, response.conflicts)
         }
         return PushOutcome(applied = applied, conflicts = conflicts)
@@ -823,6 +951,20 @@ internal fun remoteSyncMessage(
         if (conflicts > 0) append("，$conflicts 条两边都改过，已按本地优先合并")
         if (truncated) append("；还有更多变更未拉取，请再次同步")
     }
+}
+
+/**
+ * 载荷内容签名（SHA-256 前 8 字节），用于判断整块设置是否真的变了。
+ *
+ * 只用来做「有没有变」的比较，不用于安全场景，取前 8 字节足够；
+ * `SyncStateRow.value` 是 Long，正好放得下。
+ */
+private fun payloadHash(payload: String): Long {
+    val digest = java.security.MessageDigest.getInstance("SHA-256")
+        .digest(payload.toByteArray(Charsets.UTF_8))
+    var value = 0L
+    for (i in 0 until 8) value = (value shl 8) or (digest[i].toLong() and 0xFF)
+    return value
 }
 
 /**
