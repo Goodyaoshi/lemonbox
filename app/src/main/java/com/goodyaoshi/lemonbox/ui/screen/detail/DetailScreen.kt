@@ -60,6 +60,7 @@ import coil.compose.AsyncImage
 import com.goodyaoshi.lemonbox.data.local.entity.Item
 import com.goodyaoshi.lemonbox.data.local.entity.ItemDetail
 import com.goodyaoshi.lemonbox.data.local.entity.StatusDimension
+import com.goodyaoshi.lemonbox.data.local.entity.formatQuantity
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
@@ -413,7 +414,7 @@ fun DetailScreen(
                 }
 
                 Spacer(modifier = Modifier.height(20.dp))
-                DetailInfoRow(if (isToBuyItem) "想买" else "数量", "${item.quantity} ${item.unit}")
+                DetailInfoRow(if (isToBuyItem) "想买" else "数量", "${formatQuantity(item.quantity)} ${item.unit}")
                 item.expireTime?.let { expireTime ->
                     val days = DateUtil.daysUntil(expireTime)
                     val (container, content) = when {
@@ -463,10 +464,10 @@ fun DetailScreen(
                         }
                     }
                 } else if (item.totalQuantity > 1 || item.consumedQuantity > 0) {
-                    DetailInfoRow("剩余数量", "${item.quantity}${item.unit}")
+                    DetailInfoRow("剩余数量", "${formatQuantity(item.quantity)}${item.unit}")
                     DetailInfoRow(
                         "已用 / 总量",
-                        "${item.consumedQuantity} / ${item.totalQuantity}${item.unit}"
+                        "${formatQuantity(item.consumedQuantity)} / ${formatQuantity(item.totalQuantity)}${item.unit}"
                     )
                 }
                 DetailInfoRow("添加时间", DateUtil.formatDateTime(item.createdAt))

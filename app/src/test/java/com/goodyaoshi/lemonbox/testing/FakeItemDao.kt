@@ -100,11 +100,24 @@ class FakeItemDao(
     override suspend fun incrementQuantity(id: Long, delta: Int, updatedAt: Long) {
         items.replaceAll { item ->
             if (item.id == id) {
-                item.copy(quantity = maxOf(item.quantity + delta, 0), updatedAt = updatedAt)
+                item.copy(quantity = maxOf(item.quantity + delta, 0.0), updatedAt = updatedAt)
             } else {
                 item
             }
         }
+    }
+
+    override suspend fun consumeAmount(id: Long, amount: Double, updatedAt: Long): Int {
+        val index = items.indexOfFirst { it.id == id && it.quantity > 0.0 }
+        if (index < 0 || amount <= 0.0) return 0
+        val item = items[index]
+        val consumed = minOf(amount, item.quantity)
+        items[index] = item.copy(
+            quantity = (item.quantity - consumed).coerceAtLeast(0.0),
+            consumedQuantity = item.consumedQuantity + consumed,
+            updatedAt = updatedAt
+        )
+        return 1
     }
 
     override suspend fun consumeOnePiece(id: Long, updatedAt: Long): Int {

@@ -41,7 +41,8 @@ class MealSuggesterTest {
 
     @Test
     fun suggest_fallsBackToPartialMatchBeforeRandom() {
-        // 家里只有蒜：蒜蓉青菜 / 清炒时蔬只对上可选的「蒜」，也算「部分匹配」，排在随机兜底之前。
+        // 家里只有蒜：含蒜的菜只对上可选的「蒜」，也算「部分匹配」，排在随机兜底之前。
+        // 断言不写死「含蒜的菜有几道」——内置菜谱会随内容补充而增加，写死数量会误报失败。
         val pool = listOf(
             itemDetail(id = 1L, name = "蒜")
         )
@@ -51,23 +52,27 @@ class MealSuggesterTest {
             pool,
             now = now,
             random = Random(3),
-            limit = 4
+            limit = DEFAULT_RECIPES.size
         )
 
-        assertEquals(4, result.size)
-        // 前三条是部分匹配（用上了可选的蒜，但仍缺主料），最后一条是完全没命中的随机兜底。
-        assertTrue(result.take(3).all { it.available.any { pair -> pair.first == "蒜" } })
-        assertTrue(result.take(3).all { it.missing.isNotEmpty() })
-        assertTrue(result.last().available.isEmpty())
+        val garlicFirst = result.takeWhile { suggestion ->
+            suggestion.available.any { pair -> pair.first == "蒜" }
+        }
+        assertTrue(garlicFirst.isNotEmpty())
+        // 含蒜的连续排在最前，且它们都还缺主料（只是部分匹配）。
+        assertTrue(garlicFirst.all { it.missing.isNotEmpty() })
+        assertTrue(result.drop(garlicFirst.size).none { suggestion ->
+            suggestion.available.any { pair -> pair.first == "蒜" }
+        })
     }
 
     @Test
     fun suggest_fallsBackToRandomWhenNothingMatches() {
-        // 家里只有饮料：谁也对不上，但「今天吃什么」不应该空，随机推几道菜谱。
+        // 家里只有洗护用品：谁也对不上，但「今天吃什么」不应该空，随机推几道菜谱。
         val pool = listOf(
-            itemDetail(id = 1L, name = "可乐"),
-            itemDetail(id = 2L, name = "啤酒"),
-            itemDetail(id = 3L, name = "气泡水")
+            itemDetail(id = 1L, name = "洗衣液"),
+            itemDetail(id = 2L, name = "洗洁精"),
+            itemDetail(id = 3L, name = "纸巾")
         )
 
         val result = MealSuggester.suggest(DEFAULT_RECIPES, pool, now = now, random = Random(3))
@@ -180,12 +185,14 @@ class MealSuggesterTest {
     @Test
     fun rankRecipes_prioritizesEarliestExpiryOverMatchCount() {
         val day = 24L * 60 * 60 * 1000
-        // 可乐鸡翅只用一样食材，但鸡翅明天就过期；番茄炒蛋命中更多却都不急——
+        // 可乐鸡翅的关键食材是鸡翅，鸡翅明天就过期；番茄炒蛋命中更多却都不急——
         // 按最早过期日期精确排序，先做快过期的，而不是命中更多的。
+        // 池子里补上可乐，是因为完整菜谱里它也是一味（不补就会被算成缺料）。
         val pool = listOf(
             itemDetail(id = 1L, name = "鸡翅", expireTime = now + day),
             itemDetail(id = 2L, name = "番茄", expireTime = now + 10 * day),
-            itemDetail(id = 3L, name = "鸡蛋", expireTime = now + 10 * day)
+            itemDetail(id = 3L, name = "鸡蛋", expireTime = now + 10 * day),
+            itemDetail(id = 4L, name = "可乐", expireTime = now + 10 * day)
         )
 
         val ranked = MealSuggester.rankRecipes(DEFAULT_RECIPES, pool, now = now, random = Random(1))

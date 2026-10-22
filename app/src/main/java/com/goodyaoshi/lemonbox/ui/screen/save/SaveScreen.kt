@@ -62,6 +62,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.goodyaoshi.lemonbox.data.local.entity.Item
+import com.goodyaoshi.lemonbox.data.local.entity.toQuantityInt
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.BarcodeAssociationCard
 import com.goodyaoshi.lemonbox.ui.components.DeleteCopy
@@ -438,10 +439,10 @@ fun SaveScreen(
                                 EditorSectionLabel(label = "数量")
                                 Spacer(modifier = Modifier.height(8.dp))
                                 QuantityStepper(
-                                    quantity = state.quantity,
+                                    quantity = state.quantity.toQuantityInt(),
                                     unit = state.unit,
-                                    onDecrease = { viewModel.updateQuantity(state.quantity - 1) },
-                                    onIncrease = { viewModel.updateQuantity(state.quantity + 1) }
+                                    onDecrease = { viewModel.updateQuantity(state.quantity - 1.0) },
+                                    onIncrease = { viewModel.updateQuantity(state.quantity + 1.0) }
                                 )
                                 Spacer(modifier = Modifier.height(10.dp))
                                 UnitPickerRow(

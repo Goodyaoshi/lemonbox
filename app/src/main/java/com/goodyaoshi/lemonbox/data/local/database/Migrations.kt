@@ -957,6 +957,89 @@ internal object Migrations {
         }
     }
 
+    /**
+     * v38：物品数量 Int → Double。
+     *
+     * 为什么不能只改实体：SQLite 不支持修改列类型，Room 又会按实体校验 `REAL` 与 `INTEGER`，
+     * 不重建表就会在启动时报 schema 不匹配。菜谱要扣「200 克肉」「半袋盐」，
+     * 整数件表达不了，所以这一步必须做在扣料之前。
+     *
+     * 重建时**逐列点名复制**，不用 `SELECT *`：列顺序一变就会静默错位。
+     * 索引在 DROP 后一并消失，必须补回来，否则按分类/位置的查询会退化成全表扫描。
+     */
+    private val MIGRATION_37_38 = object : Migration(37, 38) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `items_new` (
+                    `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                    `name` TEXT NOT NULL,
+                    `barcode` TEXT,
+                    `categoryId` INTEGER,
+                    `locationId` INTEGER,
+                    `quantity` REAL NOT NULL,
+                    `consumedQuantity` REAL NOT NULL DEFAULT 0,
+                    `unit` TEXT NOT NULL,
+                    `price` REAL,
+                    `expireTime` INTEGER,
+                    `usageStatus` INTEGER NOT NULL,
+                    `disposition` INTEGER NOT NULL,
+                    `needRestock` INTEGER NOT NULL,
+                    `forWhom` TEXT,
+                    `reminderDays` TEXT,
+                    `purchaseDate` INTEGER,
+                    `productionDate` INTEGER,
+                    `startUseTime` INTEGER,
+                    `usageEndedAt` INTEGER,
+                    `trackMode` INTEGER NOT NULL DEFAULT 0,
+                    `rating` INTEGER,
+                    `ratedAt` INTEGER,
+                    `deletedAt` INTEGER,
+                    `purgedAt` INTEGER,
+                    `note` TEXT NOT NULL,
+                    `imageHashes` TEXT,
+                    `createdAt` INTEGER NOT NULL,
+                    `syncId` TEXT,
+                    `dirty` INTEGER NOT NULL DEFAULT 1,
+                    `serverSeq` INTEGER NOT NULL DEFAULT 0,
+                    `updatedAt` INTEGER,
+                    FOREIGN KEY(`categoryId`) REFERENCES `categories`(`id`)
+                        ON UPDATE NO ACTION ON DELETE SET NULL,
+                    FOREIGN KEY(`locationId`) REFERENCES `locations`(`id`)
+                        ON UPDATE NO ACTION ON DELETE SET NULL
+                )
+                """.trimIndent()
+            )
+            db.execSQL(
+                """
+                INSERT INTO `items_new` (
+                    `id`, `name`, `barcode`, `categoryId`, `locationId`,
+                    `quantity`, `consumedQuantity`, `unit`, `price`, `expireTime`,
+                    `usageStatus`, `disposition`, `needRestock`, `forWhom`, `reminderDays`,
+                    `purchaseDate`, `productionDate`, `startUseTime`, `usageEndedAt`, `trackMode`,
+                    `rating`, `ratedAt`, `deletedAt`, `purgedAt`, `note`,
+                    `imageHashes`, `createdAt`, `syncId`, `dirty`, `serverSeq`, `updatedAt`
+                )
+                SELECT
+                    `id`, `name`, `barcode`, `categoryId`, `locationId`,
+                    `quantity`, `consumedQuantity`, `unit`, `price`, `expireTime`,
+                    `usageStatus`, `disposition`, `needRestock`, `forWhom`, `reminderDays`,
+                    `purchaseDate`, `productionDate`, `startUseTime`, `usageEndedAt`, `trackMode`,
+                    `rating`, `ratedAt`, `deletedAt`, `purgedAt`, `note`,
+                    `imageHashes`, `createdAt`, `syncId`, `dirty`, `serverSeq`, `updatedAt`
+                FROM `items`
+                """.trimIndent()
+            )
+            db.execSQL("DROP TABLE `items`")
+            db.execSQL("ALTER TABLE `items_new` RENAME TO `items`")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_items_categoryId` ON `items` (`categoryId`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_items_locationId` ON `items` (`locationId`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_items_usageStatus` ON `items` (`usageStatus`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_items_disposition` ON `items` (`disposition`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_items_barcode` ON `items` (`barcode`)")
+        }
+    }
+
 /**
  * 把 v34 的「本地路径行 + 对象键行」合并成 v35 的单列哈希（F22）。
  *
@@ -1044,6 +1127,7 @@ private const val SHA256_HEX_LENGTH = 64
         MIGRATION_33_34,
         MIGRATION_34_35,
         MIGRATION_35_36,
-        MIGRATION_36_37
+        MIGRATION_36_37,
+        MIGRATION_37_38
     )
 }

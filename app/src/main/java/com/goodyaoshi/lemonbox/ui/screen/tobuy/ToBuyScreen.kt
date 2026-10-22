@@ -65,6 +65,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.data.forecast.RestockForecast
 import com.goodyaoshi.lemonbox.data.local.entity.Item
+import com.goodyaoshi.lemonbox.data.local.entity.toQuantityInt
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerAsset
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
@@ -378,7 +379,7 @@ fun ToBuyScreen(
                                 // 避免与勾选手势打架；退出批量模式后恢复单条交互。
                                 ToBuyItemCard(
                                     name = itemDetail.item.name,
-                                    quantity = itemDetail.item.quantity,
+                                    quantity = itemDetail.item.quantity.toQuantityInt(),
                                     unit = itemDetail.item.unit,
                                     forWhomLabel = forWhomLabel(itemDetail.item.forWhom, nickname),
                                     subtitle = listOfNotNull(
@@ -406,7 +407,7 @@ fun ToBuyScreen(
                                 ) { _, _ ->
                                     ToBuyItemCard(
                                         name = itemDetail.item.name,
-                                        quantity = itemDetail.item.quantity,
+                                        quantity = itemDetail.item.quantity.toQuantityInt(),
                                         unit = itemDetail.item.unit,
                                         forWhomLabel = forWhomLabel(itemDetail.item.forWhom, nickname),
                                         subtitle = listOfNotNull(
@@ -704,7 +705,7 @@ private fun ToBuyEditorDialog(
 ) {
     var name by remember(existing) { mutableStateOf(existing?.name.orEmpty()) }
     var unit by remember(existing) { mutableStateOf(existing?.unit ?: "件") }
-    var quantity by remember(existing) { mutableIntStateOf(existing?.quantity ?: 1) }
+    var quantity by remember(existing) { mutableIntStateOf(existing?.quantity?.toQuantityInt() ?: 1) }
     var categoryId by remember(existing) { mutableStateOf(existing?.categoryId) }
     var forWhom by remember(existing) { mutableStateOf(existing?.forWhom) }
     var showCategoryPicker by remember { mutableStateOf(false) }

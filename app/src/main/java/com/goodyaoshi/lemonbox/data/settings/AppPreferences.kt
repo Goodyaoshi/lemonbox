@@ -8,6 +8,7 @@ import com.goodyaoshi.lemonbox.data.local.entity.StatusDimension
 import com.goodyaoshi.lemonbox.data.meal.MealSpec
 import com.goodyaoshi.lemonbox.data.meal.Recipe
 import com.goodyaoshi.lemonbox.data.meal.RecipeIngredient
+import com.goodyaoshi.lemonbox.data.meal.RecipeStep
 import com.goodyaoshi.lemonbox.data.ocr.OcrModelTier
 import com.goodyaoshi.lemonbox.data.sync.SyncReport
 import com.goodyaoshi.lemonbox.util.DateUtil
@@ -802,17 +803,17 @@ class AppPreferences @Inject constructor(
     /** 用户菜谱库（内置 + 自建），「今天吃什么」与菜谱页共用这一份。 */
     val recipes: StateFlow<List<Recipe>> = _recipes.asStateFlow()
 
-    /** 新增一道菜谱；名称为空时返回 false。 */
-    fun addRecipe(name: String, ingredients: List<RecipeIngredient>, role: String = ""): Boolean {
-        val trimmed = name.trim()
+    /** 新增一道菜谱；名称为空时返回 false。编号与 syncId 由这里分配，编辑页不管。 */
+    fun addRecipe(draft: Recipe): Boolean {
+        val trimmed = draft.name.trim()
         if (trimmed.isEmpty()) return false
         val nextId = preferences.getInt(KEY_NEXT_RECIPE_ID, RECIPE_ID_BASE)
-        val updated = _recipes.value + Recipe(
+        val updated = _recipes.value + draft.copy(
             id = nextId.toLong(),
             name = trimmed,
-            ingredients = normalizeIngredients(ingredients),
-            role = role,
-            syncId = UUID.randomUUID().toString()
+            ingredients = normalizeIngredients(draft.ingredients),
+            steps = normalizeSteps(draft.steps),
+            syncId = draft.syncId ?: UUID.randomUUID().toString()
         )
         preferences.edit()
             .putString(KEY_RECIPES, encodeRecipes(updated))
@@ -824,20 +825,22 @@ class AppPreferences @Inject constructor(
     }
 
     /** 修改一道菜谱；名称为空或菜谱不存在时返回 false。 */
-    fun updateRecipe(
-        id: Long,
-        name: String,
-        ingredients: List<RecipeIngredient>,
-        role: String = ""
-    ): Boolean {
-        val trimmed = name.trim()
+    fun updateRecipe(recipe: Recipe): Boolean {
+        val trimmed = recipe.name.trim()
         if (trimmed.isEmpty()) return false
-        if (_recipes.value.none { it.id == id }) return false
-        val updated = _recipes.value.map {
-            if (it.id == id) {
-                it.copy(name = trimmed, ingredients = normalizeIngredients(ingredients), role = role)
+        if (_recipes.value.none { it.id == recipe.id }) return false
+        val updated = _recipes.value.map { existing ->
+            if (existing.id != recipe.id) {
+                existing
             } else {
-                it
+                recipe.copy(
+                    name = trimmed,
+                    ingredients = normalizeIngredients(recipe.ingredients),
+                    steps = normalizeSteps(recipe.steps),
+                    // 内置菜谱本身没有 syncId；编辑一次不该把它变成「自建菜谱」，
+                    // 否则跨设备会同时存在内置版与自建版两份。
+                    syncId = existing.syncId
+                )
             }
         }
         preferences.edit().putString(KEY_RECIPES, encodeRecipes(updated)).apply()
@@ -1092,8 +1095,24 @@ class AppPreferences @Inject constructor(
             } else {
                 ingredient.copy(
                     label = label,
-                    keywords = ingredient.keywords.map { it.trim() }.filter { it.isNotEmpty() }
+                    keywords = ingredient.keywords.map { it.trim() }.filter { it.isNotEmpty() },
+                    unit = ingredient.unit.trim(),
+                    // 用量必须为正数，「0 克」和「-1」都当成没填，避免缩放时算出负数。
+                    amount = ingredient.amount?.takeIf { it > 0 },
+                    prepNote = ingredient.prepNote.trim(),
+                    rawText = ingredient.rawText.trim()
                 )
+            }
+        }
+
+    /** 步骤：去掉空行与首尾空白；计时为负按 0 处理。 */
+    private fun normalizeSteps(steps: List<RecipeStep>): List<RecipeStep> =
+        steps.mapNotNull { step ->
+            val text = step.text.trim()
+            if (text.isEmpty()) {
+                null
+            } else {
+                step.copy(text = text, durationSec = step.durationSec.coerceAtLeast(0))
             }
         }
 

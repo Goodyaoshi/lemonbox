@@ -15,14 +15,27 @@ fun String.asBuildConfigLiteral(): String =
     "\"" + replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
 /**
- * 同步服务端地址：Worker 的公开域名，**不是密钥**（对象存储的 AK/SK 只存在 Worker 里）。
- * 默认值即绑定的自定义域（workers.dev 在国内被 DNS 污染 + SNI 阻断，不可作为默认）。
- * CI 可用 ORG_GRADLE_PROJECT_LEMON_SYNC_BASE_URL 覆盖，
- * 保证「直接分发 APK」这条路也能同步。
+ * Supabase 项目地址与 publishable key。
+ *
+ * 两者都不是长期密钥：publishable key 只能做受 RLS 约束的读写，真正凭据是登录换来的
+ * 用户 access_token。仍允许 local.properties / CI 用同名属性覆盖，便于换项目时零改代码。
+ */
+val supabaseUrl = (findProperty("LEMON_SUPABASE_URL") as String?)
+    ?.takeIf { it.isNotBlank() }
+    ?: "https://sgqvsxowzkqbogknodaj.supabase.co"
+val supabaseKey = (findProperty("LEMON_SUPABASE_KEY") as String?)
+    ?.takeIf { it.isNotBlank() }
+    ?: "sb_publishable_lmgqjXC0mF7MLozkLF-HwA_O7xhiezA"
+
+/**
+ * 同步服务端地址：默认是 Supabase 项目地址。
+ *
+ * 仍保留 LEMON_SYNC_BASE_URL 覆盖：填回旧 Worker 域名即可整包回退到 D1 链路
+ * （客户端按域名自动选择传输实现），不需要改代码重新发版。
  */
 val syncBaseUrl = (findProperty("LEMON_SYNC_BASE_URL") as String?)
     ?.takeIf { it.isNotBlank() }
-    ?: "https://lemonbox.goodyaoshi.eu.cc"
+    ?: supabaseUrl
 
 /**
  * 版本号单一来源：versionName 决定 versionCode。
@@ -90,6 +103,8 @@ android {
             buildConfigField("boolean", "IMAGE_CLOUD_SUPPORTED", "false")
             buildConfigField("boolean", "TEXT_SYNC_SUPPORTED", "true")
             buildConfigField("String", "SYNC_BASE_URL", syncBaseUrl.asBuildConfigLiteral())
+            buildConfigField("String", "SUPABASE_URL", supabaseUrl.asBuildConfigLiteral())
+            buildConfigField("String", "SUPABASE_KEY", supabaseKey.asBuildConfigLiteral())
             // 本机 / CI 的 Android 模拟器是 x86_64，而正式包只发 arm64-v8a。
             // debug 额外带一份 x86_64 原生库，方便在模拟器上做 UI 走查与截图；
             // release 的 ABI 配置不变，不会增大分发包。
@@ -107,6 +122,8 @@ android {
             buildConfigField("boolean", "IMAGE_CLOUD_SUPPORTED", "true")
             buildConfigField("boolean", "TEXT_SYNC_SUPPORTED", "true")
             buildConfigField("String", "SYNC_BASE_URL", syncBaseUrl.asBuildConfigLiteral())
+            buildConfigField("String", "SUPABASE_URL", supabaseUrl.asBuildConfigLiteral())
+            buildConfigField("String", "SUPABASE_KEY", supabaseKey.asBuildConfigLiteral())
             isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

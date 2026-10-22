@@ -28,7 +28,7 @@ data class SaveItemState(
     val barcode: String? = null,
     val categoryId: Long? = null,
     val locationId: Long? = null,
-    val quantity: Int = 1,
+    val quantity: Double = 1.0,
     val unit: String = "件",
     val price: String = "",
     val expireTime: Long? = null,
@@ -182,8 +182,9 @@ class SaveViewModel @Inject constructor(
         _state.value = _state.value.copy(locationId = locationId)
     }
 
-    fun updateQuantity(quantity: Int) {
-        _state.value = _state.value.copy(quantity = quantity.coerceAtLeast(1))
+    fun updateQuantity(quantity: Double) {
+        // 新建物品允许 0.5 这类小数（半袋、半斤），下限只挡负数。
+        _state.value = _state.value.copy(quantity = quantity.coerceAtLeast(0.0))
     }
 
     fun updateUnit(unit: String) {

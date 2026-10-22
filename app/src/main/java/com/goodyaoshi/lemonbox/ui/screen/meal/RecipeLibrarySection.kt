@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
@@ -49,11 +50,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.goodyaoshi.lemonbox.data.meal.DeductPolicy
 import com.goodyaoshi.lemonbox.data.meal.DishRole
 import com.goodyaoshi.lemonbox.data.meal.Recipe
 import com.goodyaoshi.lemonbox.data.meal.RecipeIngredient
+import com.goodyaoshi.lemonbox.data.meal.RecipeStep
 import com.goodyaoshi.lemonbox.data.meal.decodeRoles
 import com.goodyaoshi.lemonbox.data.meal.encodeRoles
+import com.goodyaoshi.lemonbox.data.meal.formatAmount
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
@@ -175,12 +179,12 @@ fun RecipeLibraryScreen(
                 showEditor = false
                 editorTarget = null
             },
-            onConfirm = { name, ingredients, role ->
-                val target = editorTarget
-                if (target == null) {
-                    viewModel.addRecipe(name, ingredients, role)
+            onConfirm = { recipe ->
+                // 新增与编辑都收完整 Recipe：编号、syncId、内置身份由仓库层决定。
+                if (editorTarget == null) {
+                    viewModel.addRecipe(recipe)
                 } else {
-                    viewModel.updateRecipe(target.id, name, ingredients, role)
+                    viewModel.updateRecipe(recipe)
                 }
                 showEditor = false
                 editorTarget = null
@@ -287,6 +291,8 @@ private fun RecipeCard(
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
         shadowElevation = 12.dp
     ) {
+        // 展开状态按菜谱 id 记住：重绘（切标签、同步刷新）时不会把用户正看着的做法收起来。
+        var expanded by remember(recipe.id) { mutableStateOf(false) }
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
@@ -325,6 +331,20 @@ private fun RecipeCard(
                 )
             }
         }
+        // 份量 / 总时长 / 难度：一眼判断「今晚做不做得起」。
+        val summary = buildList {
+            if (recipe.baseYield > 0) add("${recipe.baseYield}${recipe.yieldUnit}")
+            if (recipe.totalMin > 0) add("${recipe.totalMin} 分钟")
+            if (recipe.difficulty.isNotBlank()) add(recipe.difficulty)
+        }
+        if (summary.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = summary.joinToString(" · "),
+                style = MaterialTheme.typography.bodySmall,
+                color = TextHint
+            )
+        }
         if (recipe.ingredients.isNotEmpty()) {
             Spacer(modifier = Modifier.height(6.dp))
             // 按食材类型（蔬菜/肉禽/蛋类/主食粮油/调味品…）分组展示，不把所有食材混在一起。
@@ -342,8 +362,10 @@ private fun RecipeCard(
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     groupItems.forEach { ingredient ->
+                        // 带上用量：只有名字没有分量的「食材」教不会人做菜。
+                        val shown = "${ingredient.label} ${ingredient.amountText()}"
                         PillTag(
-                            text = if (ingredient.optional) "${ingredient.label} · 可选" else ingredient.label,
+                            text = if (ingredient.optional) "$shown · 可选" else shown,
                             backgroundColor = if (ingredient.optional) TagOrange else TagGreen,
                             contentColor = if (ingredient.optional) TagOrangeText else TagGreenText
                         )
@@ -351,11 +373,65 @@ private fun RecipeCard(
                 }
             }
         }
+        if (recipe.steps.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = if (expanded) "收起做法" else "查看做法（${recipe.steps.size} 步）",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = TextSecondary,
+                // 热区补到 48dp（F5）；整行可点，不用精确点文字。
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded }
+                    .minimumInteractiveComponentSize()
+                    .padding(vertical = 4.dp)
+            )
+            if (expanded) {
+                recipe.steps.forEachIndexed { index, step ->
+                    Row(modifier = Modifier.padding(top = 6.dp)) {
+                        Text(
+                            text = "${index + 1}",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = TextHint,
+                            modifier = Modifier.width(20.dp)
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = step.text,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextPrimary
+                            )
+                            if (step.tip.isNotBlank()) {
+                                Text(
+                                    text = "提示：${step.tip}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = TextHint,
+                                    modifier = Modifier.padding(top = 2.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+                if (recipe.tips.isNotBlank()) {
+                    Text(
+                        text = "小贴士：${recipe.tips}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = TextSecondary,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                }
+            }
+        }
     }
 }
 
 /**
- * 新增 / 编辑菜谱：菜名 + 可增删的食材行。
+ * 新增 / 编辑菜谱：基本信息 + 带用量的食材 + 做法步骤。
+ *
+ * 只填菜名和食材名也能保存（老用户习惯不变），但填了用量与步骤之后，
+ * 这道菜才真正能教人做、能按份数缩放、能给扣料提供依据。
  * 食材首选从「食品」分类树里挑（按分类匹配，不绑定具体品牌），
  * 也保留手动输入作为分类覆盖不到时的兜底；内置菜谱的关键词在只改名字时会保留。
  */
@@ -365,10 +441,27 @@ internal fun RecipeEditorDialog(
     initial: Recipe?,
     ingredientGroups: List<IngredientGroup>,
     onDismiss: () -> Unit,
-    onConfirm: (String, List<RecipeIngredient>, String) -> Unit
+    onConfirm: (Recipe) -> Unit
 ) {
     var name by remember(initial) { mutableStateOf(initial?.name.orEmpty()) }
     var roles by remember(initial) { mutableStateOf(decodeRoles(initial?.role.orEmpty())) }
+    var description by remember(initial) { mutableStateOf(initial?.description.orEmpty()) }
+    // 份量与时长用文本暂存：输入过程中「2.」这种半截内容不该被强行转成数字。
+    var yieldText by remember(initial) {
+        mutableStateOf(initial?.baseYield?.takeIf { it > 0 }?.toString().orEmpty())
+    }
+    var yieldUnit by remember(initial) { mutableStateOf(initial?.yieldUnit ?: "人份") }
+    var prepText by remember(initial) {
+        mutableStateOf(initial?.prepMin?.takeIf { it > 0 }?.toString().orEmpty())
+    }
+    var cookText by remember(initial) {
+        mutableStateOf(initial?.cookMin?.takeIf { it > 0 }?.toString().orEmpty())
+    }
+    var difficulty by remember(initial) { mutableStateOf(initial?.difficulty.orEmpty()) }
+    var tips by remember(initial) { mutableStateOf(initial?.tips.orEmpty()) }
+    val steps = remember(initial) {
+        mutableStateListOf<RecipeStep>().apply { addAll(initial?.steps.orEmpty()) }
+    }
     // 食材标签 → 所属食品子分类；不在分类树里的归入「其他」。
     val groupIndex = remember(ingredientGroups) { buildIngredientGroupIndex(ingredientGroups) }
     val ingredients = remember(initial) {
@@ -389,11 +482,27 @@ internal fun RecipeEditorDialog(
 
     AppDialog(
         title = if (initial == null) "新增菜谱" else "编辑菜谱",
-        subtitle = "食材按分类匹配在库物品；每味可切换「必选 / 可选」，可选食材缺了不影响配餐。",
+        subtitle = "用量填数字才能按份数缩放；油盐等辅料默认不扣库存。",
         onDismissRequest = onDismiss,
         confirmText = "保存",
         confirmEnabled = name.isNotBlank() && ingredients.any { it.label.isNotBlank() },
-        onConfirm = { onConfirm(name, ingredients.toList(), encodeRoles(roles)) }
+        onConfirm = {
+            val base = initial ?: Recipe(id = 0L, name = "")
+            onConfirm(
+                base.copy(
+                    name = name.trim(),
+                    role = encodeRoles(roles),
+                    description = description.trim(),
+                    baseYield = yieldText.toIntOrNull()?.coerceAtLeast(0) ?: 0,
+                    yieldUnit = yieldUnit.trim().ifBlank { "人份" },
+                    prepMin = prepText.toIntOrNull()?.coerceAtLeast(0) ?: 0,
+                    cookMin = cookText.toIntOrNull()?.coerceAtLeast(0) ?: 0,
+                    difficulty = difficulty,
+                    steps = steps.toList(),
+                    tips = tips.trim()
+                )
+            )
+        }
     ) {
         OutlinedTextField(
             value = name,
@@ -402,6 +511,65 @@ internal fun RecipeEditorDialog(
             label = { Text("菜名") },
             modifier = Modifier.fillMaxWidth()
         )
+        OutlinedTextField(
+            value = description,
+            onValueChange = { description = it },
+            singleLine = true,
+            label = { Text("一句话介绍（可选）") },
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        // —— 份量与时长：缩放的基准，也是「今晚做不做得起」的判断依据 ——
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(
+                value = yieldText,
+                onValueChange = { text -> yieldText = text.filter { it.isDigit() }.take(3) },
+                singleLine = true,
+                label = { Text("份量") },
+                modifier = Modifier.weight(1f)
+            )
+            OutlinedTextField(
+                value = yieldUnit,
+                onValueChange = { yieldUnit = it.take(6) },
+                singleLine = true,
+                label = { Text("单位") },
+                modifier = Modifier.weight(1f)
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(
+                value = prepText,
+                onValueChange = { text -> prepText = text.filter { it.isDigit() }.take(4) },
+                singleLine = true,
+                label = { Text("备料分钟") },
+                modifier = Modifier.weight(1f)
+            )
+            OutlinedTextField(
+                value = cookText,
+                onValueChange = { text -> cookText = text.filter { it.isDigit() }.take(4) },
+                singleLine = true,
+                label = { Text("烹饪分钟") },
+                modifier = Modifier.weight(1f)
+            )
+        }
+        Column {
+            Text(
+                text = "难度（可选）",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = TextSecondary
+            )
+            Spacer(modifier = Modifier.size(8.dp))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("简单", "中等", "较难").forEach { option ->
+                    EditorSelectionChip(
+                        text = option,
+                        selected = difficulty == option,
+                        onClick = { difficulty = if (difficulty == option) "" else option }
+                    )
+                }
+            }
+        }
 
         Column {
             Text(
@@ -435,10 +603,8 @@ internal fun RecipeEditorDialog(
         }
 
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(max = 240.dp)
-                .verticalScroll(rememberScrollState()),
+            // 不再单独滚动：对话框整体已经可滚，嵌套滚动会让手指在食材区里滚不动。
+            modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             // 按食材类型分组：蔬菜 / 肉禽 / 蛋类 / 主食粮油 / 调味品…，分类外的归入「其他」。
@@ -462,10 +628,7 @@ internal fun RecipeEditorDialog(
                         index = index,
                         ingredient = ingredient,
                         canPick = ingredientGroups.isNotEmpty(),
-                        onLabelChange = { ingredients[index] = ingredient.copy(label = it) },
-                        onToggleOptional = {
-                            ingredients[index] = ingredient.copy(optional = !ingredient.optional)
-                        },
+                        onChange = { updated -> ingredients[index] = updated },
                         onPick = { pickingIndex = index },
                         onRemove = {
                             ingredients.removeAt(index)
@@ -508,6 +671,57 @@ internal fun RecipeEditorDialog(
                 color = OrangeStart
             )
         }
+
+        // —— 做法：只填食材是「配菜标签」，填了步骤才教得会人 ——
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                text = "做法步骤（可选）",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = TextSecondary
+            )
+            steps.forEachIndexed { index, step ->
+                StepEditorRow(
+                    index = index,
+                    step = step,
+                    onChange = { updated -> if (index < steps.size) steps[index] = updated },
+                    onRemove = { if (index < steps.size) steps.removeAt(index) }
+                )
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(CircleShape)
+                    .background(SurfaceWarmDeep)
+                    .clickable { steps.add(RecipeStep(text = "")) }
+                    .minimumInteractiveComponentSize()
+                    .padding(vertical = 10.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = null,
+                    tint = OrangeStart,
+                    modifier = Modifier.size(14.dp)
+                )
+                Spacer(modifier = Modifier.size(4.dp))
+                Text(
+                    text = "添加一步",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Medium,
+                    color = OrangeStart
+                )
+            }
+        }
+
+        OutlinedTextField(
+            value = tips,
+            onValueChange = { tips = it },
+            label = { Text("小贴士（可选）") },
+            minLines = 2,
+            modifier = Modifier.fillMaxWidth()
+        )
     }
 
     pickingIndex?.let { index ->
@@ -527,59 +741,162 @@ internal fun RecipeEditorDialog(
     }
 }
 
-/** 编辑一行食材：名称 + 「必选/可选」切换 + 从分类挑选 + 移除。 */
+/** 编辑一行食材：名称 + 用量/单位 + 扣料策略 + 「必选/可选」+ 从分类挑选 + 移除。 */
 @Composable
 private fun IngredientEditorRow(
     index: Int,
     ingredient: RecipeIngredient,
     canPick: Boolean,
-    onLabelChange: (String) -> Unit,
-    onToggleOptional: () -> Unit,
+    onChange: (RecipeIngredient) -> Unit,
     onPick: () -> Unit,
     onRemove: () -> Unit
 ) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        OutlinedTextField(
-            value = ingredient.label,
-            onValueChange = onLabelChange,
-            singleLine = true,
-            label = { Text("食材 ${index + 1}") },
-            modifier = Modifier.weight(1f)
-        )
-        Box(
-            modifier = Modifier
-                .padding(start = 6.dp)
-                // 触达面积达标（F7）：可选/必选切换热区补足到 48dp，视觉尺寸不变。
-                .minimumInteractiveComponentSize()
-                // 胶囊用 CircleShape（F6）：形状令牌化。
-                .clip(CircleShape)
-                .background(if (ingredient.optional) TagOrange else SurfaceWarmDeep)
-                .clickable(onClick = onToggleOptional)
-                .padding(horizontal = 8.dp, vertical = 5.dp)
-        ) {
-            Text(
-                text = if (ingredient.optional) "可选" else "必选",
-                // 字号走主题字阶（F6）：labelMedium 为 12sp，满足 ≥12sp（F7）。
-                style = MaterialTheme.typography.labelMedium,
-                color = if (ingredient.optional) TagOrangeText else TextSecondary
+    // 用量单独存文本：直接回读 amount 会把用户输入的「2.」立刻格式化成「2」，
+    // 小数点根本打不进去。以食材名为 key，换一道菜时自然重置。
+    var amountText by remember(index, ingredient.label) {
+        mutableStateOf(ingredient.amount?.let { formatAmount(it) } ?: "")
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(
+                value = ingredient.label,
+                onValueChange = { onChange(ingredient.copy(label = it)) },
+                singleLine = true,
+                label = { Text("食材 ${index + 1}") },
+                modifier = Modifier.weight(1f)
             )
-        }
-        if (canPick) {
-            IconButton(onClick = onPick) {
+            Box(
+                modifier = Modifier
+                    .padding(start = 6.dp)
+                    // 触达面积达标（F7）：可选/必选切换热区补足到 48dp，视觉尺寸不变。
+                    .minimumInteractiveComponentSize()
+                    // 胶囊用 CircleShape（F6）：形状令牌化。
+                    .clip(CircleShape)
+                    .background(if (ingredient.optional) TagOrange else SurfaceWarmDeep)
+                    .clickable { onChange(ingredient.copy(optional = !ingredient.optional)) }
+                    .padding(horizontal = 8.dp, vertical = 5.dp)
+            ) {
+                Text(
+                    text = if (ingredient.optional) "可选" else "必选",
+                    // 字号走主题字阶（F6）：labelMedium 为 12sp，满足 ≥12sp（F7）。
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (ingredient.optional) TagOrangeText else TextSecondary
+                )
+            }
+            if (canPick) {
+                IconButton(onClick = onPick) {
+                    Icon(
+                        imageVector = Icons.Default.Apps,
+                        contentDescription = "从分类选择食材",
+                        tint = OrangeStart
+                    )
+                }
+            }
+            IconButton(onClick = onRemove) {
                 Icon(
-                    imageVector = Icons.Default.Apps,
-                    contentDescription = "从分类选择食材",
-                    tint = OrangeStart
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "移除食材",
+                    tint = TextHint
                 )
             }
         }
-        IconButton(onClick = onRemove) {
-            Icon(
-                imageVector = Icons.Default.Close,
-                contentDescription = "移除食材",
-                tint = TextHint
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            OutlinedTextField(
+                value = amountText,
+                onValueChange = { text ->
+                    // 只接受数字与一个小数点：别的字符留着也解析不出来，不如直接挡掉。
+                    val cleaned = text.filter { it.isDigit() || it == '.' }.take(8)
+                    amountText = cleaned
+                    onChange(ingredient.copy(amount = cleaned.toDoubleOrNull()))
+                },
+                singleLine = true,
+                label = { Text("用量") },
+                modifier = Modifier.weight(1f)
             )
+            OutlinedTextField(
+                value = ingredient.unit,
+                onValueChange = { onChange(ingredient.copy(unit = it.take(4))) },
+                singleLine = true,
+                label = { Text("单位") },
+                modifier = Modifier.weight(1f)
+            )
+            val policy = DeductPolicy.of(ingredient.deductPolicy)
+            Box(
+                modifier = Modifier
+                    .minimumInteractiveComponentSize()
+                    .clip(CircleShape)
+                    // 不扣的辅料用中性色，避免满屏绿色让人以为都要扣库存。
+                    .background(if (policy == DeductPolicy.NEVER) SurfaceWarmDeep else TagGreen)
+                    .clickable {
+                        val next = when (policy) {
+                            DeductPolicy.PORTION -> DeductPolicy.PACK
+                            DeductPolicy.PACK -> DeductPolicy.NEVER
+                            else -> DeductPolicy.PORTION
+                        }
+                        onChange(ingredient.copy(deductPolicy = next))
+                    }
+                    .padding(horizontal = 8.dp, vertical = 6.dp)
+            ) {
+                Text(
+                    text = when (policy) {
+                        DeductPolicy.PACK -> "按件扣"
+                        DeductPolicy.NEVER -> "不扣"
+                        else -> "按量扣"
+                    },
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (policy == DeductPolicy.NEVER) TextHint else TagGreenText
+                )
+            }
         }
+    }
+}
+
+/** 编辑一步做法：正文 + 可选计时 + 移除。 */
+@Composable
+private fun StepEditorRow(
+    index: Int,
+    step: RecipeStep,
+    onChange: (RecipeStep) -> Unit,
+    onRemove: () -> Unit
+) {
+    var secondsText by remember(index) {
+        mutableStateOf(step.durationSec.takeIf { it > 0 }?.toString() ?: "")
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(verticalAlignment = Alignment.Top) {
+            OutlinedTextField(
+                value = step.text,
+                onValueChange = { onChange(step.copy(text = it)) },
+                label = { Text("第 ${index + 1} 步") },
+                minLines = 2,
+                modifier = Modifier.weight(1f)
+            )
+            IconButton(onClick = onRemove) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "移除这一步",
+                    tint = TextHint
+                )
+            }
+        }
+        OutlinedTextField(
+            value = secondsText,
+            onValueChange = { text ->
+                val cleaned = text.filter { it.isDigit() }.take(5)
+                secondsText = cleaned
+                onChange(step.copy(durationSec = cleaned.toIntOrNull() ?: 0))
+            },
+            singleLine = true,
+            label = { Text("计时秒数（可选）") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        OutlinedTextField(
+            value = step.tip,
+            onValueChange = { onChange(step.copy(tip = it)) },
+            singleLine = true,
+            label = { Text("这一步的要点（可选）") },
+            modifier = Modifier.fillMaxWidth()
+        )
     }
 }
 

@@ -39,12 +39,14 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.goodyaoshi.lemonbox.data.meal.DeductPlan
 import com.goodyaoshi.lemonbox.data.meal.MealSpec
 import com.goodyaoshi.lemonbox.data.repository.CookedDaySnapshot
 import com.goodyaoshi.lemonbox.data.repository.WeekMenuRepository
 import com.goodyaoshi.lemonbox.data.repository.WeeklyMealDay
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.BottomBarClearance
+import com.goodyaoshi.lemonbox.ui.components.CookDeductDialog
 import com.goodyaoshi.lemonbox.ui.components.DeleteCopy
 import com.goodyaoshi.lemonbox.ui.components.EmptyState
 import com.goodyaoshi.lemonbox.ui.components.HeaderActionPill
@@ -102,11 +104,15 @@ class MealViewModel @Inject constructor(
     fun setPlanDays(days: Int) = weekMenuRepository.setPlanDays(days)
 
     /**
-     * 一餐做完：仓库内幂等（已做不重复扣料），完成后回传扣料前的快照供「撤销」（GAP-12）；
-     * 已做过或无可扣食材时回传 null，由页面决定是否提示。
+     * 一餐做完分两步：先生成扣料计划（不写库），界面确认后再执行。
+     * 仓库内幂等（已做不重复扣料），执行后回传扣料前快照供「撤销」（GAP-12）。
      */
-    fun markDayCooked(dateKey: String, onDone: (CookedDaySnapshot?) -> Unit = {}) {
-        viewModelScope.launch { onDone(weekMenuRepository.markDayCooked(dateKey)) }
+    fun planDayCooked(dateKey: String, onPlan: (DeductPlan?) -> Unit = {}) {
+        viewModelScope.launch { onPlan(weekMenuRepository.planDay(dateKey)) }
+    }
+
+    fun confirmDayCooked(plan: DeductPlan, onDone: (CookedDaySnapshot?) -> Unit = {}) {
+        viewModelScope.launch { onDone(weekMenuRepository.applyDayCooked(plan)) }
     }
 
     /** 撤销「做了」（GAP-12）：按快照把被扣食材写回、撤掉已做标记。 */
@@ -165,6 +171,8 @@ fun MealScreen(
 
     var showPlanDays by remember { mutableStateOf(false) }
     var editingMealDateKey by remember { mutableStateOf<String?>(null) }
+    // 点「做了」先拿到扣料计划，确认清单关闭前不写库存。
+    var pendingDeduct by remember { mutableStateOf<DeductPlan?>(null) }
     var prepReminderDateKey by remember { mutableStateOf<String?>(null) }
     // 选中的日期下标：日期条固定在页头下方，菜单生成天数变化时收拢到有效范围。
     var selectedDayIndex by remember { mutableIntStateOf(0) }
@@ -247,23 +255,13 @@ fun MealScreen(
                             day = day,
                             onReroll = viewModel::rerollDay,
                             onCooked = { dateKey ->
-                                // 回执改为可撤销（GAP-12）：扣库存是全 App 最大的一次隐性写操作，
-                                // 点「做了」后按扣料前的快照可一键回滚，不再静默扣完就没了。
-                                viewModel.markDayCooked(dateKey) { snapshot ->
-                                    if (snapshot == null) {
+                                // 扣库存是全 App 最大的一次隐性写操作：
+                                // 先出清单，用户确认后才扣，回执按扣前快照可一键回滚。
+                                viewModel.planDayCooked(dateKey) { plan ->
+                                    if (plan == null) {
                                         snackbar?.postMessage("这餐已经记过「做过」了")
                                     } else {
-                                        val consumed = snapshot.previousItems.size
-                                        snackbar?.showUndo(
-                                            if (consumed == 0) {
-                                                "已记「做过」"
-                                            } else {
-                                                "已记「做过」，消耗了 $consumed 样食材"
-                                            },
-                                            DeleteCopy.UNDO_ACTION
-                                        ) {
-                                            viewModel.undoMarkDayCooked(snapshot)
-                                        }
+                                        pendingDeduct = plan
                                     }
                                 }
                             },
@@ -287,6 +285,39 @@ fun MealScreen(
             onConfirm = { days ->
                 viewModel.setPlanDays(days)
                 showPlanDays = false
+            }
+        )
+    }
+
+    pendingDeduct?.let { plan ->
+        CookDeductDialog(
+            plan = plan,
+            onToggle = { index ->
+                val line = plan.lines[index]
+                pendingDeduct = plan.withSelection(index, !line.selected)
+            },
+            onScale = { pendingDeduct = plan.withScale(it) },
+            onAmount = { index, amount -> pendingDeduct = plan.withAmount(index, amount) },
+            onDismiss = { pendingDeduct = null },
+            onConfirm = {
+                pendingDeduct = null
+                viewModel.confirmDayCooked(plan) { snapshot ->
+                    if (snapshot == null) {
+                        snackbar?.postMessage("这餐已经记过「做过」了")
+                    } else {
+                        val consumed = snapshot.previousItems.size
+                        snackbar?.showUndo(
+                            if (consumed == 0) {
+                                "已记「做过」"
+                            } else {
+                                "已记「做过」，消耗了 $consumed 样食材"
+                            },
+                            DeleteCopy.UNDO_ACTION
+                        ) {
+                            viewModel.undoMarkDayCooked(snapshot)
+                        }
+                    }
+                }
             }
         )
     }

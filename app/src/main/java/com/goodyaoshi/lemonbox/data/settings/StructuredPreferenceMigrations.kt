@@ -35,13 +35,19 @@ internal object StructuredPreferenceMigrations {
     val REMOVED_BUILT_IN_RECIPE_IDS = setOf(13L, 14L, 17L, 31L, 33L, 34L, 42L)
 
     /** 内置菜谱定义刷新的水位线：内置菜谱的食材标注等基础规则调整时 +1。 */
-    const val RECIPE_REFRESH_VERSION = 1
+    const val RECIPE_REFRESH_VERSION = 2
 
     /**
-     * 升级时用最新定义覆盖的内置菜谱编号（不复活已被用户删除的）：
-     * v1 是「葱姜蒜」分类拆成葱/姜/蒜后，同步更新蒜蓉类菜的食材标注。
+     * 升级时用最新定义覆盖的内置菜谱编号（不复活已被用户删除的）。
+     *
+     * v1：葱姜蒜分类拆分后，同步更新蒜蓉类菜的食材标注。
+     * v2：补齐「用量 / 步骤 / 份量 / 时长」的 12 道高频家常菜——只扩模型不改内容的话，
+     *     用户看到的仍是「两味食材」的空壳，所以这次必须覆盖已有定义。
      */
-    val REFRESHED_BUILT_IN_RECIPE_IDS = setOf(3L, 7L, 21L)
+    val REFRESHED_BUILT_IN_RECIPE_IDS = setOf(
+        3L, 7L, 21L,
+        1L, 2L, 5L, 8L, 16L, 23L, 25L, 29L, 35L, 36L
+    )
 
     /** 菜谱库读取时看到的原始状态：已存 JSON（null 表示从未写入）与三条水位线读数。 */
     data class RecipeState(

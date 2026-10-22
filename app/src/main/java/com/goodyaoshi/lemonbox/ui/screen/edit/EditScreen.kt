@@ -48,6 +48,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.data.local.entity.Item
+import com.goodyaoshi.lemonbox.data.local.entity.toQuantityInt
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
@@ -368,10 +369,10 @@ fun EditScreen(
                             EditorSectionLabel(label = "数量")
                             Spacer(modifier = Modifier.size(8.dp))
                             QuantityStepper(
-                                quantity = state.quantity,
+                                quantity = state.quantity.toQuantityInt(),
                                 unit = state.unit,
-                                onDecrease = { viewModel.updateQuantity(state.quantity - 1) },
-                                onIncrease = { viewModel.updateQuantity(state.quantity + 1) }
+                                onDecrease = { viewModel.updateQuantity(state.quantity - 1.0) },
+                                onIncrease = { viewModel.updateQuantity(state.quantity + 1.0) }
                             )
                             Spacer(modifier = Modifier.size(10.dp))
                             UnitPickerRow(

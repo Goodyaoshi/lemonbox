@@ -168,7 +168,8 @@ fun HouseholdScreen(
     val totalValueCents = remember(inStockItems) {
         inStockItems.sumOf { detail ->
             val price = detail.item.price ?: return@sumOf 0L
-            (price * 100.0).roundToLong() * detail.item.quantity.coerceAtLeast(0)
+            // 数量可能是小数（半斤、0.5 袋），先乘再取整，避免先截断成 0。
+            (price * 100.0 * detail.item.quantity).roundToLong()
         }
     }
     // 极简记物的核心指标是「日均成本」；这里只用现有字段（价格、购买日、使用天数）算，

@@ -772,9 +772,13 @@ data class ItemSnapshot(
     val barcode: String? = null,
     val categoryId: Long? = null,
     val locationId: Long? = null,
-    val quantity: Int,
+    /**
+     * 数量。v38 起为 Double：旧备份里是整数，kotlinx 能直接读成 2.0；
+     * 新备份写出的 2.0 旧版本 App 读不进 Int 字段，因此新备份必须升版本号拒旧端。
+     */
+    val quantity: Double,
     /** 已消耗数量（按件消耗累计）；为 null 表示备份里没有（旧版本）。 */
-    val consumedQuantity: Int? = null,
+    val consumedQuantity: Double? = null,
     val unit: String,
     val price: Double?,
     val expireTime: Long?,
@@ -842,7 +846,7 @@ data class ItemSnapshot(
             categoryId = categoryId,
             locationId = locationId,
             quantity = quantity,
-            consumedQuantity = consumedQuantity ?: 0,
+            consumedQuantity = consumedQuantity ?: 0.0,
             unit = unit,
             price = price,
             expireTime = expireTime,

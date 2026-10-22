@@ -171,6 +171,21 @@ interface ItemDao {
     )
     suspend fun consumeOnePiece(id: Long, updatedAt: Long): Int
 
+    /**
+     * 按量扣减（菜谱扣料）：剩余数量减 [amount]，已消耗数量按实际扣掉的部分累加。
+     *
+     * 两条守卫都不能少：
+     *  - `quantity > 0` 防并发重复扣到负数；
+     *  - `MIN(:amount, quantity)` 让「库存只剩 0.3，计划扣 0.5」时只累计 0.3，
+     *    否则「已用」会凭空多出 0.2，使用统计与日均成本都跟着偏。
+     */
+    @Query(
+        "UPDATE items SET quantity = MAX(quantity - :amount, 0), " +
+            "consumedQuantity = consumedQuantity + MIN(:amount, quantity), " +
+            "updatedAt = :updatedAt, dirty = 1 WHERE id = :id AND quantity > 0"
+    )
+    suspend fun consumeAmount(id: Long, amount: Double, updatedAt: Long): Int
+
     @Query("SELECT * FROM items WHERE id = :id AND deletedAt IS NULL")
     suspend fun getItemById(id: Long): Item?
 

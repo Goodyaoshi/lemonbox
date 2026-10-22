@@ -148,17 +148,38 @@ class ItemRepository @Inject constructor(
         val item = itemDao.getItemById(id) ?: return
         if (item.trackMode == Item.TRACK_DURABLE) return
         val now = MonotonicClock.now()
-        if (item.quantity > 1) {
+        if (item.quantity > 1.0) {
             // 受影响 0 行 = 并发下已被另一端扣到 0，不再继续改状态。
             if (itemDao.consumeOnePiece(id, now) == 0) return
             return
         }
-        if (item.quantity == 1) {
+        if (item.quantity == 1.0) {
             if (itemDao.consumeOnePiece(id, now) == 0) return
         }
         itemDao.updateUsageStatus(id, Item.USAGE_USED_UP, now)
         itemDao.updateNeedRestock(id, true, now)
         writeUsageWindow(item, Item.USAGE_USED_UP, item.disposition, now)
+    }
+
+    /**
+     * 按量扣减（菜谱扣料）：成功返回**扣前**快照，失败返回 null。
+     *
+     * 返回扣前快照而不是扣后，是为了让「做了」的撤销能整份写回，
+     * 不必做「加回去」的反向推导——反向推导在并发扣减下会算错。
+     */
+    suspend fun consumeAmount(id: Long, amount: Double): Item? {
+        if (amount <= 0.0) return null
+        val item = itemDao.getItemById(id) ?: return null
+        if (item.trackMode == Item.TRACK_DURABLE) return null
+        val now = MonotonicClock.now()
+        if (itemDao.consumeAmount(id, amount, now) == 0) return null
+        // 扣到 0 与「用完」同一口径：标记已用完、进待买、封口使用周期。
+        if (item.quantity - amount <= 0.0) {
+            itemDao.updateUsageStatus(id, Item.USAGE_USED_UP, now)
+            itemDao.updateNeedRestock(id, true, now)
+            writeUsageWindow(item, Item.USAGE_USED_UP, item.disposition, now)
+        }
+        return item
     }
 
     /** "用完"= 该买了：记为已用完并默认勾选需要补货，进入待买清单；同时封口使用周期。 */
@@ -309,7 +330,7 @@ class ItemRepository @Inject constructor(
         insert(
             Item(
                 name = name.trim(),
-                quantity = quantity.coerceAtLeast(1),
+                quantity = quantity.coerceAtLeast(1).toDouble(),
                 unit = unit.trim().ifBlank { "件" },
                 categoryId = categoryId,
                 forWhom = forWhom,
@@ -332,7 +353,7 @@ class ItemRepository @Inject constructor(
         update(
             item.copy(
                 name = normalized,
-                quantity = quantity.coerceAtLeast(1),
+                quantity = quantity.coerceAtLeast(1).toDouble(),
                 unit = unit.trim().ifBlank { "件" },
                 categoryId = categoryId,
                 forWhom = forWhom

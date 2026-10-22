@@ -27,8 +27,8 @@ class LedgerMathTest {
 
     @Test
     fun itemPriceToCents_multipliesQuantity() {
-        assertEquals(4998L, LedgerMath.itemPriceToCents(24.99, 2))
-        assertEquals(2500L, LedgerMath.itemPriceToCents(25.0, 1))
+        assertEquals(4998L, LedgerMath.itemPriceToCents(24.99, 2.0))
+        assertEquals(2500L, LedgerMath.itemPriceToCents(25.0, 1.0))
     }
 
     // ---------- 输入文本解析与回显 ----------

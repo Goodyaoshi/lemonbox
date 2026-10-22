@@ -16,8 +16,14 @@ object LedgerMath {
     /** 元（Double）→ 分；必须四舍五入，禁止浮点直接截断（会差一分钱）。 */
     fun yuanToCents(yuan: Double): Long = Math.round(yuan * 100)
 
-    /** 物品联动金额：单价（元）× 数量 → 分。 */
-    fun itemPriceToCents(price: Double, quantity: Int): Long = yuanToCents(price) * quantity
+    /**
+     * 物品联动金额：单价（元）× 数量 → 分。
+     *
+     * 数量是 Double（v38 起支持「0.5 斤」），所以先乘再取整，不能先取整再乘——
+     * 否则 0.5 件会被算成 0 件，金额直接归零。
+     */
+    fun itemPriceToCents(price: Double, quantity: Double): Long =
+        Math.round(price * quantity * 100)
 
     /**
      * 分 → 键盘输入文本（去掉多余的 0）：1250 → "12.5"，1200 → "12"，

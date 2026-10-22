@@ -307,6 +307,14 @@ class AppBackupManager @Inject constructor(
             unzip(backupZip, workingDir)
             restoreLocalImages(workingDir)
             val raw = readVerifiedPayload(workingDir)
+            // 新备份里的 quantity 是小数，旧版本 App 读不进 Int 字段，会报「文件损坏」。
+            // 在这里拦下并说清原因，比让用户对着一个假错误反复重试好。
+            if (raw.syncVersion > SYNC_VERSION) {
+                error(
+                    "这个备份来自更新的柠檬版本（备份 v${raw.syncVersion}，" +
+                        "本机支持 v$SYNC_VERSION），请先升级 App 再导入"
+                )
+            }
             val useSyncIds = raw.syncVersion >= SYNC_ID_VERSION
             val backup = filterByScope(raw, scope, useSyncIds, keepKeys)
 
@@ -479,6 +487,13 @@ class AppBackupManager @Inject constructor(
 
             unzip(backupZip, workingDir)
             val backup = readVerifiedPayload(workingDir)
+            // 与手动导入同一道闸：版本更高的备份不预演、不合并，直接说清原因。
+            if (backup.syncVersion > SYNC_VERSION) {
+                error(
+                    "这个备份来自更新的柠檬版本（备份 v${backup.syncVersion}，" +
+                        "本机支持 v$SYNC_VERSION），请先升级 App 再导入"
+                )
+            }
             return computeChanges(
                 backup = backup,
                 useSyncIds = backup.syncVersion >= SYNC_ID_VERSION,
@@ -1501,8 +1516,11 @@ class AppBackupManager @Inject constructor(
         /** 支持合并的备份格式版本；缺失该字段的旧备份按 v1（仅数字 id 对齐）处理。
          * v7：纪念日类型 type（倒数日/正数日/生日），不再导出 v5 的 repeatYearly 旧字段。
          * v8：待买项新增可选归属 forWhom（self/partner/shared）。
-         * v9：时间胶囊与旅行打包清单（行程 + 条目）纳入备份；旧版本读新备份时按空列表忽略。 */
-        const val SYNC_VERSION = 12
+         * v9：时间胶囊与旅行打包清单（行程 + 条目）纳入备份；旧版本读新备份时按空列表忽略。
+         * v13：物品数量改为小数（Double）。旧版本 App 无法读取 v13 的 quantity，
+         *      导入前会按版本号明确拒绝，不再表现为「备份文件损坏」。
+         */
+        const val SYNC_VERSION = 13
 
         /** 从该版本起备份用 syncId 对齐；更早的备份退回数字 id。 */
         private const val SYNC_ID_VERSION = 2

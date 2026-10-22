@@ -37,6 +37,31 @@ data class RemoteUser(val id: String, val name: String)
 @Serializable
 internal data class RemoteErrorBody(val error: String = "")
 
+// ---------- Supabase Auth / 会话续期 ----------
+
+/** `POST /auth/v1/token?grant_type=password` 的请求体。 */
+@Serializable
+data class SupabasePasswordGrant(val email: String, val password: String)
+
+/** `POST /auth/v1/token?grant_type=refresh_token` 的请求体。 */
+@Serializable
+data class SupabaseRefreshGrant(
+    @SerialName("refresh_token") val refreshToken: String
+)
+
+/** Supabase Auth 的令牌响应；[expiresIn] 单位为秒。 */
+@Serializable
+data class SupabaseTokenResponse(
+    @SerialName("access_token") val accessToken: String = "",
+    @SerialName("refresh_token") val refreshToken: String = "",
+    @SerialName("expires_in") val expiresIn: Long = 0,
+    val user: SupabaseUser? = null
+)
+
+/** 令牌响应里的账号信息。 */
+@Serializable
+data class SupabaseUser(val id: String = "", val email: String = "")
+
 /** 推送的一条记录（`POST /v1/push`）。 */
 @Serializable
 data class PushChange(

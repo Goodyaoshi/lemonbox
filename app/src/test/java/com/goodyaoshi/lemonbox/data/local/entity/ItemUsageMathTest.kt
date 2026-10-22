@@ -137,14 +137,14 @@ class ItemUsageMathTest {
 
     @Test
     fun averageDailyCost_dividesTotalPriceByDays() {
-        assertEquals(0.5, Item.averageDailyCost(price = 15.0, quantity = 1, days = 30)!!, 1e-9)
+        assertEquals(0.5, Item.averageDailyCost(price = 15.0, quantity = 1.0, days = 30)!!, 1e-9)
         // 多件时按总价（单价×数量）均摊。
-        assertEquals(0.5, Item.averageDailyCost(price = 5.0, quantity = 3, days = 30)!!, 1e-9)
+        assertEquals(0.5, Item.averageDailyCost(price = 5.0, quantity = 3.0, days = 30)!!, 1e-9)
     }
 
     @Test
     fun averageDailyCost_nullWithoutPriceOrFullDay() {
-        assertNull(Item.averageDailyCost(price = null, quantity = 1, days = 30))
-        assertNull(Item.averageDailyCost(price = 15.0, quantity = 1, days = 0))
+        assertNull(Item.averageDailyCost(price = null, quantity = 1.0, days = 30))
+        assertNull(Item.averageDailyCost(price = 15.0, quantity = 1.0, days = 0))
     }
 }

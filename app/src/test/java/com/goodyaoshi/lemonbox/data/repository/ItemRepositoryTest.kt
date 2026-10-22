@@ -87,7 +87,7 @@ class ItemRepositoryTest {
         val created = dao.snapshot().single()
         assertEquals(firstId, created.id)
         assertEquals("洗衣液", created.name)
-        assertEquals(2, created.quantity)
+        assertEquals(2.0, created.quantity, 1e-9)
         assertEquals("瓶", created.unit)
         assertEquals(7L, created.categoryId)
         assertEquals(true, created.needRestock)
@@ -99,7 +99,7 @@ class ItemRepositoryTest {
             mutableListOf(
                 testItem(id = 1L, deletedAt = null).copy(
                     trackMode = Item.TRACK_DURABLE,
-                    quantity = 3
+                    quantity = 3.0
                 )
             )
         )
@@ -109,7 +109,7 @@ class ItemRepositoryTest {
 
         val item = dao.snapshot().single()
         // 持续使用型物品不扣数量、不改变状态。
-        assertEquals(3, item.quantity)
+        assertEquals(3.0, item.quantity, 1e-9)
         assertEquals(Item.USAGE_IN_USE, item.usageStatus)
     }
 
@@ -123,7 +123,7 @@ class ItemRepositoryTest {
         repository.consumeOne(1L)
 
         val item = dao.snapshot().single()
-        assertEquals(0, item.quantity)
+        assertEquals(0.0, item.quantity, 1e-9)
         assertEquals(Item.USAGE_USED_UP, item.usageStatus)
         assertEquals(100L, item.startUseTime)
         assertEquals(item.updatedAt, item.usageEndedAt)

@@ -64,7 +64,9 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.data.local.entity.ItemDetail
 import com.goodyaoshi.lemonbox.data.repository.WeeklyMealDay
+import com.goodyaoshi.lemonbox.data.meal.DeductPlan
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
+import com.goodyaoshi.lemonbox.ui.components.CookDeductDialog
 import com.goodyaoshi.lemonbox.ui.components.DeleteCopy
 import com.goodyaoshi.lemonbox.ui.components.DividerLine
 import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
@@ -136,6 +138,8 @@ fun HomeScreen(
     val nickname by viewModel.nickname.collectAsState()
     val appSnackbar = LocalAppSnackbar.current
     val todayKey = remember { LocalDate.now().toString() }
+    // 点「做了」先落到这里：确认清单没关闭前不写任何库存。
+    var pendingDeduct by remember { mutableStateOf<DeductPlan?>(null) }
     val todayMeal = remember(weekPlan, todayKey) {
         weekPlan.firstOrNull { it.dateKey == todayKey }
     }
@@ -279,21 +283,11 @@ fun HomeScreen(
                         day = todayMeal,
                         // 做了的回执改为可撤销（GAP-12）：扣库存是隐性写操作，误触能一键回滚。
                         onCooked = {
-                            viewModel.markDayCooked(todayKey) { snapshot ->
-                                if (snapshot == null) {
+                            viewModel.planDayCooked(todayKey) { plan ->
+                                if (plan == null) {
                                     appSnackbar?.postMessage("今天这餐已经记过「做过」了")
                                 } else {
-                                    val consumed = snapshot.previousItems.size
-                                    appSnackbar?.showUndo(
-                                        if (consumed == 0) {
-                                            "已记「做过」"
-                                        } else {
-                                            "已记「做过」，消耗了 $consumed 样食材"
-                                        },
-                                        DeleteCopy.UNDO_ACTION
-                                    ) {
-                                        viewModel.undoMarkDayCooked(snapshot)
-                                    }
+                                    pendingDeduct = plan
                                 }
                             }
                         },
@@ -311,6 +305,40 @@ fun HomeScreen(
                 }
             }
         }
+    }
+
+    // 扣料确认清单：只有用户点了「确认」才真正扣库存；回执带撤销。
+    pendingDeduct?.let { plan ->
+        CookDeductDialog(
+            plan = plan,
+            onToggle = { index ->
+                val line = plan.lines[index]
+                pendingDeduct = plan.withSelection(index, !line.selected)
+            },
+            onScale = { pendingDeduct = plan.withScale(it) },
+            onAmount = { index, amount -> pendingDeduct = plan.withAmount(index, amount) },
+            onDismiss = { pendingDeduct = null },
+            onConfirm = {
+                pendingDeduct = null
+                viewModel.confirmDayCooked(plan) { snapshot ->
+                    if (snapshot == null) {
+                        appSnackbar?.postMessage("今天这餐已经记过「做过」了")
+                    } else {
+                        val consumed = snapshot.previousItems.size
+                        appSnackbar?.showUndo(
+                            if (consumed == 0) {
+                                "已记「做过」"
+                            } else {
+                                "已记「做过」，消耗了 $consumed 样食材"
+                            },
+                            DeleteCopy.UNDO_ACTION
+                        ) {
+                            viewModel.undoMarkDayCooked(snapshot)
+                        }
+                    }
+                }
+            }
+        )
     }
 }
 

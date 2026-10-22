@@ -39,6 +39,7 @@ import coil.compose.AsyncImage
 import com.goodyaoshi.lemonbox.data.local.entity.Item
 import com.goodyaoshi.lemonbox.data.local.entity.ItemDetail
 import com.goodyaoshi.lemonbox.data.local.entity.StatusDimension
+import com.goodyaoshi.lemonbox.data.local.entity.formatQuantity
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.OrangeTint
 import com.goodyaoshi.lemonbox.ui.theme.StatusNormal
@@ -264,7 +265,7 @@ fun ItemCard(
                 verticalArrangement = Arrangement.spacedBy(3.dp)
             ) {
                 Text(
-                    text = "${item.quantity}${item.unit}",
+                    text = "${formatQuantity(item.quantity)}${item.unit}",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
                     color = TextPrimary,
@@ -274,7 +275,7 @@ fun ItemCard(
                     // 列表显示这件东西的估值（单价 × 数量），与页头「估值」同口径；
                     // 单价留在详情页，避免两个价格在列表里打架。
                     Text(
-                        text = DateUtil.formatCurrency(price * item.quantity.coerceAtLeast(0)),
+                        text = DateUtil.formatCurrency(price * item.quantity.coerceAtLeast(0.0)),
                         style = MaterialTheme.typography.bodySmall,
                         color = TextSecondary,
                         maxLines = 1

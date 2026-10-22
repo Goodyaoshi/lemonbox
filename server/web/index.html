@@ -5,10 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <!--
   页面只加载同源脚本/样式与 Cloudflare 的统计脚本；图片来自对象存储的预签名 HTTPS 地址。
-  内联脚本是单文件网页的既有实现，故保留 'unsafe-inline'，但把 connect-src 收在同源，
-  避免 token 被意外发往第三方。
+  内联脚本是单文件网页的既有实现，故保留 'unsafe-inline'。
+  connect-src 除同源外必须放行 Supabase：登录、RPC 同步与 blob-sign 都是页面直连它；
+  图片本身走 <img> 的签名地址，已由 img-src https: 覆盖，不需要再放行对象存储。
 -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self'; font-src 'self' data:" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' https://sgqvsxowzkqbogknodaj.supabase.co; font-src 'self' data:" />
 <meta name="theme-color" content="#FAFDF6" media="(prefers-color-scheme: light)" />
 <meta name="theme-color" content="#161F19" media="(prefers-color-scheme: dark)" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -208,11 +209,16 @@ a{color:var(--brand)}
 /* =========================================================================
  * 柠檬百宝箱 · 网页版（iOS Safari 可用，无需 Apple 开发者证书）
  *
- * 与安卓端共用同一个 Cloudflare Worker 同步中枢与同一套记录契约：
- *   POST /v1/login   登录换令牌
- *   GET  /v1/pull    增量拉取（includeSelf=1 拉全量）
- *   POST /v1/push    按 baseSeq 推变更，服务端发现被人改过就报冲突
- *   POST /v1/blob/url 取图片临时地址
+ * 与安卓端共用同一个同步中枢（Supabase）与同一套记录契约。
+ * 页面内部仍按旧的 `/v1/*` 路径调用，[supabaseApi] 把它们翻译成 PostgREST RPC——
+ * 这样 UI 与同步流程一行不用重写，换后端只换一层网络适配。
+ *   POST /v1/login   → /auth/v1/token?grant_type=password
+ *   GET  /v1/pull    → rpc/pull_changes
+ *   POST /v1/push    → rpc/apply_changes
+ *   GET  /v1/meta    → rpc/sync_meta
+ *   GET  /v1/snapshot→ rpc/sync_snapshot
+ *   GET  /v1/stats   → rpc/sync_stats
+ *   图片            → 仍未迁移（Supabase 会话换不到旧 Worker 的 S3 凭据）
  *
  * 写入策略：**只打补丁、整条回写**——从服务端拉到的载荷原样保留其余字段，
  * 只改用户编辑的那几项，再整条 push。这样安卓端 decode 时字段一个不缺。
@@ -241,6 +247,23 @@ const COLL = {
 const PREF_KEY = "preferences";
 /** 对象键约定与服务端一致：images/<sha256>.jpg（见 ImageObjectKeys）。 */
 const imageKey = (hash) => `images/${String(hash).split("|")[0]}.jpg`;
+
+/**
+ * Supabase 项目配置。
+ *
+ * publishable key 是公开的（只受 RLS 约束），不是密钥；真正凭据是登录换来的 access_token。
+ * 置空 url 即整页回退到同源 `/v1/*`（旧 Worker），用于临时回滚。
+ */
+const SUPA = {
+  url: "https://sgqvsxowzkqbogknodaj.supabase.co",
+  key: "sb_publishable_lmgqjXC0mF7MLozkLF-HwA_O7xhiezA",
+  /**
+   * 用户名 → Auth 邮箱。Supabase 只认邮箱，而登录框填的是「时天 / 柠檬」。
+   * 必须与 server/supabase/0002_bind_family.sql 及安卓端 SUPABASE_EMAILS 保持一致。
+   */
+  emails: { "时天": "shitian@lemonbox.app", "柠檬": "ningmeng@lemonbox.app" },
+};
+const SUPA_ON = !!SUPA.url;
 
 const USAGE = { UNUSED: 0, IN_USE: 1, USED_UP: 2 };
 const DISPO = { IN_STOCK: 0, LENT: 1, GIVEN: 2, DISCARDED: 3 };
@@ -314,6 +337,10 @@ const LS_DEV = "lemonbox.web.device.v1";
 
 const S = {
   token: null, username: null, expiresAt: 0,
+  /** Supabase 的 refresh_token：access_token 只有一小时，靠它续期。 */
+  refreshToken: "",
+  /** 当前账号所属的家；一次会话内不变。 */
+  household: "",
   deviceId: null, deviceName: "网页版",
   /** "collection\u0000key" -> { collection, key, data, seq, deleted } */
   records: new Map(),
@@ -350,20 +377,28 @@ function loadSession() {
     const raw = localStorage.getItem(LS_KEY);
     if (!raw) return;        // 只跳过会话恢复，设备标识已经就绪
     const v = JSON.parse(raw);
-    if (v && v.token && (!v.expiresAt || v.expiresAt > Date.now())) {
+    // Supabase 会话即便 access_token 过期也能靠 refresh_token 续期，
+    // 所以这里不再因为过期就丢弃，交给 ensureFresh() 处理。
+    if (v && v.token) {
       S.token = v.token; S.username = v.username; S.expiresAt = v.expiresAt || 0;
+      S.refreshToken = v.refreshToken || "";
     }
   } catch (_) { /* 损坏的本地会话忽略即可 */ }
 }
-function saveSession(token, username, expiresAt) {
+function saveSession(token, username, expiresAt, refreshToken) {
   S.token = token; S.username = username; S.expiresAt = expiresAt || 0;
+  if (refreshToken !== undefined) S.refreshToken = refreshToken || "";
   // 新会话/换账号：内存视图和实例标识都作废。缓存由第一次 syncNow 在拉快照前清掉，
   // 避免“清缓存”和“写新快照”两个异步事务互相覆盖。
-  S.records.clear(); S.since = 0; S.instanceId = ""; S.ledgerLimit = 60;
-  try { localStorage.setItem(LS_KEY, JSON.stringify({ token, username, expiresAt })); } catch (_) {}
+  S.records.clear(); S.since = 0; S.instanceId = ""; S.ledgerLimit = 60; S.household = "";
+  try {
+    localStorage.setItem(LS_KEY, JSON.stringify({
+      token, username, expiresAt, refreshToken: S.refreshToken,
+    }));
+  } catch (_) {}
 }
 function clearSession() {
-  S.token = null; S.username = null; S.expiresAt = 0;
+  S.token = null; S.username = null; S.expiresAt = 0; S.refreshToken = ""; S.household = "";
   S.records.clear(); S.lastSyncAt = null; S.since = 0; S.instanceId = ""; S.ledgerLimit = 60;
   cacheClear(S.cacheDb);
   try { localStorage.removeItem(LS_KEY); } catch (_) {}
@@ -371,7 +406,251 @@ function clearSession() {
 
 /* -------------------------------------------------------------- 网络层 */
 
+/* ------------------------------------------------------ Supabase 适配层 */
+
+/**
+ * 把 Supabase 的错误体翻成能直接给用户看的中文。
+ * Auth 的 message 是英文（Invalid login credentials / Email not confirmed），
+ * PostgREST 的 message 通常已经够清楚，优先原样透出。
+ */
+function supaError(status, body) {
+  const msg = String((body && (body.message || body.msg || body.error)) || "");
+  if (/Invalid login credentials/i.test(msg)) return "账号或密码不对";
+  if (/Email not confirmed/i.test(msg)) return "邮箱还没确认，请先在 Supabase 里确认这个账号";
+  if (/User already registered/i.test(msg)) return "这个邮箱已经注册过了";
+  if (msg) return msg;
+  if (status === 401 || status === 403) return "登录已过期，请重新登录";
+  if (status === 404) return "服务端地址不对";
+  if (status >= 500) return "服务器出错了，稍后再试";
+  return `请求失败（${status}）`;
+}
+
+async function supaFetch(path, { method = "GET", body, noAuth } = {}) {
+  const headers = { apikey: SUPA.key };
+  if (body !== undefined) headers["content-type"] = "application/json";
+  if (!noAuth && S.token) headers.Authorization = "Bearer " + S.token;
+  let res;
+  try {
+    res = await fetch(SUPA.url + path, {
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+      cache: "no-store",
+    });
+  } catch (_) {
+    throw new Error("连不上同步服务器（DNS 污染、网络被拦截或服务不可达），请检查网络后重试");
+  }
+  const text = await res.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch (_) { data = null; }
+  if (!res.ok) throw new Error(supaError(res.status, data));
+  return data;
+}
+
+/** 图片签名函数：只换签名/探在/删除/列举，不搬数据；密钥在函数 Secrets 里。 */
+async function blobFn(payload) {
+  return supaFetch("/functions/v1/blob-sign", { method: "POST", body: payload });
+}
+
+/** 只更新令牌并落盘，**不动**已加载的记录视图（续期不能清空页面数据）。 */
+function persistSession() {
+  try {
+    localStorage.setItem(LS_KEY, JSON.stringify({
+      token: S.token, username: S.username, expiresAt: S.expiresAt, refreshToken: S.refreshToken,
+    }));
+  } catch (_) {}
+}
+
+/** access_token 只有一小时：快到期就续期，刷新失败即视为掉线。 */
+async function ensureFresh() {
+  if (!SUPA_ON || !S.token) return;
+  if (S.expiresAt && S.expiresAt - Date.now() > 60000) return;
+  if (!S.refreshToken) { clearSession(); render(); throw new Error("登录已过期，请重新登录"); }
+  try {
+    const t = await supaFetch("/auth/v1/token?grant_type=refresh_token", {
+      method: "POST", noAuth: true, body: { refresh_token: S.refreshToken },
+    });
+    S.token = t.access_token;
+    S.expiresAt = Date.now() + Number(t.expires_in || 3600) * 1000;
+    if (t.refresh_token) S.refreshToken = t.refresh_token;
+    persistSession();
+  } catch (_) {
+    clearSession(); render();
+    throw new Error("登录已过期，请重新登录");
+  }
+}
+
+async function supaRpc(name, args) {
+  return supaFetch(`/rest/v1/rpc/${name}`, { method: "POST", body: args });
+}
+
+/** 当前账号所属的家（服务端绑定）；一次会话内缓存。 */
+async function supaHousehold() {
+  if (S.household) return S.household;
+  const rows = await supaFetch("/rest/v1/household_members?select=household_id&limit=1");
+  const id = Array.isArray(rows) && rows[0] && rows[0].household_id;
+  if (!id) throw new Error("这个账号还没有加入家庭，请先在服务端执行绑定 SQL");
+  S.household = id;
+  return id;
+}
+
+/**
+ * 把页面内的 `/v1/*` 调用翻译成 Supabase 请求。
+ * 返回 undefined 表示这条路径不归这里管，交回原来的同源 fetch（保留旧后端回退）。
+ */
+async function supabaseApi(path, opts) {
+  if (!SUPA_ON) return undefined;
+  const url = new URL(path, location.origin);
+  const p = url.pathname;
+  const q = url.searchParams;
+
+  if (p === "/v1/login") {
+    const raw = String((opts.body && opts.body.username) || "").trim();
+    const email = raw.includes("@") ? raw : SUPA.emails[raw];
+    if (!email) throw new Error("这个网页只给「时天」「柠檬」两个账号用，请填用户名或完整邮箱");
+    const t = await supaFetch("/auth/v1/token?grant_type=password", {
+      method: "POST", noAuth: true, body: { email, password: opts.body.password },
+    });
+    if (!t.access_token) throw new Error("登录失败：服务端没有返回会话令牌");
+    // 形状与旧 /v1/login 保持一致，登录页与 saveSession 都不用改。
+    return {
+      token: t.access_token,
+      refreshToken: t.refresh_token || "",
+      user: { id: (t.user && t.user.id) || "", name: raw },
+      expiresAt: Date.now() + Number(t.expires_in || 3600) * 1000,
+    };
+  }
+
+  if (p === "/v1/logout") {
+    // 服务端作废失败不影响本机退出：会到期的令牌自己会失效。
+    try { await supaFetch("/auth/v1/logout", { method: "POST" }); } catch (_) {}
+    return { ok: true };
+  }
+
+  if (!S.token) return undefined;   // 未登录时回到旧路径，那里会给 401
+  await ensureFresh();
+
+  if (p === "/v1/meta") {
+    return supaRpc("sync_meta", { p_collections: q.get("collections") === "1" });
+  }
+
+  if (p === "/v1/pull") {
+    // Web 的调用方总会传 includeSelf=1：它没有独立本地库，必须看到自己写的记录。
+    const includeSelf = q.get("includeSelf") === "1";
+    return supaRpc("pull_changes", {
+      p_cursor: Number(q.get("since") || 0),
+      p_limit: Number(q.get("limit") || 200),
+      p_exclude_device: includeSelf ? "" : S.deviceId,
+    });
+  }
+
+  if (p === "/v1/snapshot") {
+    return supaRpc("sync_snapshot", {
+      p_collection: q.get("collection") || "",
+      p_cursor: Number(q.get("cursor") || 0),
+      p_up_to: Number(q.get("upTo") || 0),
+      p_limit: Number(q.get("limit") || SNAPSHOT_LIMIT),
+    });
+  }
+
+  if (p === "/v1/stats") {
+    return supaRpc("sync_stats", {});
+  }
+
+  if (p === "/v1/push") {
+    const list = Array.isArray(opts.body && opts.body.changes) ? opts.body.changes : [];
+    const household = await supaHousehold();
+    return supaRpc("apply_changes", {
+      p_batch: {
+        household_id: household,
+        device_id: S.deviceId,
+        actor: S.username || "",
+        changes: list.map((c) => {
+          let payload = {};
+          try {
+            payload = typeof c.payload === "string" ? JSON.parse(c.payload) : (c.payload || {});
+          } catch (_) { payload = {}; }
+          return {
+            collection: c.collection,
+            record_key: c.key,
+            base_revision: Number(c.baseSeq || 0),
+            payload,
+            deleted: !!c.deleted,
+            updated_at: Number(payload.updatedAt || Date.now()),
+            force: !!c.force,
+          };
+        }),
+      },
+    });
+  }
+
+  if (p === "/v1/blob/url") {
+    const key = (opts.body && opts.body.key) || "";
+    if (!key) throw new Error("缺少图片对象名");
+    const op = (opts.body && opts.body.op) || "get";
+    if (op !== "get") throw new Error("网页端只支持查看图片，上传请在手机里操作");
+    const ttl = Math.max(60, Math.min(3600, Number(opts.body && opts.body.ttlSeconds) || 300));
+    const sign = await blobFn({ op: "sign", key, method: "GET", ttlSeconds: ttl });
+    if (!sign || !sign.url) throw new Error("服务端没有返回图片地址");
+    return { url: sign.url, expiresAt: sign.expiresAt, method: "GET" };
+  }
+
+  if (p === "/v1/blob/probe") {
+    const key = (opts.body && opts.body.key) || "";
+    try {
+      const probe = await blobFn({ op: "probe", key });
+      return {
+        exists: !!probe.exists,
+        status: Number(probe.status || 0),
+        size: Number(probe.size || 0),
+        message: probe.message || undefined,
+      };
+    } catch (e) {
+      return { exists: false, status: 0, size: 0, message: e.message };
+    }
+  }
+
+  if (p === "/v1/blob/delete") {
+    const key = (opts.body && opts.body.key) || "";
+    const result = await blobFn({ op: "delete", key });
+    return { ok: !!result.ok };
+  }
+
+  if (p === "/v1/blob/list") {
+    // 旧 Worker 回的是 ListObjectsV2 XML；网页端没有 XML 解析器，
+    // 签名函数直接返回解析好的对象数组（key/size/lastModified）。
+    const prefix = q.get("prefix") || "";
+    const objects = [];
+    let token = "";
+    for (let page = 0; page < 100; page++) {
+      const result = await blobFn({ op: "list", prefix, continuationToken: token });
+      (result.objects || []).forEach((row) => {
+        if (!row || !row.key) return;
+        objects.push({
+          key: row.key,
+          size: Number(row.size || 0),
+          lastModified: Number(row.lastModified || 0),
+        });
+      });
+      token = result.nextContinuationToken || "";
+      if (!result.truncated || !token) break;
+    }
+    return { objects };
+  }
+
+  if (p === "/v1/blob/selfcheck") {
+    const result = await blobFn({ op: "selfcheck" });
+    return { ok: !!result.ok, status: Number(result.status || 0), message: result.message || undefined };
+  }
+
+  return undefined;
+}
+
 async function api(path, opts = {}) {
+  if (SUPA_ON && path.startsWith("/v1/")) {
+    const handled = await supabaseApi(path, opts);
+    if (handled !== undefined) return handled;
+  }
   const headers = { "content-type": "application/json" };
   if (opts.auth !== false && S.token) headers.Authorization = "Bearer " + S.token;
   let res;
@@ -1936,7 +2215,7 @@ function viewLogin(root) {
       try {
         const r = await api("/v1/login", { auth: false, method: "POST", body: {
           username: user.value.trim(), password: pass.value, deviceId: S.deviceId, deviceName: S.deviceName } });
-        saveSession(r.token, (r.user && r.user.name) || user.value.trim(), r.expiresAt);
+        saveSession(r.token, (r.user && r.user.name) || user.value.trim(), r.expiresAt, r.refreshToken);
         pass.value = "";
         S.busy = false;
         render();

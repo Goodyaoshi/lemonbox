@@ -114,7 +114,7 @@ class ScanViewModel @Inject constructor(
                 itemRepository.insert(
                     template.copy(
                         id = 0,
-                        quantity = quantity,
+                        quantity = quantity.toDouble(),
                         expireTime = expireTime,
                         // 刚扫码入库的批次还没开始用：按件消耗默认「未使用」。
                         usageStatus = Item.defaultUsageStatusForNewItem(template.trackMode),

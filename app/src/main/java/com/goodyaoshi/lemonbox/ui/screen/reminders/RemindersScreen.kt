@@ -63,6 +63,7 @@ import com.goodyaoshi.lemonbox.data.local.entity.ItemDetail
 import com.goodyaoshi.lemonbox.data.local.entity.Reminder
 import com.goodyaoshi.lemonbox.data.local.entity.ReminderRepeatType
 import com.goodyaoshi.lemonbox.data.local.entity.ReminderSource
+import com.goodyaoshi.lemonbox.data.local.entity.formatQuantity
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
@@ -646,7 +647,7 @@ private fun ReminderEditorDialog(
                 ) {
                     activeItems.forEach { detail ->
                         PickerRow(
-                            text = "${detail.item.name}（剩 ${detail.item.quantity}${detail.item.unit}）",
+                            text = "${detail.item.name}（剩 ${formatQuantity(detail.item.quantity)}${detail.item.unit}）",
                             selected = detail.item.id == linkedItemId
                         ) {
                             linkedItemId = detail.item.id

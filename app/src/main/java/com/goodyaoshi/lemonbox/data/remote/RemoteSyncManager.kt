@@ -219,6 +219,15 @@ class RemoteSyncManager @Inject constructor(
             var forceUpload = forceUploadLocal ||
                 remoteSyncDao.state(SyncStateKeys.FULL_UPLOAD_REQUIRED) == 1L
             var needSnapshot = false
+            /**
+             * 是否刚从 D1 换成 Supabase，且新后端已经用 D1 快照铺过底。
+             *
+             * 两台后端的序号是两套独立编号：D1 的水位往往比 Supabase 现有条数还大，
+             * 实例标识也必然不同。照旧判成「服务端被清空」就会把整库再传一遍，
+             * 快照铺底就白做了。这里改成：新后端有数据就认服务端为权威，先拉后推；
+             * 只有真的空库（seq=0）才保留原来的全量回灌。
+             */
+            var adoptedSeededBackend = false
             if (meta != null) {
                 // 服务端被清空/重建的两种可观测形态：
                 // 1) 全局序号回到 0（reset / 新库）；
@@ -231,7 +240,19 @@ class RemoteSyncManager @Inject constructor(
                     val localHash = remoteSyncDao.state(SyncStateKeys.INSTANCE_HASH)
                     instanceChanged = localHash != null && localHash != incomingHash
                 }
-                if (instanceChanged || serverWiped) {
+                val seededCutover = client.backendKind() == BACKEND_SUPABASE &&
+                    meta.seq > 0L &&
+                    (instanceChanged || serverWiped)
+                if (seededCutover) {
+                    // 快照已经在新后端：重置本机旧编号，但**不**全量上传。
+                    // 偏好基线与水位一起清零，避免拿 D1 的序号去撞 Supabase 的序号。
+                    adoptedSeededBackend = true
+                    forceUpload = false
+                    remoteSyncDao.putState(SyncStateRow(SyncStateKeys.FULL_UPLOAD_REQUIRED, 0L))
+                    remoteSyncDao.putState(SyncStateRow(SyncStateKeys.PULL_WATERMARK, 0L))
+                    remoteSyncDao.putState(SyncStateRow(SyncStateKeys.PREFERENCES_SEQ, 0L))
+                    remoteSyncDao.putState(SyncStateRow(SyncStateKeys.PREFERENCES_HASH, 0L))
+                } else if (instanceChanged || serverWiped) {
                     // 本机是唯一数据源：重置水位/快照标记，并持久化「必须全量上传」，
                     // 直到 uploadAll 完整成功才清掉。这样即使中途断网/被杀进程，
                     // 下一轮也会继续回灌，而不是因为 instance 已更新就只推 dirty。
@@ -292,7 +313,15 @@ class RemoteSyncManager @Inject constructor(
                 } else {
                     pull(pendingBeforePull, includeSelf)
                 }
-                pushed = push(loadPendingSeqs())
+                // 铺底切换这一轮：本机脏记录的 serverSeq 还是 D1 的编号，直接拿去当 baseSeq
+                // 有极小概率与 Supabase 的新 revision 撞上，从而静默覆盖对端更晚的改动。
+                // 统一以 0 推送，让它稳定走冲突通道，由「较新者胜」决定。
+                val pendingForPush = if (adoptedSeededBackend) {
+                    loadPendingSeqs().mapValues { (_, rows) -> rows.mapValues { 0L } }
+                } else {
+                    loadPendingSeqs()
+                }
+                pushed = push(pendingForPush)
             }
             val now = System.currentTimeMillis()
             appPreferences.setCloudLastSyncAt(now)
@@ -1029,6 +1058,9 @@ class RemoteSyncManager @Inject constructor(
          * P6 起水位搬进 `sync_state` 表，这里只为兼容旧安装包读一次。
          */
         const val LEGACY_PEER_ID = "d1"
+
+        /** [com.goodyaoshi.lemonbox.data.remote.RemoteSyncClient.backendKind] 的 Supabase 取值。 */
+        const val BACKEND_SUPABASE = "supabase"
 
         /** 单次拉取条数上限（与服务端 `PULL_MAX_LIMIT` 对齐；刻意压小以降低单请求 CPU/内存）。 */
         const val PULL_LIMIT = 200

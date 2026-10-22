@@ -1,13 +1,22 @@
 package com.goodyaoshi.lemonbox.data.remote
 
+import com.goodyaoshi.lemonbox.BuildConfig
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaType
@@ -16,6 +25,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import java.io.IOException
+import java.net.URL
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -30,6 +40,20 @@ class RemoteApiException(
     val statusCode: Int,
     override val message: String
 ) : Exception(message)
+
+/**
+ * 调用图片签名函数所需的会话参数。
+ *
+ * 凭据仍是登录换来的短时 access_token（外加受 RLS 约束的 publishable key），
+ * 对象存储密钥只在边缘函数里；[client] 复用同一套 DoH 解析，避免 `*.supabase.co`
+ * 被污染时图片链路单独失联。
+ */
+data class SupabaseBlobAccess(
+    val baseUrl: String,
+    val accessToken: String,
+    val apiKey: String,
+    val client: OkHttpClient
+)
 
 /**
  * 同步服务端的 HTTP 客户端。
@@ -55,6 +79,16 @@ class RemoteSyncClient @Inject constructor(
     private val dohResolver = DohResolver()
 
     /**
+     * Supabase 的 publishable key：公开、只受 RLS 约束，不是长期密钥。
+     * 所有 `/auth/v1` 与 `/rest/v1` 请求都要带 `apikey`，登录后另加 Bearer。
+     */
+    private val supabaseKey: String = BuildConfig.SUPABASE_KEY
+
+    /** 当前账号所属的 household_id；一次登录内不会变，省掉每次推送都查一次。 */
+    @Volatile
+    private var householdIdCache: String? = null
+
+    /**
      * 只对同步域名的解析走 DoH；其他域名（图片、局域网等）保持系统 DNS。
      * 连接池与线程池由同一个 client 复用。
      */
@@ -67,6 +101,9 @@ class RemoteSyncClient @Inject constructor(
     /** 当前使用的服务端根地址（最近一次探活成功的地址，未探活则为默认地址）。 */
     val baseUrl: String
         get() = endpointStore.activeBaseUrl()
+
+    /** 当前同步后端：`supabase` 或旧 Worker（`d1`）。 */
+    fun backendKind(): String = if (isSupabaseEndpoint(baseUrl)) "supabase" else "d1"
 
     /** 是否配置了服务端地址（本地构建可能未注入，用户也可通过自定义地址补上）。 */
     fun isConfigured(): Boolean = endpointStore.candidates().isNotEmpty()
@@ -98,16 +135,30 @@ class RemoteSyncClient @Inject constructor(
     }
 
     private suspend fun probeOne(base: String): EndpointProbe {
+        val supabase = isSupabaseEndpoint(base)
         return try {
-            val httpRequest = Request.Builder().url("$base/health").get().build()
+            val httpRequest = if (supabase) {
+                // Supabase 没有 /health：读取公开的 Auth 设置即可证明项目可达。
+                Request.Builder()
+                    .url("$base/auth/v1/settings")
+                    .header("apikey", supabaseKey)
+                    .get()
+                    .build()
+            } else {
+                Request.Builder().url("$base/health").get().build()
+            }
             httpClient.newCall(httpRequest).await().use { response ->
                 val text = response.body?.string().orEmpty()
-                val ok = response.isSuccessful && runCatching {
-                    json.parseToJsonElement(text)
-                        .jsonObject["ok"]
-                        ?.jsonPrimitive
-                        ?.content == "true"
-                }.getOrDefault(false)
+                val ok = if (supabase) {
+                    response.isSuccessful
+                } else {
+                    response.isSuccessful && runCatching {
+                        json.parseToJsonElement(text)
+                            .jsonObject["ok"]
+                            ?.jsonPrimitive
+                            ?.content == "true"
+                    }.getOrDefault(false)
+                }
                 EndpointProbe(
                     baseUrl = base,
                     reachable = ok,
@@ -120,6 +171,23 @@ class RemoteSyncClient @Inject constructor(
             EndpointProbe(base, false, "$base：${NetworkError.describe(e)}")
         }
     }
+
+    /**
+     * 这个地址是不是 Supabase。
+     *
+     * 以 `.supabase.co` 后缀判断（自建 Supabase 域名可另配 LEMON_SUPABASE_URL，
+     * 与构建默认值一致时同样命中）。这样同一个安装包既能连 Supabase，
+     * 也能在把 LEMON_SYNC_BASE_URL 指回旧 Worker 时整包回退，不需要分支发版。
+     */
+    private fun isSupabaseEndpoint(url: String): Boolean {
+        val base = url.trim().trimEnd('/')
+        if (base.isEmpty()) return false
+        if (base == BuildConfig.SUPABASE_URL.trim().trimEnd('/')) return true
+        return runCatching { URL(base).host.lowercase().endsWith(".supabase.co") }
+            .getOrDefault(false)
+    }
+
+    private fun apikeyHeader(): Map<String, String> = mapOf("apikey" to supabaseKey)
 
     /**
      * 登录并把会话加密落本机。
@@ -142,6 +210,9 @@ class RemoteSyncClient @Inject constructor(
             throw RemoteApiException(0, "连不上同步服务器：${probe.detail}")
         }
         val endpoint = probe.baseUrl
+        if (isSupabaseEndpoint(endpoint)) {
+            return@withContext supabaseLogin(endpoint, username, password, deviceId)
+        }
         val payload = json.encodeToString(
             LoginRequest(
                 username = username.trim(),
@@ -175,6 +246,69 @@ class RemoteSyncClient @Inject constructor(
     }
 
     /**
+     * Supabase 登录：用户名先映射成邮箱，再走 Auth 的 password grant。
+     *
+     * Supabase Auth 只认邮箱，所以「时天 / 柠檬」两个用户名必须有一份固定映射；
+     * 它必须与 server/supabase/0002_bind_family.sql 里的映射保持一致。
+     * 也接受用户直接填完整邮箱，方便以后换成真实邮箱时不改代码。
+     */
+    private suspend fun supabaseLogin(
+        endpoint: String,
+        username: String,
+        password: String,
+        deviceId: String
+    ): RemoteSession {
+        val email = resolveSupabaseEmail(username)
+        val payload = json.encodeToString(
+            SupabasePasswordGrant.serializer(),
+            SupabasePasswordGrant(email = email, password = password)
+        )
+        val text = request(
+            method = "POST",
+            path = "/auth/v1/token?grant_type=password",
+            body = payload,
+            token = null,
+            baseUrl = endpoint,
+            readTimeoutMs = API_TIMEOUT_MS,
+            headers = apikeyHeader()
+        )
+        val token = json.decodeFromString(SupabaseTokenResponse.serializer(), text)
+        if (token.accessToken.isBlank()) {
+            throw RemoteApiException(0, "登录失败：服务端没有返回会话令牌")
+        }
+        val session = RemoteSession(
+            baseUrl = endpoint,
+            token = token.accessToken,
+            userId = token.user?.id.orEmpty(),
+            username = supabaseUsername(email) ?: username.trim(),
+            // expires_in 是秒；留 60 秒余量由 freshSupabaseSession 统一处理，这里按原值记。
+            expiresAt = System.currentTimeMillis() + token.expiresIn * 1000L,
+            refreshToken = token.refreshToken,
+            deviceId = deviceId
+        )
+        householdIdCache = null
+        if (!sessionStore.save(session)) {
+            throw RemoteApiException(0, "系统密钥库不可用，无法在本机保存登录状态")
+        }
+        return session
+    }
+
+    /** 用户名 → Supabase Auth 邮箱；与 0002_bind_family.sql 的映射一一对应。 */
+    private fun resolveSupabaseEmail(raw: String): String {
+        val value = raw.trim()
+        if (value.contains('@')) return value
+        return SUPABASE_EMAILS[value] ?: throw RemoteApiException(
+            0,
+            "这个安装包只给「时天」「柠檬」两个账号用，请填用户名或完整邮箱"
+        )
+    }
+
+    private fun supabaseUsername(email: String): String? =
+        SUPABASE_EMAILS.entries
+            .firstOrNull { it.value.equals(email.trim(), ignoreCase = true) }
+            ?.key
+
+    /**
      * 退出登录：先在服务端作废这次会话，再清本机凭据。
      *
      * 服务端那步失败（网络不通等）不影响本机退出——本机不该留着一个用不了的令牌，
@@ -183,17 +317,20 @@ class RemoteSyncClient @Inject constructor(
     suspend fun logout() = withContext(Dispatchers.IO) {
         val session = sessionStore.current()
         if (session != null) {
+            val supabase = isSupabaseEndpoint(session.baseUrl)
             runCatching {
                 request(
                     method = "POST",
-                    path = "/v1/logout",
+                    path = if (supabase) "/auth/v1/logout" else "/v1/logout",
                     body = null,
                     token = session.token,
                     baseUrl = session.baseUrl,
-                    readTimeoutMs = API_TIMEOUT_MS
+                    readTimeoutMs = API_TIMEOUT_MS,
+                    headers = if (supabase) apikeyHeader() else emptyMap()
                 )
             }
         }
+        householdIdCache = null
         sessionStore.clear()
     }
 
@@ -201,6 +338,10 @@ class RemoteSyncClient @Inject constructor(
      * 推送一批变更。服务端单次上限 200 条，超出会直接报错，故由调用方分批。
      */
     suspend fun push(changes: List<PushChange>): PushResponse = withContext(Dispatchers.IO) {
+        val session = sessionStore.current()
+        if (session != null && isSupabaseEndpoint(session.baseUrl)) {
+            return@withContext supabasePush(changes)
+        }
         val body = json.encodeToString(PushRequest.serializer(), PushRequest(changes))
         json.decodeFromString(PushResponse.serializer(), authedRequest("POST", "/v1/push", body))
     }
@@ -214,6 +355,10 @@ class RemoteSyncClient @Inject constructor(
      */
     suspend fun pull(since: Long, limit: Int, includeSelf: Boolean = false): PullResponse =
         withContext(Dispatchers.IO) {
+            val session = sessionStore.current()
+            if (session != null && isSupabaseEndpoint(session.baseUrl)) {
+                return@withContext supabasePull(since, limit, includeSelf)
+            }
             val selfParam = if (includeSelf) "&includeSelf=1" else ""
             json.decodeFromString(
                 PullResponse.serializer(),
@@ -223,6 +368,13 @@ class RemoteSyncClient @Inject constructor(
 
     /** 服务端对账统计：各集合计数、设备列表与冲突台账数（P9 诊断页用）。 */
     suspend fun stats(): SyncStatsResponse = withContext(Dispatchers.IO) {
+        val session = sessionStore.current()
+        if (session != null && isSupabaseEndpoint(session.baseUrl)) {
+            return@withContext json.decodeFromString(
+                SyncStatsResponse.serializer(),
+                supabaseRpc(freshSupabaseSession(), "sync_stats", "{}")
+            )
+        }
         json.decodeFromString(SyncStatsResponse.serializer(), authedRequest("GET", "/v1/stats", body = null))
     }
 
@@ -234,6 +386,16 @@ class RemoteSyncClient @Inject constructor(
      */
     suspend fun meta(includeCollections: Boolean = false): SyncMetaResponse =
         withContext(Dispatchers.IO) {
+            val session = sessionStore.current()
+            if (session != null && isSupabaseEndpoint(session.baseUrl)) {
+                val body = buildJsonObject {
+                    put("p_collections", includeCollections)
+                }
+                return@withContext json.decodeFromString(
+                    SyncMetaResponse.serializer(),
+                    supabaseRpc(freshSupabaseSession(), "sync_meta", body.toString())
+                )
+            }
             // 日常只取 instanceId/seq；`?collections=1` 会做一次按集合 GROUP BY，
             // 只在首次/重建、确实要拉快照时用，避免每次 focus 都扫 records。
             val query = if (includeCollections) "?collections=1" else ""
@@ -256,6 +418,19 @@ class RemoteSyncClient @Inject constructor(
         upTo: Long,
         limit: Int = SNAPSHOT_LIMIT
     ): SnapshotResponse = withContext(Dispatchers.IO) {
+        val session = sessionStore.current()
+        if (session != null && isSupabaseEndpoint(session.baseUrl)) {
+            val body = buildJsonObject {
+                put("p_collection", collection)
+                put("p_cursor", cursor)
+                put("p_up_to", upTo)
+                put("p_limit", limit)
+            }
+            return@withContext json.decodeFromString(
+                SnapshotResponse.serializer(),
+                supabaseRpc(freshSupabaseSession(), "sync_snapshot", body.toString())
+            )
+        }
         json.decodeFromString(
             SnapshotResponse.serializer(),
             authedRequest(
@@ -296,11 +471,181 @@ class RemoteSyncClient @Inject constructor(
     }
 
     /**
+     * 取一个可用的 Supabase 会话：快过期时用 refresh_token 续期并落本机。
+     *
+     * access_token 只有一小时，而 App 的后台同步可能隔很久才跑一次；不续期就会在
+     * 某次同步里突然全 401。刷新失败且是 4xx（令牌被撤销/账号被删）时**清掉本机会话**，
+     * 让界面回到「请重新登录」，而不是反复撞同一堵墙。
+     */
+    private suspend fun freshSupabaseSession(): RemoteSession {
+        val session = sessionStore.current()
+            ?: throw RemoteApiException(401, "请先登录柠檬账号")
+        if (session.refreshToken.isBlank()) return session
+        if (!session.isExpired(System.currentTimeMillis() + TOKEN_REFRESH_AHEAD_MS)) return session
+        return try {
+            val body = json.encodeToString(
+                SupabaseRefreshGrant.serializer(),
+                SupabaseRefreshGrant(session.refreshToken)
+            )
+            val text = request(
+                method = "POST",
+                path = "/auth/v1/token?grant_type=refresh_token",
+                body = body,
+                token = null,
+                baseUrl = session.baseUrl,
+                readTimeoutMs = API_TIMEOUT_MS,
+                headers = apikeyHeader()
+            )
+            val token = json.decodeFromString(SupabaseTokenResponse.serializer(), text)
+            val updated = session.copy(
+                token = token.accessToken.ifBlank { session.token },
+                refreshToken = token.refreshToken.ifBlank { session.refreshToken },
+                expiresAt = System.currentTimeMillis() + token.expiresIn * 1000L
+            )
+            sessionStore.save(updated)
+            updated
+        } catch (e: RemoteApiException) {
+            if (e.statusCode in 400..403) {
+                householdIdCache = null
+                sessionStore.clear()
+                throw RemoteApiException(401, "登录已过期，请重新登录")
+            }
+            throw e
+        }
+    }
+
+    /** 调一个 Supabase RPC；返回体刻意与旧 Worker 的 DTO 同形，调用方无需区分后端。 */
+    private suspend fun supabaseRpc(session: RemoteSession, name: String, body: String): String =
+        request(
+            method = "POST",
+            path = "/rest/v1/rpc/$name",
+            body = body,
+            token = session.token,
+            baseUrl = session.baseUrl,
+            readTimeoutMs = DATA_TIMEOUT_MS,
+            headers = apikeyHeader()
+        )
+
+    /**
+     * 当前账号的 household_id。
+     *
+     * 家庭绑定关系在服务端（household_members），客户端不硬编码；一次登录内缓存，
+     * 避免每推一批都多打一次 REST。未绑定说明 0002 的建家 SQL 没执行完。
+     */
+    private suspend fun householdId(session: RemoteSession): String {
+        householdIdCache?.let { return it }
+        val text = request(
+            method = "GET",
+            path = "/rest/v1/household_members?select=household_id&limit=1",
+            body = null,
+            token = session.token,
+            baseUrl = session.baseUrl,
+            readTimeoutMs = API_TIMEOUT_MS,
+            headers = apikeyHeader()
+        )
+        val id = runCatching {
+            json.parseToJsonElement(text)
+                .jsonArray
+                .firstOrNull()
+                ?.jsonObject
+                ?.get("household_id")
+                ?.jsonPrimitive
+                ?.contentOrNull
+        }.getOrNull()
+        if (id.isNullOrBlank()) {
+            throw RemoteApiException(0, "这个账号还没有加入家庭，请先在服务端执行绑定 SQL")
+        }
+        householdIdCache = id
+        return id
+    }
+
+    private suspend fun supabasePush(changes: List<PushChange>): PushResponse {
+        val session = freshSupabaseSession()
+        val household = householdId(session)
+        // PostgREST 的 RPC 入参按函数形参名传，apply_changes 的形参就是 p_batch。
+        val batch = buildJsonObject {
+            put("household_id", household)
+            put("device_id", session.deviceId)
+            put("actor", session.username)
+            put("changes", buildJsonArray {
+                changes.forEach { change ->
+                    // 载荷在本地是 JSON 文本，Supabase 的 jsonb 入参要的是 JSON 值而非字符串。
+                    val payloadElement = runCatching { json.parseToJsonElement(change.payload) }
+                        .getOrElse { JsonObject(emptyMap()) }
+                    val updatedAt = runCatching {
+                        payloadElement.jsonObject["updatedAt"]?.jsonPrimitive?.longOrNull
+                    }.getOrNull() ?: System.currentTimeMillis()
+                    add(buildJsonObject {
+                        put("collection", change.collection)
+                        put("record_key", change.key)
+                        put("base_revision", change.baseSeq)
+                        put("payload", payloadElement)
+                        put("deleted", change.deleted)
+                        put("updated_at", updatedAt)
+                        put("force", change.force)
+                    })
+                }
+            })
+        }
+        val body = buildJsonObject {
+            put("p_batch", batch)
+        }
+        return json.decodeFromString(
+            PushResponse.serializer(),
+            supabaseRpc(session, "apply_changes", body.toString())
+        )
+    }
+
+    private suspend fun supabasePull(
+        since: Long,
+        limit: Int,
+        includeSelf: Boolean
+    ): PullResponse {
+        val session = freshSupabaseSession()
+        val body = buildJsonObject {
+            put("p_cursor", since)
+            put("p_limit", limit)
+            // 空串表示不排除本设备（重建/首次同步）；日常同步传本机 deviceId。
+            put("p_exclude_device", if (includeSelf) "" else session.deviceId)
+        }
+        return json.decodeFromString(
+            PullResponse.serializer(),
+            supabaseRpc(session, "pull_changes", body.toString())
+        )
+    }
+
+    /**
      * 鉴权 JSON 请求，供对象存储网关（[com.goodyaoshi.lemonbox.data.imagecloud.BlobGateway]）
-     * 复用同一套会话令牌、超时与错误翻译；非 2xx 抛 [RemoteApiException]。
+     * 在旧 Worker 链路上复用同一套会话令牌、超时与错误翻译；非 2xx 抛 [RemoteApiException]。
      */
     suspend fun authedJsonRequest(method: String, path: String, body: String?): String =
-        withContext(Dispatchers.IO) { authedRequest(method, path, body) }
+        withContext(Dispatchers.IO) {
+            val session = sessionStore.current()
+            if (session != null && isSupabaseEndpoint(session.baseUrl)) {
+                // Supabase 会话换不来旧 Worker 的登录态；图片走边缘函数签名
+                // （见 [supabaseBlobAccess]），这里收到请求说明调用方没分支。
+                throw RemoteApiException(0, "图片存储已切换为边缘函数签名，请更新应用后再试")
+            }
+            authedRequest(method, path, body)
+        }
+
+    /**
+     * 取图片签名函数的调用参数；未登录或仍连旧 Worker 时返回 null。
+     *
+     * 每次调用都过一遍 [freshSupabaseSession]：图片同步可能隔很久才跑，
+     * 复用过期 token 只会换回一串 401。
+     */
+    suspend fun supabaseBlobAccess(): SupabaseBlobAccess? = withContext(Dispatchers.IO) {
+        val session = sessionStore.current() ?: return@withContext null
+        if (!isSupabaseEndpoint(session.baseUrl)) return@withContext null
+        val fresh = freshSupabaseSession()
+        SupabaseBlobAccess(
+            baseUrl = fresh.baseUrl.trimEnd('/'),
+            accessToken = fresh.token,
+            apiKey = supabaseKey,
+            client = httpClient
+        )
+    }
 
     /** 发一个请求并读回响应体；非 2xx 抛 [RemoteApiException]。 */
     private suspend fun request(
@@ -309,12 +654,14 @@ class RemoteSyncClient @Inject constructor(
         body: String?,
         token: String?,
         baseUrl: String,
-        readTimeoutMs: Int
+        readTimeoutMs: Int,
+        headers: Map<String, String> = emptyMap()
     ): String {
         val endpoint = baseUrl.trimEnd('/')
         if (endpoint.isEmpty()) throw RemoteApiException(0, "同步服务器地址为空")
         val builder = Request.Builder().url(endpoint + path)
         token?.let { builder.header("Authorization", "Bearer $it") }
+        headers.forEach { (name, value) -> builder.header(name, value) }
         // GET/HEAD 不允许带 body；其余方法即使 body 为空也要显式给 null。
         builder.method(method, body?.toRequestBody(JSON_MEDIA_TYPE))
         val client = httpClient.newBuilder()
@@ -361,14 +708,30 @@ class RemoteSyncClient @Inject constructor(
         })
     }
 
-    /** 优先用服务端自带的说明，其次按状态码给兜底文案。 */
+    /**
+     * 优先用服务端自带的说明，其次按状态码给兜底文案。
+     *
+     * Supabase 的错误体是 `{"message":"..."}` / `{"msg":"..."}`，旧 Worker 是 `{"error":"..."}`；
+     * 两种都认。常见英文原因翻译成一句能直接给用户看的中文。
+     */
     private fun errorMessage(code: Int, body: String): String {
-        val serverMessage = runCatching {
-            json.decodeFromString(RemoteErrorBody.serializer(), body).error
+        val obj = runCatching { json.parseToJsonElement(body).jsonObject }.getOrNull()
+        val serverMessage = listOfNotNull(
+            obj?.get("error")?.jsonPrimitive?.contentOrNull,
+            obj?.get("msg")?.jsonPrimitive?.contentOrNull,
+            obj?.get("message")?.jsonPrimitive?.contentOrNull
+        ).firstOrNull { it.isNotBlank() }
+        if (serverMessage != null) {
+            return when {
+                serverMessage.equals("Invalid login credentials", ignoreCase = true) ->
+                    "账号或密码不对"
+                serverMessage.equals("Email not confirmed", ignoreCase = true) ->
+                    "邮箱还没确认，请先在 Supabase 里确认这个账号"
+                serverMessage.equals("User already registered", ignoreCase = true) ->
+                    "这个邮箱已经注册过了"
+                else -> serverMessage
+            }
         }
-            .getOrNull()
-            ?.takeIf { it.isNotBlank() }
-        if (serverMessage != null) return serverMessage
         return when {
             code == 401 || code == 403 -> "登录已过期，请重新登录"
             code == 404 -> "服务端地址不对"
@@ -388,6 +751,20 @@ class RemoteSyncClient @Inject constructor(
 
         /** 快照单页条数（与服务端 `SNAPSHOT_MAX_LIMIT` 对齐）。 */
         const val SNAPSHOT_LIMIT = 500
+
+        /** access_token 到期前多久就提前续期，避免请求飞到一半刚好过期。 */
+        const val TOKEN_REFRESH_AHEAD_MS = 60_000L
+
+        /**
+         * 用户名 → Supabase Auth 邮箱。
+         *
+         * Supabase 只认邮箱，而登录框里填的是「时天 / 柠檬」。这份映射必须与
+         * server/supabase/0002_bind_family.sql 完全一致；换真实邮箱时两边一起改。
+         */
+        val SUPABASE_EMAILS = mapOf(
+            "时天" to "shitian@lemonbox.app",
+            "柠檬" to "ningmeng@lemonbox.app"
+        )
 
         val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
     }

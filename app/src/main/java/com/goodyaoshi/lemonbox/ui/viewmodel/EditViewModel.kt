@@ -28,7 +28,7 @@ data class EditItemState(
     val barcode: String? = null,
     val categoryId: Long? = null,
     val locationId: Long? = null,
-    val quantity: Int = 1,
+    val quantity: Double = 1.0,
     val unit: String = "件",
     val price: String = "",
     val expireTime: Long? = null,
@@ -196,8 +196,9 @@ class EditViewModel @Inject constructor(
         _state.value = _state.value.copy(locationId = locationId)
     }
 
-    fun updateQuantity(quantity: Int) {
-        _state.value = _state.value.copy(quantity = quantity.coerceAtLeast(1))
+    fun updateQuantity(quantity: Double) {
+        // 下限是 0 而不是 1：扣料后可能只剩 0.5，编辑时把它抬到 1 等于凭空多出半份。
+        _state.value = _state.value.copy(quantity = quantity.coerceAtLeast(0.0))
     }
 
     fun updateUnit(unit: String) {
@@ -278,7 +279,7 @@ class EditViewModel @Inject constructor(
                 categoryId = current.categoryId,
                 locationId = current.locationId,
                 quantity = current.quantity,
-                consumedQuantity = original?.consumedQuantity ?: 0,
+                consumedQuantity = original?.consumedQuantity ?: 0.0,
                 unit = current.unit,
                 price = current.price.toDoubleOrNull(),
                 expireTime = current.expireTime,

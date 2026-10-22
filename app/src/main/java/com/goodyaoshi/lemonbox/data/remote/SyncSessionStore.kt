@@ -33,7 +33,14 @@ data class RemoteSession(
     val userId: String,
     val username: String,
     /** 令牌到期时刻（毫秒）；[token] 是真凭据，此处只用于提前提示与本地失效判断。 */
-    val expiresAt: Long
+    val expiresAt: Long,
+    /**
+     * Supabase 的 refresh_token：access_token 只有一小时，靠它续期。
+     * 旧 D1 会话没有这个字段，保持默认空串即可反序列化。
+     */
+    val refreshToken: String = "",
+    /** 登录时的设备标识；Supabase 推送时作为 device_id 写入服务端。 */
+    val deviceId: String = ""
 ) {
     fun isExpired(now: Long = System.currentTimeMillis()): Boolean = expiresAt <= now
 }

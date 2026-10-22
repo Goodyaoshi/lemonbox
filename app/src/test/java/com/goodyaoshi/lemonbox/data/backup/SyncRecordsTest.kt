@@ -20,7 +20,7 @@ class SyncRecordsTest {
     ) = ItemSnapshot(
         id = id,
         name = "牛奶",
-        quantity = 2,
+        quantity = 2.0,
         unit = "盒",
         price = null,
         expireTime = null,

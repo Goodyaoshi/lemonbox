@@ -9,6 +9,8 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.temporal.ChronoUnit
 import java.util.UUID
+import kotlin.math.abs
+import kotlin.math.roundToLong
 
 @Entity(
     tableName = "items",
@@ -41,13 +43,20 @@ data class Item(
     val barcode: String? = null,
     val categoryId: Long? = null,
     val locationId: Long? = null,
-    val quantity: Int = 1,
+    /**
+     * 剩余数量。
+     *
+     * 用 Double 而不是 Int：菜谱扣料要表达「用 200 克肉」「半袋盐」，
+     * 整数件在食材场景里根本不够用（v38 起）。展示时走 [formatQuantity]，
+     * 整数就显示整数，不会满屏「2.0」。
+     */
+    val quantity: Double = 1.0,
     /**
      * 已消耗数量（仅按件消耗累计）：总量 = quantity(剩余) + consumedQuantity(已用)。
      * 持续使用型物品不累计。
      */
     @ColumnInfo(defaultValue = "0")
-    val consumedQuantity: Int = 0,
+    val consumedQuantity: Double = 0.0,
     val unit: String = "件",
     val price: Double? = null,
     val expireTime: Long? = null,
@@ -122,7 +131,7 @@ data class Item(
     val updatedAt: Long? = System.currentTimeMillis()
 ) {
     /** 累计总量：剩余数量 + 已消耗数量，供「已用 / 共 / 剩余」展示。 */
-    val totalQuantity: Int
+    val totalQuantity: Double
         get() = quantity + consumedQuantity
 
     /** 全部图片槽位的内容哈希，顺序即展示顺序（首项为主图）。 */
@@ -232,7 +241,7 @@ data class Item(
          * 平均每天花费：总价（单价×数量，与「我的」页总价值口径一致）÷ 使用天数。
          * 无价格或使用不足 1 天时返回 null，界面不展示。
          */
-        fun averageDailyCost(price: Double?, quantity: Int, days: Int): Double? {
+        fun averageDailyCost(price: Double?, quantity: Double, days: Int): Double? {
             if (price == null || days < 1) return null
             return price * quantity / days
         }
@@ -309,3 +318,23 @@ data class Item(
                 .toList()
     }
 }
+
+/**
+ * 数量展示：整数不带小数点，非整数最多两位小数（0.5 / 1.25）。
+ *
+ * 数量从 v38 起是 Double，展示入口必须收敛到一处，
+ * 否则会出现一半界面写「2」、另一半写「2.0」。
+ */
+fun formatQuantity(value: Double): String {
+    if (!value.isFinite() || value <= 0) return "0"
+    val rounded = (value * 100).roundToLong() / 100.0
+    return if (abs(rounded - rounded.roundToLong()) < 1e-9) {
+        rounded.roundToLong().toString()
+    } else {
+        // 去掉末尾多余的 0：0.50 → 0.5
+        rounded.toString().trimEnd('0').trimEnd('.')
+    }
+}
+
+/** 仍需按件展示的场景（如「共 3 件」）：四舍五入到整数。 */
+fun Double.toQuantityInt(): Int = roundToLong().toInt().coerceAtLeast(0)

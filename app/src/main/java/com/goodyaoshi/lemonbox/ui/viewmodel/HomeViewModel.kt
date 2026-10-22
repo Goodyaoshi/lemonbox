@@ -7,6 +7,8 @@ import com.goodyaoshi.lemonbox.data.local.entity.Item
 import com.goodyaoshi.lemonbox.data.local.entity.ItemDetail
 import com.goodyaoshi.lemonbox.data.local.entity.Reminder
 import com.goodyaoshi.lemonbox.data.local.entity.LedgerRecord
+import com.goodyaoshi.lemonbox.data.local.entity.formatQuantity
+import com.goodyaoshi.lemonbox.data.meal.DeductPlan
 import com.goodyaoshi.lemonbox.data.repository.AnniversaryRepository
 import com.goodyaoshi.lemonbox.data.repository.CookedDaySnapshot
 import com.goodyaoshi.lemonbox.data.repository.ItemRepository
@@ -119,9 +121,14 @@ class HomeViewModel @Inject constructor(
             ?.let { "${it.name}第 ${-(it.days ?: 0L) + 1} 天" }
     }
 
-    /** 一餐做完：仓库内幂等（已做不重复扣料），完成后回传扣料前快照供首页「撤销」（GAP-12）。 */
-    fun markDayCooked(dateKey: String, onDone: (CookedDaySnapshot?) -> Unit = {}) {
-        viewModelScope.launch { onDone(weekMenuRepository.markDayCooked(dateKey)) }
+    /** 生成扣料计划（不写库）；界面据此先弹确认清单。已做过或没有菜单时回传 null。 */
+    fun planDayCooked(dateKey: String, onPlan: (DeductPlan?) -> Unit = {}) {
+        viewModelScope.launch { onPlan(weekMenuRepository.planDay(dateKey)) }
+    }
+
+    /** 用户确认清单后执行扣料；回传扣前快照供撤销。 */
+    fun confirmDayCooked(plan: DeductPlan, onDone: (CookedDaySnapshot?) -> Unit = {}) {
+        viewModelScope.launch { onDone(weekMenuRepository.applyDayCooked(plan)) }
     }
 
     /** 撤销「做了」（GAP-12）：按快照把被扣食材写回、撤掉已做标记。 */
@@ -211,7 +218,7 @@ class HomeViewModel @Inject constructor(
                         kind = TodayEventKind.TO_BUY,
                         key = "tobuy:${detail.item.id}",
                         title = detail.item.name,
-                        detail = "待买 ${detail.item.quantity}${detail.item.unit}",
+                        detail = "待买 ${formatQuantity(detail.item.quantity)}${detail.item.unit}",
                         target = TodayEventTarget.ToBuy
                     )
                 )

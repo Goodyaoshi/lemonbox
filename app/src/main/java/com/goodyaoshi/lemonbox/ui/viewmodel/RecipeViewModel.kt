@@ -55,16 +55,10 @@ class RecipeViewModel @Inject constructor(
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /** 新增一道菜谱；名称为空时返回 false。 */
-    fun addRecipe(name: String, ingredients: List<RecipeIngredient>, role: String): Boolean =
-        appPreferences.addRecipe(name, ingredients, role)
+    fun addRecipe(draft: Recipe): Boolean = appPreferences.addRecipe(draft)
 
     /** 修改一道菜谱；名称为空或菜谱不存在时返回 false。 */
-    fun updateRecipe(
-        id: Long,
-        name: String,
-        ingredients: List<RecipeIngredient>,
-        role: String
-    ): Boolean = appPreferences.updateRecipe(id, name, ingredients, role)
+    fun updateRecipe(recipe: Recipe): Boolean = appPreferences.updateRecipe(recipe)
 
     fun removeRecipe(id: Long) {
         appPreferences.removeRecipe(id)

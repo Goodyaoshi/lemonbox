@@ -6,6 +6,9 @@ import com.goodyaoshi.lemonbox.data.local.entity.ItemDetail
 import com.goodyaoshi.lemonbox.data.local.entity.Reminder
 import com.goodyaoshi.lemonbox.data.local.entity.ReminderRepeatType
 import com.goodyaoshi.lemonbox.data.local.entity.ReminderSource
+import com.goodyaoshi.lemonbox.data.meal.DeductAction
+import com.goodyaoshi.lemonbox.data.meal.DeductPlan
+import com.goodyaoshi.lemonbox.data.meal.DeductPlanner
 import com.goodyaoshi.lemonbox.data.meal.DishRole
 import com.goodyaoshi.lemonbox.data.meal.MealCombo
 import com.goodyaoshi.lemonbox.data.meal.MealDish
@@ -125,19 +128,49 @@ class WeekMenuRepository @Inject constructor(
         appPreferences.setMealPlanDays(days)
     }
 
-    /** 一餐做完（今天/未来某天）：扣掉这一天所有菜品的食材并标记已做；已做过的不重复扣（幂等）。 */
-    suspend fun markDayCooked(dateKey: String): CookedDaySnapshot? {
+    /**
+     * 生成这一天的扣料计划（**不写库**）。
+     *
+     * 之所以拆成「先计划、后执行」，是因为扣库存是全 App 最大的一次隐性写操作：
+     * 用户必须先看见「要扣哪几样、扣多少、扣完剩多少」，能逐条取消，才点确认。
+     * 已做过或没有这天菜单时返回 null。
+     */
+    suspend fun planDay(dateKey: String): DeductPlan? {
         if (dateKey in appPreferences.cookedMenuDates.value) return null
         val day = latestDays.firstOrNull { it.dateKey == dateKey } ?: return null
         // 扣不扣只看食材所属分类（主食粮油/调味品不扣），与菜品本身是主食还是蛋白无关。
-        val recipeIds = day.combo.dishes.mapNotNull { it.recipeId }
+        val picked = day.combo.dishes
+            .mapNotNull { it.recipeId }
+            .mapNotNull { id -> recipes.firstOrNull { it.id == id } }
+        return DeductPlanner.plan(
+            dateKey = dateKey,
+            recipes = picked,
+            pool = mealPool,
+            isNonDeductible = ::isNonDeductible,
+            match = { ingredient, detail ->
+                MealSuggester.matches(ingredient, detail, mealCategoryTexts)
+            }
+        )
+    }
+
+    /**
+     * 按用户确认过的计划扣料并标记已做；已做过的不重复扣（幂等）。
+     *
+     * 只执行 `selected && DEDUCT` 的行：用户取消勾选的、调料、缺料都不动库存。
+     * 返回扣前快照供撤销；已做过时返回 null。
+     */
+    suspend fun applyDayCooked(plan: DeductPlan): CookedDaySnapshot? {
+        if (plan.dateKey in appPreferences.cookedMenuDates.value) return null
         val previous = mutableListOf<Item>()
-        recipeIds.forEach { id ->
-            recipes.firstOrNull { it.id == id }?.let { previous += deductRecipeIngredients(it) }
-        }
-        appPreferences.markMenuCooked(dateKey)
-        // 同一物品可能被多道菜命中，保留最早的那份快照（扣除前的原始状态）供整体撤销。
-        return CookedDaySnapshot(dateKey = dateKey, previousItems = previous.distinctBy { it.id })
+        plan.lines
+            .filter { it.selected && it.action == DeductAction.DEDUCT }
+            .forEach { line ->
+                val itemId = line.itemId ?: return@forEach
+                itemRepository.consumeAmount(itemId, line.amount)?.let { previous += it }
+            }
+        appPreferences.markMenuCooked(plan.dateKey)
+        // 同一物品被多道菜命中时只留一份扣前快照，撤销时整份写回。
+        return CookedDaySnapshot(dateKey = plan.dateKey, previousItems = previous.distinctBy { it.id })
     }
 
     /**
@@ -360,29 +393,6 @@ class WeekMenuRepository @Inject constructor(
         runCatching { LocalDate.parse(dateKey) }
             .map { "${it.monthValue}/${it.dayOfMonth}" }
             .getOrDefault(dateKey)
-
-    /**
-     * 扣掉一道菜用到的食材：每样匹配上的主料扣 1 件，减到 0 自动记为已用完。
-     * 是否扣减只看食材所属分类：主食粮油、调味品、辅料不扣；菜谱里标为「可选」的配料也不扣。
-     * 返回被扣物品扣除前的快照（同一物品去重），供「做了」撤销时整份写回（GAP-12）。
-     */
-    private suspend fun deductRecipeIngredients(recipe: Recipe): List<Item> {
-        val used = mutableSetOf<Long>()
-        val previous = mutableListOf<Item>()
-        recipe.ingredients
-            .filterNot { it.optional }
-            .forEach { ingredient ->
-                val matched = mealPool.firstOrNull { detail ->
-                    detail.item.id !in used &&
-                        MealSuggester.matches(ingredient, detail, mealCategoryTexts)
-                } ?: return@forEach
-                if (isNonDeductible(matched)) return@forEach
-                used += matched.item.id
-                previous += matched.item
-                itemRepository.consumeOne(matched.item.id)
-            }
-        return previous
-    }
 
     /** 主食粮油（米面油）、调味品（酱油/盐/醋）、辅料（葱姜蒜辣椒）不参与扣减：看物品所属分类链。 */
     private fun isNonDeductible(detail: ItemDetail): Boolean {

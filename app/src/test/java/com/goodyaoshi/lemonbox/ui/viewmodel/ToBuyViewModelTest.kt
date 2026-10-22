@@ -103,7 +103,7 @@ class ToBuyViewModelTest {
 
         val created = itemDao.snapshot().single()
         assertEquals("洗洁精", created.name)
-        assertEquals(2, created.quantity)
+        assertEquals(2.0, created.quantity, 1e-9)
         assertEquals("瓶", created.unit)
         assertEquals(3L, created.categoryId)
         assertEquals(true, created.needRestock)
