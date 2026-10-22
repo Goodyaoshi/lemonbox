@@ -408,6 +408,13 @@ class RemoteSyncManager @Inject constructor(
         while (pageCount < MAX_PULL_PAGES) {
             pageCount++
             val page = client.pull(since = cursor, limit = PULL_LIMIT, includeSelf = includeSelf)
+            if (page.resetRequired && cursor != 0L) {
+                // 服务端序号比本机水位还小＝库被重建/换过后端。旧 Worker 会替客户端把 since
+                // 钳到 0，Supabase 不会，照旧水位继续拉只会永远空转（每页都空、水位不动）。
+                // 这一轮从 0 重扫一遍；合并是幂等的，重复落地没有副作用。
+                cursor = 0L
+                continue
+            }
             page.changes.forEach { change ->
                 // 本机这条也改过且还没推上去：先留本机改动（服务端那一版可能是旧的，
                 // 盖下来就等于把本机还没上传的编辑吃掉）。随后推送会用陈旧 baseSeq 撞出冲突，
@@ -442,6 +449,11 @@ class RemoteSyncManager @Inject constructor(
         // 而不是让用户以为「已是最新」。
         val truncated = pageCount >= MAX_PULL_PAGES && lastHasMore
         val applied = applyPulledRecords(landed, lastSeq)
+        if (!truncated) {
+            // 整轮拉完才报进度：诊断页的「已同步到序号 N」由此而来。
+            // 只对 Supabase 生效；旧 Worker 在服务端自己写。
+            client.reportPullProgress(lastSeq)
+        }
         return PullOutcome(
             downloaded = landed.size,
             merged = applied.merged,

@@ -1,5 +1,6 @@
 package com.goodyaoshi.lemonbox.data.remote
 
+import android.os.Build
 import com.goodyaoshi.lemonbox.BuildConfig
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -612,6 +613,34 @@ class RemoteSyncClient @Inject constructor(
             PullResponse.serializer(),
             supabaseRpc(session, "pull_changes", body.toString())
         )
+    }
+
+    /**
+     * 上报本轮拉取位置与设备名，供诊断页显示「已同步到序号 N」。
+     *
+     * 旧 Worker 在 /v1/pull 的最后一页顺手写掉 devices 表；Supabase 的 pull_changes
+     * 是 `stable` 函数、不能落库，所以由客户端在**整轮拉取成功**后补一次上报。
+     * 失败一律吞掉：这只是一条诊断信息，不该把一次成功的同步变成失败。
+     */
+    suspend fun reportPullProgress(seq: Long) {
+        if (seq <= 0) return
+        withContext(Dispatchers.IO) {
+            val session = sessionStore.current() ?: return@withContext
+            if (!isSupabaseEndpoint(session.baseUrl)) return@withContext
+            try {
+                val fresh = freshSupabaseSession()
+                val body = buildJsonObject {
+                    put("p_device_id", fresh.deviceId)
+                    put("p_seq", seq)
+                    put("p_device_name", runCatching { Build.MODEL.orEmpty() }.getOrDefault(""))
+                }
+                supabaseRpc(fresh, "report_pull_progress", body.toString())
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // 诊断字段写不进去不影响数据一致性，下一轮同步会再报。
+            }
+        }
     }
 
     /**

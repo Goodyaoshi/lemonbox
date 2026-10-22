@@ -82,9 +82,9 @@ jobs:
           echo "code=$CODE" >> "$GITHUB_OUTPUT"
 
       - name: Guard sync endpoint
-        # 0.0.25 曾把 LEMON_SYNC_BASE_URL 留在旧 Worker 域名上，包发出去实际仍连 D1：
-        # 冷启动要扫两万多条变更（上百页），而 Supabase 全库只有几百条。
-        # 这里在构建前直接拦住，避免同类包再次发出去。
+        # 0.0.25 曾把 LEMON_SYNC_BASE_URL 留在旧 Worker 域名上，0.0.26 又把它拼错成
+        # sgqgvsxow…（DNS 不存在），两个包发出去都连不上。这里在构建前把三类问题一起拦住：
+        # 仍指向旧 Worker、域名解析不了、域名能解析但连不上。
         env:
           SYNC_BASE_URL: ${{ secrets.LEMON_SYNC_BASE_URL }}
         run: |
@@ -92,7 +92,21 @@ jobs:
             echo "LEMON_SYNC_BASE_URL 仍指向旧 Worker（$SYNC_BASE_URL），拒绝发布" >&2
             exit 1
           fi
-          echo "sync base url = ${SYNC_BASE_URL:-<未设置，使用包内默认 Supabase 地址>}"
+          if [ -z "$SYNC_BASE_URL" ]; then
+            echo "sync base url = <未设置，使用包内默认 Supabase 地址>"
+            exit 0
+          fi
+          HOST="$(echo "$SYNC_BASE_URL" | sed -E 's#^https?://##; s#/.*$##')"
+          if ! getent hosts "$HOST" >/dev/null 2>&1; then
+            echo "同步服务端域名无法解析：$HOST（检查 secret 是否拼错）" >&2
+            exit 1
+          fi
+          CODE="$(curl -s -o /dev/null -m 20 -w '%{http_code}' "$SYNC_BASE_URL/auth/v1/settings" || true)"
+          echo "sync host = $HOST, /auth/v1/settings -> HTTP ${CODE}"
+          if [ -z "$CODE" ] || [ "$CODE" = "000" ]; then
+            echo "同步服务端连不上：$SYNC_BASE_URL" >&2
+            exit 1
+          fi
 
       - name: Build release APK
         env:
