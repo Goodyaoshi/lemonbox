@@ -27,6 +27,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import java.io.IOException
 import java.net.URL
+import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -613,6 +614,20 @@ class RemoteSyncClient @Inject constructor(
             PullResponse.serializer(),
             supabaseRpc(session, "pull_changes", body.toString())
         )
+    }
+
+    /**
+     * 打开一条前台实时订阅；未登录或仍连旧 Worker 时返回 null。
+     *
+     * 由调用方在 App 离开前台时 close：后台的长连接会被系统掐掉，留着只会白耗电。
+     */
+    internal fun openRealtimeChannel(): SupabaseRealtimeChannel? {
+        val session = sessionStore.current() ?: return null
+        if (!isSupabaseEndpoint(session.baseUrl)) return null
+        val wsBase = session.baseUrl.trim().trimEnd('/').replaceFirst("https://", "wss://")
+        val key = URLEncoder.encode(supabaseKey, "UTF-8")
+        val url = "$wsBase/realtime/v1/websocket?apikey=$key&vsn=1.0.0"
+        return SupabaseRealtimeChannel(url, httpClient) { freshSupabaseSession().token }
     }
 
     /**

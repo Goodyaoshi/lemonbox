@@ -7,6 +7,7 @@ import android.os.Bundle
 import androidx.room.invalidationTrackerFlow
 import com.goodyaoshi.lemonbox.data.local.database.AppDatabase
 import com.goodyaoshi.lemonbox.data.remote.RemoteSyncManager
+import com.goodyaoshi.lemonbox.data.remote.SupabaseRealtimeChannel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -29,6 +30,8 @@ import javax.inject.Singleton
  *    因此 [LemonApplication] 里原先那处单独的冷启动同步已由本类统一接管。
  * 2. **本地写入后**：任意同步表发生变化，等一小段静默（[WRITE_DEBOUNCE_MS]）再同步一次，
  *    把「改完立即推上去」变成常态，而不必等下一次前台切换或后台任务。
+ * 3. **服务端有变更**：在前台挂一条 Supabase Realtime 订阅，只当「该同步了」的信号，
+ *    去抖 [REALTIME_DEBOUNCE_MS] 后触发一次同步；离开前台即关闭。
  *
  * 与周期性任务的关系：三者并存、互为兜底。未登录 / 未开启多设备同步时
  * [RemoteSyncManager.syncNow] 内部会直接返回，故这里不必再判开关。
@@ -55,6 +58,9 @@ class CloudSyncTrigger @Inject constructor(
     @Volatile
     private var started = false
 
+    /** 前台实时订阅；离开前台即关闭（后台长连接会被系统掐掉，留着只白耗电）。 */
+    private var realtime: SupabaseRealtimeChannel? = null
+
     /** 幂等：冷启动只调用一次。 */
     @OptIn(FlowPreview::class)
     fun start() {
@@ -66,12 +72,16 @@ class CloudSyncTrigger @Inject constructor(
                 // 计数从 0 变 1 才是「真正回到前台」——App 内部的 Activity 切换
                 // （如进相机再回来）不会归零，故不会误触发。
                 override fun onActivityStarted(activity: Activity) {
-                    if (startedActivities == 0) requestSync(FOREGROUND_MIN_INTERVAL_MS)
+                    if (startedActivities == 0) {
+                        ensureRealtime()
+                        requestSync(FOREGROUND_MIN_INTERVAL_MS)
+                    }
                     startedActivities++
                 }
 
                 override fun onActivityStopped(activity: Activity) {
                     startedActivities = (startedActivities - 1).coerceAtLeast(0)
+                    if (startedActivities == 0) stopRealtime()
                 }
 
                 override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
@@ -101,7 +111,31 @@ class CloudSyncTrigger @Inject constructor(
         val now = System.currentTimeMillis()
         if (now - lastTriggerAt.get() < minIntervalMs) return
         lastTriggerAt.set(now)
+        ensureRealtime()
         scope.launch { syncManager.syncNow() }
+    }
+
+    /**
+     * 开启实时订阅（幂等）。登录发生在前台、不产生生命周期切换，
+     * 所以每次请求同步时也顺手确保一次——已连上时直接返回。
+     */
+    @OptIn(FlowPreview::class)
+    private fun ensureRealtime() {
+        if (realtime != null) return
+        val channel = syncManager.openRealtimeChannel() ?: return
+        realtime = channel
+        channel.start()
+        scope.launch {
+            // 一次批量录入会连发多条变更，去抖后只同步一次。
+            channel.changes.debounce(REALTIME_DEBOUNCE_MS).collect {
+                requestSync(minIntervalMs = 0)
+            }
+        }
+    }
+
+    private fun stopRealtime() {
+        realtime?.close()
+        realtime = null
     }
 
     private companion object {
@@ -128,6 +162,9 @@ class CloudSyncTrigger @Inject constructor(
 
         /** 写入后的静默窗口：连续操作停手后再推，避免逐条上传。 */
         const val WRITE_DEBOUNCE_MS = 15_000L
+
+        /** 实时订阅的去抖：连着改几处只同步一次，避免一串短连接把同步撞成排队。 */
+        const val REALTIME_DEBOUNCE_MS = 2_000L
 
         /** 回到前台的去抖间隔：短时间内反复切出切回只同步一次。 */
         const val FOREGROUND_MIN_INTERVAL_MS = 30_000L

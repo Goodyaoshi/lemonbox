@@ -178,6 +178,12 @@ class RemoteSyncManager @Inject constructor(
         activeJob?.cancel()
     }
 
+    /**
+     * 前台实时订阅通道；未登录 / 仍连旧 Worker 时返回 null。
+     * 只作为「该同步了」的信号，落地仍走 [syncNow]。
+     */
+    internal fun openRealtimeChannel(): SupabaseRealtimeChannel? = client.openRealtimeChannel()
+
     private fun timeoutResult(): RemoteSyncResult {
         val message = "同步超时（${SYNC_TIMEOUT_MS / 1000} 秒），已停止。请检查网络后重试"
         _state.value = _state.value.copy(running = false, phase = null, lastError = message)
