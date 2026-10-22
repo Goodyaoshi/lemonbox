@@ -81,6 +81,19 @@ jobs:
           echo "name=$NAME" >> "$GITHUB_OUTPUT"
           echo "code=$CODE" >> "$GITHUB_OUTPUT"
 
+      - name: Guard sync endpoint
+        # 0.0.25 曾把 LEMON_SYNC_BASE_URL 留在旧 Worker 域名上，包发出去实际仍连 D1：
+        # 冷启动要扫两万多条变更（上百页），而 Supabase 全库只有几百条。
+        # 这里在构建前直接拦住，避免同类包再次发出去。
+        env:
+          SYNC_BASE_URL: ${{ secrets.LEMON_SYNC_BASE_URL }}
+        run: |
+          if [ -n "$SYNC_BASE_URL" ] && [ "${SYNC_BASE_URL#*lemonbox.goodyaoshi.eu.cc}" != "$SYNC_BASE_URL" ]; then
+            echo "LEMON_SYNC_BASE_URL 仍指向旧 Worker（$SYNC_BASE_URL），拒绝发布" >&2
+            exit 1
+          fi
+          echo "sync base url = ${SYNC_BASE_URL:-<未设置，使用包内默认 Supabase 地址>}"
+
       - name: Build release APK
         env:
           ORG_GRADLE_PROJECT_LEMON_KEYSTORE_PATH: ${{ runner.temp }}/keystore/release.jks
