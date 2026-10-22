@@ -156,7 +156,13 @@ internal class SupabaseRealtimeChannel(
                     put("ref", nextRef())
                     put("payload", buildJsonObject { })
                 }
-                if (!webSocket.send(beat.toString())) return@launch
+                if (!webSocket.send(beat.toString())) {
+                    // 发送失败＝这条连接已经半死（WiFi/移动网切换后常见）。
+                    // 不主动关掉的话，心跳循环退出、连接却还挂着，实时信号会静默消失。
+                    runCatching { webSocket.cancel() }
+                    scheduleReconnect()
+                    return@launch
+                }
             }
         }
     }

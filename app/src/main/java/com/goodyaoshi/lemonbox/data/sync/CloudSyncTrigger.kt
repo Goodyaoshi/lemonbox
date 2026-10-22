@@ -118,8 +118,12 @@ class CloudSyncTrigger @Inject constructor(
     /**
      * 开启实时订阅（幂等）。登录发生在前台、不产生生命周期切换，
      * 所以每次请求同步时也顺手确保一次——已连上时直接返回。
+     *
+     * 加锁：生命周期回调在主线程，写入后的同步请求在 IO 线程，两边会同时进来；
+     * 不加锁可能各建一条连接，白白多开一个长连接。
      */
     @OptIn(FlowPreview::class)
+    @Synchronized
     private fun ensureRealtime() {
         if (realtime != null) return
         val channel = syncManager.openRealtimeChannel() ?: return
@@ -133,6 +137,7 @@ class CloudSyncTrigger @Inject constructor(
         }
     }
 
+    @Synchronized
     private fun stopRealtime() {
         realtime?.close()
         realtime = null
