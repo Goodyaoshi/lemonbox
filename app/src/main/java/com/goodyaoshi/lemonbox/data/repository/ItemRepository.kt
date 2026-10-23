@@ -141,7 +141,7 @@ class ItemRepository @Inject constructor(
 
     /**
      * 「用1件」：同一种物品多件时只消耗其中一件，数量减 1。
-     * 减到 0 时自动记为已用完并默认勾选需要补货（与「用完」一致）。
+     * 减到 0 时记为已用完；是否补货由用户自己决定（见 [markAsUsed]）。
      * 持续使用型物品不扣数量（电器、调料等按使用天数统计，不走逐件消耗）。
      */
     suspend fun consumeOne(id: Long) {
@@ -157,7 +157,6 @@ class ItemRepository @Inject constructor(
             if (itemDao.consumeOnePiece(id, now) == 0) return
         }
         itemDao.updateUsageStatus(id, Item.USAGE_USED_UP, now)
-        itemDao.updateNeedRestock(id, true, now)
         writeUsageWindow(item, Item.USAGE_USED_UP, item.disposition, now)
     }
 
@@ -173,21 +172,24 @@ class ItemRepository @Inject constructor(
         if (item.trackMode == Item.TRACK_DURABLE) return null
         val now = MonotonicClock.now()
         if (itemDao.consumeAmount(id, amount, now) == 0) return null
-        // 扣到 0 与「用完」同一口径：标记已用完、进待买、封口使用周期。
+        // 扣到 0 与「用完」同一口径：标记已用完、封口使用周期（不自动进待买）。
         if (item.quantity - amount <= 0.0) {
             itemDao.updateUsageStatus(id, Item.USAGE_USED_UP, now)
-            itemDao.updateNeedRestock(id, true, now)
             writeUsageWindow(item, Item.USAGE_USED_UP, item.disposition, now)
         }
         return item
     }
 
-    /** "用完"= 该买了：记为已用完并默认勾选需要补货，进入待买清单；同时封口使用周期。 */
+    /**
+     * 「用完」：只改使用状态并封口使用周期，**不**自动勾选需要补货。
+     *
+     * 补货是用户的决定：有些东西用完就不再买（换牌子、暂时不用），
+     * 替用户默认进待买会让待买清单越积越脏。要买时在卡片/详情里手动「加入待买」。
+     */
     suspend fun markAsUsed(id: Long) {
         val item = itemDao.getItemById(id) ?: return
         val now = MonotonicClock.now()
         itemDao.updateUsageStatus(id, Item.USAGE_USED_UP, now)
-        itemDao.updateNeedRestock(id, true, now)
         writeUsageWindow(item, Item.USAGE_USED_UP, item.disposition, now)
     }
 

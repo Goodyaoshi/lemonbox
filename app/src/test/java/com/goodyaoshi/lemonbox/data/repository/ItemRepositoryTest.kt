@@ -130,7 +130,7 @@ class ItemRepositoryTest {
     }
 
     @Test
-    fun markAsUsed_closesUsageWindow() = runTest {
+    fun markAsUsed_closesUsageWindowWithoutAddingToBuy() = runTest {
         val dao = FakeItemDao(
             mutableListOf(
                 testItem(id = 1L, deletedAt = null).copy(
@@ -145,7 +145,8 @@ class ItemRepositoryTest {
 
         val item = dao.snapshot().single()
         assertEquals(Item.USAGE_USED_UP, item.usageStatus)
-        assertEquals(true, item.needRestock)
+        // 用完只改状态：是否进待买由用户手动决定。
+        assertEquals(false, item.needRestock)
         assertEquals(100L, item.startUseTime)
         assertEquals(item.updatedAt, item.usageEndedAt)
     }

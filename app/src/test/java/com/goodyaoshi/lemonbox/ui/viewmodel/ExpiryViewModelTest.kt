@@ -55,7 +55,7 @@ class ExpiryViewModelTest {
     }
 
     @Test
-    fun markAsUsed_setsUsedUpAndNeedRestock() = runTest(mainDispatcher) {
+    fun markAsUsed_setsUsedUpWithoutNeedRestock() = runTest(mainDispatcher) {
         val dao = FakeItemDao(mutableListOf(activeItem(id = 1L).copy(expireTime = 1_000L)))
         val viewModel = ExpiryViewModel(ItemRepository(dao))
 
@@ -63,7 +63,8 @@ class ExpiryViewModelTest {
 
         val item = dao.snapshot().first { it.id == 1L }
         assertEquals(Item.USAGE_USED_UP, item.usageStatus)
-        assertEquals(true, item.needRestock)
+        // 用完不再自动进待买：要买时由用户手动「加入待买」。
+        assertEquals(false, item.needRestock)
     }
 
     @Test
