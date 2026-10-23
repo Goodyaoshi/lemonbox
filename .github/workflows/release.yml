@@ -99,11 +99,20 @@ jobs:
           # publishable key 是公开值（与 app/build.gradle.kts 里的默认值一致），
           # 不带它 Supabase 网关对所有路径都回 401，探活会失去意义。
           KEY="sb_publishable_lmgqjXC0mF7MLozkLF-HwA_O7xhiezA"
-          SB="$(curl -s -o /dev/null -m 20 -H "apikey: $KEY" -w '%{http_code}' "$BASE/auth/v1/settings" || true)"
+          SB_RAW="$(curl -s -m 20 -H "apikey: $KEY" -w '\n%{http_code}' "$BASE/auth/v1/settings" || true)"
+          SB="$(echo "$SB_RAW" | tail -n1)"
+          SB_BODY="$(echo "$SB_RAW" | sed '$d')"
           WORKER_BODY="$(curl -s -m 20 "$BASE/health" || true)"
           echo "sync host = $HOST, /auth/v1/settings -> HTTP ${SB}, /health -> ${WORKER_BODY:-<无响应>}"
-          # Supabase（含反代域名）或旧 Worker 任一可用即放行；401/404 这类「能连上但用不了」必须拦住。
+          # Supabase（含反代域名）或旧 Worker 任一可用即放行。
           if [ "$SB" = "200" ] || echo "$WORKER_BODY" | grep -q '"ok":true'; then
+            exit 0
+          fi
+          # 403 + Cloudflare 人机校验 = GitHub 机房出口 IP 被 challenge，不代表 App 连不上：
+          # 真实设备走住宅网络实测 200，这里只告警不拦发布。
+          if echo "$SB_BODY" | grep -q 'cf_chl_opt\|Just a moment' \
+             || echo "$WORKER_BODY" | grep -q 'cf_chl_opt\|Just a moment'; then
+            echo "警告：Cloudflare 对 CI 出口 IP 发起人机校验（403），按可达处理" >&2
             exit 0
           fi
           echo "同步服务端不可用：$BASE（Supabase 与旧 Worker 探活都失败）" >&2
