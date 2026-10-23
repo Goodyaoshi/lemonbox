@@ -46,7 +46,7 @@ val syncBaseUrl = (findProperty("LEMON_SYNC_BASE_URL") as String?)
  */
 val defaultVersionName = (findProperty("lemonVersionName") as String?)
     ?.takeIf { it.isNotBlank() }
-    ?: "0.0.28"
+    ?: "0.0.29"
 
 val derivedVersionCode: Int = run {
     val parts = defaultVersionName.removePrefix("v").split('.')

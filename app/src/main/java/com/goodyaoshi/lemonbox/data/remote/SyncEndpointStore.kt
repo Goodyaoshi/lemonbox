@@ -13,7 +13,9 @@ import javax.inject.Singleton
 data class EndpointProbe(
     val baseUrl: String,
     val reachable: Boolean,
-    val detail: String
+    val detail: String,
+    /** 该地址是 Supabase（含反代域名）还是旧 Worker；自定义域名只能靠探活结果判断。 */
+    val supabase: Boolean = false
 )
 
 /**
@@ -50,6 +52,7 @@ class SyncEndpointStore @Inject constructor(
         prefs.edit().apply {
             if (normalized == null) remove(KEY_CUSTOM) else putString(KEY_CUSTOM, normalized)
             remove(KEY_ACTIVE)
+            remove(KEY_SUPABASE_BASE)
         }.apply()
     }
 
@@ -65,11 +68,22 @@ class SyncEndpointStore @Inject constructor(
         return if (active != null && isKnownBaseUrl(active)) active else defaultBaseUrl
     }
 
-    /** 记录探活成功的地址。 */
-    fun markActive(base: String) {
+    /**
+     * 记录探活成功的地址，以及它是不是 Supabase。
+     *
+     * 自定义反代域名（`https://supabase.example.com`）没有 `.supabase.co` 后缀，
+     * 只能把探活结论存下来，登录后再冷启动才知道该走 `/rest/v1` 还是旧 Worker 的 `/v1`。
+     */
+    fun markActive(base: String, supabase: Boolean) {
         val normalized = normalize(base) ?: return
-        prefs.edit().putString(KEY_ACTIVE, normalized).apply()
+        prefs.edit().apply {
+            putString(KEY_ACTIVE, normalized)
+            if (supabase) putString(KEY_SUPABASE_BASE, normalized) else remove(KEY_SUPABASE_BASE)
+        }.apply()
     }
+
+    /** 最近一次探活确认「这个地址是 Supabase」的地址；没有则为 null。 */
+    fun supabaseBase(): String? = prefs.getString(KEY_SUPABASE_BASE, null)
 
     fun isKnownBaseUrl(url: String): Boolean =
         normalize(url)?.let { it in candidates() } == true
@@ -93,5 +107,6 @@ class SyncEndpointStore @Inject constructor(
         const val PREFS_NAME = "lemon_sync_endpoint"
         const val KEY_CUSTOM = "custom_base_url"
         const val KEY_ACTIVE = "active_base_url"
+        const val KEY_SUPABASE_BASE = "supabase_base_url"
     }
 }

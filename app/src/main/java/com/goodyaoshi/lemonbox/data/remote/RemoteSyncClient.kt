@@ -128,7 +128,7 @@ class RemoteSyncClient @Inject constructor(
         for (base in all) {
             val result = probeOne(base)
             if (result.reachable) {
-                endpointStore.markActive(base)
+                endpointStore.markActive(base, result.supabase)
                 return result
             }
             failures += result.detail
@@ -137,7 +137,15 @@ class RemoteSyncClient @Inject constructor(
     }
 
     private suspend fun probeOne(base: String): EndpointProbe {
-        val supabase = isSupabaseEndpoint(base)
+        if (isSupabaseEndpoint(base)) return probeProtocol(base, supabase = true)
+        // 自定义反代域名（如 https://supabase.example.com）的后缀不像 Supabase，
+        // 只能按能力判断：先试 Supabase 的公开 /auth/v1/settings，再退回旧 Worker 的 /health。
+        val supabaseProbe = probeProtocol(base, supabase = true)
+        if (supabaseProbe.reachable) return supabaseProbe
+        return probeProtocol(base, supabase = false)
+    }
+
+    private suspend fun probeProtocol(base: String, supabase: Boolean): EndpointProbe {
         return try {
             val httpRequest = if (supabase) {
                 // Supabase 没有 /health：读取公开的 Auth 设置即可证明项目可达。
@@ -164,13 +172,14 @@ class RemoteSyncClient @Inject constructor(
                 EndpointProbe(
                     baseUrl = base,
                     reachable = ok,
-                    detail = if (ok) "已连接 $base" else "$base 返回 HTTP ${response.code}"
+                    detail = if (ok) "已连接 $base" else "$base 返回 HTTP ${response.code}",
+                    supabase = supabase
                 )
             }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            EndpointProbe(base, false, "$base：${NetworkError.describe(e)}")
+            EndpointProbe(base, false, "$base：${NetworkError.describe(e)}", supabase)
         }
     }
 
@@ -180,11 +189,16 @@ class RemoteSyncClient @Inject constructor(
      * 以 `.supabase.co` 后缀判断（自建 Supabase 域名可另配 LEMON_SUPABASE_URL，
      * 与构建默认值一致时同样命中）。这样同一个安装包既能连 Supabase，
      * 也能在把 LEMON_SYNC_BASE_URL 指回旧 Worker 时整包回退，不需要分支发版。
+     *
+     * 反代域名（如 `https://supabase.example.com`）没有 `.supabase.co` 后缀，
+     * 靠探活时确认过的结果识别；该结果由 [SyncEndpointStore] 持久化，
+     * 保证重启后走 Supabase RPC 而不是旧 Worker 的 `/v1` 系列接口。
      */
     private fun isSupabaseEndpoint(url: String): Boolean {
         val base = url.trim().trimEnd('/')
         if (base.isEmpty()) return false
         if (base == BuildConfig.SUPABASE_URL.trim().trimEnd('/')) return true
+        if (base == endpointStore.supabaseBase()) return true
         return runCatching { URL(base).host.lowercase().endsWith(".supabase.co") }
             .getOrDefault(false)
     }

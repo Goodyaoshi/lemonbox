@@ -82,31 +82,32 @@ jobs:
           echo "code=$CODE" >> "$GITHUB_OUTPUT"
 
       - name: Guard sync endpoint
-        # 0.0.25 曾把 LEMON_SYNC_BASE_URL 留在旧 Worker 域名上，0.0.26 又把它拼错成
-        # sgqgvsxow…（DNS 不存在），两个包发出去都连不上。这里在构建前把三类问题一起拦住：
-        # 仍指向旧 Worker、域名解析不了、域名能解析但连不上。
         env:
           SYNC_BASE_URL: ${{ secrets.LEMON_SYNC_BASE_URL }}
         run: |
-          if [ -n "$SYNC_BASE_URL" ] && [ "${SYNC_BASE_URL#*lemonbox.goodyaoshi.eu.cc}" != "$SYNC_BASE_URL" ]; then
-            echo "LEMON_SYNC_BASE_URL 仍指向旧 Worker（$SYNC_BASE_URL），拒绝发布" >&2
-            exit 1
-          fi
           if [ -z "$SYNC_BASE_URL" ]; then
             echo "sync base url = <未设置，使用包内默认 Supabase 地址>"
             exit 0
           fi
-          HOST="$(echo "$SYNC_BASE_URL" | sed -E 's#^https?://##; s#/.*$##')"
+          # 去掉结尾斜杠：secret 里多写一个「/」会拼出 //auth/v1/settings。
+          BASE="${SYNC_BASE_URL%/}"
+          HOST="$(echo "$BASE" | sed -E 's#^https?://##; s#/.*$##')"
           if ! getent hosts "$HOST" >/dev/null 2>&1; then
             echo "同步服务端域名无法解析：$HOST（检查 secret 是否拼错）" >&2
             exit 1
           fi
-          CODE="$(curl -s -o /dev/null -m 20 -w '%{http_code}' "$SYNC_BASE_URL/auth/v1/settings" || true)"
-          echo "sync host = $HOST, /auth/v1/settings -> HTTP ${CODE}"
-          if [ -z "$CODE" ] || [ "$CODE" = "000" ]; then
-            echo "同步服务端连不上：$SYNC_BASE_URL" >&2
-            exit 1
+          # publishable key 是公开值（与 app/build.gradle.kts 里的默认值一致），
+          # 不带它 Supabase 网关对所有路径都回 401，探活会失去意义。
+          KEY="sb_publishable_lmgqjXC0mF7MLozkLF-HwA_O7xhiezA"
+          SB="$(curl -s -o /dev/null -m 20 -H "apikey: $KEY" -w '%{http_code}' "$BASE/auth/v1/settings" || true)"
+          WORKER_BODY="$(curl -s -m 20 "$BASE/health" || true)"
+          echo "sync host = $HOST, /auth/v1/settings -> HTTP ${SB}, /health -> ${WORKER_BODY:-<无响应>}"
+          # Supabase（含反代域名）或旧 Worker 任一可用即放行；401/404 这类「能连上但用不了」必须拦住。
+          if [ "$SB" = "200" ] || echo "$WORKER_BODY" | grep -q '"ok":true'; then
+            exit 0
           fi
+          echo "同步服务端不可用：$BASE（Supabase 与旧 Worker 探活都失败）" >&2
+          exit 1
 
       - name: Build release APK
         env:
@@ -114,9 +115,6 @@ jobs:
           ORG_GRADLE_PROJECT_LEMON_KEYSTORE_PASSWORD: ${{ secrets.LEMON_KEYSTORE_PASSWORD }}
           ORG_GRADLE_PROJECT_LEMON_KEY_ALIAS: ${{ secrets.LEMON_KEY_ALIAS }}
           ORG_GRADLE_PROJECT_LEMON_KEY_PASSWORD: ${{ secrets.LEMON_KEY_PASSWORD }}
-          # 同步服务端地址（P4）：只注入**公开域名**，不含任何密钥。
-          # 对象存储的 AccessKey/SecretKey 只存在服务端（Cloudflare Worker secret），
-          # 客户端登录后由 Worker 下发几分钟有效的预签名 URL，包里不再有密文配置。
           ORG_GRADLE_PROJECT_LEMON_SYNC_BASE_URL: ${{ secrets.LEMON_SYNC_BASE_URL }}
         run: |
           chmod +x ./gradlew
