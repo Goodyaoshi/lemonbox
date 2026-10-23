@@ -112,7 +112,12 @@ class CloudSyncTrigger @Inject constructor(
         if (now - lastTriggerAt.get() < minIntervalMs) return
         lastTriggerAt.set(now)
         ensureRealtime()
-        scope.launch { syncManager.syncNow() }
+        scope.launch {
+            // 先补登录态（续期 / 静默重登）：否则会话失效时同步会被「未登录」直接拦下，
+            // 且之后没有任何路径能把它恢复回来。
+            syncManager.ensureSessionFresh()
+            syncManager.syncNow()
+        }
     }
 
     /**

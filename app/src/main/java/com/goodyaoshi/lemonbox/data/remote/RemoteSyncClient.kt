@@ -5,6 +5,8 @@ import com.goodyaoshi.lemonbox.BuildConfig
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -89,6 +91,22 @@ class RemoteSyncClient @Inject constructor(
     /** 当前账号所属的 household_id；一次登录内不会变，省掉每次推送都查一次。 */
     @Volatile
     private var householdIdCache: String? = null
+
+    /**
+     * 续期串行化。
+     *
+     * Supabase 每次刷新都会轮换 refresh_token：两个并发请求各拿旧 token 去换，
+     * 后到的那次会被判「已使用」返回 400，而 4xx 又会触发清空本机会话——
+     * 表现为用户莫名其妙被退出登录。加锁后第二次进入时读到的已是新令牌，直接复用。
+     */
+    private val refreshMutex = Mutex()
+
+    /**
+     * 本次进程内是否已确认「保存的凭据无效」（如密码在别处被改）。
+     * 这种情况下每次同步都去撞一次登录接口没有意义；下次启动或手动登录成功会重置。
+     */
+    @Volatile
+    private var autoReloginBlocked = false
 
     /**
      * 只对同步域名的解析走 DoH；其他域名（图片、局域网等）保持系统 DNS。
@@ -210,7 +228,8 @@ class RemoteSyncClient @Inject constructor(
      *
      * 先探活候选地址：默认域名被污染/阻断时，会自动改用用户配置的备用地址。
      * 探活失败时把每个地址的具体原因拼进错误里，而不是笼统说「连不上」。
-     * [password] 只在这一步交给服务端校验，本机不保存它。
+     * 登录成功会同时留一份加密的 [AutoLoginCredential]：会话被服务端撤销或
+     * 换域失效后，用它静默重登，用户只要没主动退出就不必再输密码。
      */
     suspend fun login(
         username: String,
@@ -226,38 +245,43 @@ class RemoteSyncClient @Inject constructor(
             throw RemoteApiException(0, "连不上同步服务器：${probe.detail}")
         }
         val endpoint = probe.baseUrl
-        if (isSupabaseEndpoint(endpoint)) {
-            return@withContext supabaseLogin(endpoint, username, password, deviceId)
-        }
-        val payload = json.encodeToString(
-            LoginRequest(
-                username = username.trim(),
-                password = password,
-                deviceId = deviceId,
-                deviceName = deviceName
+        val session = if (isSupabaseEndpoint(endpoint)) {
+            supabaseLogin(endpoint, username, password, deviceId)
+        } else {
+            val payload = json.encodeToString(
+                LoginRequest(
+                    username = username.trim(),
+                    password = password,
+                    deviceId = deviceId,
+                    deviceName = deviceName
+                )
             )
-        )
-        val response = json.decodeFromString(
-            LoginResponse.serializer(),
-            request(
-                method = "POST",
-                path = "/v1/login",
-                body = payload,
-                token = null,
+            val response = json.decodeFromString(
+                LoginResponse.serializer(),
+                request(
+                    method = "POST",
+                    path = "/v1/login",
+                    body = payload,
+                    token = null,
+                    baseUrl = endpoint,
+                    readTimeoutMs = API_TIMEOUT_MS
+                )
+            )
+            val legacy = RemoteSession(
                 baseUrl = endpoint,
-                readTimeoutMs = API_TIMEOUT_MS
+                token = response.token,
+                userId = response.user.id,
+                username = response.user.name,
+                expiresAt = response.expiresAt
             )
-        )
-        val session = RemoteSession(
-            baseUrl = endpoint,
-            token = response.token,
-            userId = response.user.id,
-            username = response.user.name,
-            expiresAt = response.expiresAt
-        )
-        if (!sessionStore.save(session)) {
-            throw RemoteApiException(0, "系统密钥库不可用，无法在本机保存登录状态")
+            if (!sessionStore.save(legacy)) {
+                throw RemoteApiException(0, "系统密钥库不可用，无法在本机保存登录状态")
+            }
+            legacy
         }
+        // 凭据写入失败不影响本次登录，只是以后不能静默重登。
+        sessionStore.saveCredential(AutoLoginCredential(username.trim(), password, deviceId))
+        autoReloginBlocked = false
         session
     }
 
@@ -298,7 +322,7 @@ class RemoteSyncClient @Inject constructor(
             userId = token.user?.id.orEmpty(),
             username = supabaseUsername(email) ?: username.trim(),
             // expires_in 是秒；留 60 秒余量由 freshSupabaseSession 统一处理，这里按原值记。
-            expiresAt = System.currentTimeMillis() + token.expiresIn * 1000L,
+            expiresAt = expiryFrom(token.expiresIn),
             refreshToken = token.refreshToken,
             deviceId = deviceId
         )
@@ -348,6 +372,8 @@ class RemoteSyncClient @Inject constructor(
         }
         householdIdCache = null
         sessionStore.clear()
+        // 主动退出才删除静默重登凭据；这是「以后要重新输密码」的唯一开关。
+        sessionStore.clearCredential()
     }
 
     /**
@@ -490,15 +516,19 @@ class RemoteSyncClient @Inject constructor(
      * 取一个可用的 Supabase 会话：快过期时用 refresh_token 续期并落本机。
      *
      * access_token 只有一小时，而 App 的后台同步可能隔很久才跑一次；不续期就会在
-     * 某次同步里突然全 401。刷新失败且是 4xx（令牌被撤销/账号被删）时**清掉本机会话**，
-     * 让界面回到「请重新登录」，而不是反复撞同一堵墙。
+     * 某次同步里突然全 401。刷新返回 4xx（令牌被撤销/账号被删）时先用保存的凭据静默重登，
+     * 重登也失败才清掉本机会话，让界面回到「请重新登录」，而不是反复撞同一堵墙。
+     *
+     * 全程持 [refreshMutex]：只有确实需要续期时才发起网络请求，并确保同一时刻
+     * 只有一个请求在轮换 refresh_token，避免并发刷新把彼此挤成 4xx 而误清会话。
      */
-    private suspend fun freshSupabaseSession(): RemoteSession {
+    private suspend fun freshSupabaseSession(): RemoteSession = refreshMutex.withLock {
         val session = sessionStore.current()
+            ?: return@withLock autoRelogin()
             ?: throw RemoteApiException(401, "请先登录柠檬账号")
-        if (session.refreshToken.isBlank()) return session
-        if (!session.isExpired(System.currentTimeMillis() + TOKEN_REFRESH_AHEAD_MS)) return session
-        return try {
+        if (session.refreshToken.isBlank()) return@withLock session
+        if (!session.isExpired(System.currentTimeMillis() + TOKEN_REFRESH_AHEAD_MS)) return@withLock session
+        try {
             val body = json.encodeToString(
                 SupabaseRefreshGrant.serializer(),
                 SupabaseRefreshGrant(session.refreshToken)
@@ -516,19 +546,91 @@ class RemoteSyncClient @Inject constructor(
             val updated = session.copy(
                 token = token.accessToken.ifBlank { session.token },
                 refreshToken = token.refreshToken.ifBlank { session.refreshToken },
-                expiresAt = System.currentTimeMillis() + token.expiresIn * 1000L
+                expiresAt = expiryFrom(token.expiresIn)
             )
             sessionStore.save(updated)
             updated
         } catch (e: RemoteApiException) {
             if (e.statusCode in 400..403) {
                 householdIdCache = null
-                sessionStore.clear()
-                throw RemoteApiException(401, "登录已过期，请重新登录")
+                // refresh_token 被服务端撤销（改密码 / 踢会话）时，先用保存的凭据重建；
+                // 只有重建也失败才真正回到未登录，避免「没退出却要重新输密码」。
+                return@withLock autoRelogin() ?: run {
+                    sessionStore.clear()
+                    throw RemoteApiException(401, "登录已过期，请重新登录")
+                }
             }
             throw e
         }
     }
+
+    /**
+     * 主动续期一次；App 冷启动 / 回到前台时调用，让登录态自己滚下去。
+     *
+     * 会话已经丢了（换域、被清理、refresh_token 被撤销）时，直接用保存的凭据静默重登。
+     * 网络不通一律吞掉——这只是一次后台保活，不该让界面弹错；
+     * 凭据确认失效时会话会被清空，界面回到登录页（主动退出后则不再有凭据）。
+     */
+    suspend fun ensureSessionFresh() = withContext(Dispatchers.IO) {
+        val session = sessionStore.current()
+        if (session == null) {
+            // 冷启动前可能被多处同时触发，串行化避免重复登录。
+            refreshMutex.withLock { autoRelogin() }
+            return@withContext
+        }
+        val expired = session.isExpired()
+        if (!isSupabaseEndpoint(session.baseUrl) || session.refreshToken.isBlank()) {
+            // 旧 Worker 会话没有 refresh_token，过期后同样只能靠凭据重建。
+            if (expired) refreshMutex.withLock { autoRelogin() }
+            return@withContext
+        }
+        try {
+            freshSupabaseSession()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // 保活失败不打断启动流程，下一次同步会再试。
+        }
+    }
+
+    /**
+     * 用本机保存的凭据静默重建会话。
+     *
+     * 覆盖三类「没退出登录却丢了会话」的情况：refresh_token 被服务端撤销、
+     * 服务端地址换了导致旧会话作废、本机会话记录被清理。凭据只在主动退出登录时删除，
+     * 因此正常使用下用户不会再被要求输入账号密码。
+     */
+    private suspend fun autoRelogin(): RemoteSession? {
+        if (autoReloginBlocked) return null
+        val credential = sessionStore.credential() ?: return null
+        return try {
+            login(
+                username = credential.username,
+                password = credential.password,
+                deviceId = credential.deviceId,
+                deviceName = runCatching { Build.MODEL }.getOrNull().orEmpty().ifBlank { "本机" }
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: RemoteApiException) {
+            // 网络层失败（statusCode=0）留到下次前台/启动再试；4xx 说明凭据确实无效，
+            // 本次进程内不再重试。凭据本身保留，用户手动登录成功后会覆盖成新的。
+            if (e.statusCode != 0) autoReloginBlocked = true
+            null
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
+     * 由 `expires_in`（秒）算出到期时刻。
+     *
+     * 个别网关/反代会漏掉该字段，DTO 默认值为 0；若直接相减会得到一个「一登录就过期」
+     * 的会话，故按 Supabase 默认的一小时兜底。
+     */
+    private fun expiryFrom(expiresIn: Long): Long =
+        System.currentTimeMillis() +
+            (expiresIn.takeIf { it > 0 } ?: DEFAULT_EXPIRES_IN_SECONDS) * 1000L
 
     /** 调一个 Supabase RPC；返回体刻意与旧 Worker 的 DTO 同形，调用方无需区分后端。 */
     private suspend fun supabaseRpc(session: RemoteSession, name: String, body: String): String =
@@ -812,6 +914,9 @@ class RemoteSyncClient @Inject constructor(
 
         /** access_token 到期前多久就提前续期，避免请求飞到一半刚好过期。 */
         const val TOKEN_REFRESH_AHEAD_MS = 60_000L
+
+        /** 服务端没给 expires_in 时按 Supabase 默认的一小时算。 */
+        const val DEFAULT_EXPIRES_IN_SECONDS = 3_600L
 
         /**
          * 用户名 → Supabase Auth 邮箱。

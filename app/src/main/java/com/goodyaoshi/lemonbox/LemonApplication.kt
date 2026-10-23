@@ -9,6 +9,7 @@ import com.goodyaoshi.lemonbox.data.imagecloud.CloudImageFetcherFactory
 import com.goodyaoshi.lemonbox.data.imagecloud.CloudImageModelKeyer
 import com.goodyaoshi.lemonbox.data.imagecloud.ImageCloudConfig
 import com.goodyaoshi.lemonbox.data.imagecloud.ImageCloudSyncScheduler
+import com.goodyaoshi.lemonbox.data.remote.RemoteSyncClient
 import com.goodyaoshi.lemonbox.data.remote.SyncSessionStore
 import com.goodyaoshi.lemonbox.data.repository.LedgerPlanningRepository
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
@@ -71,6 +72,9 @@ class LemonApplication : Application(), Configuration.Provider, ImageLoaderFacto
     lateinit var syncSessionStore: SyncSessionStore
 
     @Inject
+    lateinit var remoteSyncClient: RemoteSyncClient
+
+    @Inject
     lateinit var cloudSyncTrigger: CloudSyncTrigger
 
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -104,6 +108,21 @@ class LemonApplication : Application(), Configuration.Provider, ImageLoaderFacto
         // 即时触发：回到前台 / 本地写入后同步。冷启动的首次 onStart 也在其覆盖内，
         // 故不再单独在此处启动一次同步。
         cloudSyncTrigger.start()
+        applicationScope.launch {
+            // 登录态保活：access_token 只有一小时，冷启动先续期；refresh_token 也失效时
+            // 用加密保存的凭据静默重登。只要没主动退出登录，用户就不会再被要求输密码。
+            remoteSyncClient.ensureSessionFresh()
+            // 静默重登成功后登录态才为真，启动时那次排期按未登录算过，这里补排一次。
+            imageCloudSyncScheduler.syncSchedule(
+                supported = imageCloudConfig.supported,
+                enabled = syncSessionStore.isLoggedIn,
+                backgroundSync = true
+            )
+            cloudSyncScheduler.syncSchedule(
+                supported = imageCloudConfig.textSyncSupported,
+                enabled = syncSessionStore.isLoggedIn
+            )
+        }
         applicationScope.launch {
             // 打开应用时顺手刷新一次桌面小组件，让数据立刻最新。
             widgetUpdater.refresh()

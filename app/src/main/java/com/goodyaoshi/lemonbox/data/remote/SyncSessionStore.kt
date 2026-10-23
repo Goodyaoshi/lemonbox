@@ -46,6 +46,22 @@ data class RemoteSession(
 }
 
 /**
+ * 静默重登凭据：用户名 + 密码 + 设备标识。
+ *
+ * 加密方式与会话相同（Keystore AES-256-GCM），**只有用户主动退出登录时**才删除。
+ * 之所以要存密码：refresh_token 会被服务端撤销（改密码 / 踢会话），服务端地址换域
+ * 也会让旧会话整条作废；没有这份凭据，用户就会在「根本没退出登录」的情况下
+ * 被要求重新输密码。它不参与任何业务请求，只在会话失效后用于重建一次会话。
+ */
+@Serializable
+data class AutoLoginCredential(
+    val username: String,
+    val password: String,
+    /** 重建会话必须沿用同一设备标识，否则会把自己的记录当成别人的重新拉一遍。 */
+    val deviceId: String
+)
+
+/**
  * 登录会话的本地加密存储。
  *
  * 会话令牌是能读写她全部家庭数据的凭据，因此与图片凭据同样处理：
@@ -67,14 +83,14 @@ class SyncSessionStore @Inject constructor(
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
     /**
-     * 当前会话；未登录 / 令牌过期 / 服务端地址变了都为 null。
+     * 当前会话；未登录 / 服务端地址变了都为 null。
      * 直接暴露成流，界面（登录页、数据中心）据此显示登录态。
      */
     private val _session = MutableStateFlow(loadValid())
 
     val session: StateFlow<RemoteSession?> = _session.asStateFlow()
 
-    /** 是否处于已登录状态（令牌未过期且指向当前服务端）。 */
+    /** 是否处于已登录状态（令牌可用且指向当前服务端）。 */
     val isLoggedIn: Boolean
         get() = _session.value != null
 
@@ -95,16 +111,48 @@ class SyncSessionStore @Inject constructor(
     }
 
     /**
-     * 读取并校验本机会话：解不开、过期、或指向别的服务端都算没登录，
+     * 保存静默重登凭据（登录成功时调用）。
+     *
+     * 与会话分开存放：会话可以因为过期/换域被清掉，而这份凭据要活到用户主动退出为止。
+     */
+    fun saveCredential(credential: AutoLoginCredential): Boolean {
+        if (credential.username.isBlank() || credential.password.isEmpty()) return false
+        val blob = encrypt(json.encodeToString(AutoLoginCredential.serializer(), credential))
+            ?: return false
+        preferences.edit().putString(KEY_CREDENTIAL, blob).apply()
+        return true
+    }
+
+    /** 读取静默重登凭据；没有，或 Keystore 换过密钥解不开时返回 null。 */
+    fun credential(): AutoLoginCredential? {
+        val blob = preferences.getString(KEY_CREDENTIAL, null) ?: return null
+        return decrypt(blob)?.let {
+            runCatching { json.decodeFromString(AutoLoginCredential.serializer(), it) }.getOrNull()
+        }
+    }
+
+    /** 主动退出登录时调用：这是本机「忘掉账号密码」的唯一入口。 */
+    fun clearCredential() {
+        preferences.edit().remove(KEY_CREDENTIAL).apply()
+    }
+
+    /**
+     * 读取并校验本机会话：解不开、没有令牌、或指向别的服务端都算没登录，
      * 并顺手清掉这份脏数据，免得每次都白试一遍。
+     *
+     * access_token 过期**不**删会话：Supabase 的 access_token 只有一小时，
+     * 但 refresh_token 仍能续期，交给 [RemoteSyncClient] 的续期逻辑处理。
+     * 早期实现把「过期」一并当成未登录删掉，结果用户隔一小时再打开 App
+     * 就被迫重新输密码——那正是这条路径反复丢掉登录态的原因。
      */
     private fun loadValid(): RemoteSession? {
         val blob = preferences.getString(KEY_SESSION, null) ?: return null
         val session = decrypt(blob)
             ?.let { runCatching { json.decodeFromString(RemoteSession.serializer(), it) }.getOrNull() }
+        val refreshable = session?.refreshToken?.isNotBlank() == true
         val valid = session != null &&
             session.token.isNotBlank() &&
-            !session.isExpired() &&
+            (!session.isExpired() || refreshable) &&
             endpointStore.isKnownBaseUrl(session.baseUrl)
         if (!valid) {
             preferences.edit().remove(KEY_SESSION).apply()
@@ -162,6 +210,7 @@ class SyncSessionStore @Inject constructor(
     private companion object {
         const val PREFS_NAME = "lemon_sync_session"
         const val KEY_SESSION = "session_v1"
+        const val KEY_CREDENTIAL = "credential_v1"
         const val KEY_ALIAS = "lemonbox_sync_session"
         const val ANDROID_KEYSTORE = "AndroidKeyStore"
         const val TRANSFORMATION = "AES/GCM/NoPadding"

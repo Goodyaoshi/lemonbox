@@ -184,6 +184,12 @@ class RemoteSyncManager @Inject constructor(
      */
     internal fun openRealtimeChannel(): SupabaseRealtimeChannel? = client.openRealtimeChannel()
 
+    /**
+     * 同步前的登录态保活：快过期就续期，会话丢了就用本机保存的凭据静默重登。
+     * 未登录时同步会被 [ImageCloudConfig.remoteSyncBlocker] 拦下，所以恢复动作必须发生在它之前。
+     */
+    suspend fun ensureSessionFresh() = client.ensureSessionFresh()
+
     private fun timeoutResult(): RemoteSyncResult {
         val message = "同步超时（${SYNC_TIMEOUT_MS / 1000} 秒），已停止。请检查网络后重试"
         _state.value = _state.value.copy(running = false, phase = null, lastError = message)

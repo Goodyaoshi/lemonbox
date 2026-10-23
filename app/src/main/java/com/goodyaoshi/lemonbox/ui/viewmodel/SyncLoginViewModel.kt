@@ -75,6 +75,16 @@ class SyncLoginViewModel @Inject constructor(
     )
     val uiState: StateFlow<SyncLoginUiState> = _uiState.asStateFlow()
 
+    init {
+        // 静默重登（冷启动 / 回到前台触发）与退出登录都可能在本页之外改变会话，
+        // 订阅一次，页面不必重进就能从「未登录」切回已登录。
+        viewModelScope.launch {
+            sessionStore.session.collect {
+                _uiState.update { state -> state.withSession() }
+            }
+        }
+    }
+
     fun updateUsername(value: String) = _uiState.update { it.copy(inputUsername = value) }
 
     fun updatePassword(value: String) = _uiState.update { it.copy(inputPassword = value) }
