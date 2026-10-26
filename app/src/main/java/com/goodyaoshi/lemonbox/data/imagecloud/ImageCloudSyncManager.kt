@@ -93,7 +93,8 @@ class ImageCloudSyncManager @Inject constructor(
 
     /**
      * 同步全部家当图片（存量迁移入口）。重复触发无副作用：已在云端的会被跳过。
-     * 确认云端已有后即删除本地副本——图片以云端为唯一来源，本地不再长期保留。
+     * 云端确认已有后把本地副本挪进回填缓存（见 [settleLocalCopyIfSafe]）：
+     * 展示端离线可用、零网络，云端作为长期备份。
      */
     fun syncAll() = launchSync { loadAllImages() }
 
@@ -150,8 +151,8 @@ class ImageCloudSyncManager @Inject constructor(
      * UI 触发的 [syncAll] / [syncItem] 与后台补传 [syncPendingNow] 都走这里，
      * 两边的进度口径与幂等行为因此完全一致，不会各写一套而漂移。
      *
-     * 云端确认已有该图后即删除本地副本（见 [deleteLocalIfSafe]）：图片以云端为唯一来源，
-     * 本地不再长期保留。删除受三道闸门保护，任一不过就保留，因此不会丢图。
+     * 云端确认已有该图后把本地副本挪进回填缓存（见 [settleLocalCopyIfSafe]），
+     * 挪动受三道闸门保护，任一不过就原地保留，因此不会丢图。
      */
     private suspend fun performSync(
         images: List<ImageToSync>
@@ -187,7 +188,7 @@ class ImageCloudSyncManager @Inject constructor(
             // 只有云端确实拿到了这张图，才有资格动本地副本。
             // 不再需要回写对象键：键由哈希推导，库里那个哈希本来就够用。
             if (confirmedOnCloud) {
-                deleteLocalIfSafe(image, hashRefCounts)
+                settleLocalCopyIfSafe(image, hashRefCounts)
             }
             _state.value = _state.value.copy(
                 uploaded = uploaded,
@@ -217,18 +218,24 @@ class ImageCloudSyncManager @Inject constructor(
     }
 
     /**
-     * 云端确认已有这张图后，删除本地副本。
+     * 云端确认已有这张图后，消化本地副本：**挪进回填缓存**（[ImageRestoreStore.admit]），
+     * 而不是删除。
      *
-     * 三道闸门，任一不过就保留本地副本（宁可多占一点空间，也不能丢图）：
-     *  1. 该路径若被多个图片槽位引用（同一张图可能被选给多件物品），删掉会让别的图一起消失；
-     *  2. 路径不在引用统计里（数据异常），保守不删；
+     * 为什么挪而不删：挪入后展示端查不到 images/ 下的原路径时会直接命中这份文件，
+     * 离线可用、零网络——效果等同「从云端下载回来落盘」，但一次网络都不用花；
+     * 而删掉后每次首次显示都得付一轮「签名 + 下载」。云端始终保有同一份内容，作为
+     * 长期备份与多设备来源。只有挪入失败才真正删除（宁可让展示端走云端取回，也不留
+     * 两个目录各一份）。
+     *
+     * 三道闸门，任一不过就原地保留（宁可多占一点空间，也不能丢图）：
+     *  1. 该路径被多个图片槽位引用（同一张图可能被选给多件物品）时留在 images/，
+     *     展示端直接命中本地；
+     *  2. 路径不在引用统计里（数据异常），保守不动；
      *  3. **云端真的读得回来**——见 [BlobGateway.verifyReadable]。
-     *     上传与读取是两条不同的链路，不先验证就删等于拿用户的照片赌一个未验证的假设。
-     *
-     * 删除后物品的图片槽位（哈希）原样保留，因此主图与顺序都不会变；
-     * 读取时发现本地文件不在，自动改用云端取图。
+     *     上传与读取是两条不同的链路，不先验证就动本地副本等于拿用户的照片赌一个
+     *     未验证的假设。
      */
-    private suspend fun deleteLocalIfSafe(
+    private suspend fun settleLocalCopyIfSafe(
         image: ImageToSync,
         hashRefCounts: Map<String, Int>
     ) {
@@ -236,7 +243,9 @@ class ImageCloudSyncManager @Inject constructor(
         if (refCount > 1) return
         val readable = gateway.verifyReadable(image.objectKey)
         if (!readable) return
-        ImageUtil.deleteImage(image.file.absolutePath)
+        if (!restoreStore.admit(image.file, image.objectKey)) {
+            ImageUtil.deleteImage(image.file.absolutePath)
+        }
     }
 
     private fun failRun(message: String) {
@@ -389,7 +398,8 @@ class ImageCloudSyncManager @Inject constructor(
     /**
      * 永久删除物品后收拾图片：先删本地残留副本，再清云端孤儿对象。
      *
-     * 本地那份可能还在：上传成功才会被删，失败或从未同步过的物品到这一步仍留着本地文件。
+     * 本地那份可能还在：上传成功会被挪进回填缓存（purge 时随云端对象一并清掉），
+     * 失败或从未同步过的物品到这一步仍留在 images/ 里，由 findLocalFile 找到后删除。
      */
     override suspend fun purgeImagesOf(items: List<Item>) {
         if (items.isEmpty()) return

@@ -81,10 +81,26 @@ class ImageUrlResolver @Inject constructor(
             objectKey = ImageObjectKeys.forContentHash(config.prefix(), contentHash)
         )
         return when (location) {
-            is ImageLocation.Local -> location.path
+            is ImageLocation.Local -> localModelWithCloudFallback(location.path, contentHash)
             is ImageLocation.Cloud -> restoredOrCloudModel(location.objectKey)
             ImageLocation.None -> null
         }
+    }
+
+    /**
+     * 本地路径包一层「加载失败自动改走云端」的模型（见 LocalImageWithCloudFallback）。
+     *
+     * 兜两件事：其一，保存后几秒内同步会把本地副本挪进回填缓存，「解析时文件在、
+     * 加载时已挪走」的窗口期不再让图片空到下次重组——回退分支会命中回填缓存，零网络；
+     * 其二，真不在时改走云端取回。云端兜底沿用与 [restoredOrCloudModel] 相同的门槛：
+     * 配置不支持或未登录时不包装，直接返回路径让占位态接管（保持旧行为）。
+     */
+    private fun localModelWithCloudFallback(path: String, hash: String): Any {
+        if (!config.supported || !config.isLoggedIn()) return path
+        return LocalImageWithCloudFallback(
+            localPath = path,
+            objectKey = ImageObjectKeys.forContentHash(config.prefix(), hash)
+        )
     }
 
     /**

@@ -46,7 +46,7 @@ val syncBaseUrl = (findProperty("LEMON_SYNC_BASE_URL") as String?)
  */
 val defaultVersionName = (findProperty("lemonVersionName") as String?)
     ?.takeIf { it.isNotBlank() }
-    ?: "0.0.30"
+    ?: "0.0.31"
 
 val derivedVersionCode: Int = run {
     val parts = defaultVersionName.removePrefix("v").split('.')
@@ -231,6 +231,7 @@ dependencies {
     ksp(libs.androidx.room.compiler)
 
     implementation(libs.coil.compose)
+    implementation(libs.androidx.exifinterface)
 
     implementation(libs.androidx.camera.core)
     implementation(libs.androidx.camera.camera2)

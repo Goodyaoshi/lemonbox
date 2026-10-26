@@ -3,6 +3,8 @@ package com.goodyaoshi.lemonbox.ui.screen.camera
 import android.Manifest
 import android.content.Context
 import android.net.Uri
+import android.view.OrientationEventListener
+import android.view.Surface
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.Camera
@@ -34,6 +36,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.RotateRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FlashOff
 import androidx.compose.material.icons.filled.FlashOn
@@ -50,9 +53,11 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -72,6 +77,10 @@ import com.goodyaoshi.lemonbox.ui.components.InlineNotice
 import com.goodyaoshi.lemonbox.ui.components.rememberGalleryPickerLauncher
 import com.goodyaoshi.lemonbox.ui.theme.LemonEnd
 import com.goodyaoshi.lemonbox.ui.theme.LemonStart
+import com.goodyaoshi.lemonbox.util.ImageUtil
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.concurrent.TimeUnit
 
@@ -112,8 +121,55 @@ fun CameraScreen(
     var focusMarkerStamp by remember { mutableLongStateOf(0L) }
     var selectedTab by remember { mutableStateOf(CameraTab.CAMERA) }
     val capturedUris = remember { mutableStateListOf<Uri>() }
+    // 图库页签当前大图预览的序号：点缩略图指定看哪张；null 时看最近一张。
+    var previewIndex by remember { mutableStateOf<Int?>(null) }
     // 相机页失败的统一落点（I10）：权限被拒 / 拍照失败都走页面内联提示，不再用易被忽略的 Toast。
     var cameraNotice by remember { mutableStateOf<String?>(null) }
+    var rotating by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    // 持机姿态跟踪：系统「自动旋转」关闭时界面恒为竖屏，相机若仍按竖屏写方向元数据，
+    // 横握拍出的照片就会整体躺倒。监听重力方向把真实持机角写入 targetRotation，
+    // 拍出的图自带正确方向；万一仍不合适，预览页还有手动旋转兜底。
+    val orientationListener = remember(context) {
+        object : OrientationEventListener(context) {
+            override fun onOrientationChanged(orientation: Int) {
+                if (orientation == ORIENTATION_UNKNOWN) return
+                imageCapture?.targetRotation = when (orientation) {
+                    in 45..134 -> Surface.ROTATION_270
+                    in 135..224 -> Surface.ROTATION_180
+                    in 225..314 -> Surface.ROTATION_90
+                    else -> Surface.ROTATION_0
+                }
+            }
+        }
+    }
+
+    DisposableEffect(Unit) {
+        orientationListener.enable()
+        onDispose { orientationListener.disable() }
+    }
+
+    // 手动把某张已捕获的图顺时针转 90°：自动方向兜不住的场景，让用户转到正为止。
+    fun rotateAt(index: Int) {
+        val uri = capturedUris.getOrNull(index) ?: return
+        if (rotating) return
+        rotating = true
+        scope.launch {
+            val newPath = withContext(Dispatchers.IO) {
+                ImageUtil.rotateImageByContent(context, uri)
+            }
+            if (newPath == null) {
+                cameraNotice = "旋转失败，请重试"
+            } else {
+                // 旧图若是本应用暂存文件（拍摄 / 上一次旋转的产物），腾掉空间；外部内容源不动。
+                ImageUtil.deleteStagedCapture(context, uri)
+                capturedUris[index] = Uri.fromFile(File(newPath))
+                previewIndex = index
+            }
+            rotating = false
+        }
+    }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -133,6 +189,7 @@ fun CameraScreen(
                 capturedUris.clear()
                 capturedUris.addAll(uris)
                 selectedTab = CameraTab.GALLERY
+                previewIndex = null
             }
         },
         onPermissionDenied = { cameraNotice = "需要相册权限才能从图库选图" }
@@ -170,6 +227,9 @@ fun CameraScreen(
             onDisposed()
         }
     }
+
+    // 大图预览当前要看的图：previewIndex 失效（删过图）时回退到最近一张。
+    val previewUri = previewIndex?.let { capturedUris.getOrNull(it) } ?: capturedUris.lastOrNull()
 
     Box(
         modifier = Modifier
@@ -245,7 +305,7 @@ fun CameraScreen(
                     )
                 } else {
                     AsyncImage(
-                        model = capturedUris.last(),
+                        model = previewUri,
                         contentDescription = "图库预览",
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop
@@ -262,9 +322,12 @@ fun CameraScreen(
         focusMarker?.takeIf { selectedTab == CameraTab.CAMERA }?.let { (x, y) ->
             Box(
                 modifier = Modifier
+                    // 点击点太靠边时「坐标 - 半个标记」会变负，而 padding 不接受负值
+                    // （历史崩溃点：IllegalArgumentException: Padding must be non-negative），
+                    // 夹到 0 保证标记既不崩也总在屏内。
                     .padding(
-                        start = with(density) { x.toDp() - 36.dp },
-                        top = with(density) { y.toDp() - 36.dp }
+                        start = with(density) { (x.toDp() - 36.dp).coerceAtLeast(0.dp) },
+                        top = with(density) { (y.toDp() - 36.dp).coerceAtLeast(0.dp) }
                     )
                     .size(72.dp)
                     .border(2.dp, Color.White.copy(alpha = 0.92f), MaterialTheme.shapes.large)
@@ -312,23 +375,46 @@ fun CameraScreen(
                 style = MaterialTheme.typography.titleLarge
             )
 
-            if (selectedTab == CameraTab.CAMERA) {
-                Box(
-                    modifier = Modifier
-                        .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.14f))
-                        .clickable { flashEnabled = !flashEnabled }
-                        .padding(12.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = if (flashEnabled) Icons.Default.FlashOn else Icons.Default.FlashOff,
-                        contentDescription = "闪光灯",
-                        tint = Color.White
-                    )
+            when {
+                selectedTab == CameraTab.CAMERA -> {
+                    Box(
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.14f))
+                            .clickable { flashEnabled = !flashEnabled }
+                            .padding(12.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = if (flashEnabled) Icons.Default.FlashOn else Icons.Default.FlashOff,
+                            contentDescription = "闪光灯",
+                            tint = Color.White
+                        )
+                    }
                 }
-            } else {
-                Spacer(modifier = Modifier.size(48.dp))
+
+                // 图库页签的右侧动作位给「旋转」：大图看得见，转到正再走下一步。
+                selectedTab == CameraTab.GALLERY && previewUri != null -> {
+                    Box(
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.14f))
+                            .alpha(if (rotating) 0.5f else 1f)
+                            .clickable {
+                                rotateAt(previewIndex ?: capturedUris.lastIndex)
+                            }
+                            .padding(12.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.RotateRight,
+                            contentDescription = "旋转 90°",
+                            tint = Color.White
+                        )
+                    }
+                }
+
+                else -> Spacer(modifier = Modifier.size(48.dp))
             }
         }
 
@@ -376,6 +462,7 @@ fun CameraScreen(
                                     onError = { cameraNotice = it }
                                 ) { uri ->
                                     capturedUris.add(uri)
+                                    previewIndex = null
                                 }
                             },
                         contentAlignment = Alignment.Center
@@ -407,7 +494,15 @@ fun CameraScreen(
                         contentPadding = PaddingValues(end = 2.dp)
                     ) {
                         itemsIndexed(capturedUris, key = { index, uri -> "$index-$uri" }) { index, uri ->
-                            Box(modifier = Modifier.size(72.dp)) {
+                            Box(
+                                modifier = Modifier
+                                    .size(72.dp)
+                                    // 点缩略图进大图预览：能看清方向，也能顺手旋转。
+                                    .clickable(onClickLabel = "查看大图并旋转") {
+                                        previewIndex = index
+                                        selectedTab = CameraTab.GALLERY
+                                    }
+                            ) {
                                 AsyncImage(
                                     model = uri,
                                     contentDescription = "缩略图 ${index + 1}",

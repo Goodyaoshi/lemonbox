@@ -54,6 +54,14 @@ object OcrTextParser {
         return ItemSuggestion(name = pickRemark(splitLines(text)))
     }
 
+    /**
+     * 抽取单行文字中的金额（分，取最大合法值）；没有可当金额的数字时返回 null。
+     *
+     * 供用户点选某行文字时判断能否直接带出金额——一键记账用全文启发式，
+     * 点选则只信用户亲手选中的那一行。
+     */
+    fun parseAmountFromLine(line: String): Long? = extractAmounts(line).maxOrNull()
+
     private fun splitLines(text: String): List<String> =
         text.split('\n').map { it.trim() }.filter { it.isNotEmpty() }
 

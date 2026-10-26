@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
+import java.io.File
 import kotlin.coroutines.cancellation.CancellationException
 
 /** F01 文字识别页的可变状态：识别中的进度、选中的图片、识别结果与抽取出的建议。 */
@@ -115,6 +116,59 @@ class OcrViewModel @Inject constructor(
                 _uiState.value = OcrUiState(
                     isRecognizing = false,
                     imagePath = path,
+                    lines = result.lines,
+                    fullText = result.fullText,
+                    ledgerSuggestion = OcrTextParser.parseLedger(result.fullText),
+                    itemSuggestion = OcrTextParser.parseItem(result.fullText)
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                fail(e.message?.takeIf { it.isNotBlank() } ?: "识别失败，请重试")
+            }
+        }
+    }
+
+    /**
+     * 把当前识别用的图片顺时针旋转 90° 后重新识别。
+     *
+     * 自动方向判断（EXIF / 持机姿态）兜不住的图，让用户手动转到正为止；
+     * 转完立即重跑识别，用户不用自己再点一次。旋转按内容另存为新文件，
+     * 旧文件随即删除，与 [recognize] 的「换图即清理」规则一致。
+     */
+    fun rotateImage() {
+        val currentPath = _uiState.value.imagePath ?: return
+        if (_uiState.value.isRecognizing) return
+        recognizeJob = viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isRecognizing = true, error = null)
+            try {
+                val newPath = withContext(Dispatchers.IO) {
+                    ImageUtil.rotateImageByContent(context, Uri.fromFile(File(currentPath)))
+                }
+                if (newPath == null) {
+                    fail("图片旋转失败，请重试")
+                    return@launch
+                }
+                if (!engine.isReady()) {
+                    fail("识别模型还没准备好，先下载模型")
+                    return@launch
+                }
+                val bitmap = withContext(Dispatchers.IO) {
+                    ImageUtil.decodeDownsampledBitmap(newPath, MAX_IMAGE_SIZE)
+                }
+                if (bitmap == null) {
+                    fail("图片解析失败，换一张再试试")
+                    return@launch
+                }
+                val result = try {
+                    engine.recognize(bitmap)
+                } finally {
+                    bitmap.recycle()
+                }
+                if (newPath != currentPath) ImageUtil.deleteImage(currentPath)
+                _uiState.value = OcrUiState(
+                    isRecognizing = false,
+                    imagePath = newPath,
                     lines = result.lines,
                     fullText = result.fullText,
                     ledgerSuggestion = OcrTextParser.parseLedger(result.fullText),

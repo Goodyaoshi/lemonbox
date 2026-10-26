@@ -7,6 +7,8 @@ import coil.ImageLoader
 import coil.ImageLoaderFactory
 import com.goodyaoshi.lemonbox.data.imagecloud.CloudImageFetcherFactory
 import com.goodyaoshi.lemonbox.data.imagecloud.CloudImageModelKeyer
+import com.goodyaoshi.lemonbox.data.imagecloud.LocalImageWithCloudFallbackFetcherFactory
+import com.goodyaoshi.lemonbox.data.imagecloud.LocalImageWithCloudFallbackKeyer
 import com.goodyaoshi.lemonbox.data.imagecloud.ImageCloudConfig
 import com.goodyaoshi.lemonbox.data.imagecloud.ImageCloudSyncScheduler
 import com.goodyaoshi.lemonbox.data.remote.RemoteSyncClient
@@ -61,6 +63,9 @@ class LemonApplication : Application(), Configuration.Provider, ImageLoaderFacto
 
     @Inject
     lateinit var cloudImageFetcherFactory: CloudImageFetcherFactory
+
+    @Inject
+    lateinit var localImageWithCloudFallbackFetcherFactory: LocalImageWithCloudFallbackFetcherFactory
 
     @Inject
     lateinit var imageCloudConfig: ImageCloudConfig
@@ -156,12 +161,18 @@ class LemonApplication : Application(), Configuration.Provider, ImageLoaderFacto
      * 挪进取图器的挂起阶段），其下载直接落进 ImageRestoreStore，持久缓存由它负责，
      * 因此不再配置 Coil 的磁盘缓存。内存缓存键经 [CloudImageModelKeyer] 固定为对象键
      * （内容哈希），同一张图无论取回多少次都命中同一份。
+     *
+     * 本地路径由 [LocalImageWithCloudFallbackFetcherFactory] 包装：解析时文件还在、
+     * 加载时被同步删掉的竞态（保存后几秒内上传即删本地副本）不再让图片空到下次重组，
+     * 加载失败会自动改走云端取回。
      */
     override fun newImageLoader(): ImageLoader =
         ImageLoader.Builder(this)
             .components {
                 add(CloudImageModelKeyer())
                 add(cloudImageFetcherFactory)
+                add(LocalImageWithCloudFallbackKeyer())
+                add(localImageWithCloudFallbackFetcherFactory)
             }
             .build()
 }

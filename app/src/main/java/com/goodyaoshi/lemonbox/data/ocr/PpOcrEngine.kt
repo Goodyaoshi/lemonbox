@@ -251,11 +251,14 @@ class PpOcrEngine @Inject constructor(
 
     /** 裁剪单个文本框并识别。 */
     private fun recognizeBox(session: OrtSession, src: Bitmap, box: Rect): OcrLine? {
-        val cropW = box.width()
-        val cropH = box.height()
-        if (cropW <= 0 || cropH <= 0) return null
+        // 检测框贴着图边时可能越界（后处理取整误差），createBitmap 对越界参数直接抛
+        // IllegalArgumentException，先把框整体夹回位图内再裁。
+        val cropW = box.width().coerceIn(1, src.width)
+        val cropH = box.height().coerceIn(1, src.height)
+        val left = box.left.coerceIn(0, src.width - cropW)
+        val top = box.top.coerceIn(0, src.height - cropH)
 
-        val crop = Bitmap.createBitmap(src, box.left, box.top, cropW, cropH)
+        val crop = Bitmap.createBitmap(src, left, top, cropW, cropH)
         var recW = Math.round(recWidthRatio(cropW, cropH)).toInt().coerceAtLeast(1)
         if (recW > REC_MAX_WIDTH) recW = REC_MAX_WIDTH
         val scaled = Bitmap.createScaledBitmap(crop, recW, REC_HEIGHT, true)

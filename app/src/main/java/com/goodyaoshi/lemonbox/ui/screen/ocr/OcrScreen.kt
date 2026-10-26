@@ -1,5 +1,8 @@
 package com.goodyaoshi.lemonbox.ui.screen.ocr
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
@@ -27,6 +30,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
+import androidx.compose.material.icons.automirrored.filled.RotateRight
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.PhotoCamera
@@ -59,8 +63,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
+import com.goodyaoshi.lemonbox.data.ocr.OcrLine
 import com.goodyaoshi.lemonbox.data.ocr.OcrModelState
 import com.goodyaoshi.lemonbox.data.ocr.OcrModelTier
+import com.goodyaoshi.lemonbox.data.ocr.OcrTextParser
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
@@ -112,6 +118,8 @@ fun OcrScreen(
     var showDownloadDialog by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
     var pendingTier by remember { mutableStateOf(OcrModelTier.DEFAULT) }
+    // 点选的识别文字行：一键抽取不一定准，让用户选中具体某行再决定怎么用。
+    var selectedLine by remember { mutableStateOf<OcrLine?>(null) }
     // 移动数据流量提醒只记一次的标记（SET1）：用户确认过就记住，不再反复弹流量提醒。
     var meteredConfirmed by rememberSaveable { mutableStateOf(false) }
 
@@ -282,6 +290,25 @@ fun OcrScreen(
                             .heightIn(max = 300.dp)
                             .clip(MaterialTheme.shapes.extraLarge)
                     )
+                    // 手动旋转兜底：自动方向判断覆盖不到的图，转一下立刻重识别。
+                    TextButton(
+                        onClick = viewModel::rotateImage,
+                        enabled = !state.isRecognizing,
+                        modifier = Modifier.padding(top = 4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.RotateRight,
+                            contentDescription = null,
+                            tint = TextSecondary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "转了 90° 再识别",
+                            color = TextSecondary,
+                            style = MaterialTheme.typography.titleSmall
+                        )
+                    }
                 }
 
                 if (state.lines.isNotEmpty()) {
@@ -302,11 +329,29 @@ fun OcrScreen(
                                         .background(DividerSoft)
                                 )
                             }
-                            Text(
-                                text = line.text,
-                                style = MaterialTheme.typography.titleSmall,
-                                color = TextPrimary
-                            )
+                            // 每行都可点选：一键抽取不一定准，用户亲手选的那行才最可信。
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .minimumInteractiveComponentSize()
+                                    .clip(MaterialTheme.shapes.small)
+                                    .clickable(onClickLabel = "选用这句文字") { selectedLine = line }
+                                    .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = line.text,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = TextPrimary,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Icon(
+                                    imageVector = Icons.Default.ChevronRight,
+                                    contentDescription = null,
+                                    tint = TextHint,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
                         }
                     }
 
@@ -344,6 +389,47 @@ fun OcrScreen(
                         )
                     }
                 }
+            }
+        }
+    }
+
+    // 点选文字行的用法：复制走剪贴板；去记账 / 去入库的出口与一键动作同样按来路收敛。
+    selectedLine?.let { line ->
+        AppDialog(
+            title = "这句文字怎么用",
+            onDismissRequest = { selectedLine = null },
+            dismissText = "关闭",
+            secondaryText = if (showRecordAction) "用作记账备注" else null,
+            onSecondary = {
+                selectedLine = null
+                // 行里能抽出合法金额就直接带过去；抽不出就留空让用户在记账页补。
+                onNavigateToRecord(OcrTextParser.parseAmountFromLine(line.text), line.text)
+            },
+            confirmText = if (showSaveAction) "用作品名入库" else null,
+            onConfirm = {
+                selectedLine = null
+                onNavigateToSave(line.text, state.imagePath)
+            }
+        ) {
+            Text(
+                text = line.text,
+                style = MaterialTheme.typography.titleMedium,
+                color = TextPrimary
+            )
+            TextButton(
+                onClick = {
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE)
+                        as ClipboardManager
+                    clipboard.setPrimaryClip(ClipData.newPlainText("text", line.text))
+                    snackbar?.postMessage("已复制到剪贴板")
+                    selectedLine = null
+                }
+            ) {
+                Text(
+                    text = "复制文字",
+                    color = TextSecondary,
+                    style = MaterialTheme.typography.titleSmall
+                )
             }
         }
     }

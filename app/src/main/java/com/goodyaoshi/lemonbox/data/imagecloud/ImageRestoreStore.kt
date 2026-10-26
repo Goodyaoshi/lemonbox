@@ -18,15 +18,16 @@ internal fun restoreFileNameFor(objectKey: String?): String? =
     objectKey.orEmpty().trim().substringAfterLast('/').takeIf { it.isNotBlank() }
 
 /**
- * 云端图片取回后的本地落点（F20）。
+ * 云端图片的本地落点（F20）。
  *
- * 解决的问题：图片上传成功后会删掉本地副本以省空间，于是每次显示都要走一趟网络——
- * 列表、详情、全屏预览各自都要等一次，表现就是「每个地方都白屏一会儿」。
- * 这里把取回过的图落盘：同一张图第二次显示直接读本地，既保留「不长期占本地空间」的初衷，
- * 又让重复显示不再联网。
+ * 两个入口都落在这里：
+ *  1. 云端取回（[CloudImageFetcher]）：显示时本地没有就走网络，取回即落盘，
+ *     同一张图第二次显示直接读本地，不再联网；
+ *  2. 上传完成后的本地副本收编（[admit]）：与其删掉，不如挪进来——展示端先查
+ *     images/、查不到就查这里，挪入后离线可用，效果等同「下载回来落盘」但零网络。
  *
- * 为什么目录与 [com.goodyaoshi.lemonbox.util.ImageUtil] 的用户图片分开：这些是**可再生**
- * 的缓存，与用户原始照片的语义不同（丢了可以重新取回），分开存放便于按需整体清理，
+ * 为什么目录与 [com.goodyaoshi.lemonbox.util.ImageUtil] 的用户图片分开：这些副本
+ * 都能从云端再生，语义上与「用户原始照片的工作目录」不同；分开存放便于按需整体清理，
  * 也不会被「删除物品时清理图片」之类的逻辑误删。
  */
 @Singleton
@@ -37,6 +38,31 @@ class ImageRestoreStore @Inject constructor(
     /** 某个对象的本地副本位置；不保证已存在（不存在即表示尚未取回过）。 */
     fun fileFor(objectKey: String): File =
         File(dir(), restoreFileNameFor(objectKey) ?: RETURN_NONE)
+
+    /**
+     * 把一份本地副本收编进回填目录（改名挪入，尽量不复制字节）。
+     *
+     * 上传确认云端可读后调用：源文件（images/ 下的 `item_<hash>.jpg`）挪到这里后，
+     * 展示端查不到原路径就会命中本目录，离线可用——等于把「云端下载回来」这件事
+     * 用一次本地改名替代了。target 已有同名文件时直接丢弃源（内容寻址，同名即同内容）。
+     * 返回 true 表示源文件已被消化（挪入或丢弃）；失败返回 false，调用方自行兜底。
+     */
+    fun admit(source: File, objectKey: String): Boolean {
+        val name = restoreFileNameFor(objectKey) ?: return false
+        return runCatching {
+            val target = File(dir(), name)
+            if (target.isFile) {
+                source.delete()
+                return@runCatching true
+            }
+            dir().mkdirs()
+            if (source.renameTo(target)) return@runCatching true
+            // rename 可能在个别文件系统上失败，退回复制 + 删源。
+            source.copyTo(target, overwrite = true)
+            source.delete()
+            true
+        }.getOrDefault(false)
+    }
 
     /** 删除某个对象的本地副本（云端对象被清理时一并调用）。 */
     fun delete(objectKey: String) {

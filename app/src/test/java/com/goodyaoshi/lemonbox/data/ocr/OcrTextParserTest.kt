@@ -136,4 +136,22 @@ class OcrTextParserTest {
 
         assertEquals("", suggestion.name)
     }
+
+    // ---------- parseAmountFromLine：点选单行带出金额 ----------
+
+    @Test
+    fun parseAmountFromLine_picksLargestValidAmount() {
+        assertEquals(1250L, OcrTextParser.parseAmountFromLine("苹果 8.00 12.50"))
+    }
+
+    @Test
+    fun parseAmountFromLine_returnsNullWhenNoAmount() {
+        assertNull(OcrTextParser.parseAmountFromLine("西红柿鸡蛋面"))
+    }
+
+    @Test
+    fun parseAmountFromLine_ignoresOutOfRangeNumbers() {
+        // 电话号码超出金额区间，不应被当成金额
+        assertNull(OcrTextParser.parseAmountFromLine("电话 13800138000"))
+    }
 }

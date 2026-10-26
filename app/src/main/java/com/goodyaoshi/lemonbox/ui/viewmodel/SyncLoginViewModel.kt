@@ -150,9 +150,9 @@ class SyncLoginViewModel @Inject constructor(
         _uiState.update {
             it.copy(
                 busy = true,
-                message = null,
-                // 立刻清空输入框，避免密码明文长期停留在界面上。
-                inputPassword = ""
+                message = null
+                // 密码此刻不清空：失败时（网络不通 / 密码错）保留输入，重试不必重敲。
+                // 输入框本身是密文展示，不存在明文外泄；只有登录成功才清场。
             )
         }
 
@@ -185,7 +185,13 @@ class SyncLoginViewModel @Inject constructor(
             // CloudSyncTrigger 只监听 Activity onStart 与同步表写入，登录本身两者都不触发，
             // 用户会停在「已登录但数据没动」的状态直到下一次切前台或最多一小时后的周期任务。
             _uiState.update {
-                it.copy(busy = false, message = "登录成功，正在同步…", messageIsError = false).withSession()
+                it.copy(
+                    busy = false,
+                    message = "登录成功，正在同步…",
+                    messageIsError = false,
+                    // 到这一步会话已换到，密码使命完成，从界面上撤掉。
+                    inputPassword = ""
+                ).withSession()
             }
             rescheduleCloudSync()
 
