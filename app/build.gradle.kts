@@ -30,8 +30,7 @@ val supabaseKey = (findProperty("LEMON_SUPABASE_KEY") as String?)
 /**
  * 同步服务端地址：默认是 Supabase 项目地址。
  *
- * 仍保留 LEMON_SYNC_BASE_URL 覆盖：填回旧 Worker 域名即可整包回退到 D1 链路
- * （客户端按域名自动选择传输实现），不需要改代码重新发版。
+ * LEMON_SYNC_BASE_URL 只用于换 Supabase 反代/自定义域名，不再指向旧 Worker。
  */
 val syncBaseUrl = (findProperty("LEMON_SYNC_BASE_URL") as String?)
     ?.takeIf { it.isNotBlank() }
@@ -116,7 +115,7 @@ android {
         release {
             isMinifyEnabled = true
             // 图片云端存储与多设备同步（仅正式包）——「客户端不持任何长期密钥」：
-            // 对象存储的 endpoint / region / bucket / AK / SK 全部只存在服务端（Cloudflare Worker），
+            // 对象存储的 endpoint / region / bucket / AK / SK 全部只存在服务端（Edge Function Secret），
             // 客户端登录后只拿**几分钟有效的预签名 URL**，包内因此没有任何可解的密文。
             // 进包的只有 SYNC_BASE_URL 这个公开域名，以及用户登录换来的会话令牌（Keystore 加密存本机）。
             buildConfigField("boolean", "IMAGE_CLOUD_SUPPORTED", "true")

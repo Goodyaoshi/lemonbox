@@ -1,7 +1,7 @@
 -- 柠檬百宝箱 · Supabase 同步底座（P0 / Phase A）
 -- 在 Supabase SQL Editor 中按文件顺序执行；本文件幂等，可重复执行。
 --
--- 设计要点（与 server/schema.sql 的 D1 版本对齐，但去掉行写入计费带来的写放大）：
+-- 设计要点（沿用已下线的旧 D1 服务端的数据模型，但去掉行写入计费带来的写放大）：
 --   1. records 仍是 14 个集合的权威副本，payload 用 jsonb 原样承接，迁移零改模型。
 --   2. 每行带 revision 做乐观锁；每次真正生效的写入追加一条 change_log，作为唯一增量游标。
 --      revision 与 change_log.revision **同值**（全局单调），因此同一个数既能当
