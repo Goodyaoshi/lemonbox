@@ -16,8 +16,8 @@
 >
 > 多设备之间有三种途径：
 > ① 局域网同步——同一 WiFi 下两台设备直连，不经任何服务器；
-> ② 云端账号同步——登录后由自建的轻量同步服务端（Cloudflare Worker + D1）做权威中枢，
-> 物品 / 记账 / 纪念日等文字数据按序号增量推拉，各设备自动收敛到同一状态；
+> ② 云端账号同步——登录后由自建的 Supabase 项目（Postgres + Auth）做权威中枢，
+> 物品 / 记账 / 纪念日等文字数据按单调递增的 `revision` 增量推拉，各设备自动收敛到同一状态；
 > ③ 图片云端存储——把你自己的 S3 兼容对象存储（如 Filebase）当作图片仓库，多设备共享、节省手机空间。
 >
 > 云端能力**都可关、可不配**：**不登录就是纯本地**，数据只留在本机。
@@ -61,7 +61,7 @@
 - 🌙 **睡前氛围**：夜里的一处安静角落，附就寝提醒。
 - 🔎 **OCR 识别录入**：离线 OCR（PP-OCRv6）拍照取字，全程在本机完成、不上传图片。
 - 📶 **局域网同步**：手机之间在同一 WiFi 下直连同步，逐条可勾选、可撤销（按 syncId 对齐、updatedAt 解决冲突），换机不丢数据。
-- ☁️ **多设备云同步**：登录云端账号后，文字数据按序号增量推到自建服务端（Cloudflare Worker + D1），
+- ☁️ **多设备云同步**：登录云端账号后，文字数据按 `revision` 序号增量推到自建 Supabase 项目，
   各设备拉到他人变更后各自合并，谁都不覆盖谁；不登录就是纯本地。
 - 🖼 **图片云端存储**：图片上传到你自己的 S3 兼容对象存储，多设备共享、节省手机空间；
   密钥只在服务端，客户端凭登录态换取预签名地址。
@@ -90,11 +90,12 @@
 - tyme4kt（农历换算）
 - 自实现 SigV4（S3 兼容对象存储预签名，由服务端签发，无 AWS SDK 依赖）
 
-**同步服务端**（独立于 App，源码在 `server/`）
+**同步服务端**（独立于 App，源码在 `server/supabase/`）
 
-- Cloudflare Worker（JavaScript，零依赖）
-- Cloudflare D1（SQLite，权威序号 `server_seq` 单调递增）
-- 全部密钥以 Worker Secret 保存；客户端只拿到登录令牌与几分钟有效的预签名 URL
+- Supabase（Postgres + Auth + Realtime）
+- 权威序号 `revision` 单调递增，配套 `change_log` 增量表
+- Edge Functions：`blob-sign`（对象存储签名）、`mcp`（AI 数据管理）
+- 全部长期密钥以 Edge Function Secret 保存；客户端只拿到登录令牌与几分钟有效的预签名 URL
 
 ---
 
@@ -108,7 +109,7 @@
 │  │  │  ├─ local/          # Room 实体、DAO、数据库与迁移
 │  │  │  ├─ backup/         # 快照载荷、合并策略与导入导出（局域网同步与云同步共用）
 │  │  │  ├─ imagecloud/     # S3 客户端、图片上传与回填缓存（密钥在服务端）
-│  │  │  ├─ remote/         # 云端账号：会话存储、登录/推拉客户端（Cloudflare Worker）
+│  │  │  ├─ remote/         # 云端账号：会话存储、登录/推拉客户端（Supabase）
 │  │  │  ├─ sync/           # 局域网同步 + 多设备云同步（快照推拉）
 │  │  │  ├─ meal/           # 菜谱、一餐搭配与每周菜单
 │  │  │  ├─ repository/     # 数据仓库层
@@ -131,7 +132,7 @@
 │  │  └─ MainActivity.kt
 │  └─ src/main/res/         # 图标、主题、字符串、图片资源
 ├─ app/schemas/             # Room 数据库 schema 导出（当前 DB 版本 37；历史版本 1-9 未导出）
-└─ server/                  # 同步服务端（Cloudflare Worker + D1 schema + 部署说明）
+└─ server/                  # 同步服务端（Supabase SQL 迁移 + Edge Functions）
 ```
 
 架构采用 MVVM：
@@ -195,8 +196,8 @@ adb install -r .\app\build\outputs\apk\debug\app-debug.apk
 
 ## 配置说明
 
-本项目以本地功能为主，**不依赖任何第三方应用云**；云同步使用**自建的服务端**
-（Cloudflare Worker + D1，源码在 `server/`），图片走自备的 S3 兼容对象存储，
+本项目以本地功能为主，**不依赖任何第三方应用云**；云同步使用**自建的 Supabase 项目**
+（Postgres + Auth + Edge Functions，源码在 `server/supabase/`），图片走自备的 S3 兼容对象存储，
 应用内更新走 GitHub Release。云端能力可关、可不配，**不登录即为纯本地**。关键配置如下：
 
 | 配置项 | 位置 | 说明 |
@@ -209,53 +210,38 @@ adb install -r .\app\build\outputs\apk\debug\app-debug.apk
 | 相机权限 | 首次拍照时申请 | 拍照录入依赖 CameraX |
 | 精确闹钟权限 | Android 12+ | 待办提醒依赖 `USE_EXACT_ALARM` / `SCHEDULE_EXACT_ALARM`，不可用时退化为窗口闹钟 |
 | 局域网权限 | 本地网络 | 同步仅访问内网，cleartext 限定本地网络 |
-| 云端账号 | 服务端预先配置 | 账号密码只存在服务端，客户端不内置、不能自注册；**未登录时云端能力全部不动作** |
-| 多设备数据同步 | 可选，默认开启 | 需先登录云端账号；文字数据按权威序号增量推拉，各设备各自合并 |
-| 同步服务端地址 | GitHub Secret `LEMON_SYNC_BASE_URL` | 公开域名，不含任何密钥；本地自测写进 `local.properties` 的同名 Gradle 属性 |
-| 对象存储凭据 | Worker Secret | endpoint / region / bucket / prefix / accessKey / secretKey 只存服务端，客户端不接触 |
+| 云端账号 | Supabase Auth 预置 | 账号在 Supabase Auth 中预先创建，客户端不内置、不能自注册；**未登录时云端能力全部不动作** |
+| 多设备数据同步 | 可选，默认开启 | 需先登录云端账号；文字数据按 `revision` 水位增量推拉，各设备各自合并 |
+| 同步服务端地址 | GitHub Secret `LEMON_SYNC_BASE_URL` | 公开域名（Supabase 项目或反代域名），不含任何密钥；本地自测写进 `local.properties` 的同名 Gradle 属性 |
+| 对象存储凭据 | Supabase Edge Function Secret | endpoint / region / bucket / prefix / accessKey / secretKey 只存 `blob-sign` 函数，客户端不接触 |
 | 云存储功能开关 | `app/build.gradle.kts` | `IMAGE_CLOUD_SUPPORTED`：仅 release 为 true，debug 不写真实存储桶；`TEXT_SYNC_SUPPORTED`：debug/release 均为 true，文字同步可在 debug 包联调 |
 
 ### 同步服务端配置（发布维护用）
 
-服务端的全部密钥都放在 Cloudflare 的 Worker Secret 里，**仓库与安装包中都不出现**：
+服务端是一个 Supabase 项目，仓库里只有 SQL 迁移与 Edge Functions，**不含任何密钥**：
 
-| Worker Secret | 内容 |
+| 位置 | 内容 |
 | --- | --- |
-| `S3_ENDPOINT` / `S3_REGION` / `S3_BUCKET` / `S3_PREFIX` | 对象存储连接参数（S3 兼容协议，如 Filebase） |
-| `S3_ACCESS_KEY` / `S3_SECRET_KEY` | 对象存储读写凭据，建议使用**最小权限**子账号 |
-| `ADMIN_TOKEN` | 管理令牌，仅用于创建 / 重置账号 |
-| `MCP_TOKEN` | MCP 接入令牌，给 AI 客户端整理家庭数据用 |
+| `server/supabase/0001_init.sql` ~ `0006_mcp.sql` | 表结构、RLS、RPC、Realtime 与 MCP 写入口；在 SQL Editor 按序号执行 |
+| Edge Function `blob-sign` | 对象存储签名；Secret 为 `S3_ENDPOINT` / `S3_REGION` / `S3_BUCKET` / `S3_PREFIX` / `S3_ACCESS_KEY` / `S3_SECRET_KEY` |
+| Edge Function `mcp` | AI 数据管理；Secret 为 `MCP_TOKEN`，可选 `MCP_HOUSEHOLD_ID` |
 
-另需绑定一个 D1 数据库（绑定名 `DB`），表结构见 `server/schema.sql`，种子与接口说明见
-`server/worker.js` 头部注释。账号用管理接口预置（服务端不回显密码），客户端只能登录。
-
-`schema.sql` 会写入 `sync_meta.instance_id`；删库重建后这个值会变化，客户端据此清缓存/
-水位并自动回灌本机数据。
+账号在 Supabase Auth 中预置，客户端只能登录。旧 Cloudflare Worker + D1 已于 2026-10-30
+删除，不要再把地址或密钥配回旧链路。
 
 ### 发布前检查清单
 
-1. **D1 表结构**（幂等；包含 `sync_meta.instance_id`、快照索引与登录限流表）：
+1. **执行 SQL 迁移**：在 Supabase SQL Editor 按序号执行 `server/supabase/0001_init.sql`
+   到 `0006_mcp.sql`。迁移幂等，可重复执行。
+
+2. **部署 Edge Functions**：`blob-sign` 用默认 JWT 校验；`mcp` 必须关闭 JWT 校验：
 
 ```bash
-npx wrangler d1 execute DB --remote --file server/schema.sql
+supabase functions deploy blob-sign
+supabase functions deploy mcp --no-verify-jwt
 ```
 
-如果是全新的库，先创建 D1 再执行本文件。删库重建会让所有设备重新走一次快照；
-新 App 会自动把本机数据回灌新库，旧 App 需要在诊断页手动执行一次「以本机为准合并上传」。
-
-2. **旧网页家当修复**（可选；只在旧版网页创建过家当时需要）：
-
-```bash
-npx wrangler d1 execute DB --remote --file server/fix-legacy-items.sql
-```
-
-3. **部署 Worker**（Web、MCP、限流、Cron 一起生效）：
-
-```bash
-npx wrangler deploy
-```
-
-4. **构建 release APK**：需要 `local.properties` 或 CI Secrets 提供
+3. **构建 release APK**：需要 `local.properties` 或 CI Secrets 提供
    `LEMON_KEYSTORE_PATH` / `LEMON_KEYSTORE_PASSWORD` / `LEMON_KEY_ALIAS` / `LEMON_KEY_PASSWORD`；
    缺签名时 Gradle 会直接失败，不会回退 debug 签名。
 
@@ -263,48 +249,34 @@ npx wrangler deploy
 ./gradlew assembleRelease
 ```
 
-5. **装到手机后逐项确认**：`/health` 可访问 → 登录 → 「数据中心 → 同步诊断」对账 →
+4. **装到手机后逐项确认**：登录 → 「数据中心 → 同步诊断」对账 →
    通知权限 → 「数据中心 → 本地备份」导出一次。
 
 客户端唯一需要知道的是**公开域名**：构建时经 `LEMON_SYNC_BASE_URL` 注入
-`BuildConfig.SYNC_BASE_URL`（当前默认 `https://lemonbox.goodyaoshi.eu.cc`）。
-默认域名是免费二级域，存在被 DNS 污染/阻断的风险；客户端因此支持：
+`BuildConfig.SYNC_BASE_URL`（默认 `https://sgqvsxowzkqbogknodaj.supabase.co`，
+也可填 `https://supabase.goodyaoshi.eu.cc` 这类反代域名）。
+默认域名存在被 DNS 污染/阻断的风险；客户端因此支持：
 
 - **DoH 解析**：同步域名的「域名 → IP」优先走阿里 / 腾讯 / Cloudflare / Google 的
   DNS over HTTPS，再按域名做 TLS SNI 与证书校验；DoH 全部失败时回退系统 DNS。
-- **自定义备用地址 + 自动 fallback**：设置页可填同一 Worker 的备用域名 / 反向代理地址；
-  登录与同步前按「自定义地址 → 构建默认地址」顺序探活 `/health`，选第一个可用的。
+- **自定义备用地址 + 自动 fallback**：设置页可填同一 Supabase 的反代地址；
+  登录与同步前按「自定义地址 → 构建默认地址」顺序探活 `/auth/v1/settings`，选第一个可用的。
   换域名不需要重新发版。
 - 地址只接受 `https://`；会话里保存登录时的 baseUrl，候选列表之外的地址会让旧令牌失效。
 
-固定解析到 Cloudflare IP 不是可靠方案：anycast IP 会按地区与时间变化，直接连 IP 还会
+固定解析到单一 IP 不是可靠方案：anycast IP 会按地区与时间变化，直接连 IP 还会
 让证书与 SNI 对不上。DoH 只替换「域名 → IP」这一步，后续仍按域名完成 TLS 校验，
 行为与普通 HTTPS 一致。
-
-**历史数据修复**：旧版网页创建的家当载荷缺少 `deletedAt`。App 新版已能容忍并正常解码；
-若某台设备的水位已经越过这些记录，需要让服务端历史载荷也补齐，并在设备上重建：
-
-```bash
-npx wrangler d1 execute DB --remote --file server/fix-legacy-items.sql
-```
-
-然后在 App 的「同步诊断」里执行「以服务端为准重建」（或重置 `PULL_WATERMARK`）。
-
-**登录限流与清理**：同一 IP / 账号 5 分钟内失败 10 次会锁定 5 分钟（429 + `Retry-After`）；
-限流表缺失或 D1 异常时自动放行，不会把所有人挡在登录页外。Worker 配置了每日 03:00 的
-Cron（`wrangler.jsonc` 的 `triggers.crons`），清理过期会话与 24 小时前的失败桶。
 
 ### 多设备数据同步说明
 
 - **默认开启**，但真正的门槛是「是否已登录云端账号」——没登录时不会动作，数据只在本机。
-- 服务端以**权威序号** `server_seq` 排序变更；客户端先读轻量 `/v1/meta`，序号没变就
-  一个业务请求都不发，变了才拉增量。落地仍按记录级 LWW（`updatedAt` 较新者胜）合并。
-- **首次/重建**：不再从 0 逐页扫全表，而是按集合拉 `/v1/snapshot`（只含活数据），
-  再用增量补齐快照期间的写入。快照完成后 `snapshot_done = 1`，日常只走增量。
-- **Web**：上一轮快照存在 IndexedDB，刷新先渲染缓存，再 `/v1/meta` 探测；
-  `seq` 没变时零业务请求。首次/服务端换库时才并行拉各集合快照。
-- **无变化不涨序号**：`/v1/push` 对载荷完全相同的条目返回 `noop` + 原序号，不写库、
-  不发号；冲突也只记台账、不占号。空同步不会再把 `meta.seq` 推高。
+- 服务端以权威序号 `revision` 排序变更；客户端先读轻量水位（`sync_meta`），序号没变就
+  一个业务请求都不发，变了才走 `pull_changes` 拉增量。落地仍按记录级 LWW（`updatedAt` 较新者胜）合并。
+- **首次/重建**：按集合拉 `sync_snapshot`（只含活数据），再用增量补齐快照期间的写入；
+  快照完成后日常只走增量。
+- **无变化不涨序号**：`apply_changes` 对载荷完全相同的条目返回 `noop` + 原序号，不写库、
+  不发号；冲突也只记台账、不占号。
 - **触发时机**：打开 App / 回到前台（30 秒去抖）、本地同步表写入后静默 15 秒、
   后台周期任务、设置页「立即同步」。
 - 删除靠软删墓碑传播；快照不返回墓碑，墓碑只通过增量传播。两边都改过的条目会在
@@ -313,20 +285,6 @@ Cron（`wrangler.jsonc` 的 `triggers.crons`），清理过期会话与 24 小�
   达到上限会提示「还有更多变更，请再次同步」。
 - **偏好**：`PreferencesSnapshot` 带 `updatedAt`；偏好内容没变时不再每次推送
   （内容签名存 `sync_state.preferences_hash`），冲突仍按「较新者胜」。
-
-### Cloudflare 免费档限制
-
-免费版 Workers 单次请求 CPU 约 10ms，本项目为此做了收敛：
-
-- 登录 PBKDF2 迭代数 10,000（旧账号首次登录成功后自动重哈希降级；也可用管理接口重置密码）。
-- 单次推送 100 条、增量拉取 200 条、快照 500 条；App / Web 增量最多 100 页。
-- Web 启动先渲染 IndexedDB 快照，再按 `/v1/meta` 探测增量；App 按水位增量，
-  首次/重建才走按集合快照。
-- 日常 `/v1/meta` 只读两个主键；集合统计只在首次/重建时请求一次。快照单页
-  500 条，payload 超过 256K 字符会自动截断，避免单请求 CPU 顶到免费档上限。
-- `/v1/pull` 的 `devices` 写入收口到整轮结束；快照不写 `devices`。
-- 没有实体 dirty 且偏好内容未变时完全不发推送，不再读全库快照。
-- 升级 Workers Paid 后可把 `PBKDF2_ITERATIONS` 调回 100000，批量也可放宽。
 - 覆盖范围：物品、分类、位置、记账（含**模板**与**周期记账规则**）、预算、账户、纪念日、
   待办提醒、时间胶囊、打包清单、菜谱与菜单、自定义状态、提醒设置。**图片本体单列**——
   是否上传由「图片上传」开关决定，与文字同步互不影响。
@@ -335,9 +293,10 @@ Cron（`wrangler.jsonc` 的 `triggers.crons`），清理过期会话与 24 小�
 
 - **默认关闭**。未开启时图片只存本机，行为与旧版本一致。
 - 开启后图片以「内容 SHA-256」为对象键上传，同一张图在任何设备上都落到同一对象，不会存重复。
-- 存储地址与访问密钥**只存在服务端**：客户端登录后，由 Worker 为每个对象单独签发
-  几分钟有效的预签名 URL（PUT / GET），客户端全程接触不到长期密钥，包里也没有密文配置。
-- 上传成功且云端确认可读后，本地副本会被清理；取回时按需回填。
+- 存储地址与访问密钥**只存在服务端**：客户端登录后，由 Edge Function `blob-sign`
+  为每个对象单独签发几分钟有效的预签名 URL（PUT / GET），客户端全程接触不到长期密钥。
+- 上传成功且云端确认可读后，本地副本会挪入 `cloud_restore` 回填缓存，离线也能展示；
+  云端仍是长期备份。
 - **安全提示**：预签名 URL 只在有效期内可用且只对单个对象生效；请为对象存储使用
   **最小权限的读写子账号**（仅授予该 Bucket 的权限），并按需轮换密钥。
 
