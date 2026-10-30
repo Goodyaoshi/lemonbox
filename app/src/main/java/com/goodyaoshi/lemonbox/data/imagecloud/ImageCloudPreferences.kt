@@ -18,7 +18,7 @@ import javax.inject.Singleton
  * 偏好值**不再读取**，升级后无需用户重新打开任何一项。
  *
  * 存储连接参数与密钥不在这里、也不在本机任何地方——它们只存在服务端
- * （Cloudflare Worker），由 [ImageCloudConfig] 依据登录态判断可用性。
+ * （Edge Function Secret），由 [ImageCloudConfig] 依据登录态判断可用性。
  */
 @Singleton
 class ImageCloudPreferences @Inject constructor() {

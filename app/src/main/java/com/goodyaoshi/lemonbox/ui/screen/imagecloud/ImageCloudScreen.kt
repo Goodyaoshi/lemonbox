@@ -70,7 +70,7 @@ import com.goodyaoshi.lemonbox.ui.viewmodel.SyncLoginViewModel
  * 登录成功即开启数据与图片的自动同步，退出登录即回到纯本地；
  * 不再提供「图片上传 / 自动上传 / 后台补传 / 多设备同步」四个相互依赖的开关。
  *
- * 存储连接参数与访问密钥都不在客户端：它们只存在同步服务端（Cloudflare Worker），
+ * 存储连接参数与访问密钥都不在客户端：它们只存在同步服务端（Edge Function Secret），
  * 手机每次只换取几分钟有效的预签名地址来传图。
  */
 @Composable

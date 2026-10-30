@@ -24,7 +24,6 @@ import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
-import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -115,14 +114,14 @@ private fun unescapeXml(value: String): String =
         .replace("&apos;", "'")
         .replace("&amp;", "&")
 
-/** `/v1/blob/url` 的响应：一条短时预签名 URL。 */
+/** 图片签名函数的响应：一条短时预签名 URL。 */
 data class PresignedBlobUrl(
     val url: String,
     val expiresAt: Long,
     val method: String
 )
 
-/** `/v1/blob/probe` 的响应。[status] 为 0 表示请求本身没走通（见 [message]）。 */
+/** 一次探在的结果。[status] 为 0 表示请求本身没走通（见 [message]）。 */
 data class BlobProbe(
     val exists: Boolean = false,
     val status: Int = 0,
@@ -130,43 +129,8 @@ data class BlobProbe(
     val message: String? = null
 )
 
-/** `/v1/blob/selfcheck` 的响应。 */
+/** 服务端连桶自检的结果。 */
 data class BlobSelfCheck(
-    val ok: Boolean = false,
-    val status: Int = 0,
-    val message: String? = null
-)
-
-@Serializable
-private data class BlobUrlRequest(
-    val key: String,
-    val op: String,
-    val ttlSeconds: Long
-)
-
-@Serializable
-private data class BlobKeyRequest(val key: String)
-
-@Serializable
-private data class BlobUrlResponse(
-    val url: String,
-    val expiresAt: Long,
-    val method: String
-)
-
-@Serializable
-private data class BlobProbeResponse(
-    val exists: Boolean = false,
-    val status: Int = 0,
-    val size: Long = 0,
-    val message: String? = null
-)
-
-@Serializable
-private data class BlobDeleteResponse(val ok: Boolean = false)
-
-@Serializable
-private data class BlobSelfCheckResponse(
     val ok: Boolean = false,
     val status: Int = 0,
     val message: String? = null
@@ -210,8 +174,7 @@ private data class BlobFunctionObject(
  * 对象存储网关（P8）：客户端不再持有对象存储凭据，也不参与 SigV4 签名。
  *
  * 职责分两层：
- *  1. **换签名**：Supabase 模式下向边缘函数 `blob-sign` 换预签名 URL，
- *     旧 Worker 模式下向 `/v1/blob/url` 换；鉴权都走登录会话；
+ *  1. **换签名**：向 Supabase 边缘函数 `blob-sign` 换预签名 URL，鉴权走登录会话；
  *  2. **直传直取**：拿预签名 URL 对自建桶做裸 PUT/GET，图片数据不经过业务接口。
  *
  * probe / delete / list / selfcheck 这类轻量操作由服务端代理——它们要么需要
@@ -230,136 +193,49 @@ class BlobGateway @Inject constructor(
      * 失败抛 [RemoteApiException]（未登录、网络不通等，文案可直接展示），由调用方决定如何兜底。
      */
     suspend fun presignedUrl(objectKey: String, op: String): PresignedBlobUrl {
-        val access = remoteClient.supabaseBlobAccess()
-        if (access != null) {
-            val response = blobFunctionCall(
-                access,
-                BlobFunctionRequest(
-                    op = OP_SIGN,
-                    key = objectKey,
-                    method = op.uppercase(),
-                    ttlSeconds = PRESIGN_TTL_SECONDS
-                )
+        val response = blobFunctionCall(
+            blobAccess(),
+            BlobFunctionRequest(
+                op = OP_SIGN,
+                key = objectKey,
+                method = op.uppercase(),
+                ttlSeconds = PRESIGN_TTL_SECONDS
             )
-            if (response.url.isBlank()) throw RemoteApiException(0, "服务端没有返回图片地址")
-            return PresignedBlobUrl(
-                url = response.url,
-                expiresAt = response.expiresAt.takeIf { it > 0 }
-                    ?: System.currentTimeMillis() + PRESIGN_TTL_SECONDS * 1000,
-                method = response.method.ifBlank { op.uppercase() }
-            )
-        }
-        val body = json.encodeToString(
-            BlobUrlRequest(key = objectKey, op = op, ttlSeconds = PRESIGN_TTL_SECONDS)
         )
-        val response = json.decodeFromString(
-            BlobUrlResponse.serializer(),
-            remoteClient.authedJsonRequest("POST", "/v1/blob/url", body)
+        if (response.url.isBlank()) throw RemoteApiException(0, "服务端没有返回图片地址")
+        return PresignedBlobUrl(
+            url = response.url,
+            expiresAt = response.expiresAt.takeIf { it > 0 }
+                ?: System.currentTimeMillis() + PRESIGN_TTL_SECONDS * 1000,
+            method = response.method.ifBlank { op.uppercase() }
         )
-        return PresignedBlobUrl(response.url, response.expiresAt, response.method)
     }
 
     /**
      * 探测对象是否已存在。请求没走通时 [BlobProbe.status] 为 0、
      * [BlobProbe.message] 带原因，调用方按「非 404 的不存在」处理即可。
      */
-    suspend fun probe(objectKey: String): BlobProbe {
-        val access = remoteClient.supabaseBlobAccess()
-        if (access != null) return functionProbe(access, objectKey)
-        return legacyProbe(objectKey)
-    }
-
-    private suspend fun legacyProbe(objectKey: String): BlobProbe = try {
-        val body = json.encodeToString(BlobKeyRequest(objectKey))
-        json.decodeFromString(
-            BlobProbeResponse.serializer(),
-            remoteClient.authedJsonRequest("POST", "/v1/blob/probe", body)
-        ).let { BlobProbe(it.exists, it.status, it.size, it.message) }
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: RemoteApiException) {
-        BlobProbe(message = e.message)
-    } catch (e: Exception) {
-        BlobProbe(message = "连不上服务器，检查网络或稍后再试")
-    }
+    suspend fun probe(objectKey: String): BlobProbe = functionProbe(objectKey)
 
     /**
      * 删除对象。S3 对不存在的键同样返回成功，返回 true 即删除意图已达成；
      * 网络失败返回 false，调用方保留记录下次再试。
      */
-    suspend fun deleteObject(objectKey: String): Boolean {
-        val access = remoteClient.supabaseBlobAccess()
-        if (access != null) return functionDelete(access, objectKey)
-        return legacyDelete(objectKey)
-    }
-
-    private suspend fun legacyDelete(objectKey: String): Boolean = try {
-        val body = json.encodeToString(BlobKeyRequest(objectKey))
-        json.decodeFromString(
-            BlobDeleteResponse.serializer(),
-            remoteClient.authedJsonRequest("POST", "/v1/blob/delete", body)
-        ).ok
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: Exception) {
-        false
-    }
+    suspend fun deleteObject(objectKey: String): Boolean = functionDelete(objectKey)
 
     /**
      * 列出指定前缀下的对象（返回原始 ListObjectsV2 语义），自动翻页直到取完。
      * 上限兜底防服务端异常导致死循环。
      */
-    suspend fun listObjects(prefix: String): ListObjectsResult {
-        val access = remoteClient.supabaseBlobAccess()
-        if (access != null) return functionListObjects(access, prefix)
-        return legacyListObjects(prefix)
-    }
-
-    private suspend fun legacyListObjects(prefix: String): ListObjectsResult = try {
-        val all = mutableListOf<S3ObjectEntry>()
-        var token: String? = null
-        repeat(MAX_LIST_PAGES) {
-            val params = mutableListOf<String>()
-            if (prefix.isNotBlank()) {
-                params += "prefix=" + URLEncoder.encode(prefix, "UTF-8")
-            }
-            token?.let {
-                params += "continuation-token=" + URLEncoder.encode(it, "UTF-8")
-            }
-            val path = if (params.isEmpty()) "/v1/blob/list" else "/v1/blob/list?${params.joinToString("&")}"
-            val page = parseListObjectsXml(remoteClient.authedJsonRequest("GET", path, body = null))
-            all += page.entries
-            token = page.nextContinuationToken ?: return ListObjectsResult.Success(all)
-            if (!page.isTruncated) return ListObjectsResult.Success(all)
-        }
-        ListObjectsResult.Success(all)
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: RemoteApiException) {
-        ListObjectsResult.Failure(e.message)
-    } catch (e: Exception) {
-        ListObjectsResult.Failure(e.message ?: "列举失败，请检查网络后重试")
-    }
+    suspend fun listObjects(prefix: String): ListObjectsResult = functionListObjects(prefix)
 
     /** 服务端连桶自检：验证签名函数侧的 S3 配置是否走得通。 */
-    suspend fun selfCheck(): BlobSelfCheck {
-        val access = remoteClient.supabaseBlobAccess()
-        if (access != null) return functionSelfCheck(access)
-        return legacySelfCheck()
-    }
+    suspend fun selfCheck(): BlobSelfCheck = functionSelfCheck()
 
-    private suspend fun legacySelfCheck(): BlobSelfCheck = try {
-        json.decodeFromString(
-            BlobSelfCheckResponse.serializer(),
-            remoteClient.authedJsonRequest("GET", "/v1/blob/selfcheck", body = null)
-        ).let { BlobSelfCheck(it.ok, it.status, it.message) }
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: RemoteApiException) {
-        BlobSelfCheck(message = e.message)
-    } catch (e: Exception) {
-        BlobSelfCheck(message = "连不上服务器，检查网络或稍后再试")
-    }
+    /** 未登录时抛一条可直接展示的说明，避免发一趟必然 401 的请求。 */
+    private suspend fun blobAccess(): SupabaseBlobAccess =
+        remoteClient.supabaseBlobAccess()
+            ?: throw RemoteApiException(401, "请先登录柠檬账号")
 
     /**
      * 上传对象：换一条 PUT 预签名后直传自建桶。同键重复 PUT 是幂等覆盖，不会产生副本。
@@ -454,16 +330,15 @@ class BlobGateway @Inject constructor(
 
     // —— 边缘函数签名实现 ——
     //
-    // 与旧 Worker 链路的分工一致：签名由服务端完成，上传/下载是客户端直连对象存储；
-    // 区别只是签名接口换成 Supabase Edge Function，对象键（images/<sha256>.jpg）不变，
-    // 因此同一批本地缓存与云端对象在两条链路之间可以直接沿用。
+    // 签名由服务端完成，上传/下载是客户端直连对象存储；
+    // 对象键（images/<sha256>.jpg）固定，本地缓存与云端对象一一对应。
 
     /** 探在：由函数对对象发 HEAD，只有真正存在才返回 exists。 */
-    private suspend fun functionProbe(
-        access: SupabaseBlobAccess,
-        objectKey: String
-    ): BlobProbe = try {
-        val response = blobFunctionCall(access, BlobFunctionRequest(op = OP_PROBE, key = objectKey))
+    private suspend fun functionProbe(objectKey: String): BlobProbe = try {
+        val response = blobFunctionCall(
+            blobAccess(),
+            BlobFunctionRequest(op = OP_PROBE, key = objectKey)
+        )
         BlobProbe(
             exists = response.exists,
             status = response.status,
@@ -479,9 +354,9 @@ class BlobGateway @Inject constructor(
     }
 
     /** 删除对象由函数代发；对象本就不存在也视为删除达成。 */
-    private suspend fun functionDelete(access: SupabaseBlobAccess, objectKey: String): Boolean = try {
+    private suspend fun functionDelete(objectKey: String): Boolean = try {
         blobFunctionCall(
-            access,
+            blobAccess(),
             BlobFunctionRequest(op = OP_DELETE, key = objectKey)
         ).ok
     } catch (e: CancellationException) {
@@ -491,10 +366,8 @@ class BlobGateway @Inject constructor(
     }
 
     /** 列举对象；函数返回 JSON 化后的分页结果，语义与 S3 的 ListObjectsV2 一致。 */
-    private suspend fun functionListObjects(
-        access: SupabaseBlobAccess,
-        prefix: String
-    ): ListObjectsResult = try {
+    private suspend fun functionListObjects(prefix: String): ListObjectsResult = try {
+        val access = blobAccess()
         val all = mutableListOf<S3ObjectEntry>()
         var token = ""
         repeat(MAX_LIST_PAGES) {
@@ -526,8 +399,8 @@ class BlobGateway @Inject constructor(
     }
 
     /** 自检：函数能拒绝访问桶就说明 S3 配置和凭据是对的。 */
-    private suspend fun functionSelfCheck(access: SupabaseBlobAccess): BlobSelfCheck = try {
-        val response = blobFunctionCall(access, BlobFunctionRequest(op = OP_SELF_CHECK))
+    private suspend fun functionSelfCheck(): BlobSelfCheck = try {
+        val response = blobFunctionCall(blobAccess(), BlobFunctionRequest(op = OP_SELF_CHECK))
         BlobSelfCheck(
             ok = response.ok,
             status = response.status,

@@ -807,7 +807,7 @@ data class ItemSnapshot(
     val rating: Int?,
     val ratedAt: Long?,
     /**
-     * 旧版 Web 端（server/web/index.html）写入的载荷没有该字段；给默认值后，
+     * 旧版 Web 端写入的载荷没有该字段（网页版已下线，这里只做历史数据兼容）；给默认值后，
      * 这类记录仍能反序列化，而不是被 syncRecordsToPayload 静默跳过。
      */
     val deletedAt: Long? = null,

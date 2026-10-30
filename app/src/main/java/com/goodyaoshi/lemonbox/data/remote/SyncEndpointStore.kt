@@ -13,20 +13,18 @@ import javax.inject.Singleton
 data class EndpointProbe(
     val baseUrl: String,
     val reachable: Boolean,
-    val detail: String,
-    /** 该地址是 Supabase（含反代域名）还是旧 Worker；自定义域名只能靠探活结果判断。 */
-    val supabase: Boolean = false
+    val detail: String
 )
 
 /**
  * 同步服务端地址的候选与选择。
  *
  * 背景：默认域名是免费二级域（`*.eu.cc`），存在被 DNS 污染/阻断的风险；而固定解析到
- * Cloudflare IP 并不可靠（anycast IP 会变、证书/SNI 对不上）。这里做两件事：
+ * 单一 IP 并不可靠（anycast IP 会变、证书/SNI 对不上）。这里做两件事：
  *
- *  1. 允许用户填一个**自定义服务器地址**（同一 Worker 的备用域名、反代地址等）；
- *  2. 登录/同步前按「自定义地址 → 构建默认地址」顺序探活 `/health`，选第一个可用的，
- *     并把实际使用地址存下来。这样换域名不需要重新发版。
+ *  1. 允许用户填一个**自定义服务器地址**（同一 Supabase 的反代地址）；
+ *  2. 登录/同步前按「自定义地址 → 构建默认地址」顺序探活 `/auth/v1/settings`，
+ *     选第一个可用的，并把实际使用地址存下来。这样换域名不需要重新发版。
  *
  * 地址只接受 https：把同步令牌发到明文地址等于把家庭数据交给链路上的任何人。
  *
@@ -52,7 +50,6 @@ class SyncEndpointStore @Inject constructor(
         prefs.edit().apply {
             if (normalized == null) remove(KEY_CUSTOM) else putString(KEY_CUSTOM, normalized)
             remove(KEY_ACTIVE)
-            remove(KEY_SUPABASE_BASE)
         }.apply()
     }
 
@@ -68,22 +65,11 @@ class SyncEndpointStore @Inject constructor(
         return if (active != null && isKnownBaseUrl(active)) active else defaultBaseUrl
     }
 
-    /**
-     * 记录探活成功的地址，以及它是不是 Supabase。
-     *
-     * 自定义反代域名（`https://supabase.example.com`）没有 `.supabase.co` 后缀，
-     * 只能把探活结论存下来，登录后再冷启动才知道该走 `/rest/v1` 还是旧 Worker 的 `/v1`。
-     */
-    fun markActive(base: String, supabase: Boolean) {
+    /** 记录探活成功的地址，下次冷启动直接用它发起请求。 */
+    fun markActive(base: String) {
         val normalized = normalize(base) ?: return
-        prefs.edit().apply {
-            putString(KEY_ACTIVE, normalized)
-            if (supabase) putString(KEY_SUPABASE_BASE, normalized) else remove(KEY_SUPABASE_BASE)
-        }.apply()
+        prefs.edit().putString(KEY_ACTIVE, normalized).apply()
     }
-
-    /** 最近一次探活确认「这个地址是 Supabase」的地址；没有则为 null。 */
-    fun supabaseBase(): String? = prefs.getString(KEY_SUPABASE_BASE, null)
 
     fun isKnownBaseUrl(url: String): Boolean =
         normalize(url)?.let { it in candidates() } == true
@@ -107,6 +93,5 @@ class SyncEndpointStore @Inject constructor(
         const val PREFS_NAME = "lemon_sync_endpoint"
         const val KEY_CUSTOM = "custom_base_url"
         const val KEY_ACTIVE = "active_base_url"
-        const val KEY_SUPABASE_BASE = "supabase_base_url"
     }
 }

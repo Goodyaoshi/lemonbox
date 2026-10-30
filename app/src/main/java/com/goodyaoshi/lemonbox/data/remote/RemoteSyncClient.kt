@@ -28,7 +28,6 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import java.io.IOException
-import java.net.URL
 import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -67,7 +66,7 @@ data class SupabaseBlobAccess(
  * SNI 与证书校验。OkHttp 的 [okhttp3.Dns] 正好提供这个切口，且 Coil 已经传递依赖它。
  *
  * 地址来自 [SyncEndpointStore]：默认是构建时注入的公开域名，用户可另配一个自定义地址；
- * 登录前按候选顺序探活 `/health`，能连上的那个才会被使用。
+ * 登录前按候选顺序探活 `/auth/v1/settings`，能连上的那个才会被使用。
  *
  * 凭据只有登录换来的会话令牌，由 [SyncSessionStore] 加密保管，每次请求临时取用。
  * 对象存储的 AccessKey / SecretKey 只在服务端，客户端永远看不到、也不需要。
@@ -122,9 +121,6 @@ class RemoteSyncClient @Inject constructor(
     val baseUrl: String
         get() = endpointStore.activeBaseUrl()
 
-    /** 当前同步后端：`supabase` 或旧 Worker（`d1`）。 */
-    fun backendKind(): String = if (isSupabaseEndpoint(baseUrl)) "supabase" else "d1"
-
     /** 是否配置了服务端地址（本地构建可能未注入，用户也可通过自定义地址补上）。 */
     fun isConfigured(): Boolean = endpointStore.candidates().isNotEmpty()
 
@@ -134,7 +130,7 @@ class RemoteSyncClient @Inject constructor(
     }
 
     /**
-     * 按候选顺序探活 `/health`。调用方已在 IO 上下文；请求本身可被协程取消。
+     * 按候选顺序探活 `/auth/v1/settings`。调用方已在 IO 上下文；请求本身可被协程取消。
      * 全部失败时返回第一个候选与逐项失败原因，便于界面直接展示。
      */
     private suspend fun probeEndpoints(): EndpointProbe {
@@ -146,7 +142,7 @@ class RemoteSyncClient @Inject constructor(
         for (base in all) {
             val result = probeOne(base)
             if (result.reachable) {
-                endpointStore.markActive(base, result.supabase)
+                endpointStore.markActive(base)
                 return result
             }
             failures += result.detail
@@ -154,71 +150,32 @@ class RemoteSyncClient @Inject constructor(
         return EndpointProbe(all.first(), false, failures.joinToString("；"))
     }
 
+    /**
+     * 探活单个地址。
+     *
+     * 读公开的 `/auth/v1/settings` 即可证明项目可达——Supabase 没有 `/health`，
+     * 而这条接口不需要任何凭据，能区分「域名解析/证书不通」与「项目不可用」。
+     */
     private suspend fun probeOne(base: String): EndpointProbe {
-        if (isSupabaseEndpoint(base)) return probeProtocol(base, supabase = true)
-        // 自定义反代域名（如 https://supabase.example.com）的后缀不像 Supabase，
-        // 只能按能力判断：先试 Supabase 的公开 /auth/v1/settings，再退回旧 Worker 的 /health。
-        val supabaseProbe = probeProtocol(base, supabase = true)
-        if (supabaseProbe.reachable) return supabaseProbe
-        return probeProtocol(base, supabase = false)
-    }
-
-    private suspend fun probeProtocol(base: String, supabase: Boolean): EndpointProbe {
         return try {
-            val httpRequest = if (supabase) {
-                // Supabase 没有 /health：读取公开的 Auth 设置即可证明项目可达。
-                Request.Builder()
-                    .url("$base/auth/v1/settings")
-                    .header("apikey", supabaseKey)
-                    .get()
-                    .build()
-            } else {
-                Request.Builder().url("$base/health").get().build()
-            }
+            val httpRequest = Request.Builder()
+                .url("$base/auth/v1/settings")
+                .header("apikey", supabaseKey)
+                .get()
+                .build()
             httpClient.newCall(httpRequest).await().use { response ->
-                val text = response.body?.string().orEmpty()
-                val ok = if (supabase) {
-                    response.isSuccessful
-                } else {
-                    response.isSuccessful && runCatching {
-                        json.parseToJsonElement(text)
-                            .jsonObject["ok"]
-                            ?.jsonPrimitive
-                            ?.content == "true"
-                    }.getOrDefault(false)
-                }
+                val ok = response.isSuccessful
                 EndpointProbe(
                     baseUrl = base,
                     reachable = ok,
-                    detail = if (ok) "已连接 $base" else "$base 返回 HTTP ${response.code}",
-                    supabase = supabase
+                    detail = if (ok) "已连接 $base" else "$base 返回 HTTP ${response.code}"
                 )
             }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            EndpointProbe(base, false, "$base：${NetworkError.describe(e)}", supabase)
+            EndpointProbe(base, false, "$base：${NetworkError.describe(e)}")
         }
-    }
-
-    /**
-     * 这个地址是不是 Supabase。
-     *
-     * 以 `.supabase.co` 后缀判断（自建 Supabase 域名可另配 LEMON_SUPABASE_URL，
-     * 与构建默认值一致时同样命中）。这样同一个安装包既能连 Supabase，
-     * 也能在把 LEMON_SYNC_BASE_URL 指回旧 Worker 时整包回退，不需要分支发版。
-     *
-     * 反代域名（如 `https://supabase.example.com`）没有 `.supabase.co` 后缀，
-     * 靠探活时确认过的结果识别；该结果由 [SyncEndpointStore] 持久化，
-     * 保证重启后走 Supabase RPC 而不是旧 Worker 的 `/v1` 系列接口。
-     */
-    private fun isSupabaseEndpoint(url: String): Boolean {
-        val base = url.trim().trimEnd('/')
-        if (base.isEmpty()) return false
-        if (base == BuildConfig.SUPABASE_URL.trim().trimEnd('/')) return true
-        if (base == endpointStore.supabaseBase()) return true
-        return runCatching { URL(base).host.lowercase().endsWith(".supabase.co") }
-            .getOrDefault(false)
     }
 
     private fun apikeyHeader(): Map<String, String> = mapOf("apikey" to supabaseKey)
@@ -234,8 +191,7 @@ class RemoteSyncClient @Inject constructor(
     suspend fun login(
         username: String,
         password: String,
-        deviceId: String,
-        deviceName: String
+        deviceId: String
     ): RemoteSession = withContext(Dispatchers.IO) {
         if (!isConfigured()) {
             throw RemoteApiException(0, "这个安装包没有配置同步服务器地址")
@@ -245,40 +201,7 @@ class RemoteSyncClient @Inject constructor(
             throw RemoteApiException(0, "连不上同步服务器：${probe.detail}")
         }
         val endpoint = probe.baseUrl
-        val session = if (isSupabaseEndpoint(endpoint)) {
-            supabaseLogin(endpoint, username, password, deviceId)
-        } else {
-            val payload = json.encodeToString(
-                LoginRequest(
-                    username = username.trim(),
-                    password = password,
-                    deviceId = deviceId,
-                    deviceName = deviceName
-                )
-            )
-            val response = json.decodeFromString(
-                LoginResponse.serializer(),
-                request(
-                    method = "POST",
-                    path = "/v1/login",
-                    body = payload,
-                    token = null,
-                    baseUrl = endpoint,
-                    readTimeoutMs = API_TIMEOUT_MS
-                )
-            )
-            val legacy = RemoteSession(
-                baseUrl = endpoint,
-                token = response.token,
-                userId = response.user.id,
-                username = response.user.name,
-                expiresAt = response.expiresAt
-            )
-            if (!sessionStore.save(legacy)) {
-                throw RemoteApiException(0, "系统密钥库不可用，无法在本机保存登录状态")
-            }
-            legacy
-        }
+        val session = supabaseLogin(endpoint, username, password, deviceId)
         // 凭据写入失败不影响本次登录，只是以后不能静默重登。
         sessionStore.saveCredential(AutoLoginCredential(username.trim(), password, deviceId))
         autoReloginBlocked = false
@@ -357,16 +280,15 @@ class RemoteSyncClient @Inject constructor(
     suspend fun logout() = withContext(Dispatchers.IO) {
         val session = sessionStore.current()
         if (session != null) {
-            val supabase = isSupabaseEndpoint(session.baseUrl)
             runCatching {
                 request(
                     method = "POST",
-                    path = if (supabase) "/auth/v1/logout" else "/v1/logout",
+                    path = "/auth/v1/logout",
                     body = null,
                     token = session.token,
                     baseUrl = session.baseUrl,
                     readTimeoutMs = API_TIMEOUT_MS,
-                    headers = if (supabase) apikeyHeader() else emptyMap()
+                    headers = apikeyHeader()
                 )
             }
         }
@@ -380,12 +302,7 @@ class RemoteSyncClient @Inject constructor(
      * 推送一批变更。服务端单次上限 200 条，超出会直接报错，故由调用方分批。
      */
     suspend fun push(changes: List<PushChange>): PushResponse = withContext(Dispatchers.IO) {
-        val session = sessionStore.current()
-        if (session != null && isSupabaseEndpoint(session.baseUrl)) {
-            return@withContext supabasePush(changes)
-        }
-        val body = json.encodeToString(PushRequest.serializer(), PushRequest(changes))
-        json.decodeFromString(PushResponse.serializer(), authedRequest("POST", "/v1/push", body))
+        supabasePush(changes)
     }
 
     /**
@@ -397,62 +314,37 @@ class RemoteSyncClient @Inject constructor(
      */
     suspend fun pull(since: Long, limit: Int, includeSelf: Boolean = false): PullResponse =
         withContext(Dispatchers.IO) {
-            val session = sessionStore.current()
-            if (session != null && isSupabaseEndpoint(session.baseUrl)) {
-                return@withContext supabasePull(since, limit, includeSelf)
-            }
-            val selfParam = if (includeSelf) "&includeSelf=1" else ""
-            json.decodeFromString(
-                PullResponse.serializer(),
-                authedRequest("GET", "/v1/pull?since=$since&limit=$limit$selfParam", body = null)
-            )
+            supabasePull(since, limit, includeSelf)
         }
 
     /** 服务端对账统计：各集合计数、设备列表与冲突台账数（P9 诊断页用）。 */
     suspend fun stats(): SyncStatsResponse = withContext(Dispatchers.IO) {
-        val session = sessionStore.current()
-        if (session != null && isSupabaseEndpoint(session.baseUrl)) {
-            return@withContext json.decodeFromString(
-                SyncStatsResponse.serializer(),
-                supabaseRpc(freshSupabaseSession(), "sync_stats", "{}")
-            )
-        }
-        json.decodeFromString(SyncStatsResponse.serializer(), authedRequest("GET", "/v1/stats", body = null))
+        json.decodeFromString(
+            SyncStatsResponse.serializer(),
+            supabaseRpc(freshSupabaseSession(), "sync_stats", "{}")
+        )
     }
 
     /**
      * 轻量同步元信息：实例标识、当前全局序号与各集合规模。
      *
-     * 旧服务端没有该接口时会抛 [RemoteApiException]（404）；调用方用 runCatching
-     * 回退到纯增量，不因为缺接口而阻断同步。
+     * 日常只取 instanceId/seq；`p_collections` 会做一次按集合 GROUP BY，
+     * 只在首次/重建、确实要拉快照时用，避免每次 focus 都扫 records。
      */
     suspend fun meta(includeCollections: Boolean = false): SyncMetaResponse =
         withContext(Dispatchers.IO) {
-            val session = sessionStore.current()
-            if (session != null && isSupabaseEndpoint(session.baseUrl)) {
-                val body = buildJsonObject {
-                    put("p_collections", includeCollections)
-                }
-                return@withContext json.decodeFromString(
-                    SyncMetaResponse.serializer(),
-                    supabaseRpc(freshSupabaseSession(), "sync_meta", body.toString())
-                )
+            val body = buildJsonObject {
+                put("p_collections", includeCollections)
             }
-            // 日常只取 instanceId/seq；`?collections=1` 会做一次按集合 GROUP BY，
-            // 只在首次/重建、确实要拉快照时用，避免每次 focus 都扫 records。
-            val query = if (includeCollections) "?collections=1" else ""
             json.decodeFromString(
                 SyncMetaResponse.serializer(),
-                authedRequest("GET", "/v1/meta$query", body = null)
+                supabaseRpc(freshSupabaseSession(), "sync_meta", body.toString())
             )
         }
 
     /**
      * 按集合拉当前活数据快照。[upTo] 钉住一个全局序号，保证读到的是一个一致点；
      * [cursor] 为上一页最后一条的序号，[done] 为真表示该集合已取完。
-     *
-     * `collection` 只来自本地固定的 [com.goodyaoshi.lemonbox.data.backup.SyncTables]
-     * 或服务端 meta 返回的集合名（均为 ASCII），直接拼进查询串即可。
      */
     suspend fun snapshot(
         collection: String,
@@ -460,56 +352,16 @@ class RemoteSyncClient @Inject constructor(
         upTo: Long,
         limit: Int = SNAPSHOT_LIMIT
     ): SnapshotResponse = withContext(Dispatchers.IO) {
-        val session = sessionStore.current()
-        if (session != null && isSupabaseEndpoint(session.baseUrl)) {
-            val body = buildJsonObject {
-                put("p_collection", collection)
-                put("p_cursor", cursor)
-                put("p_up_to", upTo)
-                put("p_limit", limit)
-            }
-            return@withContext json.decodeFromString(
-                SnapshotResponse.serializer(),
-                supabaseRpc(freshSupabaseSession(), "sync_snapshot", body.toString())
-            )
+        val body = buildJsonObject {
+            put("p_collection", collection)
+            put("p_cursor", cursor)
+            put("p_up_to", upTo)
+            put("p_limit", limit)
         }
         json.decodeFromString(
             SnapshotResponse.serializer(),
-            authedRequest(
-                "GET",
-                "/v1/snapshot?collection=$collection&cursor=$cursor&upTo=$upTo&limit=$limit",
-                body = null
-            )
+            supabaseRpc(freshSupabaseSession(), "sync_snapshot", body.toString())
         )
-    }
-
-    /** 取当前会话令牌带上去发一次请求；未登录时直接抛，不白跑一趟必然 401 的请求。 */
-    private suspend fun authedRequest(method: String, path: String, body: String?): String {
-        val session = sessionStore.current()
-            ?: throw RemoteApiException(401, "请先登录柠檬账号")
-        return try {
-            request(
-                method = method,
-                path = path,
-                body = body,
-                token = session.token,
-                baseUrl = session.baseUrl,
-                readTimeoutMs = DATA_TIMEOUT_MS
-            )
-        } catch (e: RemoteApiException) {
-            // 只有网络层失败（statusCode=0）才换地址重试；HTTP 4xx/5xx 原样带回。
-            if (e.statusCode != 0) throw e
-            val probe = probeEndpoints()
-            if (!probe.reachable || probe.baseUrl == session.baseUrl) throw e
-            request(
-                method = method,
-                path = path,
-                body = body,
-                token = session.token,
-                baseUrl = probe.baseUrl,
-                readTimeoutMs = DATA_TIMEOUT_MS
-            )
-        }
     }
 
     /**
@@ -579,8 +431,8 @@ class RemoteSyncClient @Inject constructor(
             return@withContext
         }
         val expired = session.isExpired()
-        if (!isSupabaseEndpoint(session.baseUrl) || session.refreshToken.isBlank()) {
-            // 旧 Worker 会话没有 refresh_token，过期后同样只能靠凭据重建。
+        if (session.refreshToken.isBlank()) {
+            // 会话没有 refresh_token（升级前遗留的旧会话）时，过期后只能靠凭据重建。
             if (expired) refreshMutex.withLock { autoRelogin() }
             return@withContext
         }
@@ -607,8 +459,7 @@ class RemoteSyncClient @Inject constructor(
             login(
                 username = credential.username,
                 password = credential.password,
-                deviceId = credential.deviceId,
-                deviceName = runCatching { Build.MODEL }.getOrNull().orEmpty().ifBlank { "本机" }
+                deviceId = credential.deviceId
             )
         } catch (e: CancellationException) {
             throw e
@@ -632,7 +483,7 @@ class RemoteSyncClient @Inject constructor(
         System.currentTimeMillis() +
             (expiresIn.takeIf { it > 0 } ?: DEFAULT_EXPIRES_IN_SECONDS) * 1000L
 
-    /** 调一个 Supabase RPC；返回体刻意与旧 Worker 的 DTO 同形，调用方无需区分后端。 */
+    /** 调一个 Supabase RPC。 */
     private suspend fun supabaseRpc(session: RemoteSession, name: String, body: String): String =
         request(
             method = "POST",
@@ -733,13 +584,12 @@ class RemoteSyncClient @Inject constructor(
     }
 
     /**
-     * 打开一条前台实时订阅；未登录或仍连旧 Worker 时返回 null。
+     * 打开一条前台实时订阅；未登录时返回 null。
      *
      * 由调用方在 App 离开前台时 close：后台的长连接会被系统掐掉，留着只会白耗电。
      */
     internal fun openRealtimeChannel(): SupabaseRealtimeChannel? {
         val session = sessionStore.current() ?: return null
-        if (!isSupabaseEndpoint(session.baseUrl)) return null
         val wsBase = session.baseUrl.trim().trimEnd('/').replaceFirst("https://", "wss://")
         val key = URLEncoder.encode(supabaseKey, "UTF-8")
         val url = "$wsBase/realtime/v1/websocket?apikey=$key&vsn=1.0.0"
@@ -749,15 +599,14 @@ class RemoteSyncClient @Inject constructor(
     /**
      * 上报本轮拉取位置与设备名，供诊断页显示「已同步到序号 N」。
      *
-     * 旧 Worker 在 /v1/pull 的最后一页顺手写掉 devices 表；Supabase 的 pull_changes
-     * 是 `stable` 函数、不能落库，所以由客户端在**整轮拉取成功**后补一次上报。
-     * 失败一律吞掉：这只是一条诊断信息，不该把一次成功的同步变成失败。
+     * Supabase 的 pull_changes 是 `stable` 函数、不能落库，所以由客户端在
+     * **整轮拉取成功**后补一次上报。失败一律吞掉：这只是一条诊断信息，
+     * 不该把一次成功的同步变成失败。
      */
     suspend fun reportPullProgress(seq: Long) {
         if (seq <= 0) return
         withContext(Dispatchers.IO) {
             val session = sessionStore.current() ?: return@withContext
-            if (!isSupabaseEndpoint(session.baseUrl)) return@withContext
             try {
                 val fresh = freshSupabaseSession()
                 val body = buildJsonObject {
@@ -775,29 +624,13 @@ class RemoteSyncClient @Inject constructor(
     }
 
     /**
-     * 鉴权 JSON 请求，供对象存储网关（[com.goodyaoshi.lemonbox.data.imagecloud.BlobGateway]）
-     * 在旧 Worker 链路上复用同一套会话令牌、超时与错误翻译；非 2xx 抛 [RemoteApiException]。
-     */
-    suspend fun authedJsonRequest(method: String, path: String, body: String?): String =
-        withContext(Dispatchers.IO) {
-            val session = sessionStore.current()
-            if (session != null && isSupabaseEndpoint(session.baseUrl)) {
-                // Supabase 会话换不来旧 Worker 的登录态；图片走边缘函数签名
-                // （见 [supabaseBlobAccess]），这里收到请求说明调用方没分支。
-                throw RemoteApiException(0, "图片存储已切换为边缘函数签名，请更新应用后再试")
-            }
-            authedRequest(method, path, body)
-        }
-
-    /**
-     * 取图片签名函数的调用参数；未登录或仍连旧 Worker 时返回 null。
+     * 取图片签名函数的调用参数；未登录时返回 null。
      *
      * 每次调用都过一遍 [freshSupabaseSession]：图片同步可能隔很久才跑，
      * 复用过期 token 只会换回一串 401。
      */
     suspend fun supabaseBlobAccess(): SupabaseBlobAccess? = withContext(Dispatchers.IO) {
-        val session = sessionStore.current() ?: return@withContext null
-        if (!isSupabaseEndpoint(session.baseUrl)) return@withContext null
+        sessionStore.current() ?: return@withContext null
         val fresh = freshSupabaseSession()
         SupabaseBlobAccess(
             baseUrl = fresh.baseUrl.trimEnd('/'),
@@ -871,8 +704,8 @@ class RemoteSyncClient @Inject constructor(
     /**
      * 优先用服务端自带的说明，其次按状态码给兜底文案。
      *
-     * Supabase 的错误体是 `{"message":"..."}` / `{"msg":"..."}`，旧 Worker 是 `{"error":"..."}`；
-     * 两种都认。常见英文原因翻译成一句能直接给用户看的中文。
+     * Supabase 的错误体是 `{"message":"..."}` / `{"msg":"..."}`；
+     * 常见英文原因翻译成一句能直接给用户看的中文。
      */
     private fun errorMessage(code: Int, body: String): String {
         val obj = runCatching { json.parseToJsonElement(body).jsonObject }.getOrNull()

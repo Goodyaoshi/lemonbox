@@ -161,8 +161,7 @@ class SyncLoginViewModel @Inject constructor(
                 client.login(
                     username = username,
                     password = password,
-                    deviceId = appPreferences.deviceId,
-                    deviceName = deviceDisplayName()
+                    deviceId = appPreferences.deviceId
                 )
             }
             val loginError = outcome.exceptionOrNull()

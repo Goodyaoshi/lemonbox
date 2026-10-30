@@ -36,9 +36,9 @@ data class ImageCloudReadiness(
  * 云存储与多设备同步的配置来源。
  *
  * 与旧机制最大的区别：**客户端不再持有任何长期密钥**。对象存储的
- * endpoint / region / bucket / AccessKey / SecretKey 全部只存在服务端（Cloudflare Worker），
+ * endpoint / region / bucket / AccessKey / SecretKey 全部只存在服务端（Edge Function Secret），
  * 客户端包内只有一个公开域名 [baseUrl] 与用户登录换来的会话令牌；
- * 每次要读写对象时才向 Worker 换**几分钟有效的预签名 URL**。
+ * 每次要读写对象时才向 `blob-sign` 函数换**几分钟有效的预签名 URL**。
  *
  * 可用的唯一前提是**登录态**：登录即开启同步，退出登录即回到纯本地。
  * 早期版本还叠加了「图片上传 / 自动上传 / 后台补传 / 多设备同步」四个用户开关，

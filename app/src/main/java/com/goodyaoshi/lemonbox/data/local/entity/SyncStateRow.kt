@@ -19,7 +19,7 @@ data class SyncStateRow(
 
 /** [SyncStateRow] 用到的键。 */
 object SyncStateKeys {
-    /** 已拉取到的服务端序号水位：`GET /v1/pull?since=` 的 since 值。 */
+    /** 已拉取到的服务端序号水位：`pull_changes` 的 `p_cursor` 值。 */
     const val PULL_WATERMARK = "pull_watermark"
 
     /**
@@ -60,7 +60,7 @@ object SyncStateKeys {
     /**
      * 是否已经完成过一次「按集合快照」。
      *
-     * 首次安装 / 重建 / 服务端换库后为 0，同步走 /v1/snapshot；
+     * 首次安装 / 重建 / 服务端换库后为 0，同步走 sync_snapshot；
      * 完成后置 1，日常只走轻量 meta + 增量。
      */
     const val SNAPSHOT_DONE = "snapshot_done"

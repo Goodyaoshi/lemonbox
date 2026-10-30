@@ -48,7 +48,7 @@ internal fun decideImageLocation(
  * 把「本地路径 + 云端对象键」解析成图片加载器能直接使用的 model（F22 / P8）。
  *
  * [modelForHash] 是**同步**调用（Compose 渲染路径，见 rememberImageModel），而 P8 之后
- * 预签名 URL 需要一次网络往返（Worker `/v1/blob/url`）才能取得，无法在渲染线程同步完成。
+ * 预签名 URL 需要一次网络往返（边缘函数 `blob-sign`）才能取得，无法在渲染线程同步完成。
  * 因此云端分支不再返回 URL，而是返回纯数据模型 [CloudImageModel]（只装对象键）：
  * 真正的网络动作交给注册进 Coil 的 [CloudImageFetcherFactory]，在其挂起阶段完成。
  *

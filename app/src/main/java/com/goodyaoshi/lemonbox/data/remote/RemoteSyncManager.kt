@@ -179,7 +179,7 @@ class RemoteSyncManager @Inject constructor(
     }
 
     /**
-     * 前台实时订阅通道；未登录 / 仍连旧 Worker 时返回 null。
+     * 前台实时订阅通道；未登录时返回 null。
      * 只作为「该同步了」的信号，落地仍走 [syncNow]。
      */
     internal fun openRealtimeChannel(): SupabaseRealtimeChannel? = client.openRealtimeChannel()
@@ -222,8 +222,8 @@ class RemoteSyncManager @Inject constructor(
             // 先统一回填一次，否则「立即同步」和「以本机为准合并上传」都会
             // 显示成功但实际一条也推不出去。
             backfillMissingSyncIdsIfNeeded()
-            // 先看服务端轻量元信息：序号没变时连业务数据都不用拉；旧服务端没有
-            // /v1/meta 时 runCatching 返回 null，自动回退到原来的纯增量逻辑。
+            // 先看服务端轻量元信息：序号没变时连业务数据都不用拉；请求失败时为 null，
+            // 退回到纯增量逻辑，不因为元信息读不到就阻断同步。
             val meta = runCatching { client.meta() }.getOrNull()
             val pendingBeforePull = loadPendingSeqs()
             val watermark = remoteSyncDao.state(SyncStateKeys.PULL_WATERMARK) ?: 0L
@@ -232,12 +232,11 @@ class RemoteSyncManager @Inject constructor(
                 remoteSyncDao.state(SyncStateKeys.FULL_UPLOAD_REQUIRED) == 1L
             var needSnapshot = false
             /**
-             * 是否刚从 D1 换成 Supabase，且新后端已经用 D1 快照铺过底。
+             * 服务端换了实例（含历史上从旧 D1 迁移到 Supabase），且新库已经有数据。
              *
-             * 两台后端的序号是两套独立编号：D1 的水位往往比 Supabase 现有条数还大，
-             * 实例标识也必然不同。照旧判成「服务端被清空」就会把整库再传一遍，
-             * 快照铺底就白做了。这里改成：新后端有数据就认服务端为权威，先拉后推；
-             * 只有真的空库（seq=0）才保留原来的全量回灌。
+             * 本机水位记的是旧实例的编号：往往比新库现有序号还大，实例标识也必然不同。
+             * 照旧判成「服务端被清空」就会把整库再传一遍。这里改成：新库有数据就认服务端
+             * 为权威，先拉后推；只有真的空库（seq=0）才保留原来的全量回灌。
              */
             var adoptedSeededBackend = false
             if (meta != null) {
@@ -252,12 +251,10 @@ class RemoteSyncManager @Inject constructor(
                     val localHash = remoteSyncDao.state(SyncStateKeys.INSTANCE_HASH)
                     instanceChanged = localHash != null && localHash != incomingHash
                 }
-                val seededCutover = client.backendKind() == BACKEND_SUPABASE &&
-                    meta.seq > 0L &&
-                    (instanceChanged || serverWiped)
+                val seededCutover = meta.seq > 0L && (instanceChanged || serverWiped)
                 if (seededCutover) {
-                    // 快照已经在新后端：重置本机旧编号，但**不**全量上传。
-                    // 偏好基线与水位一起清零，避免拿 D1 的序号去撞 Supabase 的序号。
+                    // 快照已经在新库：重置本机旧编号，但**不**全量上传。
+                    // 偏好基线与水位一起清零，避免拿旧实例的序号去撞新库的序号。
                     adoptedSeededBackend = true
                     forceUpload = false
                     remoteSyncDao.putState(SyncStateRow(SyncStateKeys.FULL_UPLOAD_REQUIRED, 0L))
@@ -281,7 +278,7 @@ class RemoteSyncManager @Inject constructor(
                 needSnapshot = remoteSyncDao.state(SyncStateKeys.SNAPSHOT_DONE) != 1L
             }
             if (meta == null) {
-                // 旧服务端没有 /v1/meta：用 /v1/stats 的 seq 兜底判断「服务端被清空」。
+                // 元信息读不到时用 stats 的 seq 兜底判断「服务端被清空」。
                 // 否则 reset 后 App 会静默走旧增量，dirty=0 的记录永远不会再推上去。
                 val stats = runCatching { client.stats() }.getOrNull()
                 val serverSeq = stats?.seq ?: -1L
@@ -325,8 +322,8 @@ class RemoteSyncManager @Inject constructor(
                 } else {
                     pull(pendingBeforePull, includeSelf)
                 }
-                // 铺底切换这一轮：本机脏记录的 serverSeq 还是 D1 的编号，直接拿去当 baseSeq
-                // 有极小概率与 Supabase 的新 revision 撞上，从而静默覆盖对端更晚的改动。
+                // 铺底切换这一轮：本机脏记录的 serverSeq 还是旧实例的编号，直接拿去当 baseSeq
+                // 有极小概率与新库的 revision 撞上，从而静默覆盖对端更晚的改动。
                 // 统一以 0 推送，让它稳定走冲突通道，由「较新者胜」决定。
                 val pendingForPush = if (adoptedSeededBackend) {
                     loadPendingSeqs().mapValues { (_, rows) -> rows.mapValues { 0L } }
@@ -421,8 +418,8 @@ class RemoteSyncManager @Inject constructor(
             pageCount++
             val page = client.pull(since = cursor, limit = PULL_LIMIT, includeSelf = includeSelf)
             if (page.resetRequired && cursor != 0L) {
-                // 服务端序号比本机水位还小＝库被重建/换过后端。旧 Worker 会替客户端把 since
-                // 钳到 0，Supabase 不会，照旧水位继续拉只会永远空转（每页都空、水位不动）。
+                // 服务端序号比本机水位还小＝库被重建/换过实例。pull_changes 不会替客户端
+                // 把 since 钳到 0，照旧水位继续拉只会永远空转（每页都空、水位不动）。
                 // 这一轮从 0 重扫一遍；合并是幂等的，重复落地没有副作用。
                 cursor = 0L
                 continue
@@ -463,7 +460,7 @@ class RemoteSyncManager @Inject constructor(
         val applied = applyPulledRecords(landed, lastSeq)
         if (!truncated) {
             // 整轮拉完才报进度：诊断页的「已同步到序号 N」由此而来。
-            // 只对 Supabase 生效；旧 Worker 在服务端自己写。
+            // pull_changes 是 stable 函数、不能落库，所以由客户端补报。
             client.reportPullProgress(lastSeq)
         }
         return PullOutcome(
@@ -1079,12 +1076,10 @@ class RemoteSyncManager @Inject constructor(
          * 与旧的云端快照同步（`cloud`）刻意分开：那套水位线记的是**墙钟时间**，
          * 而复用同一个键会让它被当成服务端序号读走（时间戳恒大于任何序号），
          * 于是 `since` 巨大、一条都拉不下来，且完全看不出问题。
-         * P6 起水位搬进 `sync_state` 表，这里只为兼容旧安装包读一次。
+         * P6 起水位搬进 `sync_state` 表，这里只为兼容旧安装包读一次；
+         * 键值保持原样，改名会让老安装包的水位读不到。
          */
         const val LEGACY_PEER_ID = "d1"
-
-        /** [com.goodyaoshi.lemonbox.data.remote.RemoteSyncClient.backendKind] 的 Supabase 取值。 */
-        const val BACKEND_SUPABASE = "supabase"
 
         /** 单次拉取条数上限（与服务端 `PULL_MAX_LIMIT` 对齐；刻意压小以降低单请求 CPU/内存）。 */
         const val PULL_LIMIT = 200
