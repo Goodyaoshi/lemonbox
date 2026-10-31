@@ -169,10 +169,21 @@ internal object SeedDataProvider {
         snackLeaves.forEach { leaf ->
             ensureProtectedCategory(db, leaf, snackId)
         }
-        db.execSQL(
-            "UPDATE locations SET isProtected = 1, deletedAt = NULL " +
-                "WHERE name = '${MEAL_LOCATION.sql()}'"
-        )
+        // 「冰箱」是「今天吃什么」的取材位置。同名节点在多设备合并/旧数据里可能不止一个，
+        // 若一律保护，合并策略会跳过它们的远端墓碑，被删掉的冰箱会一轮轮复活。
+        // 只认一个：优先客厅里的那个，其次最早创建的那个；其余的解除保护，让删除能落地。
+        val canonicalFridgeId = canonicalFridgeId(db)
+        if (canonicalFridgeId != null) {
+            db.execSQL(
+                "UPDATE locations SET isProtected = 1, deletedAt = NULL WHERE id = ?",
+                arrayOf<Any>(canonicalFridgeId)
+            )
+            db.execSQL(
+                "UPDATE locations SET isProtected = 0 " +
+                    "WHERE name = '${MEAL_LOCATION.sql()}' AND id <> ? AND deletedAt IS NULL",
+                arrayOf<Any>(canonicalFridgeId)
+            )
+        }
         inheritCategoryIcons(db)
     }
 
@@ -199,6 +210,28 @@ internal object SeedDataProvider {
                   )
                 """.trimIndent()
             )
+        }
+    }
+
+    /**
+     * 唯一受保护冰箱的本地 id：优先客厅里的那个，没有时退化为最早创建的一个。
+     *
+     * 返回 null 表示库里一个活着的冰箱都没有（此时不写入保护位，等默认层级补种后再来一次）。
+     */
+    private fun canonicalFridgeId(db: SupportSQLiteDatabase): Long? {
+        val inLivingRoom = db.query(
+            """
+            SELECT l.id FROM locations l JOIN locations p ON l.parentId = p.id
+            WHERE l.name = '${MEAL_LOCATION.sql()}' AND p.name = '客厅' AND l.deletedAt IS NULL
+            ORDER BY l.id LIMIT 1
+            """.trimIndent()
+        ).use { cursor -> if (cursor.moveToFirst()) cursor.getLong(0) else null }
+        if (inLivingRoom != null) return inLivingRoom
+        return db.query(
+            "SELECT MIN(id) FROM locations " +
+                "WHERE name = '${MEAL_LOCATION.sql()}' AND deletedAt IS NULL"
+        ).use { cursor ->
+            if (cursor.moveToFirst() && !cursor.isNull(0)) cursor.getLong(0) else null
         }
     }
 
