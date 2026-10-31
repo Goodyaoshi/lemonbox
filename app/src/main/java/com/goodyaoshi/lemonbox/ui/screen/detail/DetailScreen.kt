@@ -416,23 +416,28 @@ fun DetailScreen(
                 Spacer(modifier = Modifier.height(20.dp))
                 DetailInfoRow(if (isToBuyItem) "想买" else "数量", "${formatQuantity(item.quantity)} ${item.unit}")
                 item.expireTime?.let { expireTime ->
-                    val days = DateUtil.daysUntil(expireTime)
-                    val (container, content) = when {
-                        days < 0 -> TagRed to TagRedText
-                        days <= 7 -> TagRed to TagRedText
-                        else -> TagOrange to TagOrangeText
-                    }
-                    DetailInfoRow(
-                        label = "有效期",
-                        value = DateUtil.formatDate(expireTime),
-                        tail = {
-                            PillTag(
-                                text = DateUtil.expiryCountdownText(expireTime),
-                                backgroundColor = container,
-                                contentColor = content
-                            )
+                    if (item.tracksExpiry) {
+                        val days = DateUtil.daysUntil(expireTime)
+                        val (container, content) = when {
+                            days < 0 -> TagRed to TagRedText
+                            days <= 7 -> TagRed to TagRedText
+                            else -> TagOrange to TagOrangeText
                         }
-                    )
+                        DetailInfoRow(
+                            label = "有效期",
+                            value = DateUtil.formatDate(expireTime),
+                            tail = {
+                                PillTag(
+                                    text = DateUtil.expiryCountdownText(expireTime),
+                                    backgroundColor = container,
+                                    contentColor = content
+                                )
+                            }
+                        )
+                    } else {
+                        // 已用完 / 已离手：只留日期事实，不再挂「已过期」红标催一次。
+                        DetailInfoRow(label = "有效期", value = DateUtil.formatDate(expireTime))
+                    }
                 }
                 item.price?.let { price ->
                     DetailInfoRow("价格", DateUtil.formatCurrency(price))

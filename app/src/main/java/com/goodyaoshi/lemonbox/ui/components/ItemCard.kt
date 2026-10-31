@@ -225,14 +225,18 @@ fun ItemCard(
                             )
                         )
                     }
-                    item.expireTime?.let { expireTime ->
-                        val days = DateUtil.daysUntil(expireTime)
-                        val (container, content) = when {
-                            days <= 3 -> TagRed to TagRedText
-                            days <= 7 -> StatusWarning.copy(alpha = 0.12f) to StatusWarning
-                            else -> StatusNormal.copy(alpha = 0.12f) to StatusNormal
+                    // 已用完 / 已离手的物品不再显示倒计时：它们的效期已经没有意义，
+                    // 挂着「已过期」只会在列表里反复提醒一件已经处理完的事。
+                    if (item.tracksExpiry) {
+                        item.expireTime?.let { expireTime ->
+                            val days = DateUtil.daysUntil(expireTime)
+                            val (container, content) = when {
+                                days <= 3 -> TagRed to TagRedText
+                                days <= 7 -> StatusWarning.copy(alpha = 0.12f) to StatusWarning
+                                else -> StatusNormal.copy(alpha = 0.12f) to StatusNormal
+                            }
+                            add(Triple(DateUtil.expiryCountdownText(expireTime), container, content))
                         }
-                        add(Triple(DateUtil.expiryCountdownText(expireTime), container, content))
                     }
                 }
 

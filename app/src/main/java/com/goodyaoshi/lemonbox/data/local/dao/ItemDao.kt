@@ -92,8 +92,10 @@ interface ItemDao {
     @Query("$ITEM_WITH_META WHERE items.id = :id AND items.deletedAt IS NULL")
     fun getItemDetailById(id: Long): Flow<ItemDetail?>
 
+    /** 临期列表：在库、未用完且已到提醒窗口的物品（已用完不再催过期）。 */
     @Query(
         "$ITEM_WITH_META WHERE items.disposition = 0 AND items.deletedAt IS NULL " +
+            "AND items.usageStatus <> 2 " +
             "AND items.expireTime IS NOT NULL AND items.expireTime <= :thresholdTime " +
             "AND items.expireTime > 0 ORDER BY items.expireTime ASC"
     )
@@ -274,10 +276,12 @@ interface ItemDao {
     @Query("UPDATE items SET purchaseDate = :purchaseDate, updatedAt = :updatedAt, dirty = 1 WHERE id = :id")
     suspend fun updatePurchaseDate(id: Long, purchaseDate: Long?, updatedAt: Long)
 
+    /** 通知取数：在库且未用完、填了效期的物品；已用完/已离手的不再提醒。 */
     @Query(
         """
         SELECT * FROM items
         WHERE disposition = 0
+          AND usageStatus <> 2
           AND deletedAt IS NULL
           AND expireTime IS NOT NULL
           AND expireTime > 0
@@ -298,6 +302,7 @@ interface ItemDao {
         """
         SELECT COUNT(*) FROM items
         WHERE disposition = 0
+          AND usageStatus <> 2
           AND deletedAt IS NULL
           AND expireTime IS NOT NULL
           AND expireTime <= :thresholdTime
@@ -387,9 +392,10 @@ interface ItemDao {
     @Query("DELETE FROM items")
     suspend fun deleteAll()
 
-    /** 未来一段时间内即将到期：用于通知与首页提醒。 */
+    /** 未来一段时间内即将到期：用于通知与首页提醒（已用完/已离手的不提醒）。 */
     @Query(
         "$ITEM_WITH_META WHERE items.disposition = 0 AND items.deletedAt IS NULL " +
+            "AND items.usageStatus <> 2 " +
             "AND items.expireTime IS NOT NULL AND items.expireTime <= :thresholdTime " +
             "AND items.expireTime > 0 AND items.expireTime > :currentTime " +
             "ORDER BY items.expireTime ASC"

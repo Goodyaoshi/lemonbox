@@ -17,7 +17,7 @@ import org.junit.Test
 
 /**
  * 临期提醒 ViewModel 单测（F17）：
- * 只保留在库、且填了到期时间的家当，其余（无到期时间 / 已丢弃）不进入临期列表。
+ * 只保留在库、未用完且填了到期时间的家当；无到期时间 / 已用完 / 已离手都不进入临期列表。
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class ExpiryViewModelTest {
@@ -43,7 +43,10 @@ class ExpiryViewModelTest {
                 activeItem(id = 2L),
                 // 已丢弃：不在库，即使有到期时间也排除。
                 activeItem(id = 3L).copy(expireTime = 1_000L)
-                    .copy(disposition = Item.DISPOSITION_DISCARDED)
+                    .copy(disposition = Item.DISPOSITION_DISCARDED),
+                // 已用完：效期已经没有意义，不再催过期。
+                activeItem(id = 4L).copy(expireTime = 1_000L)
+                    .copy(usageStatus = Item.USAGE_USED_UP)
             )
         )
         val viewModel = ExpiryViewModel(ItemRepository(dao))

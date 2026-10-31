@@ -51,6 +51,8 @@ data class RestockForecast(
                 if (item.quantity <= 0) return@mapNotNull null
                 if (item.consumedQuantity < MIN_CONSUMED) return@mapNotNull null
                 if (item.usageStatus == Item.USAGE_UNUSED) return@mapNotNull null
+                // 已用完的残量只是没清掉的账面数字，不该再按日均推算「还能用几天」。
+                if (item.usageStatus == Item.USAGE_USED_UP) return@mapNotNull null
 
                 val startMillis = Item.effectiveStartUseTime(
                     item.startUseTime, item.purchaseDate, item.createdAt

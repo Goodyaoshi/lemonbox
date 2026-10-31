@@ -134,6 +134,18 @@ data class Item(
     val totalQuantity: Double
         get() = quantity + consumedQuantity
 
+    /**
+     * 是否仍参与到期提醒（首页今日事项、到期提醒页、通知、列表标签）。
+     *
+     * 只有「在库且没用完」的物品才需要被催：已用完的东西还挂着「已过期 N 天」
+     * 只是噪声，用户既不会去用也不会因此去买；借出/送人/丢弃不在手边，同理不提醒。
+     * 全部入口都走这一个口径，避免某个页面漏过滤后旧提示反复出现。
+     */
+    val tracksExpiry: Boolean
+        get() = expireTime != null && expireTime > 0L &&
+            disposition == DISPOSITION_IN_STOCK &&
+            usageStatus != USAGE_USED_UP
+
     /** 全部图片槽位的内容哈希，顺序即展示顺序（首项为主图）。 */
     fun imageHashList(): List<String> = decodeImageHashes(imageHashes)
 

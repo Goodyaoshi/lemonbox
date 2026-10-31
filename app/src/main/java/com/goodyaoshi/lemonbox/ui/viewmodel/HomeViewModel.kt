@@ -63,10 +63,10 @@ class HomeViewModel @Inject constructor(
         }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    /** 逐件判定是否临期：用物品自己的阶梯窗口（未设置则跟随全局）。 */
+    /** 逐件判定是否临期：只算在库且未用完的，已用完/已离手的不再出现在今日事项。 */
     private fun isExpiringSoon(item: Item, globalLadder: List<Int>): Boolean {
+        if (!item.tracksExpiry) return false
         val expireTime = item.expireTime ?: return false
-        if (expireTime <= 0L) return false
         val window = Item.reminderWindowDays(item.reminderDays, globalLadder)
         return DateUtil.daysUntil(expireTime) <= window
     }

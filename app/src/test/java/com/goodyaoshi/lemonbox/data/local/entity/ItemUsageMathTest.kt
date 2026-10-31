@@ -34,6 +34,25 @@ class ItemUsageMathTest {
     }
 
     @Test
+    fun tracksExpiry_onlyForInStockNotUsedUpItemsWithValidDate() {
+        val inStock = Item(
+            name = "牛奶",
+            expireTime = 1_000L,
+            usageStatus = Item.USAGE_IN_USE,
+            disposition = Item.DISPOSITION_IN_STOCK
+        )
+        assertTrue(inStock.tracksExpiry)
+        // 已用完：不再催过期。
+        assertFalse(inStock.copy(usageStatus = Item.USAGE_USED_UP).tracksExpiry)
+        // 已离手：不在身边，也不催。
+        assertFalse(inStock.copy(disposition = Item.DISPOSITION_LENT_OUT).tracksExpiry)
+        assertFalse(inStock.copy(disposition = Item.DISPOSITION_DISCARDED).tracksExpiry)
+        // 没有效期或效期为 0 的哨兵值：不参与提醒。
+        assertFalse(inStock.copy(expireTime = null).tracksExpiry)
+        assertFalse(inStock.copy(expireTime = 0L).tracksExpiry)
+    }
+
+    @Test
     fun effectiveStartUseTime_fallsBackToPurchaseDateThenCreatedAt() {
         assertEquals(
             30L,

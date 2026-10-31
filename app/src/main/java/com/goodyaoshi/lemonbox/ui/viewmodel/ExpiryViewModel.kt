@@ -19,7 +19,7 @@ class ExpiryViewModel @Inject constructor(
 ) : ViewModel() {
 
     val expirableItems: StateFlow<List<ItemDetail>> = itemRepository.getActiveItems()
-        .map { items -> items.filter { it.item.expireTime != null } }
+        .map { items -> items.filter { it.item.tracksExpiry } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /** 到期列表快捷操作：标记为「已用完」。 */
