@@ -47,6 +47,20 @@ internal fun isRemoteNewer(remote: Long?, local: Long?): Boolean {
     return remote > local
 }
 
+/**
+ * 远端这条记录的「有效修改时间」。
+ *
+ * 删除只写 deletedAt / purgedAt，载荷里的 updatedAt 往往还是删除前的旧值
+ * （MCP / 后台直接改库的删除就是这样）。若直接拿 updatedAt 比新旧，
+ * 本地那条曾被推回服务端的旧记录会比墓碑「更新」，删除就永远落不了地、还会被反复复活。
+ *
+ * 墓碑一律以删除时刻为准，其余仍用载荷时间。
+ */
+internal fun remoteStamp(updatedAt: Long?, deletedAt: Long?, purgedAt: Long? = null): Long? {
+    val stamp = maxOf(updatedAt ?: 0L, deletedAt ?: 0L, purgedAt ?: 0L)
+    return stamp.takeIf { it > 0L }
+}
+
 internal fun String?.orBlank(): String? = this?.takeIf { it.isNotBlank() }
 
 internal fun String?.orNewSyncId(): String = orBlank() ?: UUID.randomUUID().toString()
@@ -104,7 +118,11 @@ internal suspend fun AppBackupManager.mergeCategories(
         // 修正父级，否则「番茄」会停留在顶级成为孤儿、与本地同名项无法按路径对齐。
         val isNew = key in insertedKeys
         if (local.isProtected && !isNew) return@forEach
-        if (!isNew && !isRemoteNewer(snapshot.updatedAt, local.updatedAt)) {
+        if (!isNew && !isRemoteNewer(
+                remoteStamp(snapshot.updatedAt, snapshot.deletedAt),
+                local.updatedAt
+            )
+        ) {
             return@forEach
         }
         val parentId = resolveParentKey(
@@ -181,7 +199,11 @@ internal suspend fun AppBackupManager.mergeLocations(
         // 同理，本轮新插入的受保护位置仍需修正父级，故仅在非新插入时才跳过。
         val isNew = key in insertedKeys
         if (local.isProtected && !isNew) return@forEach
-        if (!isNew && !isRemoteNewer(snapshot.updatedAt, local.updatedAt)) {
+        if (!isNew && !isRemoteNewer(
+                remoteStamp(snapshot.updatedAt, snapshot.deletedAt),
+                local.updatedAt
+            )
+        ) {
             return@forEach
         }
         val parentId = resolveParentKey(
@@ -257,7 +279,11 @@ internal suspend fun AppBackupManager.mergeItems(
             added++
         } else {
             idByKey[key] = local.id
-            val remoteUpdated = snapshot.updatedAt ?: snapshot.createdAt
+            val remoteUpdated = remoteStamp(
+                snapshot.updatedAt ?: snapshot.createdAt,
+                snapshot.deletedAt,
+                snapshot.purgedAt
+            )
             val localUpdated = local.updatedAt ?: local.createdAt
             if (!isRemoteNewer(remoteUpdated, localUpdated)) {
                 kept++
