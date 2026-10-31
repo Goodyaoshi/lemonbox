@@ -335,15 +335,10 @@ class RemoteSyncManager @Inject constructor(
             val now = System.currentTimeMillis()
             appPreferences.setCloudLastSyncAt(now)
             appPreferences.setCloudLastConflicts(pushed.conflicts)
-            // 坏载荷计数只增不减：本轮水位已经越过它们，下一轮不会再遇到；
-            // 若这里直接写 0，用户就再也看不到「有数据没落地」的线索。
-            // 重建成功后由 rebuildFromServer 显式清零。
-            //
-            // 唯一会「减少」的情况是空载荷墓碑：那批记录原本也是被计进来的，
-            // 现在已按 syncId 真正软删落地，欠账相应扣掉，计数才不会永远停在旧数字上。
-            val remainder = (appPreferences.cloudLastSkippedPayloads() - pulled.handledTombstones)
-                .coerceAtLeast(0)
-            val skippedPayloads = maxOf(pulled.skippedPayloads, remainder)
+            // 坏载荷计数只记「最近一轮」：本轮的坏记录已随水位被永久跨过，下一轮不会再遇到。
+            // 早先是只增不减的累计值，但已被跨过的记录再没有机会被重新处理，
+            // 计数会永远停在旧数字上（界面写着「上次同步」却怎么同步都不变）。
+            val skippedPayloads = pulled.skippedPayloads
             appPreferences.setCloudLastSkippedPayloads(skippedPayloads)
             _state.value = _state.value.copy(
                 running = false,
@@ -470,8 +465,7 @@ class RemoteSyncManager @Inject constructor(
             downloaded = landed.size,
             merged = applied.merged,
             truncated = truncated,
-            skippedPayloads = applied.skipped,
-            handledTombstones = applied.handledTombstones
+            skippedPayloads = applied.skipped
         )
     }
 
@@ -543,8 +537,7 @@ class RemoteSyncManager @Inject constructor(
                 downloaded = landed.size,
                 merged = applied.merged,
                 truncated = true,
-                skippedPayloads = applied.skipped,
-                handledTombstones = applied.handledTombstones
+                skippedPayloads = applied.skipped
             )
         }
         // 快照只覆盖到 meta.seq；之后的变化用增量补齐，避免漏掉快照期间的并发写入。
@@ -553,8 +546,7 @@ class RemoteSyncManager @Inject constructor(
             downloaded = landed.size + tail.downloaded,
             merged = applied.merged + tail.merged,
             truncated = tail.truncated,
-            skippedPayloads = applied.skipped + tail.skippedPayloads,
-            handledTombstones = applied.handledTombstones + tail.handledTombstones
+            skippedPayloads = applied.skipped + tail.skippedPayloads
         )
     }
 
@@ -571,7 +563,6 @@ class RemoteSyncManager @Inject constructor(
     ): ApplyOutcome {
         var merged = 0
         var skipped = 0
-        var handledTombstones = 0
         if (landed.isNotEmpty()) {
             // 旧服务端给墓碑返回的是空载荷 `{}`（0001 的 pull_changes）：
             // 这种记录解不成任何 Snapshot，既会被计成「无法解析」，又让删除永远落不了地——
@@ -579,7 +570,7 @@ class RemoteSyncManager @Inject constructor(
             // 载荷里拿不到 deletedAt 时，只能按「集合 + syncId + 服务端改动时刻」直接软删。
             val snapshotslessTombs = landed.filter { it.deleted && it.isBlankPayload() }
             val decodable = if (snapshotslessTombs.isEmpty()) landed else landed - snapshotslessTombs.toSet()
-            handledTombstones = applySnapshotslessTombstones(snapshotslessTombs)
+            applySnapshotslessTombstones(snapshotslessTombs)
             val payload = syncRecordsToPayload(
                 decodable.map { SyncRecord(it.collection, it.key, it.payload, it.deleted) },
                 appPreferences.deviceId,
@@ -634,7 +625,7 @@ class RemoteSyncManager @Inject constructor(
                 remoteSyncDao.putState(SyncStateRow(SyncStateKeys.SERVER_ACK, 1L))
             }
         }
-        return ApplyOutcome(merged = merged, skipped = skipped, handledTombstones = handledTombstones)
+        return ApplyOutcome(merged = merged, skipped = skipped)
     }
 
     /** 载荷是否等于「什么都没有」：空串、`{}` 或 `null` 都算。 */
@@ -1095,7 +1086,6 @@ class RemoteSyncManager @Inject constructor(
                 undoZipPath = undoFile.path
             )
         } else {
-            appPreferences.setCloudLastSkippedPayloads(0)
             RebuildOutcome(success = true, message = "重建完成：${result.message}", undoZipPath = undoFile.path)
         }
     }
@@ -1166,11 +1156,10 @@ private data class LandedRecord(
     val updatedAt: Long = 0
 )
 
-/** 落地结果：合并条数、因载荷无法解析而跳过的条数，以及按墓碑直接软删的条数。 */
+/** 落地结果：合并条数、因载荷无法解析而跳过的条数。 */
 private data class ApplyOutcome(
     val merged: Int,
-    val skipped: Int,
-    val handledTombstones: Int = 0
+    val skipped: Int
 )
 
 /** 拉取的汇总：本轮落地条数与合并计数。 */
@@ -1179,9 +1168,7 @@ private data class PullOutcome(
     val merged: Int,
     val truncated: Boolean = false,
     /** 本轮因载荷无法解析而跳过的记录数；非 0 表示有数据没能落地。 */
-    val skippedPayloads: Int = 0,
-    /** 本轮按「空载荷墓碑」直接软删的条数，用于把历史遗留的跳过计数逐轮消化掉。 */
-    val handledTombstones: Int = 0
+    val skippedPayloads: Int = 0
 )
 
 /** 推送的汇总：服务端已写下的条数与冲突分出胜负的条数。 */

@@ -53,6 +53,9 @@ import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarmDeep
 import com.goodyaoshi.lemonbox.ui.theme.TextHint
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
 import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
+import com.goodyaoshi.lemonbox.ui.viewmodel.BUSY_REBUILD
+import com.goodyaoshi.lemonbox.ui.viewmodel.BUSY_UNDO
+import com.goodyaoshi.lemonbox.ui.viewmodel.BUSY_UPLOAD
 import com.goodyaoshi.lemonbox.ui.viewmodel.SyncDiagnosticsViewModel
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -134,10 +137,31 @@ fun SyncDiagnosticsScreen(
                 }
 
                 GradientButton(
-                    text = if (state.busy) "正在对账…" else "立即对账",
+                    text = when (state.busyKind) {
+                        BUSY_REBUILD -> "正在重建…"
+                        BUSY_UPLOAD -> "正在上传…"
+                        BUSY_UNDO -> "正在撤销…"
+                        else -> if (state.busy) "正在对账…" else "立即对账"
+                    },
                     enabled = !state.busy,
                     onClick = viewModel::refresh
                 )
+
+                // 进度独立于回执渲染：重建/上传要跑几十秒，只把按钮置灰等于没有反馈。
+                state.progressText?.let { text ->
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (state.busy) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(14.dp),
+                                strokeWidth = 2.dp,
+                                color = OrangeStart
+                            )
+                            Spacer(modifier = Modifier.size(8.dp))
+                        }
+                        NoticeLine(text = text, isError = false)
+                    }
+                }
 
                 if (state.skippedPayloads > 0) {
                     Spacer(modifier = Modifier.height(10.dp))
@@ -150,17 +174,7 @@ fun SyncDiagnosticsScreen(
 
                 state.message?.let { message ->
                     Spacer(modifier = Modifier.height(10.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (state.busy) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(14.dp),
-                                strokeWidth = 2.dp,
-                                color = OrangeStart
-                            )
-                            Spacer(modifier = Modifier.size(8.dp))
-                        }
-                        NoticeLine(text = message, isError = state.messageIsError)
-                    }
+                    NoticeLine(text = message, isError = state.messageIsError)
                 }
                 // 撤销回执常驻到用户离开页面：重建是危险操作，撤销入口不能藏在几秒就消失的提示条里。
                 state.undoZipPath?.let {

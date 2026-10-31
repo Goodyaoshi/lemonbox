@@ -13,9 +13,16 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+
+/** 诊断页当前在跑的动作，界面据此区分按钮文案与进度来源。 */
+internal const val BUSY_AUDIT = "audit"
+internal const val BUSY_REBUILD = "rebuild"
+internal const val BUSY_UPLOAD = "upload"
+internal const val BUSY_UNDO = "undo"
 
 /** 同步诊断页的状态（P9）。 */
 data class SyncDiagnosticsUiState(
@@ -27,6 +34,10 @@ data class SyncDiagnosticsUiState(
     val conflicts: List<ConflictLogEntry> = emptyList(),
     /** 正在对账 / 重建中。 */
     val busy: Boolean = false,
+    /** 当前在跑的动作：audit / rebuild / upload；用于给忙碌状态配一句可读的进度。 */
+    val busyKind: String? = null,
+    /** 忙碌期间的进度文案；重建时跟随同步阶段实时更新。 */
+    val progressText: String? = null,
     /** 重建确认弹窗。 */
     val showRebuildConfirm: Boolean = false,
     /** 「以本机为准合并上传」确认弹窗。 */
@@ -61,13 +72,34 @@ class SyncDiagnosticsViewModel @Inject constructor(
     val uiState: StateFlow<SyncDiagnosticsUiState> = _uiState.asStateFlow()
 
     init {
+        // 重建/上传本质是一轮同步，进度只存在于 RemoteSyncManager 的 phase 里；
+        // ViewModel 不订阅就只剩一个转圈按钮，用户无法判断是卡住还是在拉数据。
+        viewModelScope.launch {
+            remoteSyncManager.state.collect { sync ->
+                _uiState.update { state ->
+                    val text = when (state.busyKind) {
+                        // 对账不走同步流程，进度文案由本页自己维护。
+                        BUSY_AUDIT -> state.progressText
+                        // 重建/上传本质是一轮同步：跟着它的阶段走，用户才知道是在拉数据还是卡住了。
+                        null -> null
+                        else -> sync.phase ?: state.progressText
+                    }
+                    state.copy(
+                        progressText = text,
+                        skippedPayloads = sync.lastSkippedPayloads
+                    )
+                }
+            }
+        }
         if (_uiState.value.ready) refresh()
     }
 
     /** 立即对账：拉服务端统计 + 读本机逐表计数 + 读冲突留痕。 */
     fun refresh() {
         if (_uiState.value.busy) return
-        _uiState.update { it.copy(busy = true, message = null) }
+        _uiState.update {
+            it.copy(busy = true, busyKind = BUSY_AUDIT, progressText = "正在对账…", message = null)
+        }
         viewModelScope.launch {
             val outcome = runCatching {
                 remoteSyncManager.audit() to remoteSyncManager.conflictLog()
@@ -77,6 +109,8 @@ class SyncDiagnosticsViewModel @Inject constructor(
                 val (report, conflicts) = outcome.getOrNull() ?: (null to emptyList())
                 state.copy(
                     busy = false,
+                    busyKind = null,
+                    progressText = null,
                     report = report,
                     conflicts = conflicts,
                     skippedPayloads = remoteSyncManager.state.value.lastSkippedPayloads,
@@ -103,13 +137,23 @@ class SyncDiagnosticsViewModel @Inject constructor(
      */
     fun uploadLocalEverything() {
         if (_uiState.value.busy) return
-        _uiState.update { it.copy(showUploadLocalConfirm = false, busy = true, message = null) }
+        _uiState.update {
+            it.copy(
+                showUploadLocalConfirm = false,
+                busy = true,
+                busyKind = BUSY_UPLOAD,
+                progressText = "正在整理本机数据…",
+                message = null
+            )
+        }
         viewModelScope.launch {
             val result = remoteSyncManager.uploadLocalEverything()
             val error = remoteSyncManager.state.value.lastError
             _uiState.update { state ->
                 state.copy(
                     busy = false,
+                    busyKind = null,
+                    progressText = null,
                     message = result.message,
                     messageIsError = error != null
                 )
@@ -121,12 +165,22 @@ class SyncDiagnosticsViewModel @Inject constructor(
     /** 以服务端为准重建：二次确认后执行；完成（无论成败）都带撤销点回执。 */
     fun rebuildFromServer() {
         if (_uiState.value.busy) return
-        _uiState.update { it.copy(showRebuildConfirm = false, busy = true, message = null) }
+        _uiState.update {
+            it.copy(
+                showRebuildConfirm = false,
+                busy = true,
+                busyKind = BUSY_REBUILD,
+                progressText = "正在导出撤销备份并清空本机…",
+                message = null
+            )
+        }
         viewModelScope.launch {
             val outcome = remoteSyncManager.rebuildFromServer()
             _uiState.update { state ->
                 state.copy(
                     busy = false,
+                    busyKind = null,
+                    progressText = null,
                     message = outcome.message,
                     messageIsError = !outcome.success,
                     undoZipPath = outcome.undoZipPath
@@ -141,10 +195,21 @@ class SyncDiagnosticsViewModel @Inject constructor(
     fun undoRebuild() {
         val path = _uiState.value.undoZipPath ?: return
         if (_uiState.value.busy) return
-        _uiState.update { it.copy(busy = true, message = null) }
+        _uiState.update {
+            it.copy(busy = true, busyKind = BUSY_UNDO, progressText = "正在恢复重建前的本机数据…", message = null)
+        }
         viewModelScope.launch {
             val message = remoteSyncManager.undoRebuild(path)
-            _uiState.update { it.copy(busy = false, message = message, messageIsError = false, undoZipPath = null) }
+            _uiState.update {
+                it.copy(
+                    busy = false,
+                    busyKind = null,
+                    progressText = null,
+                    message = message,
+                    messageIsError = false,
+                    undoZipPath = null
+                )
+            }
             refresh()
         }
     }
