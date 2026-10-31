@@ -63,18 +63,33 @@ internal object SeedDataProvider {
     /** 「辅料」是 v18 新增的食品子分类：葱姜蒜、辣椒等配料从「蔬菜」拆出，仍受保护。 */
     private const val AUXILIARY_CATEGORY = "辅料"
 
+    /**
+     * 默认房间层级与真实家居布局一致：名称、层级都按实际摆放确定，
+     * 避免 App 启动时补种出与云端对不上的节点。
+     */
     private val roomHierarchy = linkedMapOf(
-        "厨房" to listOf("冰箱", "橱柜", "台面"),
-        "卧室" to listOf("衣柜", "床头柜", "梳妆台"),
-        "卫生间" to listOf("洗手台", "淋浴间"),
-        "阳台" to listOf("储物柜")
+        "客厅" to listOf(
+            "门后货架", "靠冰箱货架", "靠书桌货架",
+            "门后高货架1", "门后高货架2", "镜子下矮货架",
+            "时天大行李箱", "时天小行李箱", "柠檬行李箱",
+            "书桌", "冰箱", "烘干机", "客厅晾衣架", "鞋架", "脏衣篮"
+        ),
+        "卧室" to listOf("床", "卧室晾衣架", "收纳箱", "桌子"),
+        "厨房" to listOf("台面", "橱柜", "水槽下柜", "置物架", "米箱", "垃圾桶位"),
+        "卫生间" to listOf("洗衣机", "内衣洗衣机", "收纳柜", "清洁工具位"),
+        "阳台" to listOf("大衣柜", "杂物区", "阳台晾衣架", "阳台晾衣区")
+    )
+
+    /** 大衣柜内部的三个分区是唯一需要补种到第三层的位置。 */
+    private val roomGrandchildren = mapOf(
+        "大衣柜" to listOf("挂衣区", "叠放区", "抽屉")
     )
 
     /**
-     * 早期版本默认种下的多余房间（客厅/书房/储物间）：现行家居布局只有
-     * 卧室/卫生间/厨房/阳台，升级时把这些房间连同其子位置下线。
+     * 早期版本默认种下的多余房间（书房/储物间）：现行布局是客厅/卧室/厨房/卫生间/阳台，
+     * 升级时把这两个房间连同其子位置下线。客厅是真实房间，不在这里清理。
      */
-    private val obsoleteRooms = listOf("客厅", "书房", "储物间")
+    private val obsoleteRooms = listOf("书房", "储物间")
 
     /**
      * 下线多余房间及其子位置：用软删除写墓碑（删除可随备份/同步传递）。
@@ -124,7 +139,10 @@ internal object SeedDataProvider {
         roomHierarchy.forEach { (room, children) ->
             val roomId = ensureLocation(db, room, homeId)
             children.forEach { child ->
-                ensureLocation(db, child, roomId)
+                val childId = ensureLocation(db, child, roomId)
+                roomGrandchildren[child]?.forEach { grandChild ->
+                    ensureLocation(db, grandChild, childId)
+                }
             }
         }
     }
