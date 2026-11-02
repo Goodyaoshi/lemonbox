@@ -206,11 +206,17 @@ internal suspend fun AppBackupManager.mergeLocations(
         ) {
             return@forEach
         }
-        val parentId = resolveParentKey(
+        val resolvedParentId = resolveParentKey(
             parentSyncId = snapshot.parentSyncId,
             parentId = snapshot.parentId,
             idByKey = idByKey,
             useSyncIds = useSyncIds
+        )
+        val parentId = decideLocationParentId(
+            resolved = resolvedParentId,
+            remoteParentSyncId = snapshot.parentSyncId,
+            remoteParentId = snapshot.parentId,
+            localParentId = local.parentId
         )
         locationRepository.updateSynced(
             local.copy(
@@ -967,6 +973,25 @@ internal fun AppBackupManager.resolveParentKey(
         parentId?.let { "id:$it" }
     }
     return key?.let { idByKey[it] }
+}
+
+/**
+ * 位置父级的合并结果。
+ *
+ * 远端明确表示「顶级」（parentSyncId 与 parentId 都为空）时才置空；
+ * 远端带着父级引用却解析不到（增量包缺父记录、写入方写的是本机不认识的 id）时，
+ * 沿用本机原父级——否则一条父级暂时对不上的记录会把本来挂好的位置冲成顶级，
+ * v39 拍平根层级后就表现为多出若干一级目录（大衣柜的三个分区就是这么冒出来的）。
+ */
+internal fun decideLocationParentId(
+    resolved: Long?,
+    remoteParentSyncId: String?,
+    remoteParentId: Long?,
+    localParentId: Long?
+): Long? {
+    if (resolved != null) return resolved
+    val explicitRoot = remoteParentSyncId.orBlank() == null && remoteParentId == null
+    return if (explicitRoot) null else localParentId
 }
 
 internal fun AppBackupManager.resolveReferenceId(

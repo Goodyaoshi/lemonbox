@@ -319,6 +319,10 @@ class LedgerRepositoryTest {
             }
         }
 
+        override suspend fun purgeDeletedOlderThan(cutoff: Long) {
+            records.removeAll { record -> record.deletedAt?.let { it < cutoff } == true }
+        }
+
         override suspend fun getAllSnapshot(): List<LedgerRecord> = records.toList()
 
         override suspend fun getCount(): Int = records.size
@@ -377,6 +381,10 @@ class LedgerRepositoryTest {
             update(categories.single { it.id == id }.copy(deletedAt = null, updatedAt = updatedAt))
         }
 
+        override suspend fun purgeDeletedOlderThan(cutoff: Long) {
+            categories.removeAll { category -> category.deletedAt?.let { it < cutoff } == true }
+        }
+
         override suspend fun countActiveByName(name: String, kind: Int, excludeId: Long): Int =
             categories.count {
                 it.deletedAt == null && it.kind == kind && it.id != excludeId &&
@@ -427,6 +435,10 @@ class LedgerRepositoryTest {
             update(assets.single { it.id == id }.copy(deletedAt = null, updatedAt = updatedAt))
         }
 
+        override suspend fun purgeDeletedOlderThan(cutoff: Long) {
+            assets.removeAll { asset -> asset.deletedAt?.let { it < cutoff } == true }
+        }
+
         override suspend fun getCount(): Int = assets.size
     }
 
@@ -458,6 +470,10 @@ class LedgerRepositoryTest {
             val index = budgets.indexOfFirst { it.id == id }
             require(index >= 0) { "取消不存在的预算" }
             budgets[index] = budgets[index].copy(deletedAt = deletedAt, updatedAt = deletedAt)
+        }
+
+        override suspend fun purgeDeletedOlderThan(cutoff: Long) {
+            budgets.removeAll { budget -> budget.deletedAt?.let { it < cutoff } == true }
         }
 
         override suspend fun getCount(): Int = budgets.size

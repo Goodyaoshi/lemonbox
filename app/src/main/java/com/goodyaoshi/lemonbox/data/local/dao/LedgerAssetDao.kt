@@ -84,6 +84,10 @@ interface LedgerAssetDao {
     @Query("UPDATE ledger_assets SET deletedAt = NULL, updatedAt = :updatedAt, dirty = 1 WHERE id = :id")
     suspend fun restoreFromTrash(id: Long, updatedAt: Long)
 
+    /** 软删满窗口期的账户墓碑物理清除；未同步的删除继续留着（TOMBSTONE_CONFIRMED_SQL）。 */
+    @Query("DELETE FROM ledger_assets WHERE deletedAt IS NOT NULL AND deletedAt < :cutoff" + TOMBSTONE_CONFIRMED_SQL)
+    suspend fun purgeDeletedOlderThan(cutoff: Long)
+
     @Query("SELECT COUNT(*) FROM ledger_assets")
     suspend fun getCount(): Int
 }

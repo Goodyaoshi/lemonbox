@@ -303,6 +303,19 @@ class LedgerRepository @Inject constructor(
 
     // ---------- 备份/同步 ----------
 
+    /**
+     * 软删满窗口期的记账墓碑物理清除（账单 / 分类 / 账户 / 预算）。
+     *
+     * 四张表都有回收站语义，删除只是写墓碑；不清理会让已删数据永久占用空间、
+     * 还会每次随整库快照导出。各表 SQL 自带「服务端已确认」前提，未同步的删除继续保留。
+     */
+    suspend fun purgeDeletedOlderThan(cutoff: Long) {
+        recordDao.purgeDeletedOlderThan(cutoff)
+        categoryDao.purgeDeletedOlderThan(cutoff)
+        assetDao.purgeDeletedOlderThan(cutoff)
+        budgetDao.purgeDeletedOlderThan(cutoff)
+    }
+
     suspend fun getAllRecordsSnapshot(): List<LedgerRecord> = recordDao.getAllSnapshot()
 
     suspend fun getAllCategoriesSnapshot(): List<LedgerCategory> = categoryDao.getAllSnapshot()

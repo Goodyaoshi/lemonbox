@@ -34,7 +34,9 @@ data class DataCenterUiState(
     val cloudLastSyncedAt: Long? = null,
     val cloudLastError: String? = null,
     /** 上次同步因载荷无法解析而跳过的记录数；非 0 时入口直接提示有数据未落地。 */
-    val cloudSkippedPayloads: Int = 0
+    val cloudSkippedPayloads: Int = 0,
+    /** 历史累计被跳过的记录数；水位已越过、不会重试，必须长期可见。 */
+    val cloudTotalSkippedPayloads: Int = 0
 )
 
 /**
@@ -72,7 +74,8 @@ class DataCenterViewModel @Inject constructor(
                         cloudSyncing = sync.running,
                         cloudLastSyncedAt = sync.lastSyncedAt,
                         cloudLastError = sync.lastError,
-                        cloudSkippedPayloads = sync.lastSkippedPayloads
+                        cloudSkippedPayloads = sync.lastSkippedPayloads,
+                        cloudTotalSkippedPayloads = sync.totalSkippedPayloads
                     )
                 }
             }

@@ -167,11 +167,19 @@ fun SyncDiagnosticsScreen(
                     }
                 }
 
-                if (state.skippedPayloads > 0) {
+                if (maxOf(state.skippedPayloads, state.totalSkippedPayloads) > 0) {
                     Spacer(modifier = Modifier.height(10.dp))
+                    val skippedTotal = maxOf(state.skippedPayloads, state.totalSkippedPayloads)
                     InlineNotice(
-                        message = "上次同步有 ${state.skippedPayloads} 条服务端记录无法解析，已跳过。" +
-                            "这些记录不会落地到本机；请先导出本地备份，再把此数字反馈给维护者。",
+                        message = if (state.skippedPayloads > 0) {
+                            "上次同步有 ${state.skippedPayloads} 条、历史累计 $skippedTotal 条" +
+                                "服务端记录无法解析，已跳过。这些记录随水位被永久跨过、不会重试；" +
+                                "请先导出本地备份，再把此数字反馈给维护者。"
+                        } else {
+                            "历史累计 $skippedTotal 条服务端记录无法解析，已跳过。" +
+                                "这些记录随水位被永久跨过、不会重试；" +
+                                "请先导出本地备份，再把此数字反馈给维护者。"
+                        },
                         variant = NoticeVariant.Warning
                     )
                 }

@@ -185,6 +185,52 @@ internal object SeedDataProvider {
     }
 
     /**
+     * v40：把「大衣柜」的三个分区重新挂回衣柜。
+     *
+     * 旧版拉取合并遇到解析不到的父级引用时会把 parentId 写成 NULL；v39 拍平「我的家」后，
+     * 抽屉 / 挂衣区 / 叠放区 就与五个房间一起出现在一级目录。这三层的父子关系在种子结构里
+     * 唯一确定（抽屉等 → 大衣柜 → 阳台），按名字补回即可；写 updatedAt + dirty，
+     * 让修正随下一轮同步传到其它设备，不再被服务端的旧父级覆盖。
+     */
+    fun relinkWardrobeSections(db: SupportSQLiteDatabase) {
+        val wardrobeId = queryLocationId(
+            db,
+            "SELECT l.id FROM locations l WHERE l.name = '大衣柜' AND l.deletedAt IS NULL " +
+                "AND l.parentId IN (SELECT id FROM locations WHERE name = '阳台' " +
+                "AND parentId IS NULL AND deletedAt IS NULL) ORDER BY l.id LIMIT 1"
+        ) ?: queryLocationId(
+            db,
+            "SELECT id FROM locations WHERE name = '大衣柜' AND deletedAt IS NULL ORDER BY id LIMIT 1"
+        ) ?: return
+
+        // 衣柜自己若被冲成顶级，先挂回阳台（拍平后阳台才是顶级房间）。
+        queryLocationId(
+            db,
+            "SELECT id FROM locations WHERE name = '阳台' AND parentId IS NULL " +
+                "AND deletedAt IS NULL ORDER BY id LIMIT 1"
+        )?.let { balconyId ->
+            db.execSQL(
+                "UPDATE locations SET parentId = ?, updatedAt = $nowMillisSql, dirty = 1 " +
+                    "WHERE name = '大衣柜' AND parentId IS NULL AND deletedAt IS NULL",
+                arrayOf<Any>(balconyId)
+            )
+        }
+
+        roomGrandchildren["大衣柜"].orEmpty().forEach { section ->
+            db.execSQL(
+                "UPDATE locations SET parentId = ?, updatedAt = $nowMillisSql, dirty = 1 " +
+                    "WHERE name = ? AND parentId IS NULL AND deletedAt IS NULL AND id <> ?",
+                arrayOf<Any>(wardrobeId, section, wardrobeId)
+            )
+        }
+    }
+
+    private fun queryLocationId(db: SupportSQLiteDatabase, sql: String): Long? =
+        db.query(sql).useCursor { cursor ->
+            if (cursor.moveToFirst()) cursor.getLong(0) else null
+        }
+
+    /**
      * 受保护的基础数据（依赖 isProtected 列）。
      * 补种「食品 → 子分类 → 具体分类」三级结构并把整棵树标为受保护，
      * 同时把「冰箱」位置标为受保护。

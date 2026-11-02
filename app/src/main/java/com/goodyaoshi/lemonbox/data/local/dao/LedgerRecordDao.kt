@@ -131,6 +131,10 @@ interface LedgerRecordDao {
     @Query("UPDATE ledger_records SET deletedAt = NULL, updatedAt = :updatedAt, dirty = 1 WHERE id = :id")
     suspend fun restoreFromTrash(id: Long, updatedAt: Long)
 
+    /** 软删满窗口期的账单墓碑物理清除；未同步的删除继续留着（TOMBSTONE_CONFIRMED_SQL）。 */
+    @Query("DELETE FROM ledger_records WHERE deletedAt IS NOT NULL AND deletedAt < :cutoff" + TOMBSTONE_CONFIRMED_SQL)
+    suspend fun purgeDeletedOlderThan(cutoff: Long)
+
     /** 全量快照（含墓碑），供备份/同步合并使用。 */
     @Query("SELECT * FROM ledger_records ORDER BY id ASC")
     suspend fun getAllSnapshot(): List<LedgerRecord>

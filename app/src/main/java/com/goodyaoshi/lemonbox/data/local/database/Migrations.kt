@@ -1053,6 +1053,19 @@ internal object Migrations {
         }
     }
 
+    /**
+     * v40：修复被同步丢掉的父级引用。
+     *
+     * 拉取合并若在父级记录尚未落地时解析不到 parentSyncId，旧实现会把原本挂好的位置
+     * 直接写成顶级；v39 拍平「我的家」后，大衣柜的三个分区就混进了五个房间的一级目录。
+     * 具体规则见 [SeedDataProvider.relinkWardrobeSections]。
+     */
+    private val MIGRATION_39_40 = object : Migration(39, 40) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            SeedDataProvider.relinkWardrobeSections(db)
+        }
+    }
+
 /**
  * 把 v34 的「本地路径行 + 对象键行」合并成 v35 的单列哈希（F22）。
  *
@@ -1142,6 +1155,7 @@ private const val SHA256_HEX_LENGTH = 64
         MIGRATION_35_36,
         MIGRATION_36_37,
         MIGRATION_37_38,
-        MIGRATION_38_39
+        MIGRATION_38_39,
+        MIGRATION_39_40
     )
 }

@@ -45,6 +45,10 @@ interface LedgerCategoryDao {
     @Query("UPDATE ledger_categories SET deletedAt = NULL, updatedAt = :updatedAt, dirty = 1 WHERE id = :id")
     suspend fun restoreFromTrash(id: Long, updatedAt: Long)
 
+    /** 软删满窗口期的分类墓碑物理清除；未同步的删除继续留着（TOMBSTONE_CONFIRMED_SQL）。 */
+    @Query("DELETE FROM ledger_categories WHERE deletedAt IS NOT NULL AND deletedAt < :cutoff" + TOMBSTONE_CONFIRMED_SQL)
+    suspend fun purgeDeletedOlderThan(cutoff: Long)
+
     /** 同性质下同名有效分类数量（忽略大小写），排除自身，供保存前的重名守卫使用。 */
     @Query(
         "SELECT COUNT(*) FROM ledger_categories " +

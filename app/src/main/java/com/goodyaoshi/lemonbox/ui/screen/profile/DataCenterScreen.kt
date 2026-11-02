@@ -170,11 +170,23 @@ fun DataCenterScreen(
                         variant = NoticeVariant.Danger
                     )
                 }
-                if (state.cloudLoggedIn && state.cloudSkippedPayloads > 0) {
+                if (state.cloudLoggedIn &&
+                    maxOf(state.cloudSkippedPayloads, state.cloudTotalSkippedPayloads) > 0
+                ) {
                     Spacer(modifier = Modifier.height(10.dp))
+                    val skippedTotal = maxOf(
+                        state.cloudSkippedPayloads,
+                        state.cloudTotalSkippedPayloads
+                    )
                     InlineNotice(
-                        message = "有 ${state.cloudSkippedPayloads} 条服务端记录无法解析，已跳过；" +
-                            "请先导出本地备份，再进云同步查看。",
+                        message = if (state.cloudSkippedPayloads > 0) {
+                            "本轮有 ${state.cloudSkippedPayloads} 条、历史累计 $skippedTotal 条" +
+                                "服务端记录无法解析，已跳过；这些记录不会重试。" +
+                                "请先导出本地备份，再进云同步查看。"
+                        } else {
+                            "历史累计 $skippedTotal 条服务端记录无法解析，已跳过；" +
+                                "这些记录不会重试，请先导出本地备份，再进云同步查看。"
+                        },
                         variant = NoticeVariant.Warning
                     )
                 }
@@ -252,7 +264,8 @@ fun DataCenterScreen(
 private fun cloudSubtitle(state: DataCenterUiState): String = when {
     !state.cloudLoggedIn -> "登录后自动同步数据与图片，本机数据始终保留"
     state.cloudSyncing -> "正在同步…"
-    state.cloudSkippedPayloads > 0 -> "有 ${state.cloudSkippedPayloads} 条服务端记录未落地，点此查看"
+    maxOf(state.cloudSkippedPayloads, state.cloudTotalSkippedPayloads) > 0 ->
+        "有 ${maxOf(state.cloudSkippedPayloads, state.cloudTotalSkippedPayloads)} 条服务端记录未落地，点此查看"
     state.cloudLastError != null -> "上次同步失败，点此查看"
     else -> "上次同步：" + DateUtil.relativeSyncText(state.cloudLastSyncedAt)
 }

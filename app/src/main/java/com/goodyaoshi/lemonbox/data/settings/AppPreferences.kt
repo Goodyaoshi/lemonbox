@@ -1216,6 +1216,25 @@ class AppPreferences @Inject constructor(
     }
 
     /**
+     * 历史上因载荷无法解析而被永久跨过的服务端记录键（`collection#key`）。
+     *
+     * 水位一旦越过就不会再重试，「只记上次同步」会让这批丢失在下一轮同步后彻底隐形。
+     * 保留键集合，界面据此长期展示「历史累计跳过」——丢失的数据不能只存在于过去的一瞬。
+     */
+    fun cloudSkippedPayloadKeys(): Set<String> =
+        preferences.getStringSet(KEY_CLOUD_SKIPPED_PAYLOAD_KEYS, emptySet()).orEmpty()
+
+    /** 记下一批永久跳过的记录键，返回累计条数（上限 [MAX_SKIPPED_PAYLOAD_KEYS]）。 */
+    fun rememberSkippedPayloads(keys: Collection<String>): Int {
+        if (keys.isEmpty()) return cloudSkippedPayloadKeys().size
+        val merged = (cloudSkippedPayloadKeys() + keys)
+            .take(MAX_SKIPPED_PAYLOAD_KEYS)
+            .toSet()
+        preferences.edit().putStringSet(KEY_CLOUD_SKIPPED_PAYLOAD_KEYS, merged).apply()
+        return merged.size
+    }
+
+    /**
      * 自上次写 base 以来成功推送的增量快照数；用于决定「攒够 N 次变更」时刷新一份 base。
      * 增量攒得多，新设备从 base 起步才划算（否则要重放很多 rev）。
      */
@@ -1357,6 +1376,12 @@ class AppPreferences @Inject constructor(
 
         /** 上次云同步因载荷无法解析而跳过的记录数。 */
         private const val KEY_CLOUD_LAST_SKIPPED_PAYLOADS = "cloud_last_skipped_payloads"
+
+        /** 历史累计被跳过的服务端记录键；水位已越过，不会再有重试机会。 */
+        private const val KEY_CLOUD_SKIPPED_PAYLOAD_KEYS = "cloud_skipped_payload_keys"
+
+        /** 累计键上限：正常远达不到，只防服务端异常时无限增长。 */
+        private const val MAX_SKIPPED_PAYLOAD_KEYS = 500
 
         /**
          * 启动最早期的深色判定（Hilt 注入之前），用于选择启动主题，避免开屏闪白。

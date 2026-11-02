@@ -151,4 +151,48 @@ class SyncRecordsTest {
         // 偏好是整块设置、没有 dirty/serverSeq 列：不进这份映射，由调用方单独恒推。
         assertFalse(SyncTables.BY_COLLECTION.containsKey(SyncCollections.PREFERENCES))
     }
+
+    @Test
+    fun `父级引用解析不到时保留本机父级而不是冲成顶级`() {
+        // 远端只带了 parentSyncId、本机这批增量里恰好没有父记录：解析结果为 null，
+        // 旧实现直接置空，原本挂在衣柜下的分区就被冲进一级目录（v39 拍平后暴露出来）。
+        assertEquals(
+            42L,
+            decideLocationParentId(
+                resolved = null,
+                remoteParentSyncId = "wardrobe",
+                remoteParentId = null,
+                localParentId = 42L
+            )
+        )
+        // 只有远端明确说「顶级」（两个引用都为空）时才允许置空。
+        assertNull(
+            decideLocationParentId(
+                resolved = null,
+                remoteParentSyncId = null,
+                remoteParentId = null,
+                localParentId = 42L
+            )
+        )
+        // 能解析时以解析结果为准（这是真正的移动）。
+        assertEquals(
+            7L,
+            decideLocationParentId(
+                resolved = 7L,
+                remoteParentSyncId = "wardrobe",
+                remoteParentId = 3L,
+                localParentId = 42L
+            )
+        )
+        // 写入方留下本机不认识的自增 id（MCP 写入的 0）也算解析不到，同样保留本机父级。
+        assertEquals(
+            42L,
+            decideLocationParentId(
+                resolved = null,
+                remoteParentSyncId = null,
+                remoteParentId = 0L,
+                localParentId = 42L
+            )
+        )
+    }
 }

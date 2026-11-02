@@ -14,7 +14,9 @@ import com.goodyaoshi.lemonbox.data.repository.ItemRepository
 import com.goodyaoshi.lemonbox.data.repository.LedgerRepository
 import com.goodyaoshi.lemonbox.data.repository.LedgerPlanningRepository
 import com.goodyaoshi.lemonbox.data.repository.LocationRepository
+import com.goodyaoshi.lemonbox.data.repository.PackingRepository
 import com.goodyaoshi.lemonbox.data.repository.ReminderRepository
+import com.goodyaoshi.lemonbox.data.repository.TimeCapsuleRepository
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -41,6 +43,8 @@ class AppMaintenance @Inject constructor(
     private val categoryRepository: CategoryRepository,
     private val ledgerRepository: LedgerRepository,
     private val ledgerPlanningRepository: LedgerPlanningRepository,
+    private val timeCapsuleRepository: TimeCapsuleRepository,
+    private val packingRepository: PackingRepository,
     private val cloudPurger: ImageCloudPurger,
     private val appPreferences: AppPreferences
 ) {
@@ -56,6 +60,12 @@ class AppMaintenance @Inject constructor(
         reminderRepository.purgeDeletedOlderThan(cutoff)
         // 记账模板与周期记账规则的软删墓碑（v10 起纳入同步，同样需要 30 天窗口）。
         ledgerPlanningRepository.purgeDeletedOlderThan(cutoff)
+        // 记账主表（账单/分类/账户/预算）同样是「回收站 + 30 天」语义，墓碑不能只删不扫。
+        ledgerRepository.purgeDeletedOlderThan(cutoff)
+        // 时间胶囊与打包清单也是软删同步表：此前只定义了 purge 却漏了调用点，
+        // 墓碑会无限堆积并每次随整库快照导出。
+        timeCapsuleRepository.purgeDeletedOlderThan(cutoff)
+        packingRepository.purgeDeletedOlderThan(cutoff)
 
         // 「永久删除」墓碑保留更久（半年）：要活到其他设备都拉到过这次删除为止。
         // 行删掉后就再也找不到图片槽位了，所以删行同时补一次图片清理，兜住上次云端删除失败留下的孤儿。

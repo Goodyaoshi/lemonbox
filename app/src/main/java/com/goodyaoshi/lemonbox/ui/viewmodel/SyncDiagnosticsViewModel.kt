@@ -50,6 +50,8 @@ data class SyncDiagnosticsUiState(
     val messageIsError: Boolean = false,
     /** 上次同步因载荷无法解析而跳过的记录数；非 0 时页面直接告警。 */
     val skippedPayloads: Int = 0,
+    /** 历史累计被跳过的记录数；水位已越过、不会重试，必须长期可见。 */
+    val totalSkippedPayloads: Int = 0,
     /** 可撤销的重建备份（仅内存持有：撤销是紧跟着重建的一次动作，不值得持久化）。 */
     val undoZipPath: String? = null
 )
@@ -69,7 +71,8 @@ class SyncDiagnosticsViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(
         SyncDiagnosticsUiState(
             ready = config.isLoggedIn(),
-            skippedPayloads = remoteSyncManager.state.value.lastSkippedPayloads
+            skippedPayloads = remoteSyncManager.state.value.lastSkippedPayloads,
+            totalSkippedPayloads = remoteSyncManager.state.value.totalSkippedPayloads
         )
     )
     val uiState: StateFlow<SyncDiagnosticsUiState> = _uiState.asStateFlow()
@@ -89,7 +92,8 @@ class SyncDiagnosticsViewModel @Inject constructor(
                     }
                     state.copy(
                         progressText = text,
-                        skippedPayloads = sync.lastSkippedPayloads
+                        skippedPayloads = sync.lastSkippedPayloads,
+                        totalSkippedPayloads = sync.totalSkippedPayloads
                     )
                 }
             }
@@ -117,6 +121,7 @@ class SyncDiagnosticsViewModel @Inject constructor(
                     report = report,
                     conflicts = conflicts,
                     skippedPayloads = remoteSyncManager.state.value.lastSkippedPayloads,
+                    totalSkippedPayloads = remoteSyncManager.state.value.totalSkippedPayloads,
                     message = if (error != null) "对账失败：${errorMessage(error)}" else null,
                     messageIsError = error != null
                 )

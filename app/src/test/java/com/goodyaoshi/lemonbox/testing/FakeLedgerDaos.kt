@@ -94,6 +94,10 @@ class FakeLedgerRecordDao(
         if (index >= 0) records[index] = records[index].copy(deletedAt = null, updatedAt = updatedAt)
     }
 
+    override suspend fun purgeDeletedOlderThan(cutoff: Long) {
+        records.removeAll { record -> record.deletedAt?.let { it < cutoff } == true }
+    }
+
     override suspend fun getAllSnapshot(): List<LedgerRecord> = records.toList()
 
     override suspend fun getCount(): Int = records.size
@@ -149,6 +153,10 @@ class FakeLedgerCategoryDao(
         if (index >= 0) categories[index] = categories[index].copy(deletedAt = null, updatedAt = updatedAt)
     }
 
+    override suspend fun purgeDeletedOlderThan(cutoff: Long) {
+        categories.removeAll { category -> category.deletedAt?.let { it < cutoff } == true }
+    }
+
     override suspend fun countActiveByName(name: String, kind: Int, excludeId: Long): Int =
         categories.count {
             it.deletedAt == null && it.kind == kind && it.id != excludeId && it.name.equals(name, true)
@@ -194,6 +202,10 @@ class FakeLedgerAssetDao(
         if (index >= 0) assets[index] = assets[index].copy(deletedAt = null, updatedAt = updatedAt)
     }
 
+    override suspend fun purgeDeletedOlderThan(cutoff: Long) {
+        assets.removeAll { asset -> asset.deletedAt?.let { it < cutoff } == true }
+    }
+
     override suspend fun getCount(): Int = assets.size
 }
 
@@ -223,6 +235,10 @@ class FakeLedgerBudgetDao(
     override suspend fun softDelete(id: Long, deletedAt: Long) {
         val index = budgets.indexOfFirst { it.id == id }
         if (index >= 0) budgets[index] = budgets[index].copy(deletedAt = deletedAt, updatedAt = deletedAt)
+    }
+
+    override suspend fun purgeDeletedOlderThan(cutoff: Long) {
+        budgets.removeAll { budget -> budget.deletedAt?.let { it < cutoff } == true }
     }
 
     override suspend fun getCount(): Int = budgets.size
