@@ -34,6 +34,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
@@ -42,10 +46,12 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import coil.compose.AsyncImage
+import coil.compose.AsyncImagePainter
 import com.goodyaoshi.lemonbox.ui.theme.OnScrim
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.ScrimFaint
@@ -54,10 +60,68 @@ import com.goodyaoshi.lemonbox.ui.theme.OrangeTint
 import com.goodyaoshi.lemonbox.ui.theme.TextHint
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
 
+/**
+ * 物品缩略图：**永远有东西可看**。
+ *
+ * 首字占位先铺在底层，只有真正拿到可加载的 model 且加载成功时才盖上去。
+ * 这样「有哈希但取不到图」（未登录、省流量、同步尚未落地、云端暂时失败）不会留一块空白，
+ * 加载中的一瞬也先看到首字，而不是闪白。
+ */
+@Composable
+fun ItemThumbnail(
+    hash: String?,
+    name: String,
+    modifier: Modifier = Modifier,
+    shape: Shape = MaterialTheme.shapes.medium,
+    placeholderBackground: Brush = Brush.verticalGradient(
+        listOf(OrangeStart.copy(alpha = 0.12f), OrangeTint)
+    ),
+    placeholderTextStyle: TextStyle = MaterialTheme.typography.headlineSmall,
+    placeholderColor: Color = OrangeStart,
+    contentDescription: String? = name,
+    contentScale: ContentScale = ContentScale.Crop
+) {
+    val model = rememberImageModel(hash)
+    // 换图或换加载模式后重试：上一次的失败不应该粘在新请求上。
+    var failed by remember(hash, model) { mutableStateOf(false) }
+    Box(modifier = modifier.clip(shape)) {
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .background(placeholderBackground),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = name.trim().take(1).ifBlank { "?" },
+                style = placeholderTextStyle,
+                color = placeholderColor,
+                fontWeight = FontWeight.Bold
+            )
+        }
+        if (model != null && !failed) {
+            AsyncImage(
+                model = model,
+                contentDescription = contentDescription,
+                modifier = Modifier.matchParentSize(),
+                contentScale = contentScale,
+                onState = { state ->
+                    when (state) {
+                        is AsyncImagePainter.State.Error -> failed = true
+                        is AsyncImagePainter.State.Success -> failed = false
+                        else -> Unit
+                    }
+                }
+            )
+        }
+    }
+}
+
 @Composable
 fun ItemImageGallery(
     imageHashes: List<String>,
     modifier: Modifier = Modifier,
+    // 取不到图时用物品名称首字占位；缺省时退回「主图 / 细节图」的槽位名。
+    itemName: String = "",
     onCapturePrimary: () -> Unit,
     onCaptureDetail: () -> Unit,
     onScanBarcode: (() -> Unit)? = null,
@@ -142,6 +206,7 @@ fun ItemImageGallery(
                 DraggableImageCard(
                     hash = hash,
                     title = if (index == 0) "主图" else "细节图",
+                    placeholderName = itemName,
                     onRemove = { onRemoveImage(sourceIndex) },
                     onMove = { deltaX ->
                         dragOffsetX += deltaX
@@ -230,6 +295,7 @@ fun ItemImageGallery(
 private fun DraggableImageCard(
     hash: String,
     title: String,
+    placeholderName: String,
     onRemove: () -> Unit,
     onMove: (Float) -> Unit,
     onDragStart: () -> Unit,
@@ -289,6 +355,7 @@ private fun DraggableImageCard(
         ImagePreviewCard(
             hash = hash,
             title = title,
+            placeholderName = placeholderName,
             onRemove = onRemove,
             modifier = Modifier.matchParentSize()
         )
@@ -309,21 +376,24 @@ private fun calculateDragSteps(offsetPx: Float, stepPx: Float): Int {
 private fun ImagePreviewCard(
     hash: String,
     title: String,
+    placeholderName: String,
     onRemove: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // 与其它图片位一致：本地在就用本地，本地没了才按哈希推导对象键从云端取。
-    val model = rememberImageModel(hash)
+    // 与其它图片位一致：有哈希但取不到图时显示标题首字，不留空白。
     Box(
         modifier = modifier
             .height(120.dp)
             .clip(MaterialTheme.shapes.extraLarge)
     ) {
-        AsyncImage(
-            model = model,
-            contentDescription = title,
+        ItemThumbnail(
+            hash = hash,
+            // 占位用物品名而非槽位名，否则取不到图时满屏都是「主」「细」。
+            name = placeholderName.ifBlank { title },
             modifier = Modifier.matchParentSize(),
-            contentScale = ContentScale.Crop
+            shape = RectangleShape,
+            placeholderTextStyle = MaterialTheme.typography.titleSmall,
+            contentDescription = title
         )
         Box(
             modifier = Modifier

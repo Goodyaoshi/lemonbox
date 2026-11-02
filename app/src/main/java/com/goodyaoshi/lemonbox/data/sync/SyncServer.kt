@@ -6,6 +6,8 @@ import com.goodyaoshi.lemonbox.data.backup.AppBackupManager
 import com.goodyaoshi.lemonbox.data.backup.BackupChanges
 import com.goodyaoshi.lemonbox.data.backup.BackupMergeResult
 import com.goodyaoshi.lemonbox.data.backup.SyncChangeKind
+import com.goodyaoshi.lemonbox.data.backup.SyncManifest
+import com.goodyaoshi.lemonbox.data.backup.diffManifests
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import dagger.hilt.android.qualifiers.ApplicationContext
 import fi.iki.elonen.NanoHTTPD
@@ -325,6 +327,7 @@ class SyncServer @Inject constructor(
                     session.uri == "/pair/confirm" && session.method == Method.POST -> serveConfirm(session)
                     session.uri == "/pair/status" && session.method == Method.GET -> serveStatus(session)
                     session.uri == "/pair/close" && session.method == Method.POST -> serveClose(session)
+                    session.uri == "/manifest" && session.method == Method.POST -> serveManifest(session)
                     session.uri == "/stage" && session.method == Method.POST -> serveStage(session)
                     session.uri == "/backup" && session.method == Method.GET -> serveBackup(session)
                     else -> newFixedLengthResponse(
@@ -403,6 +406,23 @@ class SyncServer @Inject constructor(
             return newFixedLengthResponse(Response.Status.OK, MIME_PLAINTEXT, "ok")
         }
 
+        /**
+         * 先比对清单：客户端把自己全部记录的键与时间戳发来，本机只回「谁还缺什么」。
+         * 清单只有键和时间戳，比整包小得多；随后的 `/stage` 与 `/backup` 都只传比对结果。
+         */
+        private fun serveManifest(httpSession: IHTTPSession): Response {
+            val active = requireSession(httpSession) ?: return sessionNotFound()
+            val body = readBodyText(httpSession) ?: return badRequest("缺少清单内容")
+            val clientManifest = runCatching { json.decodeFromString<SyncManifest>(body) }
+                .getOrElse { return badRequest("清单格式不对") }
+            val diff = awaitSync {
+                diffManifests(host = backupManager.manifest(), client = clientManifest)
+            }
+            // 记在会话上：随后 `/backup` 只下发这些键，不再整包返回。
+            active.clientNeeds = diff.clientNeeds.toSet()
+            return newFixedLengthResponse(Response.Status.OK, MIME_JSON, json.encodeToString(diff))
+        }
+
         private fun serveStage(httpSession: IHTTPSession): Response {
             val active = requireSession(httpSession) ?: return sessionNotFound()
             val contentLength = httpSession.headers["content-length"]?.toLongOrNull()
@@ -432,10 +452,18 @@ class SyncServer @Inject constructor(
         }
 
         private fun serveBackup(httpSession: IHTTPSession): Response {
-            requireSession(httpSession) ?: return sessionNotFound()
+            val active = requireSession(httpSession) ?: return sessionNotFound()
             val since = httpSession.parameters["since"]?.firstOrNull()?.toLongOrNull()
+            // 比对过清单就只发对方缺的那部分；没比对（旧流程）才退回 since 增量。
+            val needs = active.clientNeeds
             // 走 awaitSync：在 IO 池上等待并带超时，避免请求线程被长时间占用（F12）
-            val archive = awaitSync { backupManager.createBackupZip(since) }
+            val archive = awaitSync {
+                if (needs != null) {
+                    backupManager.createBackupZip(since = null, onlyKeys = needs)
+                } else {
+                    backupManager.createBackupZip(since)
+                }
+            }
             // 流式发出，读完即删除临时文件
             val stream = object : FilterInputStream(archive.file.inputStream()) {
                 override fun close() {
@@ -494,6 +522,8 @@ class SyncServer @Inject constructor(
         @Volatile var stagedFile: File? = null
         @Volatile var applied = false
         @Volatile var hostMerge: BackupMergeResult? = null
+        /** 清单比对后对方还缺的键；null 表示这次没比对过清单（退回 since 增量）。 */
+        @Volatile var clientNeeds: Set<String>? = null
 
         fun stateName(): String = when {
             rejected -> "REJECTED"

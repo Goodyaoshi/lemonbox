@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -36,6 +37,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.data.backup.FieldDiff
+import com.goodyaoshi.lemonbox.data.backup.SyncCollections
 import com.goodyaoshi.lemonbox.data.remote.ConflictLogEntry
 import com.goodyaoshi.lemonbox.data.remote.SyncAuditRow
 import com.goodyaoshi.lemonbox.data.remote.collectionLabel
@@ -56,6 +58,7 @@ import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
 import com.goodyaoshi.lemonbox.ui.viewmodel.BUSY_REBUILD
 import com.goodyaoshi.lemonbox.ui.viewmodel.BUSY_UNDO
 import com.goodyaoshi.lemonbox.ui.viewmodel.BUSY_UPLOAD
+import com.goodyaoshi.lemonbox.ui.viewmodel.BUSY_RESTORE
 import com.goodyaoshi.lemonbox.ui.viewmodel.SyncDiagnosticsViewModel
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -141,6 +144,7 @@ fun SyncDiagnosticsScreen(
                         BUSY_REBUILD -> "正在重建…"
                         BUSY_UPLOAD -> "正在上传…"
                         BUSY_UNDO -> "正在撤销…"
+                        BUSY_RESTORE -> "正在恢复…"
                         else -> if (state.busy) "正在对账…" else "立即对账"
                     },
                     enabled = !state.busy,
@@ -273,15 +277,22 @@ fun SyncDiagnosticsScreen(
                         )
                     } else {
                         Text(
-                            text = "这些条目推送时两边都改过，按本地优先收场：本机版本会重推，其它设备下一轮拉走。" +
-                                "「本机值」是冲突发生那一刻的改动，可回到对应页面重新编辑。",
+                            text = "这些条目推送时两边都改过，按修改时间较新的一方收场：" +
+                                "本机较新就重推给服务端，服务端较新就采用服务端版本。" +
+                                "「本机值」是冲突发生那一刻被比下去的改动；" +
+                                "如果后来发现本机那版才对，可点「用本机旧值重新提交」把它推回服务端。",
                             style = MaterialTheme.typography.bodySmall,
                             color = TextHint
                         )
                     }
                     state.conflicts.forEach { entry ->
                         Spacer(modifier = Modifier.height(12.dp))
-                        ConflictEntryCard(entry = entry, diffsProvider = viewModel::diffsFor)
+                        ConflictEntryCard(
+                            entry = entry,
+                            diffsProvider = viewModel::diffsFor,
+                            onRestoreLocal = { viewModel.requestRestoreConflict(entry) },
+                            enabled = !state.busy
+                        )
                     }
                 }
 
@@ -356,6 +367,18 @@ fun SyncDiagnosticsScreen(
                         onDismissRequest = viewModel::dismissUploadLocalConfirm
                     )
                 }
+
+                state.pendingRestoreConflict?.let {
+                    AppDialog(
+                        title = "用本机旧值重新提交？",
+                        subtitle = "这条记录会恢复成冲突发生时本机的版本，并按最新时间重新提交，" +
+                            "覆盖服务端现在的那一版。对方设备下次同步会拉到这一版。",
+                        confirmText = "恢复本机版本",
+                        destructiveConfirm = true,
+                        onConfirm = viewModel::restoreConflict,
+                        onDismissRequest = viewModel::dismissRestoreConflict
+                    )
+                }
             }
         }
     }
@@ -409,7 +432,9 @@ private fun AuditRowLine(row: SyncAuditRow) {
 @Composable
 private fun ConflictEntryCard(
     entry: ConflictLogEntry,
-    diffsProvider: (ConflictLogEntry) -> List<FieldDiff>
+    diffsProvider: (ConflictLogEntry) -> List<FieldDiff>,
+    onRestoreLocal: () -> Unit,
+    enabled: Boolean
 ) {
     val diffs = remember(entry) { diffsProvider(entry) }
     Column(
@@ -429,9 +454,9 @@ private fun ConflictEntryCard(
         Text(
             text = when (entry.resolution) {
                 ConflictLogEntry.RESOLUTION_LOCAL ->
-                    "结果：本机优先，已推上服务端，两边一致为本机那版"
+                    "结果：本机版本较新，已推上服务端，两边一致为本机那版"
                 ConflictLogEntry.RESOLUTION_PENDING ->
-                    "结果：本机版本已保留；重推时服务端又被改过，已排队到下一轮继续上传"
+                    "结果：本机版本已保留，正在排队，下一轮同步会继续上传"
                 else -> "结果：服务端版本更新，本机已改为服务端版本"
             },
             style = MaterialTheme.typography.labelMedium,
@@ -447,6 +472,21 @@ private fun ConflictEntryCard(
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 diffs.forEach { diff -> ConflictFieldDiffLine(diff = diff) }
+            }
+        }
+        // 只对「服务端版本胜出」的逐条记录提供回退：本机胜出或排队重推的本来就没丢，
+        // 整块偏好没有单条版本可回退。
+        if (entry.resolution == ConflictLogEntry.RESOLUTION_SERVER &&
+            entry.collection != SyncCollections.PREFERENCES &&
+            entry.localPayload.isNotBlank()
+        ) {
+            Spacer(modifier = Modifier.height(4.dp))
+            TextButton(
+                onClick = onRestoreLocal,
+                enabled = enabled,
+                contentPadding = PaddingValues(horizontal = 0.dp, vertical = 0.dp)
+            ) {
+                Text(text = "用本机旧值重新提交…", color = OrangeStart)
             }
         }
     }

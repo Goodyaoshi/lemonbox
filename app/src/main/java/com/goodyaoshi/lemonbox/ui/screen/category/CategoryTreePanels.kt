@@ -349,6 +349,9 @@ internal fun LocationPanel(
     onAddSubLocation: (Location) -> Unit,
     viewModel: CategoryViewModel
 ) {
+    // 只有一个真实顶级时默认展开：它通常是「家」这类容器，收起后管理页看起来像位置全没了。
+    // 多个顶级时保持收起，避免一次把整棵树铺开。
+    val singleRoot = rootLocations.size == 1
     LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         items(rootLocations, key = { it.id }) { location ->
             LocationNode(
@@ -360,7 +363,8 @@ internal fun LocationPanel(
                 onToggleExpand = onToggleExpand,
                 onAddSubLocation = onAddSubLocation,
                 viewModel = viewModel,
-                depth = 0
+                depth = 0,
+                defaultExpanded = singleRoot
             )
         }
     }
@@ -376,10 +380,12 @@ internal fun LocationNode(
     onToggleExpand: (Long) -> Unit,
     onAddSubLocation: (Location) -> Unit,
     viewModel: CategoryViewModel,
-    depth: Int
+    depth: Int,
+    /** 尚未手动展开 / 收起过时采用的初始状态（见 [LocationPanel] 的单顶级处理）。 */
+    defaultExpanded: Boolean = false
 ) {
     val subLocations by viewModel.getSubLocations(location.id).collectAsState(initial = emptyList())
-    val isExpanded = expandedLocations[location.id] ?: false
+    val isExpanded = expandedLocations[location.id] ?: defaultExpanded
     val hasChildren = subLocations.isNotEmpty()
 
     Column {

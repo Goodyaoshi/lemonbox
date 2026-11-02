@@ -50,13 +50,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import coil.compose.AsyncImage
 import com.goodyaoshi.lemonbox.data.local.entity.Item
 import com.goodyaoshi.lemonbox.data.local.entity.ItemDetail
 import com.goodyaoshi.lemonbox.data.local.entity.StatusDimension
@@ -68,7 +67,10 @@ import com.goodyaoshi.lemonbox.ui.components.CategoryTag
 import com.goodyaoshi.lemonbox.ui.components.DeleteCopy
 import com.goodyaoshi.lemonbox.ui.components.EmptyState
 import com.goodyaoshi.lemonbox.ui.components.ErrorState
+import com.goodyaoshi.lemonbox.ui.components.ItemThumbnail
+import com.goodyaoshi.lemonbox.data.settings.ImageLoadingMode
 import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
+import com.goodyaoshi.lemonbox.ui.components.LocalImageLoadingMode
 import com.goodyaoshi.lemonbox.ui.components.GradientButton
 import com.goodyaoshi.lemonbox.ui.components.ImagePreviewOverlay
 import com.goodyaoshi.lemonbox.ui.components.PillTag
@@ -77,7 +79,6 @@ import com.goodyaoshi.lemonbox.ui.components.StatusPickerDialog
 import com.goodyaoshi.lemonbox.ui.components.TreeNode
 import com.goodyaoshi.lemonbox.ui.components.buildTreePathLabel
 import com.goodyaoshi.lemonbox.ui.components.itemStatusOption
-import com.goodyaoshi.lemonbox.ui.components.rememberImageModel
 import com.goodyaoshi.lemonbox.ui.components.statusDimensionTitle
 import com.goodyaoshi.lemonbox.ui.navigation.Screen
 import com.goodyaoshi.lemonbox.ui.theme.BackgroundTop
@@ -95,6 +96,7 @@ import com.goodyaoshi.lemonbox.ui.theme.TagOrange
 import com.goodyaoshi.lemonbox.ui.theme.TagOrangeText
 import com.goodyaoshi.lemonbox.ui.theme.TagRed
 import com.goodyaoshi.lemonbox.ui.theme.TagRedText
+import com.goodyaoshi.lemonbox.ui.theme.TextHint
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
 import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
 import com.goodyaoshi.lemonbox.ui.viewmodel.DetailViewModel
@@ -211,6 +213,9 @@ fun DetailScreen(
     // 详情页不能照搬「已用完 / 在库」的库存语义，否则会同时出现两组互相打架的状态。
     val isToBuyItem = item.needRestock && item.usageStatus == Item.USAGE_USED_UP
     val imageHashes = item.imageHashList()
+    // 图片被「无图 / 省流量 / 省存储」策略拦下时，详情页要能说明原因，
+    // 否则用户只会看到首字占位，以为图片丢了。
+    val imageMode = LocalImageLoadingMode.current
 
     // 「需要补货」改动给回执 + 撤销（P2-7）：与家当列表同一套提示范式，
     // 不再像此前那样点了就直接生效、既无回执也无法回退。
@@ -246,40 +251,24 @@ fun DetailScreen(
                 ) { page ->
                     val pageItem = pagerItems[page].item
                     val primaryImageHash = pageItem.primaryImageHash()
-                    val primaryImageModel = rememberImageModel(primaryImageHash)
-                    // 有图只看哈希：换设备后本地文件还没落地，也照样能从云端取。
-                    if (primaryImageHash != null) {
-                        AsyncImage(
-                            model = primaryImageModel,
-                            contentDescription = pageItem.name,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .clickable {
-                                    previewImageIndex = pageItem.imageHashList().indexOf(primaryImageHash)
-                                        .takeIf { it >= 0 } ?: 0
-                                },
-                            contentScale = ContentScale.Crop
-                        )
-                    } else {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(
-                                    Brush.verticalGradient(
-                                        colors = listOf(LemonStart, LemonEnd)
-                                    )
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = pageItem.name.take(1),
-                                // 字号走主题字阶（F6）：海报级占位首字改用展示级最大字阶
-                                // displaySmall（34sp），不再用游离的 72sp 内联字号。
-                                style = MaterialTheme.typography.displaySmall,
-                                color = OnLemon
-                            )
-                        }
-                    }
+                    // 主图与列表共用同一套「取不到图就显示首字」的逻辑：
+                    // 换设备还没同步到图片时，海报位不再是一块空白。
+                    ItemThumbnail(
+                        hash = primaryImageHash,
+                        name = pageItem.name,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clickable {
+                                previewImageIndex = pageItem.imageHashList().indexOf(primaryImageHash)
+                                    .takeIf { it >= 0 } ?: 0
+                            },
+                        shape = RectangleShape,
+                        placeholderBackground = Brush.verticalGradient(
+                            colors = listOf(LemonStart, LemonEnd)
+                        ),
+                        placeholderTextStyle = MaterialTheme.typography.displaySmall,
+                        placeholderColor = OnLemon
+                    )
                 }
 
                 Box(
@@ -386,6 +375,20 @@ fun DetailScreen(
                     style = MaterialTheme.typography.headlineLarge,
                     color = TextPrimary
                 )
+
+                if (imageHashes.isNotEmpty() && imageMode != ImageLoadingMode.STANDARD) {
+                    Text(
+                        text = if (imageMode == ImageLoadingMode.NO_IMAGE) {
+                            "当前是无图模式，图片只显示名称首字；可在「设置」里切换。"
+                        } else {
+                            "当前是${imageMode.label}，缺图时不会联网下载；可在「设置」里切换。"
+                        },
+                        // 字号走主题字阶（F6）：bodySmall 为 12sp。
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextHint,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                }
 
                 Spacer(modifier = Modifier.height(12.dp))
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -611,7 +614,8 @@ fun DetailScreen(
             ImagePreviewOverlay(
                 imageHashes = imageHashes,
                 initialIndex = index,
-                onDismissRequest = { previewImageIndex = null }
+                onDismissRequest = { previewImageIndex = null },
+                itemName = item.name
             )
         }
     }

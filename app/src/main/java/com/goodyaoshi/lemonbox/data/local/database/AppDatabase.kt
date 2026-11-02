@@ -61,7 +61,7 @@ import com.goodyaoshi.lemonbox.data.local.entity.TimeCapsule
         PackingItem::class,
         SyncStateRow::class
     ],
-    version = 38,
+    version = 39,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {

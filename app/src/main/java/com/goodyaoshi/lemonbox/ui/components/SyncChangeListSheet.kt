@@ -18,7 +18,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -551,37 +550,20 @@ private fun KindBadge(kind: SyncChangeKind, conflict: Boolean = false) {
 /** 字段级 diff 对话框（S3）：逐行展示「本地值 → 对方值」，先看清楚再决定勾不勾。 */
 @Composable
 private fun DiffDialog(change: SyncChange, onDismiss: () -> Unit) {
-    AlertDialog(
+    // 全 App 统一弹窗（P2）：此前这里是原生 AlertDialog，圆角、按钮与其它弹窗不一致。
+    AppDialog(
+        title = change.title,
         onDismissRequest = onDismiss,
-        confirmButton = {},
-        dismissButton = {
-            Text(
-                text = "知道了",
-                color = OrangeStart,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier
-                    // 触控热区补足（P2-25）：16/8 内边距下可视高度约 36dp，补足到 48dp。
-                    .minimumInteractiveComponentSize()
-                    // 圆角走形状令牌（F6）：胶囊收敛到 CircleShape。
-                    .clip(CircleShape)
-                    .clickable(role = Role.Button) { onDismiss() }
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
-            )
-        },
-        title = {
-            Text(text = change.title, style = MaterialTheme.typography.titleMedium, color = TextPrimary)
-        },
-        text = {
-            LazyColumn(
-                modifier = Modifier.heightIn(max = 380.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(change.diffs) { diff ->
-                    FieldDiffLine(diff)
-                }
+        dismissText = null,
+        confirmText = "知道了",
+        onConfirm = onDismiss
+    ) {
+        // AppDialog 的内容区本身可滚动，不再嵌套 LazyColumn，避免同向滚动冲突。
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            change.diffs.forEach { diff ->
+                FieldDiffLine(diff)
             }
-        },
-        containerColor = CardWhite
-    )
+        }
+    }
 }
 

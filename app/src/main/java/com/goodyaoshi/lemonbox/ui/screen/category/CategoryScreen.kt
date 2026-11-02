@@ -132,7 +132,8 @@ fun CategoryScreen(
     val categories by viewModel.categories.collectAsState()
     val rootCategories by viewModel.rootCategories.collectAsState()
     val allLocations by viewModel.allLocations.collectAsState()
-    val rootLocations by viewModel.rootLocations.collectAsState()
+    // 管理页用真实顶层（见下方 topLocations）；拍平后的 rootLocations 留给选择器。
+    val topLocations by viewModel.topLocations.collectAsState()
     val activeItems by viewModel.activeItems.collectAsState()
     val selectedCategoryId by viewModel.selectedCategoryId.collectAsState()
     val selectedLocationId by viewModel.selectedLocationId.collectAsState()
@@ -160,6 +161,8 @@ fun CategoryScreen(
     // 新增位置时的父级：null 表示新建一级位置，否则挂到该位置下。
     var locationParentId by remember { mutableStateOf<Long?>(null) }
     var locationParentName by remember { mutableStateOf<String?>(null) }
+    // 位置重名时留在弹窗里提示；此前是静默丢弃，用户点「保存」像没反应。
+    var locationDialogError by remember { mutableStateOf<String?>(null) }
     // 状态选项弹窗：新增时 dimension 非空、editingStatus 为空；重命名时 editingStatus 非空。
     var statusDialogDimension by remember { mutableStateOf<StatusDimension?>(null) }
     var editingStatus by remember { mutableStateOf<ItemStatusOption?>(null) }
@@ -327,6 +330,7 @@ fun CategoryScreen(
                                     locationParentName = null
                                 }
                             }
+                            locationDialogError = null
                             showCategoryDialog = true
                         }
                     )
@@ -369,7 +373,7 @@ fun CategoryScreen(
                     )
 
                     1 -> LocationPanel(
-                        rootLocations = rootLocations,
+                        rootLocations = topLocations,
                         selectedLocationId = selectedLocationId,
                         expandedLocations = expandedLocations,
                         counts = locationCounts,
@@ -382,6 +386,7 @@ fun CategoryScreen(
                             isEditingLocation = false
                             locationParentId = location.id
                             locationParentName = location.name
+                            locationDialogError = null
                             showCategoryDialog = true
                         },
                         viewModel = viewModel
@@ -474,26 +479,37 @@ fun CategoryScreen(
                     locationParentId == null -> "新增一级位置"
                     else -> "在「${locationParentName.orEmpty()}」下新增"
                 },
-                subtitle = when {
+                subtitle = locationDialogError ?: when {
                     isEditingLocation -> "改名后，已归到该位置的物品会同步显示新名称。"
                     locationParentId == null -> "将创建一个与现有位置同级的一级位置。"
                     else -> "新位置会作为「${locationParentName.orEmpty()}」的子位置。"
                 },
-                onDismissRequest = { showCategoryDialog = false },
+                onDismissRequest = {
+                    locationDialogError = null
+                    showCategoryDialog = false
+                },
                 confirmText = if (isEditingLocation) "保存" else "添加",
                 confirmEnabled = inputName.isNotBlank(),
                 onConfirm = {
-                    if (isEditingLocation) {
+                    val saved = if (isEditingLocation) {
                         viewModel.updateLocation(selectedLocationId, inputName)
                     } else {
                         viewModel.addLocation(inputName, locationParentId)
                     }
-                    showCategoryDialog = false
+                    if (saved) {
+                        locationDialogError = null
+                        showCategoryDialog = false
+                    } else {
+                        locationDialogError = "同一层级下已有同名位置，换个名字吧。"
+                    }
                 }
             ) {
                 EditorInputBox(
                     value = inputName,
-                    onValueChange = { inputName = it },
+                    onValueChange = {
+                        inputName = it
+                        locationDialogError = null
+                    },
                     placeholder = "位置名称"
                 )
             }

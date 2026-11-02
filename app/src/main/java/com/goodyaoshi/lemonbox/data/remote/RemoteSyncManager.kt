@@ -32,6 +32,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import java.io.File
@@ -49,6 +50,9 @@ data class RemoteSyncResult(
     /** 本次是否因页数上限只拉了一部分；为真时调用方应提示「再次同步继续」。 */
     val truncated: Boolean = false
 )
+
+/** 一次冲突回退的结果：失败原因直接作为用户可见文案。 */
+data class RestoreConflictResult(val success: Boolean, val message: String)
 
 /** 同步的运行状态。 */
 data class RemoteSyncState(
@@ -86,9 +90,10 @@ data class RemoteSyncState(
  *    会让失败那批被永久跨过且毫无提示。
  * 2. 推：只推本机 `dirty = 1` 的那一小批（连同整块设置 `preferences`），每条带 `baseSeq`
  *    ＝本机上次见到的服务端序号；服务端发现有人在这之后改过就**不覆盖**，只回报冲突。
- *    冲突按「较新者胜」收场（见 [resolveConflicts]）：本机 `updatedAt` 更新就把本机版
- *    带着服务端当前序号重推上去，让对端下一轮拉走；服务端较新才落地服务端版本。
- *    缺了这一步，两台设备各自改过同一条时就成了「谁先推谁占位」，后改的那份永远堵在本机。
+ *    冲突按「较新者胜」收场（见 [resolveConflicts]）：本机这版的时间戳不早于服务端，就把
+ *    本机版带着服务端当前序号重推上去，让对端下一轮拉走；服务端确实更晚才落地服务端版本。
+ *    缺了这一步，两台设备各自改过同一条时就成了「谁先推谁占位」，后改的那份永远堵在本机；
+ *    而无条件本地胜则会变成「谁后同步谁赢」，把别人更晚的编辑覆盖掉。
  *
  * 增量的三个要点（P6）：
  *  - **只推脏记录**：不再每次把整库当快照推上去，往返体积与序号消耗都只跟「这次真正改了什么」相关。
@@ -603,12 +608,12 @@ class RemoteSyncManager @Inject constructor(
             //
             // 但「本机这版比服务端新」是唯一的例外：合并策略按 updatedAt 保留了本机版本、
             // 跳过了服务端版本。此时若也清脏，本机内容就再也不会被推上去（对账永久差一条）。
-            // 用户明确要求「本地优先」——保留脏位，交给本轮推送把本机版本覆盖到服务端。
+            // 因此保留脏位，交给本轮推送把本机版本覆盖到服务端（较新者胜）。
             landed.forEach { record ->
                 val localStamp = remoteSyncDao.localStamp(record.collection, record.key)
                 val localNewer = record.collection != SyncCollections.PREFERENCES &&
                     localStamp != null &&
-                    localStamp > payloadUpdatedAt(record.payload)
+                    localStamp > payloadStamp(record.payload)
                 markLanded(record.collection, record.key, record.seq, keepDirty = localNewer)
             }
             // 落地成功才推进水位：推进早了会让失败那批被永久跨过且毫无提示。
@@ -720,7 +725,7 @@ class RemoteSyncManager @Inject constructor(
      * 每条带 [PushChange.baseSeq]＝本机上次见到的服务端序号（本地 `serverSeq` 列），
      * 所以「本机自己写过、服务端按设备排除掉」的记录也有正确的进度，不会被一律判成冲突。
      *
-     * 撞上冲突按「本地优先」收场（见 [resolveConflicts]）。
+     * 撞上冲突按「较新者胜」收场（见 [resolveConflicts]）。
      * 服务端单次上限 200 条，故本地先分批再逐批发；一批批推完为止。
      */
     private suspend fun push(
@@ -807,16 +812,21 @@ class RemoteSyncManager @Inject constructor(
     }
 
     /**
-     * 推送冲突的收场：**本地优先**，同时不让整块偏好被旧版本盖掉。
+     * 推送冲突的收场：**较新者胜**，不是「谁后同步谁赢」。
      *
-     * 冲突本身只说明「服务端比我上次见到的新」，不说明服务端那版内容更晚。用户明确要求
-     * 「本地优先」：只要本机还有未上传的改动（dirty=1 或 serverSeq=0），就把本机版本
-     * 带着服务端当前序号重推一次，让服务端与其它设备最终收敛到本机这版——多个设备各自的
-     * 数据因此都能合并进服务端，而不是被某个先推的旧版本永久占位。
+     * 冲突本身只说明「服务端比我上次见到的新」，不说明服务端那版内容更晚。取两侧载荷里
+     * 的有效修改时刻比较（[payloadStamp]，与合并策略同口径：`updatedAt` 优先、墓碑以删除
+     * 时刻为准）：
+     *  - 本机不早于服务端 → 把本机版本带着服务端当前序号重推一次，让对端下一轮拉走；
+     *  - 服务端确实更晚 → 走原来的落地通道采用服务端版本，本机这次较旧的改动如实计入冲突留痕。
      *
-     * 例外是整块偏好 `preferences`：它没有逐条 dirty 位、每次同步都恒推，若也无条件本地胜，
-     * 一台没改过设置的设备就会把另一台刚改的设置整块盖回去。故偏好仍按载荷的 `updatedAt`
-     * 比较，只有本机确实更晚才重推。
+     * 时间相同归本机，是为了与合并策略的 `isRemoteNewer`（严格大于才用远端）保持一致：
+     * 若判给服务端，合并会因「不算更新」而保留本机内容，却又被清脏，结果两本内容都自认已同步。
+     * 时间戳来自设备时钟，跨设备时钟偏差会带来取舍偏差；但相比「后同步者覆盖先编辑者」，
+     * 这仍是更符合直觉、也更少丢数据的一侧。
+     *
+     * 整块偏好 `preferences` 没有逐条 dirty 位、每次同步都恒推，同一套规则同样适用：
+     * 本机设置更晚（或相同）才重推，避免一台没改过设置的设备把另一台刚改的设置整块盖回去。
      *
      * 重推期间又被别人改了（再撞冲突）**不覆盖本机**：保留脏位、留痕为
      * [ConflictLogEntry.RESOLUTION_PENDING]，下一轮同步继续以本机版本重推。
@@ -844,9 +854,9 @@ class RemoteSyncManager @Inject constructor(
                     serverWins += conflict
                     diverged++
                 }
-                // 整块偏好：只有本机确实改得更晚才本地胜，避免旧设置盖掉新设置。
+                // 整块偏好：本机不早于服务端才重推，避免旧设置盖掉新设置。
                 conflict.collection == SyncCollections.PREFERENCES -> {
-                    if (payloadUpdatedAt(local.payload) > payloadUpdatedAt(conflict.payload)) {
+                    if (payloadStamp(local.payload) >= payloadStamp(conflict.payload)) {
                         localWins += conflict to local
                         diverged++
                     } else {
@@ -854,9 +864,19 @@ class RemoteSyncManager @Inject constructor(
                         diverged++
                     }
                 }
-                // 逐条实体：本地优先。本机这版尚未被服务端确认，就送上去。
+                // 逐条实体：较新者胜。本机较旧就采用服务端版本，别让后同步的旧改动覆盖别人。
                 else -> {
-                    localWins += conflict to local
+                    val remotePurgedAt = payloadPurgedAt(conflict.payload)
+                    val localPurgedAt = payloadPurgedAt(local.payload)
+                    when {
+                        // 永久删除是终态：不参与时间比较，必须传播到底（与合并策略对
+                        // purgedAt 的处理保持一致），否则「彻底删除」会被一次较晚的编辑复活。
+                        localPurgedAt > 0L -> localWins += conflict to local
+                        remotePurgedAt > 0L -> serverWins += conflict
+                        payloadStamp(conflict.payload) > payloadStamp(local.payload) ->
+                            serverWins += conflict
+                        else -> localWins += conflict to local
+                    }
                     diverged++
                 }
             }
@@ -1113,6 +1133,60 @@ class RemoteSyncManager @Inject constructor(
         }
     }
 
+    /**
+     * 把冲突留痕里的「本机当时那版」重新变成本机最新改动（冲突结果可回退）。
+     *
+     * 适用场景：服务端版本按时间胜出、本机改动被盖掉，但用户后来确认本机那版才对。
+     * 做法是把本机载荷的 `updatedAt` 推到当前时刻，再走同一条合并通道写回本地：
+     * 时间推新是因为合并通道按「较新者胜」判定，原样回填旧载荷会被当成更旧而跳过。
+     *
+     * 写回后按留痕里的服务端序号标脏排队，而不是让 baseSeq 归零重推——那会再撞一次冲突。
+     * 真正上传交给 CloudSyncTrigger 的写后触发，这里不等待网络，回退本身立即可见。
+     */
+    suspend fun restoreLocalConflict(entry: ConflictLogEntry): RestoreConflictResult =
+        withContext(Dispatchers.IO) {
+            if (entry.collection == SyncCollections.PREFERENCES) {
+                return@withContext RestoreConflictResult(false, "整块偏好没有单条本机版本，无法回退")
+            }
+            val restored = bumpPayloadStamp(entry.localPayload, System.currentTimeMillis())
+                ?: return@withContext RestoreConflictResult(false, "这条留痕没有可用的本机版本，无法回退")
+            try {
+                val payload = syncRecordsToPayload(
+                    listOf(
+                        SyncRecord(
+                            collection = entry.collection,
+                            key = entry.key,
+                            payload = restored,
+                            deleted = payloadPurgedAt(restored) > 0L
+                        )
+                    ),
+                    appPreferences.deviceId
+                )
+                val file = File(context.cacheDir, "remote-restore-${System.currentTimeMillis()}.zip")
+                try {
+                    backupManager.writePayloadZipTo(payload, file)
+                    backupManager.importBackup(Uri.fromFile(file), markDirty = true)
+                } finally {
+                    file.delete()
+                }
+                // 合并通道会把行上的服务端序号重置，按留痕的序号写回并标脏：
+                // 下一轮推送才是「基于服务端当前版本」的正常更新，而不是 baseSeq=0 的新冲突。
+                appDatabase.withTransaction {
+                    remoteSyncDao.markSynced(entry.collection, entry.key, entry.seq, dirty = true)
+                }
+                // 留痕改记为「本机版本已保留、排队重推」：诊断页据此收起回退入口，
+                // 也如实反映当前状态——本机版本已回来，但还没到达服务端。
+                conflictStore.append(
+                    listOf(entry.copy(resolution = ConflictLogEntry.RESOLUTION_PENDING))
+                )
+                RestoreConflictResult(true, "已恢复本机版本，稍后会自动同步覆盖服务端")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                RestoreConflictResult(false, "回退失败：${e.message ?: "未知错误"}")
+            }
+        }
+
     /** 读取冲突留痕（新痕在前），诊断页逐条展示字段对比。 */
     suspend fun conflictLog(): List<ConflictLogEntry> = conflictStore.read()
 
@@ -1193,7 +1267,7 @@ internal fun remoteSyncMessage(
         append("同步完成")
         if (pushed > 0) append("，上传 $pushed 条")
         if (pulled > 0) append("，收到 $pulled 条")
-        if (conflicts > 0) append("，$conflicts 条两边都改过，已按本地优先合并")
+        if (conflicts > 0) append("，$conflicts 条两边都改过，已按较新版本合并")
         if (truncated) append("；还有更多变更未拉取，请再次同步")
     }
 }
@@ -1215,9 +1289,8 @@ private fun payloadHash(payload: String): Long {
 /**
  * 从快照载荷里取 `updatedAt`（毫秒）；缺字段或解不开按 0。
  *
- * 冲突取舍只比这一个数：所有实体快照都有同名的更新时间字段，按「取字段」而非逐类型
- * 反序列化，省掉为 14 种 Snapshot 各写一套比较器。取不到时按 0 处理会让「本机较新」
- * 的判断保守地倾向服务端，宁可少推一轮也不与对端乒乓。
+ * 所有实体快照都有同名的更新时间字段，按「取字段」而非逐类型反序列化，
+ * 省掉为 14 种 Snapshot 各写一套比较器。
  */
 internal fun payloadUpdatedAt(payload: String?): Long {
     if (payload.isNullOrBlank()) return 0L
@@ -1228,6 +1301,50 @@ internal fun payloadUpdatedAt(payload: String?): Long {
             ?.longOrNull
             ?: 0L
     }.getOrDefault(0L)
+}
+
+/**
+ * 载荷的「有效修改时刻」，与合并策略 [remoteStamp] 同口径：`updatedAt` 优先、缺失回退
+ * `createdAt`；墓碑（软删/永久删）一律以删除时刻为准。
+ *
+ * 冲突取舍必须用它而不是只看 `updatedAt`：MCP / 后台直接改库的删除只写 `deletedAt`
+ * （`purgedAt`），载荷里的 `updatedAt` 还是删除前的旧值。只看 `updatedAt` 会把对方的墓碑
+ * 判成「更旧」，于是把本机版本重推上去，已删除的记录就被复活了。
+ */
+internal fun payloadStamp(payload: String?): Long = payloadTimes(payload).stamp
+
+/** 永久删除是终态，冲突时只看这一位，不与时间比较（0 表示不是永久删除）。 */
+internal fun payloadPurgedAt(payload: String?): Long = payloadTimes(payload).purgedAt
+
+/**
+ * 把载荷的 `updatedAt` 改成 [time]，其余字段原样保留；载荷不是非空 JSON 对象时返回 null。
+ *
+ * 冲突回退专用：合并通道按时间判新旧，直接回填旧载荷会被判成「更旧」而跳过，
+ * 只有把时间推到当前，它才成为一次真正的新改动。
+ */
+internal fun bumpPayloadStamp(payload: String?, time: Long): String? {
+    if (payload.isNullOrBlank()) return null
+    return runCatching {
+        val obj = Json.parseToJsonElement(payload) as? JsonObject ?: return@runCatching null
+        if (obj.isEmpty()) return@runCatching null
+        JsonObject(obj.toMutableMap().apply { put("updatedAt", JsonPrimitive(time)) }).toString()
+    }.getOrNull()
+}
+
+private data class PayloadTimes(val stamp: Long, val purgedAt: Long)
+
+/** 一次解析同时取「有效修改时刻」与「永久删除时刻」，冲突取舍两个都要。 */
+private fun payloadTimes(payload: String?): PayloadTimes {
+    if (payload.isNullOrBlank()) return PayloadTimes(0L, 0L)
+    return runCatching {
+        val obj = Json.parseToJsonElement(payload) as? JsonObject
+            ?: return@runCatching PayloadTimes(0L, 0L)
+        fun field(name: String): Long = obj[name]?.jsonPrimitive?.longOrNull ?: 0L
+        val updated = field("updatedAt").takeIf { it > 0L } ?: field("createdAt")
+        val deleted = field("deletedAt")
+        val purged = field("purgedAt")
+        PayloadTimes(stamp = maxOf(updated, deleted, purged), purgedAt = purged)
+    }.getOrDefault(PayloadTimes(0L, 0L))
 }
 
 /** 集合名 → 界面中文标签（P9 诊断页）。 */

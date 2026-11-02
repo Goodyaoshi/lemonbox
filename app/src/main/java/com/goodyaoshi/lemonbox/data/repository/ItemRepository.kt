@@ -83,6 +83,14 @@ class ItemRepository @Inject constructor(
     suspend fun updateImageHashes(item: Item) =
         itemDao.updateImageHashes(item.id, item.imageHashes)
 
+    /**
+     * 这张图是否还被别的物品用着（[excludeItemId] 传当前正在编辑的物品 id，新建时传 0）。
+     *
+     * 本地副本按内容哈希共享，删除前必须先看全库引用，否则会把别的物品还在用的图一起删掉。
+     */
+    suspend fun isImageHashReferenced(hash: String, excludeItemId: Long = 0L): Boolean =
+        itemDao.countImageHashReferences(hash, excludeItemId) > 0
+
     suspend fun delete(item: Item) = itemDao.delete(item)
 
     /**
@@ -400,8 +408,15 @@ class ItemRepository @Inject constructor(
         return expiredItems
     }
 
-    /** 清到期的永久删除墓碑，保留期更长：墓碑要活到其他设备都拉到过它为止。 */
-    suspend fun purgePurgedItemsOlderThan(cutoff: Long) = itemDao.purgePurgedBefore(cutoff)
+    /**
+     * 清到期的永久删除墓碑，保留期更长：墓碑要活到其他设备都拉到过它为止。
+     * 返回被清掉的行，供调用方在行消失前拿到图片槽位（否则清理线索一起丢失）。
+     */
+    suspend fun purgePurgedItemsOlderThan(cutoff: Long): List<Item> {
+        val expired = itemDao.getPurgedItemsBefore(cutoff)
+        if (expired.isNotEmpty()) itemDao.purgePurgedBefore(cutoff)
+        return expired
+    }
 
     suspend fun getAllItemsSnapshot(): List<Item> = itemDao.getAllItemsSnapshot()
 }

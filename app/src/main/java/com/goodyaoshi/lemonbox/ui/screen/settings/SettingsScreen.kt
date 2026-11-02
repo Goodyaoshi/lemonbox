@@ -54,6 +54,7 @@ import com.goodyaoshi.lemonbox.data.settings.ThemeMode
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
+import com.goodyaoshi.lemonbox.ui.components.ImageLoadingModeCard
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarmDeep
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
@@ -153,6 +154,7 @@ fun SettingsScreen(
     val mealPrepDayShift by viewModel.mealPrepDayShift.collectAsState()
     val mealPrepFireTime by viewModel.mealPrepFireTime.collectAsState()
     val budgetReminderEnabled by viewModel.budgetReminderEnabled.collectAsState()
+    val imageLoadingMode by viewModel.imageLoadingMode.collectAsState()
     val updateState by viewModel.updateState.collectAsState()
 
     var showTimePicker by remember { mutableStateOf(false) }
@@ -226,6 +228,13 @@ fun SettingsScreen(
 
             // 「在一起」起始日与计数前缀已下沉到纪念日页页头（IA-6），
             // 全局设置只保留真正全局的项，单域配置不再混排。
+
+            // 图片显示方式从设置页也能改：此前只藏在「云同步」里，未登录或不去那页就找不到。
+            ImageLoadingModeCard(
+                mode = imageLoadingMode,
+                onSelect = viewModel::setImageLoadingMode,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
+            )
 
             AppSurfaceCard(
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),

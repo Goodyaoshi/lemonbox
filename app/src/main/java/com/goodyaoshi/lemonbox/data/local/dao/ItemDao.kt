@@ -211,6 +211,21 @@ interface ItemDao {
     @Query("UPDATE items SET imageHashes = :encodedHashes WHERE id = :id")
     suspend fun updateImageHashes(id: Long, encodedHashes: String?)
 
+    /**
+     * 这张图是否仍被**其他**物品引用（含回收站，但不含永久删除墓碑）。
+     *
+     * 本地图片按内容哈希落盘，同一份内容永远只有一个文件；同一张图可以被选给多件物品。
+     * 删除某个槽位前必须查全库引用，只看当前物品会把别人还在用的图删掉。
+     * 永久删除（purgedAt 非空）的物品不可能再恢复，不算引用；把它们算进去会让
+     * 图片永远清不掉（墓碑要保留半年，清理线索会随行一起消失）。
+     * 槽位是定长哈希（内容哈希 64 位、历史 UUID 36 位），用子串匹配不会互相包含。
+     */
+    @Query(
+        "SELECT COUNT(*) FROM items WHERE id != :excludeItemId AND purgedAt IS NULL " +
+            "AND imageHashes IS NOT NULL AND instr(imageHashes, :hash) > 0"
+    )
+    suspend fun countImageHashReferences(hash: String, excludeItemId: Long): Int
+
     @Delete
     suspend fun delete(item: Item)
 
@@ -385,6 +400,10 @@ interface ItemDao {
     /** 清到期的永久删除墓碑，保留期更长：墓碑要活到其他设备都拉到过它为止。 */
     @Query("DELETE FROM items WHERE purgedAt IS NOT NULL AND purgedAt < :cutoff" + TOMBSTONE_CONFIRMED_SQL)
     suspend fun purgePurgedBefore(cutoff: Long)
+
+    /** 到期的永久删除墓碑（含图片槽位）。删行前要先拿到它，才能清掉不再被引用的图片。 */
+    @Query("SELECT * FROM items WHERE purgedAt IS NOT NULL AND purgedAt < :cutoff" + TOMBSTONE_CONFIRMED_SQL)
+    suspend fun getPurgedItemsBefore(cutoff: Long): List<Item>
 
     @Query("DELETE FROM items WHERE id IN (:ids) AND deletedAt IS NOT NULL")
     suspend fun deleteDeletedItemsByIds(ids: List<Long>)

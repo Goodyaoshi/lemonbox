@@ -50,6 +50,10 @@ class CategoryViewModel @Inject constructor(
     val rootLocations: StateFlow<List<Location>> = locationRepository.getRootLocations()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    /** 真实顶层位置（不拍平）：管理页要能操作唯一顶级本身；选择器仍用拍平后的 [rootLocations]。 */
+    val topLocations: StateFlow<List<Location>> = locationRepository.getTopLocations()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     val activeItems: StateFlow<List<ItemDetail>> = itemRepository.getActiveItems()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -123,14 +127,16 @@ class CategoryViewModel @Inject constructor(
         categoryRepository.restoreDeleted(ids)
     }
 
-    fun addLocation(name: String, parentId: Long? = null) {
+    /** 返回 false 表示同名位置已存在（同一父级下）。调用方需要把结果告诉用户。 */
+    fun addLocation(name: String, parentId: Long? = null): Boolean {
         val normalized = name.trim()
-        if (normalized.isBlank()) return
+        if (normalized.isBlank()) return false
+        // 在内存快照上先判重，避免「点保存后界面无任何变化」的静默失败。
+        if (allLocations.value.any { it.parentId == parentId && it.name == normalized }) return false
         viewModelScope.launch {
-            // 同一父级下已有同名位置时不再新增，避免选择器里出现多个一样的位置。
-            if (locationRepository.existsWithName(normalized, parentId)) return@launch
             locationRepository.insert(Location(name = normalized, parentId = parentId))
         }
+        return true
     }
 
     /** 删除位置，返回被软删（含下级）的位置 id，供撤销恢复（P2-4）。 */
@@ -149,15 +155,23 @@ class CategoryViewModel @Inject constructor(
         locationRepository.restoreDeleted(ids)
     }
 
-    fun updateLocation(locationId: Long?, name: String) {
-        val id = locationId ?: return
+    /** 返回 false 表示同一层级下已有同名位置（或目标不存在）。 */
+    fun updateLocation(locationId: Long?, name: String): Boolean {
+        val id = locationId ?: return false
         val normalized = name.trim()
-        if (normalized.isBlank()) return
-        viewModelScope.launch {
-            allLocations.value.firstOrNull { it.id == id }?.let { location ->
-                locationRepository.update(location.copy(name = normalized))
+        if (normalized.isBlank()) return false
+        val target = allLocations.value.firstOrNull { it.id == id } ?: return false
+        // 改名同样要判重：否则两个兄弟位置可以改成一模一样，选择器里无法区分。
+        if (allLocations.value.any {
+                it.id != id && it.parentId == target.parentId && it.name == normalized
             }
+        ) {
+            return false
         }
+        viewModelScope.launch {
+            locationRepository.update(target.copy(name = normalized))
+        }
+        return true
     }
 
     /** 返回 false 表示同维度内名称重复或为空。 */

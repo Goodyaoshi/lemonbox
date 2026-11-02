@@ -18,6 +18,7 @@ import com.goodyaoshi.lemonbox.data.repository.ReminderRepository
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
+import kotlinx.coroutines.CancellationException
 import java.time.Duration
 import java.time.ZonedDateTime
 import java.util.concurrent.TimeUnit
@@ -57,8 +58,9 @@ class AppMaintenance @Inject constructor(
         ledgerPlanningRepository.purgeDeletedOlderThan(cutoff)
 
         // 「永久删除」墓碑保留更久（半年）：要活到其他设备都拉到过这次删除为止。
+        // 行删掉后就再也找不到图片槽位了，所以删行同时补一次图片清理，兜住上次云端删除失败留下的孤儿。
         val purgedCutoff = System.currentTimeMillis() - PURGED_TOMBSTONE_TTL_MS
-        itemRepository.purgePurgedItemsOlderThan(purgedCutoff)
+        cloudPurger.purgeImagesOf(itemRepository.purgePurgedItemsOlderThan(purgedCutoff))
         reminderRepository.purgePurgedOlderThan(purgedCutoff)
 
         // 位置、家当分类、记账分类、账户与纪念日的同名去重。
@@ -99,10 +101,18 @@ class MaintenanceWorker @AssistedInject constructor(
     private val maintenance: AppMaintenance
 ) : CoroutineWorker(context, workerParams) {
 
-    override suspend fun doWork(): Result {
-        maintenance.run()
-        return Result.success()
-    }
+    override suspend fun doWork(): Result =
+        // 维护中途失败（数据库忙、清理异常）时重试，而不是把失败当成成功：
+        // 否则要等到明天凌晨才会再跑，墓碑与孤儿图片会多积一天。
+        // lastMaintenanceAt 只在 run() 完整走完后才推进，失败重试不会让冷启动误判「已维护」。
+        try {
+            maintenance.run()
+            Result.success()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Result.retry()
+        }
 
     companion object {
         private const val WORK_NAME = "app_maintenance"

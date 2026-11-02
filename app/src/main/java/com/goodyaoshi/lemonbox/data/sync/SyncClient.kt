@@ -7,6 +7,7 @@ import com.goodyaoshi.lemonbox.data.backup.BackupChanges
 import com.goodyaoshi.lemonbox.data.backup.BackupMergeResult
 import com.goodyaoshi.lemonbox.data.backup.SyncChange
 import com.goodyaoshi.lemonbox.data.backup.SyncChangeKind
+import com.goodyaoshi.lemonbox.data.backup.SyncManifestDiff
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -26,15 +27,21 @@ class SyncCancelledException(message: String) : Exception(message)
 /** 一次局域网同步的双方结果：本地合并了对方多少，对方合并了本机多少。 */
 data class SyncOutcome(
     val localMerge: BackupMergeResult,
-    /** 对方落地本机数据的统计；对方迟迟没落地或拒绝时为 null。 */
-    val peerMerge: BackupMergeResult?
+    /** 对方落地本机数据的统计；对方迟迟没落地、拒绝或本次无需发送时为 null。 */
+    val peerMerge: BackupMergeResult?,
+    /** 清单比对后实际需要发送给对方的记录数。 */
+    val sentRecords: Int = 0,
+    /** 清单比对后实际需要从对方接收的记录数。 */
+    val receivedRecords: Int = 0,
+    /** 清单里两边时间戳一致、无需传输的记录数。 */
+    val upToDate: Int = 0
 )
 
 /** 同步分步，供界面实时展示进度；顺序即执行顺序。 */
 enum class SyncStage(val label: String) {
     CONNECTING("连接对方设备"),
     CONFIRMING("双方核对匹配码"),
-    EXCHANGING("交换数据并预览"),
+    EXCHANGING("比对清单并交换差异"),
     APPLYING("应用同步")
 }
 
@@ -105,68 +112,92 @@ class SyncClient @Inject constructor(
                 throw java.io.IOException("对方没有同意这次同步")
             }
 
-            // 3. 交换数据与预览。
+            // 3. 先比对清单，再只传对方真正缺的那部分。
             onProgress(SyncStage.EXCHANGING)
-            val pushSince = resolveSince(appPreferences.pushWatermark(pair.hostDeviceId))
+            val manifest = step("统计本机清单") { backupManager.manifest() }
+            val diff = step("比对双方清单") {
+                json.decodeFromString<SyncManifestDiff>(
+                    postJson(
+                        "$base/manifest?sessionId=${pair.sessionId}",
+                        json.encodeToString(manifest)
+                    )
+                )
+            }
+            // 清单已经比对过：两侧都只搬运对方缺的键，不再整包互推。
             val pushBaseTime = System.currentTimeMillis()
-            step("推送本机数据") {
-                val archive = backupManager.createBackupZip(pushSince)
-                try {
-                    postFile("$base/stage?sessionId=${pair.sessionId}", archive.file, "上传本机数据", onTransfer)
-                } finally {
-                    archive.file.delete()
+            if (!diff.nothingToSend) {
+                step("推送本机数据") {
+                    val archive = backupManager.createBackupZip(onlyKeys = diff.hostNeeds.toSet())
+                    try {
+                        postFile("$base/stage?sessionId=${pair.sessionId}", archive.file, "上传本机数据", onTransfer)
+                    } finally {
+                        archive.file.delete()
+                    }
                 }
             }
-            // 推送水位线不在这里立刻前进：等拿到对方的落地结果再定（见下方 waitForHostMerge 之后），
-            // 对方跳过了部分内容时，下次同步要把本机变更原样再推一遍。
 
-            val pullSince = resolveSince(appPreferences.pullWatermark(pair.hostDeviceId))
+            var changes: BackupChanges = BackupChanges()
+            var selected: Set<String>? = null
+            var localMerge = BackupMergeResult(
+                itemAdded = 0,
+                itemUpdated = 0,
+                itemKept = 0,
+                categoryAdded = 0,
+                categoryUpdated = 0,
+                locationAdded = 0,
+                locationUpdated = 0,
+                fromLegacyBackup = false
+            )
             val incoming = File(context.cacheDir, "sync-in-${System.currentTimeMillis()}.zip")
             try {
-                val exportedAt = step("拉取对方数据") {
-                    val url = buildString {
-                        append("$base/backup?sessionId=${pair.sessionId}")
-                        if (pullSince != null) append("&since=$pullSince")
+                // 对方一条不缺就完全跳过下载与预览，不再为「无事可做」付一次整包流量。
+                if (!diff.nothingToReceive) {
+                    val exportedAt = step("拉取对方数据") {
+                        downloadBackup("$base/backup?sessionId=${pair.sessionId}", incoming, "下载对方数据", onTransfer)
                     }
-                    downloadBackup(url, incoming, "下载对方数据", onTransfer)
-                }
-                val changes = step("分析对方数据") {
-                    backupManager.previewBackup(
-                        sourceUri = Uri.fromFile(incoming),
-                        // 以本端上次同步完成时间为基线：双方都改过的条目标记为真冲突，交给用户裁决（S4）。
-                        syncedAfter = appPreferences.lastSyncAt.value
-                    )
-                }
-                // 有变化才让用户逐条勾选；没有变化直接落地（等同无操作）。
-                var selected: Set<String>? = null
-                if (changes.hasChanges) {
-                    selected = step("选择要同步的内容") { awaitSelection(changes, peerLabel) }
-                    if (selected == null) throw SyncCancelledException("你取消了这次同步")
-                }
-                acceptedChanges = selected?.let { keys ->
-                    changes.changes.filter { it.key in keys }
-                } ?: emptyList()
+                    changes = step("分析对方数据") {
+                        backupManager.previewBackup(
+                            sourceUri = Uri.fromFile(incoming),
+                            // 以本端上次同步完成时间为基线：双方都改过的条目标记为真冲突，交给用户裁决（S4）。
+                            syncedAfter = appPreferences.lastSyncAt.value
+                        )
+                    }
+                    // 有变化才让用户逐条勾选；没有变化直接落地（等同无操作）。
+                    if (changes.hasChanges) {
+                        selected = step("选择要同步的内容") { awaitSelection(changes, peerLabel) }
+                        if (selected == null) throw SyncCancelledException("你取消了这次同步")
+                    }
+                    acceptedChanges = selected?.let { keys ->
+                        changes.changes.filter { it.key in keys }
+                    } ?: emptyList()
 
-                onProgress(SyncStage.APPLYING)
-                val localMerge = step("应用对方数据") {
-                    // P11：LAN 收到的改动服务端还没见过，标脏让下一轮远程同步把它们推上去。
-                    backupManager.importBackup(Uri.fromFile(incoming), keepKeys = selected, markDirty = true)
+                    onProgress(SyncStage.APPLYING)
+                    localMerge = step("应用对方数据") {
+                        // P11：LAN 收到的改动服务端还没见过，标脏让下一轮远程同步把它们推上去。
+                        backupManager.importBackup(Uri.fromFile(incoming), keepKeys = selected, markDirty = true)
+                    }
+                    // 这次有跳过的条目就不前进拉取水位线：下次同步它们会再次出现在变更列表里，
+                    // 已落地的条目因 LWW 时间戳相同自然不再出现（「跳过=下次再来」语义）。
+                    val pullSkipped = selected != null && selected.size < changes.changes.size
+                    if (exportedAt != null && !pullSkipped) {
+                        appPreferences.setPullWatermark(pair.hostDeviceId, exportedAt)
+                    }
                 }
-                // 这次有跳过的条目就不前进拉取水位线：下次同步它们会再次出现在变更列表里，
-                // 已落地的条目因 LWW 时间戳相同自然不再出现（「跳过=下次再来」语义）。
-                val pullSkipped = selected != null && selected.size < changes.changes.size
-                if (exportedAt != null && !pullSkipped) {
-                    appPreferences.setPullWatermark(pair.hostDeviceId, exportedAt)
-                }
-                // 等对方也把本机数据落地，好把它的统计一并展示。
-                val peerMerge = waitForHostMerge(base, pair.sessionId)
+                // 只有真的推过数据才等对方落地；没推时对方没有任何东西可应用。
+                val peerMerge = if (diff.nothingToSend) null else waitForHostMerge(base, pair.sessionId)
                 // 对方整包落地才前进推送水位线；对方跳过或取消（结果为 null）时不前进，
                 // 下次同步把本机变更再推一遍，对方已接受的条目由 LWW 吸收，不会重复改动。
                 if (peerMerge != null && peerMerge.userSkipped == 0) {
                     appPreferences.setPushWatermark(pair.hostDeviceId, pushBaseTime)
                 }
 
-                SyncOutcome(localMerge = localMerge, peerMerge = peerMerge).also {
+                SyncOutcome(
+                    localMerge = localMerge,
+                    peerMerge = peerMerge,
+                    sentRecords = diff.hostNeeds.size,
+                    receivedRecords = diff.clientNeeds.size,
+                    upToDate = diff.upToDate
+                ).also {
                     appPreferences.setLastSyncAt(System.currentTimeMillis())
                     val acceptedKeys = selected ?: emptySet()
                     appPreferences.recordSyncReport(
@@ -263,17 +294,6 @@ class SyncClient @Inject constructor(
         } catch (e: Exception) {
             throw java.io.IOException("${label}失败：${e.message ?: e.javaClass.simpleName}", e)
         }
-
-    /**
-     * 把存储的水位线换算成过滤用的 since：
-     * 无水位线或水位线过旧（可能因设备时钟大幅漂移）→ null，退回全量；
-     * 否则回退一个时间缓冲，容忍对方时钟略快造成的漏传。
-     */
-    private fun resolveSince(watermark: Long?): Long? {
-        if (watermark == null) return null
-        if (System.currentTimeMillis() - watermark > MAX_WATERMARK_AGE_MS) return null
-        return (watermark - SKEW_BUFFER_MS).coerceAtLeast(0L)
-    }
 
     private fun postJson(url: String, body: String): String {
         val connection = (URL(url).openConnection() as HttpURLConnection).apply {
@@ -418,12 +438,6 @@ class SyncClient @Inject constructor(
 
         /** 状态轮询间隔。 */
         private const val POLL_INTERVAL_MS = 1_500L
-
-        /** 水位线换算时回退的时间，容忍两台设备之间的时钟偏差。 */
-        private const val SKEW_BUFFER_MS = 2 * 60 * 1000L
-
-        /** 水位线超过该时长未更新则退回全量，避免长期离线后时钟漂移导致漏传。 */
-        private const val MAX_WATERMARK_AGE_MS = 30 * AppPreferences.DAY_MS
 
         /** 传输用的分块缓冲大小。 */
         private const val TRANSFER_BUFFER_SIZE = 64 * 1024

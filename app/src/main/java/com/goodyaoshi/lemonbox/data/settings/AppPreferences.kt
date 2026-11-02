@@ -33,6 +33,28 @@ enum class ThemeMode {
 }
 
 /**
+ * 图片加载策略。
+ *
+ * 不同设备的存储与流量条件不一样，所以由各设备自己选，**不参与备份/同步**：
+ * 把「这台手机要不要流量省着用」同步给另一台设备没有意义。
+ */
+enum class ImageLoadingMode(
+    val id: String,
+    val label: String,
+    val summary: String
+) {
+    STANDARD("standard", "标准模式", "本地没有时从云端取回，并长期留在本机"),
+    SAVE_DATA("save_data", "省流量模式", "只用本机已有的图，不再联网补图"),
+    SAVE_STORAGE("save_storage", "省存储模式", "云端图只放临时缓存，系统清理时自动释放"),
+    NO_IMAGE("no_image", "无图模式", "全部用名称首字展示，不加载任何图片");
+
+    companion object {
+        fun fromId(id: String?): ImageLoadingMode =
+            values().firstOrNull { it.id == id } ?: STANDARD
+    }
+}
+
+/**
  * 首页临期事项的当日忽略记录（H1）：key 集合只在记录当天有效，跨天自动失效。
  * key 与「今天的事」的 event.key 同构（如 "expiry:12"），避免两边各造一套标识。
  */
@@ -69,6 +91,18 @@ class AppPreferences @Inject constructor(
     fun setThemeMode(mode: ThemeMode) {
         preferences.edit().putString(KEY_THEME_MODE, mode.name).apply()
         _themeMode.value = mode
+    }
+
+    private val _imageLoadingMode = MutableStateFlow(
+        ImageLoadingMode.fromId(preferences.getString(KEY_IMAGE_LOADING_MODE, null))
+    )
+
+    /** 图片加载策略，默认标准模式；设备本地设置，不进备份。 */
+    val imageLoadingMode: StateFlow<ImageLoadingMode> = _imageLoadingMode.asStateFlow()
+
+    fun setImageLoadingMode(mode: ImageLoadingMode) {
+        preferences.edit().putString(KEY_IMAGE_LOADING_MODE, mode.id).apply()
+        _imageLoadingMode.value = mode
     }
 
     private val _preferencesUpdatedAt = MutableStateFlow(
@@ -1281,6 +1315,7 @@ class AppPreferences @Inject constructor(
         private const val KEY_WEEKLY_MENU = "weekly_menu"
         private const val KEY_COOKED_MENU_DATES = "cooked_menu_dates"
         private const val KEY_THEME_MODE = "theme_mode"
+        private const val KEY_IMAGE_LOADING_MODE = "image_loading_mode"
         private const val KEY_CUSTOM_STATUSES = "custom_statuses"
         private const val KEY_RECIPES = "recipes"
         private const val KEY_NEXT_RECIPE_ID = "next_recipe_id"

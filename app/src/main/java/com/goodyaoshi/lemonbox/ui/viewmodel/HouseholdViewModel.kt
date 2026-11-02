@@ -508,6 +508,21 @@ class HouseholdViewModel @Inject constructor(
         }
     }
 
+    /**
+     * 批量修改存放位置：同样先取整份快照，撤销时按快照写回。
+     * [locationId] 为 null 表示清空位置（物品变成「未设置位置」）。
+     */
+    fun moveSelectedToLocation(locationId: Long?, onDone: (List<Item>) -> Unit) {
+        val ids = _selectedIds.value
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            val snapshots = allItems.value.filter { it.item.id in ids }.map { it.item }
+            snapshots.forEach { itemRepository.update(it.copy(locationId = locationId)) }
+            _selectedIds.value = emptySet()
+            onDone(snapshots)
+        }
+    }
+
     /** 批量移入回收站（GAP-7）：同样先取快照，撤销时按快照写回。 */
     fun moveSelectedToTrash(onDone: (List<Item>) -> Unit) {
         val ids = _selectedIds.value

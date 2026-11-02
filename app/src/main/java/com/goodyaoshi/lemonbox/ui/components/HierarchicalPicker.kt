@@ -119,7 +119,10 @@ fun HierarchicalPickerDialog(
     // 空态直达入口（P3-25）：节点为空时在空提示旁给一个可点按钮（如「去家当设置」）；
     // 两个参数都传齐才渲染，缺省时行为与改造前完全一致（纯文案，无入口）。
     emptyActionLabel: String? = null,
-    onEmptyAction: (() -> Unit)? = null
+    onEmptyAction: (() -> Unit)? = null,
+    // 批量改位置这类「必须选一个目标」的场景：关掉「清除选择」，
+    // 避免没选任何节点就点确定时被当成「清空位置」。
+    allowClear: Boolean = true
 ) {
     var pendingSelection by remember { mutableStateOf(selectedId) }
     // 默认展开选中项所在的整条路径，打开弹窗就能看到当前层级。
@@ -200,10 +203,10 @@ fun HierarchicalPickerDialog(
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             PickerActionButton(
-                text = "清除选择",
+                text = if (allowClear) "清除选择" else "取消",
                 modifier = Modifier.weight(1f),
                 onClick = {
-                    onSelect(null)
+                    if (allowClear) onSelect(null)
                     onDismissRequest()
                 }
             )
@@ -211,6 +214,7 @@ fun HierarchicalPickerDialog(
                 text = "确定",
                 modifier = Modifier.weight(1f),
                 highlight = true,
+                enabled = allowClear || pendingSelection != null,
                 onClick = {
                     onSelect(pendingSelection)
                     onDismissRequest()
@@ -247,7 +251,15 @@ private fun buildVisibleRows(
         }
     }
 
-    append(null, 0)
+    // 只有一个顶级节点时直接从它的子级渲染：单个顶级节点没有区分作用，
+    // 多一层只会让用户先点开一个空容器。它没有子级时仍按普通树展示，避免列表为空。
+    val roots = childrenByParent[null].orEmpty()
+    val onlyRoot = roots.singleOrNull()
+    if (onlyRoot != null && childrenByParent[onlyRoot.id].orEmpty().isNotEmpty()) {
+        append(onlyRoot.id, 0)
+    } else {
+        append(null, 0)
+    }
     return rows
 }
 
@@ -310,7 +322,8 @@ internal fun PickerActionButton(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    highlight: Boolean = false
+    highlight: Boolean = false,
+    enabled: Boolean = true
 ) {
     Box(
         modifier = modifier
@@ -318,13 +331,17 @@ internal fun PickerActionButton(
             .clip(MaterialTheme.shapes.medium)
             .background(if (highlight) OrangeStart.copy(alpha = 0.12f) else SurfaceWarm)
             .minimumInteractiveComponentSize()
-            .clickable(role = Role.Button, onClick = onClick)
+            .clickable(role = Role.Button, enabled = enabled, onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 14.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(
             text = text,
-            color = if (highlight) OrangeStart else TextSecondary,
+            color = when {
+                !enabled -> TextHint
+                highlight -> OrangeStart
+                else -> TextSecondary
+            },
             // 字号走主题字阶（F6）：labelLarge 为 14sp。
             style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.SemiBold

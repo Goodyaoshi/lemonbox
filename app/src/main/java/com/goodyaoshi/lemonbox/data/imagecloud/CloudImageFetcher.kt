@@ -1,5 +1,6 @@
 package com.goodyaoshi.lemonbox.data.imagecloud
 
+import android.content.Context
 import coil.ImageLoader
 import coil.decode.DataSource
 import coil.decode.ImageSource
@@ -8,6 +9,7 @@ import coil.fetch.Fetcher
 import coil.fetch.SourceResult
 import coil.key.Keyer
 import coil.request.Options
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -26,7 +28,14 @@ import javax.inject.Singleton
  * 而渲染路径（modelForHash）必须保持同步；把「待取的键」交给 Coil，
  * 网络动作挪进 [CloudImageFetcherFactory] 产出的取图器挂起阶段完成。
  */
-data class CloudImageModel(val objectKey: String)
+data class CloudImageModel(
+    val objectKey: String,
+    /**
+     * 省存储模式：只落临时缓存目录，系统清缓存时自动释放，不长期占用本机存储。
+     * 内存缓存键仍是对象键——同一张图用哪种模式取回，内容都一样。
+     */
+    val cacheOnly: Boolean = false
+)
 
 /**
  * 内存缓存键固定为对象键：预签名 URL 每次都变、以它作键永远不命中；
@@ -44,22 +53,24 @@ class CloudImageModelKeyer : Keyer<CloudImageModel> {
  */
 @Singleton
 class CloudImageFetcherFactory @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val gateway: BlobGateway,
     private val restoreStore: ImageRestoreStore
 ) : Fetcher.Factory<CloudImageModel> {
 
     override fun create(data: CloudImageModel, options: Options, imageLoader: ImageLoader): Fetcher =
-        CloudImageFetcher(data, gateway, restoreStore)
+        CloudImageFetcher(data, context, gateway, restoreStore)
 }
 
 private class CloudImageFetcher(
     private val model: CloudImageModel,
+    private val context: Context,
     private val gateway: BlobGateway,
     private val restoreStore: ImageRestoreStore
 ) : Fetcher {
 
     override suspend fun fetch(): FetchResult = withContext(Dispatchers.IO) {
-        val target = restoreStore.fileFor(model.objectKey)
+        val target = if (model.cacheOnly) tempCacheFile(model.objectKey) else restoreStore.fileFor(model.objectKey)
         val existed = target.isFile
         if (!existed) {
             downloadToRestoreStore(model.objectKey, target, gateway)
@@ -69,6 +80,12 @@ private class CloudImageFetcher(
             mimeType = CONTENT_TYPE,
             dataSource = if (existed) DataSource.DISK else DataSource.NETWORK
         )
+    }
+
+    /** 省存储模式的落点：cacheDir 下的临时目录，系统清缓存时一并释放。 */
+    private fun tempCacheFile(objectKey: String): File {
+        val dir = File(context.cacheDir, TEMP_IMAGE_DIR).apply { if (!exists()) mkdirs() }
+        return File(dir, objectKey.substringAfterLast('/').ifBlank { "image.jpg" })
     }
 }
 
@@ -161,3 +178,6 @@ private suspend fun downloadToRestoreStore(
 private const val CONTENT_TYPE = "image/jpeg"
 private const val DOWNLOAD_ATTEMPTS = 2
 private const val RETRY_DELAY_MS = 400L
+
+/** 省存储模式的临时图片目录（相对 cacheDir）。 */
+private const val TEMP_IMAGE_DIR = "image_preview"

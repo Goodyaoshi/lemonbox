@@ -1,19 +1,23 @@
 package com.goodyaoshi.lemonbox.util
 
 import java.text.NumberFormat
-import java.text.SimpleDateFormat
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
-import java.util.Date
 import java.util.Locale
 
 object DateUtil {
 
-    private val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-    private val dateTimeFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
-    private val currencyFormatter = NumberFormat.getCurrencyInstance(Locale.CHINA)
+    // 这两组格式化器是进程级单例，会被 UI 与后台（备份命名等）同时调用：
+    // SimpleDateFormat / NumberFormat 都不是线程安全的，共用实例偶发会格式化出错日期，
+    // 因此日期改用不可变的 DateTimeFormatter，货币用每线程一份的 NumberFormat。
+    private val dateFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
+    private val dateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
+    private val currencyFormatter = ThreadLocal.withInitial {
+        NumberFormat.getCurrencyInstance(Locale.CHINA)
+    }
     private val zoneId: ZoneId = ZoneId.systemDefault()
 
     /**
@@ -27,13 +31,11 @@ object DateUtil {
         else -> ReminderClock.WEEKDAY_LABELS.getOrElse(date.dayOfWeek.value - 1) { date.toString() }
     }
 
-    fun formatDate(timestamp: Long): String {
-        return dateFormat.format(Date(timestamp))
-    }
+    fun formatDate(timestamp: Long): String =
+        Instant.ofEpochMilli(timestamp).atZone(zoneId).format(dateFormatter)
 
-    fun formatDateTime(timestamp: Long): String {
-        return dateTimeFormat.format(Date(timestamp))
-    }
+    fun formatDateTime(timestamp: Long): String =
+        Instant.ofEpochMilli(timestamp).atZone(zoneId).format(dateTimeFormatter)
 
     fun daysUntil(timestamp: Long): Long {
         val today = Instant.ofEpochMilli(System.currentTimeMillis()).atZone(zoneId).toLocalDate()
@@ -56,7 +58,8 @@ object DateUtil {
     }
 
     fun formatCurrency(price: Double): String {
-        return currencyFormatter.format(price)
+        val formatter = currencyFormatter.get() ?: NumberFormat.getCurrencyInstance(Locale.CHINA)
+        return formatter.format(price)
     }
 
     fun daysFromNow(days: Long): Long {

@@ -146,7 +146,7 @@ class EditViewModel @Inject constructor(
         // 先落盘新图再删旧图：同内容会复用同一文件，顺序反了会把新图一起删掉。
         currentHashes.firstOrNull()?.let { old ->
             if (old !in hashes) {
-                ImageUtil.findLocalFile(context, old)?.let { ImageUtil.deleteImage(it.absolutePath) }
+                deleteLocalImageIfUnused(context, old, current.itemId)
             }
         }
         if (currentHashes.isEmpty()) {
@@ -165,9 +165,22 @@ class EditViewModel @Inject constructor(
         val removed = currentHashes.getOrNull(index) ?: return
         currentHashes.removeAt(index)
         if (removed !in currentHashes) {
-            ImageUtil.findLocalFile(context, removed)?.let { ImageUtil.deleteImage(it.absolutePath) }
+            deleteLocalImageIfUnused(context, removed, current.itemId)
         }
         _state.value = current.copy(imageHashes = currentHashes)
+    }
+
+    /**
+     * 删本地副本前先确认全库没人再引用这张图。
+     *
+     * 图片按内容哈希落盘，同一张图可能被多件物品共用；只查当前物品会让别处的图凭空消失。
+     * [excludeItemId] 是当前编辑物品：库里那份还没保存，仍带着该哈希，不能算作「别人在用」。
+     */
+    private fun deleteLocalImageIfUnused(context: Context, hash: String, excludeItemId: Long) {
+        viewModelScope.launch {
+            if (itemRepository.isImageHashReferenced(hash, excludeItemId)) return@launch
+            ImageUtil.findLocalFile(context, hash)?.let { ImageUtil.deleteImage(it.absolutePath) }
+        }
     }
 
     fun movePhoto(fromIndex: Int, toIndex: Int) {
@@ -281,7 +294,9 @@ class EditViewModel @Inject constructor(
                 quantity = current.quantity,
                 consumedQuantity = original?.consumedQuantity ?: 0.0,
                 unit = current.unit,
-                price = current.price.toDoubleOrNull(),
+                // 价格是自由输入框：Kotlin 的解析会接受「NaN / Infinity」这类字面量，
+                // 落库后参与汇总会把整页统计带成 NaN。只接受有限值，其余按「没填」处理。
+                price = current.price.toDoubleOrNull()?.takeIf { it.isFinite() },
                 expireTime = current.expireTime,
                 reminderDays = Item.encodeReminderDays(current.reminderDays),
                 purchaseDate = current.purchaseDate,

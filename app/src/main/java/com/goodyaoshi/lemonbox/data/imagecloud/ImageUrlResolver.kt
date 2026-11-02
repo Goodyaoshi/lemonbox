@@ -1,6 +1,7 @@
 package com.goodyaoshi.lemonbox.data.imagecloud
 
 import android.content.Context
+import com.goodyaoshi.lemonbox.data.settings.ImageLoadingMode
 import com.goodyaoshi.lemonbox.util.ImageUtil
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
@@ -71,7 +72,13 @@ class ImageUrlResolver @Inject constructor(
     private val restoreStore: ImageRestoreStore
 ) {
 
-    fun modelForHash(hash: String?): Any? {
+    fun modelForHash(
+        hash: String?,
+        mode: ImageLoadingMode = ImageLoadingMode.STANDARD
+    ): Any? {
+        // 无图模式在任何一步之前就退出：连本地文件都不读，保证列表渲染零 IO。
+        if (mode == ImageLoadingMode.NO_IMAGE) return null
+
         val contentHash = hash.orEmpty().trim()
         if (contentHash.isEmpty()) return null
         val localPath = ImageUtil.localPathForHash(context, contentHash)
@@ -81,8 +88,12 @@ class ImageUrlResolver @Inject constructor(
             objectKey = ImageObjectKeys.forContentHash(config.prefix(), contentHash)
         )
         return when (location) {
-            is ImageLocation.Local -> localModelWithCloudFallback(location.path, contentHash)
-            is ImageLocation.Cloud -> restoredOrCloudModel(location.objectKey)
+            is ImageLocation.Local -> when (mode) {
+                // 省流量 / 省存储下本地副本照常显示，只是不再为它准备云端兜底。
+                ImageLoadingMode.SAVE_DATA, ImageLoadingMode.SAVE_STORAGE -> location.path
+                else -> localModelWithCloudFallback(location.path, contentHash)
+            }
+            is ImageLocation.Cloud -> restoredOrCloudModel(location.objectKey, mode)
             ImageLocation.None -> null
         }
     }
@@ -108,10 +119,16 @@ class ImageUrlResolver @Inject constructor(
      * 没有才交给取图器。与旧链路一致：取不到云端凭据（未登录等）时返回 null，
      * 让占位态接管，而不是让加载器报错。
      */
-    private fun restoredOrCloudModel(objectKey: String): Any? {
+    private fun restoredOrCloudModel(objectKey: String, mode: ImageLoadingMode): Any? {
         val restored = restoreStore.fileFor(objectKey)
         if (restored.isFile) return restored.absolutePath
         if (!config.supported || !config.isLoggedIn()) return null
-        return CloudImageModel(objectKey)
+        return when (mode) {
+            // 省流量：已有副本可用就够了，不再为缺图发起下载。
+            ImageLoadingMode.SAVE_DATA -> null
+            // 省存储：照常取图，但只落临时缓存，系统清理时自动释放。
+            ImageLoadingMode.SAVE_STORAGE -> CloudImageModel(objectKey, cacheOnly = true)
+            else -> CloudImageModel(objectKey)
+        }
     }
 }

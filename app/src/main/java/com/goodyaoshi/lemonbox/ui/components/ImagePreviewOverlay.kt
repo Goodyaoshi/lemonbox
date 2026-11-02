@@ -3,7 +3,9 @@ package com.goodyaoshi.lemonbox.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.HorizontalPager
@@ -18,7 +20,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -33,12 +38,17 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
+import coil.compose.AsyncImagePainter
+import com.goodyaoshi.lemonbox.data.settings.ImageLoadingMode
 import com.goodyaoshi.lemonbox.ui.theme.OnScrim
 import com.goodyaoshi.lemonbox.ui.theme.OnScrimScrim
+import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.ScrimStrong
 import kotlinx.coroutines.launch
 
@@ -46,7 +56,10 @@ import kotlinx.coroutines.launch
 fun ImagePreviewOverlay(
     imageHashes: List<String>,
     initialIndex: Int,
-    onDismissRequest: () -> Unit
+    onDismissRequest: () -> Unit,
+    // 取不到图时用名称首字占位：全屏预览此前只铺一层黑底，
+    // 没同步到本机的图点开就是一片空，看不出是「没图」还是「没加载完」。
+    itemName: String = ""
 ) {
     val pagerState = rememberPagerState(
         initialPage = initialIndex.coerceIn(0, imageHashes.lastIndex),
@@ -67,7 +80,7 @@ fun ImagePreviewOverlay(
                 state = pagerState,
                 modifier = Modifier.fillMaxSize()
             ) { page ->
-                ZoomableImage(hash = imageHashes[page])
+                ZoomableImage(hash = imageHashes[page], itemName = itemName)
             }
 
             PreviewIconButton(
@@ -129,9 +142,13 @@ fun ImagePreviewOverlay(
 }
 
 @Composable
-private fun ZoomableImage(hash: String) {
+private fun ZoomableImage(hash: String, itemName: String) {
     // 预览页同样走统一解析：本地原图不在时从云端取，保证换设备也能放大看。
     val model = rememberImageModel(hash)
+    val mode = LocalImageLoadingMode.current
+    // 换图或换模式后重试：与列表缩略图的失败判定保持同一口径。
+    var retryKey by remember(hash) { mutableIntStateOf(0) }
+    var failed by remember(hash, model, retryKey) { mutableStateOf(false) }
     var scale by remember(hash) { mutableFloatStateOf(1f) }
     var offsetX by remember(hash) { mutableFloatStateOf(0f) }
     var offsetY by remember(hash) { mutableFloatStateOf(0f) }
@@ -154,19 +171,68 @@ private fun ZoomableImage(hash: String) {
             },
         contentAlignment = Alignment.Center
     ) {
-        AsyncImage(
-            model = model,
-            contentDescription = "图片预览",
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer {
-                    scaleX = scale
-                    scaleY = scale
-                    translationX = offsetX
-                    translationY = offsetY
-                },
-            contentScale = ContentScale.Fit
-        )
+        if (model == null || failed) {
+            // 取不到图时不铺空白：首字 + 一句能说明原因的提示，
+            // 让「无图模式」和「图还没同步过来」在界面上可区分。
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = itemName.trim().take(1).ifBlank { "?" },
+                    style = MaterialTheme.typography.displayMedium,
+                    color = OnScrim.copy(alpha = 0.9f),
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = when (mode) {
+                        ImageLoadingMode.NO_IMAGE -> "当前是无图模式，可在「设置」里切换显示方式"
+                        else -> "这张图还没同步到这台设备"
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = OnScrim.copy(alpha = 0.7f),
+                    textAlign = TextAlign.Center
+                )
+                // 只有「有图可拉、但这次没拉下来」才给重试；无图模式/未登录时重试没有意义。
+                if (model != null) {
+                    Text(
+                        text = "重试",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = OrangeStart,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(OnScrimScrim)
+                            .clickable { retryKey++ }
+                            .padding(horizontal = 18.dp, vertical = 10.dp)
+                    )
+                }
+            }
+        } else {
+            // key 换掉旧实例，Coil 才会重新发起请求，而不是沿用上一次失败的画布。
+            key(retryKey) {
+                AsyncImage(
+                    model = model,
+                    contentDescription = "图片预览",
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            scaleX = scale
+                            scaleY = scale
+                            translationX = offsetX
+                            translationY = offsetY
+                        },
+                    contentScale = ContentScale.Fit,
+                    onState = { state ->
+                        when (state) {
+                            is AsyncImagePainter.State.Error -> failed = true
+                            is AsyncImagePainter.State.Success -> failed = false
+                            else -> Unit
+                        }
+                    }
+                )
+            }
+        }
     }
 }
 

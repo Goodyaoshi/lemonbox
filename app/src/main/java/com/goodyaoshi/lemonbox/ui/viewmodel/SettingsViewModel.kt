@@ -6,6 +6,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
+import com.goodyaoshi.lemonbox.data.settings.ImageLoadingMode
 import com.goodyaoshi.lemonbox.data.settings.ThemeMode
 import com.goodyaoshi.lemonbox.data.update.ApkDownloadResult
 import com.goodyaoshi.lemonbox.data.update.ApkInstallResult
@@ -63,6 +64,11 @@ class SettingsViewModel @Inject constructor(
     val mealPrepFireTime: StateFlow<String> = appPreferences.mealPrepFireTime
 
     val budgetReminderEnabled: StateFlow<Boolean> = appPreferences.budgetReminderEnabled
+
+    /** 图片加载策略：设备本地设置，不随账号、也不进备份。 */
+    val imageLoadingMode: StateFlow<ImageLoadingMode> = appPreferences.imageLoadingMode
+
+    fun setImageLoadingMode(mode: ImageLoadingMode) = appPreferences.setImageLoadingMode(mode)
 
     // 「在一起」起始日与计数前缀已下沉到纪念日域（IA-6），由 AnniversaryViewModel 暴露。
 

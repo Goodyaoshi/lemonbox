@@ -45,6 +45,7 @@ class AppSnackbarState internal constructor(
 
     /** 展示一条成功 / 中性提示：非阻塞、不打断操作，尤其适合连续录入这类连续动作。 */
     suspend fun showMessage(message: String) {
+        dismissUnlessActionable()
         hostState.showSnackbar(message = message, duration = SnackbarDuration.Short)
     }
 
@@ -55,8 +56,19 @@ class AppSnackbarState internal constructor(
      */
     fun postMessage(message: String) {
         scope.launch {
+            dismissUnlessActionable()
             hostState.showSnackbar(message = message, duration = SnackbarDuration.Short)
         }
+    }
+
+    /**
+     * 普通提示出现时，只有在当前提示「没有动作」的情况下才顶掉它。
+     * 「撤销 / 双动作」提示带有时限动作，被普通成功提示挤掉就等于让用户失去撤销机会；
+     * 此时让 [SnackbarHostState] 自然排队，等动作提示按时结束后再展示普通提示。
+     */
+    private fun dismissUnlessActionable() {
+        if (hostState.currentSnackbarData?.visuals?.actionLabel != null) return
+        hostState.currentSnackbarData?.dismiss()
     }
 
     /**
@@ -66,6 +78,9 @@ class AppSnackbarState internal constructor(
      */
     fun showUndo(message: String, actionLabel: String, onUndo: () -> Unit) {
         scope.launch {
+            // 连续删除时只保留最新一条：排队会让第二条等上一条的 Long 时长走完，
+            // 用户看到的反馈严重滞后，撤销的也还是上一次操作。
+            hostState.currentSnackbarData?.dismiss()
             val result = hostState.showSnackbar(
                 message = message,
                 actionLabel = actionLabel,
@@ -89,6 +104,7 @@ class AppSnackbarState internal constructor(
         onSecondary: () -> Unit
     ) {
         scope.launch {
+            hostState.currentSnackbarData?.dismiss()
             val visuals = DualActionVisuals(message, listOf(primaryLabel, secondaryLabel))
             val result = hostState.showSnackbar(visuals)
             if (result == SnackbarResult.ActionPerformed) {

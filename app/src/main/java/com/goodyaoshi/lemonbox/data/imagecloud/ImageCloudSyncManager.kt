@@ -403,11 +403,26 @@ class ImageCloudSyncManager @Inject constructor(
      */
     override suspend fun purgeImagesOf(items: List<Item>) {
         if (items.isEmpty()) return
+        // 本地副本按内容哈希共享：某件物品被永久删除，不代表别处没用同一张图。
+        // 读不出全库引用时保守跳过本地删除，只走云端那套（云端删除自带引用校验）。
+        val stillReferencedHashes = try {
+            // 永久删除的墓碑不算引用：它不可能恢复，算进去会让图片永远清不掉。
+            itemRepository.getAllItemsSnapshot()
+                .filter { it.purgedAt == null }
+                .flatMap { it.imageHashList() }
+                .toSet()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            null
+        }
         val keys = withContext(Dispatchers.IO) {
             items.flatMap { item ->
                 item.imageHashList().map { hash ->
-                    ImageUtil.findLocalFile(context, hash)?.let { file ->
-                        ImageUtil.deleteImage(file.absolutePath)
+                    if (stillReferencedHashes != null && hash !in stillReferencedHashes) {
+                        ImageUtil.findLocalFile(context, hash)?.let { file ->
+                            ImageUtil.deleteImage(file.absolutePath)
+                        }
                     }
                     ImageObjectKeys.forContentHash(config.prefix(), hash)
                 }
@@ -424,9 +439,11 @@ class ImageCloudSyncManager @Inject constructor(
             // 用**含软删物品**的全量快照统计引用：回收站里的物品随时可能被恢复，
             // 若把它们排除在外，就会出现「删掉回收站里另一个物品还在用的图」——
             // 那个物品一旦恢复就成了没有图的空壳。
+            // 永久删除（purgedAt 非空）的物品不会恢复，必须排除；否则它们的图永远清不掉。
             // 读不出全库引用时宁可保留孤儿，也不冒误删在用的图的风险。
             val stillReferenced = try {
                 itemRepository.getAllItemsSnapshot()
+                    .filter { it.purgedAt == null }
                     // 槽位存的是内容哈希，而候选键是对象键：先按当前前缀换算成对象键再比对。
                     .flatMap { item ->
                         item.imageHashList().map { ImageObjectKeys.forContentHash(config.prefix(), it) }

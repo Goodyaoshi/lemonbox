@@ -1158,12 +1158,49 @@ class AppBackupManager @Inject constructor(
      */
     suspend fun createBackupZip(
         since: Long? = null,
-        includeImages: Boolean = false
+        includeImages: Boolean = false,
+        onlyKeys: Set<String>? = null
     ): BackupArchive {
         val built = buildPayload(since)
+        val payload = if (onlyKeys == null) built.payload else built.payload.onlyKeys(onlyKeys)
         val workingFile = File(context.cacheDir, "lemonbox-backup-${System.currentTimeMillis()}.zip")
-        writePayloadZipTo(built.payload, workingFile, includeImages)
+        writePayloadZipTo(payload, workingFile, includeImages)
         return BackupArchive(file = workingFile, exportedAt = built.exportedAt, isEmpty = built.isEmpty)
+    }
+
+    /**
+     * 本机全部同步记录的轻量清单（只有键与时间戳，不含内容）。
+     *
+     * 局域网同步先交换它再传数据：清单通常几十 KB，比整包小两个数量级，
+     * 换来的是「只传对方真正缺的那部分」，而不是先推整包再让对端丢掉大半。
+     */
+    suspend fun manifest(): SyncManifest = buildPayload(since = null).payload.toManifest()
+
+    /** 按清单白名单裁剪载荷；白名单键与 [toManifest] 完全同构（`实体名:syncId`）。 */
+    private fun AppBackupPayload.onlyKeys(keys: Set<String>): AppBackupPayload {
+        fun keep(kind: SyncEntityKind, syncId: String?): Boolean =
+            "${kind.name}:${syncId.orEmpty()}" in keys
+        return copy(
+            categories = categories.filter { keep(SyncEntityKind.CATEGORY, it.syncId) },
+            locations = locations.filter { keep(SyncEntityKind.LOCATION, it.syncId) },
+            items = items.filter { keep(SyncEntityKind.ITEM, it.syncId) },
+            ledgerAssets = ledgerAssets.filter { keep(SyncEntityKind.LEDGER_ASSET, it.syncId) },
+            ledgerCategories = ledgerCategories.filter { keep(SyncEntityKind.LEDGER_CATEGORY, it.syncId) },
+            ledgerRecords = ledgerRecords.filter { keep(SyncEntityKind.LEDGER_RECORD, it.syncId) },
+            ledgerBudgets = ledgerBudgets.filter { keep(SyncEntityKind.LEDGER_BUDGET, it.syncId) },
+            anniversaries = anniversaries.filter { keep(SyncEntityKind.ANNIVERSARY, it.syncId) },
+            reminders = reminders.filter { keep(SyncEntityKind.REMINDER, it.syncId) },
+            timeCapsules = timeCapsules.filter { keep(SyncEntityKind.TIME_CAPSULE, it.syncId) },
+            packingTrips = packingTrips.filter { keep(SyncEntityKind.PACKING_TRIP, it.syncId) },
+            packingItems = packingItems.filter { keep(SyncEntityKind.PACKING_ITEM, it.syncId) },
+            ledgerTemplates = ledgerTemplates.filter { keep(SyncEntityKind.LEDGER_TEMPLATE, it.syncId) },
+            ledgerRecurringRules = ledgerRecurringRules.filter {
+                keep(SyncEntityKind.LEDGER_RECURRING_RULE, it.syncId)
+            },
+            preferences = preferences?.takeIf {
+                "${SyncCollections.PREFERENCES}:${SyncCollections.PREFERENCES_KEY}" in keys
+            }
+        )
     }
 
     /**

@@ -9,7 +9,6 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
-import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContract
@@ -81,6 +80,8 @@ fun rememberGalleryPickerLauncher(
     onPermissionDenied: () -> Unit = {}
 ): () -> Unit {
     val context = LocalContext.current
+    // 统一走应用级 Snackbar（I10）：与其它结果提示同一通道，前台不会再被系统 Toast 顶掉。
+    val appSnackbar = LocalAppSnackbar.current
     val usePhotoPicker = remember(context) { context.hasSystemPhotoPicker() }
 
     val singlePicker = rememberLauncherForActivityResult(
@@ -109,7 +110,7 @@ fun rememberGalleryPickerLauncher(
     // 降级对用户是「以为能多选、结果只回来一张」，因此进入回落后先明确提示一次（P3-7）。
     fun notifySingleOnly() {
         if (allowMultiple) {
-            Toast.makeText(context, "此设备一次只能选一张图片", Toast.LENGTH_SHORT).show()
+            appSnackbar?.postMessage("此设备一次只能选一张图片")
         }
     }
 

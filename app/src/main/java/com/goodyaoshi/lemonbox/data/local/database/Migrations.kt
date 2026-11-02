@@ -1040,6 +1040,19 @@ internal object Migrations {
         }
     }
 
+    /**
+     * v39：拍平「我的家」根层级。
+     *
+     * 房间（客厅/厨房/卫生间…）本身就是顶级位置，历史库把它们挂在同一个根下，
+     * 选择器因此总要先展开一个没有信息的节点。迁移把房间提升为顶级并软删根，
+     * 具体规则见 [SeedDataProvider.flattenHomeRoots]。
+     */
+    private val MIGRATION_38_39 = object : Migration(38, 39) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            SeedDataProvider.flattenHomeRoots(db)
+        }
+    }
+
 /**
  * 把 v34 的「本地路径行 + 对象键行」合并成 v35 的单列哈希（F22）。
  *
@@ -1128,6 +1141,7 @@ private const val SHA256_HEX_LENGTH = 64
         MIGRATION_34_35,
         MIGRATION_35_36,
         MIGRATION_36_37,
-        MIGRATION_37_38
+        MIGRATION_37_38,
+        MIGRATION_38_39
     )
 }

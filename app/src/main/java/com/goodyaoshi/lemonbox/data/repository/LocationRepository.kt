@@ -3,7 +3,11 @@ package com.goodyaoshi.lemonbox.data.repository
 import com.goodyaoshi.lemonbox.data.local.dao.LocationDao
 import com.goodyaoshi.lemonbox.data.local.entity.Location
 import com.goodyaoshi.lemonbox.util.MonotonicClock
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -13,9 +17,32 @@ class LocationRepository @Inject constructor(
 ) {
     fun getAllLocations(): Flow<List<Location>> = locationDao.getAllLocations()
 
-    fun getRootLocations(): Flow<List<Location>> = locationDao.getRootLocations()
+    /**
+     * 顶层位置列表。
+     *
+     * 只有一个顶级位置时直接展示它的子位置：单个顶级节点没有任何区分作用
+     * （历史「我的家」就是这种容器），多一层只会让用户白点一次。
+     * 该节点没有子位置时仍返回它本身，避免位置列表变成空的。
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun getRootLocations(): Flow<List<Location>> =
+        locationDao.getRootLocations().flatMapLatest { roots ->
+            val only = roots.singleOrNull() ?: return@flatMapLatest flowOf(roots)
+            locationDao.getSubLocations(only.id).map { children ->
+                children.ifEmpty { roots }
+            }
+        }
 
     fun getSubLocations(parentId: Long): Flow<List<Location>> = locationDao.getSubLocations(parentId)
+
+    /**
+     * 真实顶层位置（不拍平）。
+     *
+     * 与 [getRootLocations] 的区别：后者在只有一个顶级时下沉到子级，供选择器少点一层；
+     * 但「管理位置」页必须能选中、改名、删除这个顶级本身——若也下沉，唯一顶级节点
+     * 在管理页里不可见，用户既改不了它的名字，也没法在它下面新增子位置。
+     */
+    fun getTopLocations(): Flow<List<Location>> = locationDao.getRootLocations()
 
     suspend fun getLocationById(id: Long): Location? = locationDao.getLocationById(id)
 

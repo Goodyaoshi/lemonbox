@@ -135,15 +135,52 @@ internal object SeedDataProvider {
     fun ensureSeedData(db: SupportSQLiteDatabase) {
         ensureSeedCategories(db)
 
-        val homeId = ensureHomeRoot(db)
+        // 房间本身就是顶级位置：不再套一层「我的家」。
+        // 多一层根会让选择器与位置管理每次都先点进一个没有信息的节点，
+        // 而「家」这个层级对只有一套房子的场景没有任何区分作用。
         roomHierarchy.forEach { (room, children) ->
-            val roomId = ensureLocation(db, room, homeId)
+            val roomId = ensureLocation(db, room, null)
             children.forEach { child ->
                 val childId = ensureLocation(db, child, roomId)
                 roomGrandchildren[child]?.forEach { grandChild ->
                     ensureLocation(db, grandChild, childId)
                 }
             }
+        }
+    }
+
+    /**
+     * v39：把历史数据里的「我的家」根层级拍平。
+     *
+     * 旧版把客厅/卧室/厨房/卫生间/阳台都挂在「我的家」下面，选择器与位置管理因此
+     * 多出一层空节点。这里把根的子位置提升为顶级，根上的物品解除归属，
+     * 再给根写软删除墓碑——删除会随同步传给其它设备，避免它们下次启动又补种出来。
+     */
+    fun flattenHomeRoots(db: SupportSQLiteDatabase) {
+        val rootNames = LegacyTextNormalizer.aliases(LegacyTextNormalizer.HOME_ROOT_NAME)
+            .joinToString { "'${it.sql()}'" }
+        val rootIds = mutableListOf<Long>()
+        db.query(
+            "SELECT id FROM locations WHERE parentId IS NULL AND deletedAt IS NULL " +
+                "AND name IN ($rootNames)"
+        ).useCursor { cursor ->
+            while (cursor.moveToNext()) rootIds += cursor.getLong(0)
+        }
+        if (rootIds.isEmpty()) return
+
+        rootIds.forEach { rootId ->
+            db.execSQL(
+                "UPDATE locations SET parentId = NULL, updatedAt = $nowMillisSql, dirty = 1 " +
+                    "WHERE parentId = $rootId AND deletedAt IS NULL"
+            )
+            db.execSQL(
+                "UPDATE items SET locationId = NULL, updatedAt = $nowMillisSql, dirty = 1 " +
+                    "WHERE locationId = $rootId"
+            )
+            db.execSQL(
+                "UPDATE locations SET deletedAt = $nowMillisSql, updatedAt = $nowMillisSql, dirty = 1 " +
+                    "WHERE id = $rootId"
+            )
         }
     }
 
@@ -468,44 +505,6 @@ internal object SeedDataProvider {
             require(cursor.moveToFirst()) { "受保护分类 $name 插入失败" }
             cursor.getLong(0)
         }
-    }
-
-    private fun ensureHomeRoot(db: SupportSQLiteDatabase): Long {
-        val canonicalName = LegacyTextNormalizer.HOME_ROOT_NAME
-        val legacyNames = LegacyTextNormalizer.aliases(canonicalName)
-            .joinToString { "'${it.sql()}'" }
-
-        db.execSQL(
-            "UPDATE locations SET name = '${canonicalName.sql()}' " +
-                "WHERE parentId IS NULL AND name IN ($legacyNames)"
-        )
-
-        val rootIds = mutableListOf<Long>()
-        db.query(
-            "SELECT id FROM locations " +
-                "WHERE parentId IS NULL AND name = '${canonicalName.sql()}' ORDER BY id ASC"
-        ).useCursor { cursor ->
-            while (cursor.moveToNext()) {
-                rootIds += cursor.getLong(0)
-            }
-        }
-
-        if (rootIds.isEmpty()) {
-            db.execSQL(
-                "INSERT INTO locations (name, parentId, syncId, updatedAt) VALUES " +
-                    "('${canonicalName.sql()}', NULL, $newSyncIdSql, $nowMillisSql)"
-            )
-            return requireNotNull(findLocationId(db, canonicalName, null))
-        }
-
-        val keeperId = rootIds.first()
-        rootIds.drop(1).forEach { duplicateId ->
-            db.execSQL("UPDATE locations SET parentId = $keeperId WHERE parentId = $duplicateId")
-            db.execSQL("UPDATE items SET locationId = $keeperId WHERE locationId = $duplicateId")
-            db.execSQL("DELETE FROM locations WHERE id = $duplicateId")
-        }
-
-        return keeperId
     }
 
     private fun ensureLocation(db: SupportSQLiteDatabase, name: String, parentId: Long?): Long {

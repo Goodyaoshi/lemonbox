@@ -23,6 +23,7 @@ internal const val BUSY_AUDIT = "audit"
 internal const val BUSY_REBUILD = "rebuild"
 internal const val BUSY_UPLOAD = "upload"
 internal const val BUSY_UNDO = "undo"
+internal const val BUSY_RESTORE = "restore"
 
 /** 同步诊断页的状态（P9）。 */
 data class SyncDiagnosticsUiState(
@@ -42,6 +43,8 @@ data class SyncDiagnosticsUiState(
     val showRebuildConfirm: Boolean = false,
     /** 「以本机为准合并上传」确认弹窗。 */
     val showUploadLocalConfirm: Boolean = false,
+    /** 待确认回退的冲突留痕；非 null 时展示确认弹窗。 */
+    val pendingRestoreConflict: ConflictLogEntry? = null,
     /** 最近一次动作的回执；重建成功后带撤销点路径。 */
     val message: String? = null,
     val messageIsError: Boolean = false,
@@ -128,6 +131,40 @@ class SyncDiagnosticsViewModel @Inject constructor(
     fun showUploadLocalConfirm() = _uiState.update { it.copy(showUploadLocalConfirm = true) }
 
     fun dismissUploadLocalConfirm() = _uiState.update { it.copy(showUploadLocalConfirm = false) }
+
+    /** 请求回退某条「服务端较新」的冲突：先二次确认，避免误覆盖服务端现有版本。 */
+    fun requestRestoreConflict(entry: ConflictLogEntry) =
+        _uiState.update { it.copy(pendingRestoreConflict = entry) }
+
+    fun dismissRestoreConflict() = _uiState.update { it.copy(pendingRestoreConflict = null) }
+
+    /** 把留痕里的本机版本按最新时间写回本地，并排队重推到服务端。 */
+    fun restoreConflict() {
+        val entry = _uiState.value.pendingRestoreConflict ?: return
+        if (_uiState.value.busy) return
+        _uiState.update {
+            it.copy(
+                pendingRestoreConflict = null,
+                busy = true,
+                busyKind = BUSY_RESTORE,
+                progressText = "正在恢复本机版本…",
+                message = null
+            )
+        }
+        viewModelScope.launch {
+            val result = remoteSyncManager.restoreLocalConflict(entry)
+            _uiState.update {
+                it.copy(
+                    busy = false,
+                    busyKind = null,
+                    progressText = null,
+                    message = result.message,
+                    messageIsError = !result.success
+                )
+            }
+            refresh()
+        }
+    }
 
     /**
      * 以本机为准合并上传：本机全量记录强制覆盖服务端同一条记录，再拉回其它设备独有的记录。

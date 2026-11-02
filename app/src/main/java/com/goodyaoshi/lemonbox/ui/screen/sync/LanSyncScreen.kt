@@ -35,7 +35,6 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Smartphone
 import androidx.compose.material.icons.filled.Wifi
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -46,7 +45,6 @@ import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -676,45 +674,29 @@ private fun MatchCodeDialog(
     onConfirm: () -> Unit,
     onCancel: () -> Unit
 ) {
-    AlertDialog(
-        onDismissRequest = onCancel,
-        title = { Text(text = "核对配对码", fontWeight = FontWeight.Bold) },
-        text = {
-            Column {
-                Text(
-                    text = "请和「${prompt.peerLabel}」屏幕上的数字对照，确认是同一个再继续：",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = TextSecondary
-                )
-                Spacer(modifier = Modifier.size(10.dp))
-                Text(
-                    text = prompt.matchCode,
-                    fontSize = 34.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 8.sp,
-                    color = OrangeStart,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(modifier = Modifier.size(6.dp))
-                Text(
-                    text = "数字一致说明连的就是对面那台设备；不一致就别继续。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TextHint
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onConfirm) {
-                Text(text = "一致，继续")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onCancel) {
-                Text(text = "不一致", color = TextSecondary)
-            }
-        }
-    )
+    AppDialog(
+        title = "核对配对码",
+        subtitle = "请和「${prompt.peerLabel}」屏幕上的数字对照，确认是同一个再继续：",
+        confirmText = "一致，继续",
+        dismissText = "不一致",
+        onConfirm = onConfirm,
+        onDismissRequest = onCancel
+    ) {
+        Text(
+            text = prompt.matchCode,
+            fontSize = 34.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 8.sp,
+            color = OrangeStart,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = "数字一致说明连的就是对面那台设备；不一致就别继续。",
+            style = MaterialTheme.typography.bodySmall,
+            color = TextHint
+        )
+    }
 }
 
 /**
@@ -727,51 +709,34 @@ private fun HostPairDialog(
     onAccept: () -> Unit,
     onReject: () -> Unit
 ) {
-    AlertDialog(
-        onDismissRequest = onReject,
-        title = { Text(text = "有设备请求同步", fontWeight = FontWeight.Bold) },
-        text = {
-            Column {
-                Text(
-                    text = "「${prompt.deviceModel.ifBlank { prompt.peerLabel }}」想和你同步数据。",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = TextPrimary
-                )
-                Spacer(modifier = Modifier.size(10.dp))
-                Text(
-                    text = "对方屏幕上的配对码应该是：",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = TextSecondary
-                )
-                Spacer(modifier = Modifier.size(6.dp))
-                Text(
-                    text = prompt.matchCode,
-                    fontSize = 34.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 8.sp,
-                    color = OrangeStart,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(modifier = Modifier.size(6.dp))
-                Text(
-                    text = "核对无误再点「接受配对」；不确定就拒绝。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = TextHint
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onAccept) {
-                Text(text = "接受配对")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onReject) {
-                Text(text = "拒绝", color = TextSecondary)
-            }
-        }
-    )
+    AppDialog(
+        title = "有设备请求同步",
+        subtitle = "「${prompt.deviceModel.ifBlank { prompt.peerLabel }}」想和你同步数据。",
+        confirmText = "接受配对",
+        dismissText = "拒绝",
+        onConfirm = onAccept,
+        onDismissRequest = onReject
+    ) {
+        Text(
+            text = "对方屏幕上的配对码应该是：",
+            style = MaterialTheme.typography.bodyMedium,
+            color = TextSecondary
+        )
+        Text(
+            text = prompt.matchCode,
+            fontSize = 34.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 8.sp,
+            color = OrangeStart,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = "核对无误再点「接受配对」；不确定就拒绝。",
+            style = MaterialTheme.typography.bodySmall,
+            color = TextHint
+        )
+    }
 }
 
 /**

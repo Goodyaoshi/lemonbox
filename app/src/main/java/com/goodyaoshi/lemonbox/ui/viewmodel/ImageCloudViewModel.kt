@@ -9,6 +9,8 @@ import com.goodyaoshi.lemonbox.data.imagecloud.ImageCloudSyncState
 import com.goodyaoshi.lemonbox.data.remote.RemoteSyncManager
 import com.goodyaoshi.lemonbox.data.remote.RemoteSyncState
 import com.goodyaoshi.lemonbox.data.remote.SyncSessionStore
+import com.goodyaoshi.lemonbox.data.settings.AppPreferences
+import com.goodyaoshi.lemonbox.data.settings.ImageLoadingMode
 import com.goodyaoshi.lemonbox.data.sync.CloudSyncScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
@@ -47,7 +49,8 @@ class ImageCloudViewModel @Inject constructor(
     private val syncScheduler: ImageCloudSyncScheduler,
     private val remoteSyncManager: RemoteSyncManager,
     private val cloudSyncScheduler: CloudSyncScheduler,
-    private val sessionStore: SyncSessionStore
+    private val sessionStore: SyncSessionStore,
+    private val appPreferences: AppPreferences
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(
@@ -65,6 +68,11 @@ class ImageCloudViewModel @Inject constructor(
 
     /** 服务端同步的状态（上次同步时间 / 是否在跑 / 上次错误 / 上次冲突条数）。 */
     val remoteSyncState: StateFlow<RemoteSyncState> = remoteSyncManager.state
+
+    /** 本机的图片加载策略（标准 / 省流量 / 省存储 / 无图），只影响本设备。 */
+    val imageLoadingMode: StateFlow<ImageLoadingMode> = appPreferences.imageLoadingMode
+
+    fun setImageLoadingMode(mode: ImageLoadingMode) = appPreferences.setImageLoadingMode(mode)
 
     /** 手动同步的协程；用于避免连点叠加，也便于页面销毁时随之取消。 */
     private var remoteSyncJob: Job? = null

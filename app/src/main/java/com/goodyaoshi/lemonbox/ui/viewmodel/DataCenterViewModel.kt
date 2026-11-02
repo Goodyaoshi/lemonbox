@@ -8,6 +8,7 @@ import com.goodyaoshi.lemonbox.data.backup.AppBackupManager
 import com.goodyaoshi.lemonbox.data.backup.toUserMessage
 import com.goodyaoshi.lemonbox.data.remote.RemoteSyncManager
 import com.goodyaoshi.lemonbox.data.remote.SyncSessionStore
+import com.goodyaoshi.lemonbox.util.BrandCopy
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -79,7 +80,7 @@ class DataCenterViewModel @Inject constructor(
     }
 
     fun defaultBackupFileName(): String =
-        "柠檬百宝箱备份-" +
+        BrandCopy.APP_NAME + "备份-" +
             SimpleDateFormat("yyyyMMdd-HHmm", Locale.getDefault()).format(Date()) +
             ".zip"
 

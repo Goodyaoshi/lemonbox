@@ -354,6 +354,7 @@ fun SaveScreen(
 
                         ItemImageGallery(
                             imageHashes = state.imageHashes,
+                            itemName = state.name,
                             onCapturePrimary = { onOpenCamera(SavePhotoMode.REPLACE_PRIMARY) },
                             onCaptureDetail = { onOpenCamera(SavePhotoMode.APPEND) },
                             onScanBarcode = { showScanChoice = true },

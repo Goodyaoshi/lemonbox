@@ -916,7 +916,8 @@ private fun BatchCheckoutSheet(
                     .heightIn(max = 360.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                items(drafts.size) { index ->
+                // 用物品 id 作 key：勾选/改金额会让 drafts 重建，按位置作 key 会把输入焦点和状态串到别的行。
+                items(drafts.size, key = { index -> drafts[index].item.id }) { index ->
                     val draft = drafts[index]
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(

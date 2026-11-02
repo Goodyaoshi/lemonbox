@@ -157,6 +157,11 @@ class FakeItemDao(
         }
     }
 
+    override suspend fun countImageHashReferences(hash: String, excludeItemId: Long): Int =
+        items.count {
+            it.id != excludeItemId && it.purgedAt == null && it.imageHashes?.contains(hash) == true
+        }
+
     override suspend fun delete(item: Item) {
         items.removeAll { it.id == item.id }
     }
@@ -324,6 +329,9 @@ class FakeItemDao(
     override suspend fun purgePurgedBefore(cutoff: Long) {
         items.removeAll { it.purgedAt != null && it.purgedAt < cutoff }
     }
+
+    override suspend fun getPurgedItemsBefore(cutoff: Long): List<Item> =
+        items.filter { it.purgedAt != null && it.purgedAt < cutoff }
 
     override suspend fun deleteDeletedItemsByIds(ids: List<Long>) {
         val idSet = ids.toSet()

@@ -9,6 +9,7 @@ import com.goodyaoshi.lemonbox.data.remote.RemoteSyncManager
 import com.goodyaoshi.lemonbox.data.remote.SyncSessionStore
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import com.goodyaoshi.lemonbox.data.sync.LanSyncManager
+import com.goodyaoshi.lemonbox.data.sync.SyncCancelledException
 import com.goodyaoshi.lemonbox.data.sync.SyncClient
 import com.goodyaoshi.lemonbox.data.sync.SyncPeer
 import com.goodyaoshi.lemonbox.data.sync.SyncReport
@@ -330,11 +331,18 @@ class LanSyncViewModel @Inject constructor(
                             it.copy(status = SyncStepStatus.DONE)
                         },
                         message = buildString {
-                            append("本机").append(outcome.localMerge.toUserMessage())
-                            if (outcome.peerMerge != null) {
-                                append("\n对方").append(outcome.peerMerge.toUserMessage())
+                            if (outcome.sentRecords == 0 && outcome.receivedRecords == 0) {
+                                append("双方清单已一致，本次无需传输任何数据")
                             } else {
-                                append("\n对方没有回传落地结果，下次同步会自动补上")
+                                append("本次发送 ${outcome.sentRecords} 条、接收 ${outcome.receivedRecords} 条")
+                            }
+                            append("\n本机").append(outcome.localMerge.toUserMessage())
+                            when {
+                                outcome.peerMerge != null ->
+                                    append("\n对方").append(outcome.peerMerge.toUserMessage())
+                                outcome.sentRecords > 0 ->
+                                    append("\n对方没有回传落地结果，下次同步会自动补上")
+                                else -> Unit
                             }
                         }
                     )
@@ -352,9 +360,34 @@ class LanSyncViewModel @Inject constructor(
                                 it
                             }
                         },
-                        message = error.message ?: "同步失败了，你看看两台设备是不是连的同一个 Wi-Fi"
+                        message = syncFailureMessage(error)
                     )
                 }
+        }
+    }
+
+    /**
+     * 把底层异常翻译成用户能照着做的下一步。
+     * 此前所有失败都只显示 exception.message，连接超时与「对方没点接受」看起来一模一样。
+     */
+    private fun syncFailureMessage(error: Throwable): String {
+        val raw = error.message?.takeIf { it.isNotBlank() }
+        return when (error) {
+            is SyncCancelledException -> raw ?: "这次同步已取消"
+            is java.net.SocketTimeoutException ->
+                "对方响应超时：确认两台设备连的是同一个 WiFi，并且对方停在同步页。"
+            is java.net.ConnectException ->
+                "连不上对方：检查地址是否正确、对方的「开启共享」是否还开着。"
+            is java.net.UnknownHostException ->
+                "找不到这台设备：手动输入的地址可能不对，或对方已经换了网络。"
+            is java.io.IOException -> when {
+                raw != null -> "$raw\n如果反复失败，请在两台设备上各重新发起一次同步。"
+                else -> "传输中断了，请在两台设备上各重新发起一次同步。"
+            }
+            else -> buildString {
+                append(raw ?: "同步失败")
+                append("\n请确认两台设备连的是同一个 WiFi，并都升级到最新版本后重试。")
+            }
         }
     }
 

@@ -45,11 +45,13 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.data.imagecloud.ImageCloudSyncState
 import com.goodyaoshi.lemonbox.data.remote.RemoteSyncState
+import com.goodyaoshi.lemonbox.data.settings.ImageLoadingMode
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.EditorInputBox
 import com.goodyaoshi.lemonbox.ui.components.GradientButton
+import com.goodyaoshi.lemonbox.ui.components.ImageLoadingModeCard
 import com.goodyaoshi.lemonbox.ui.components.InlineNotice
 import com.goodyaoshi.lemonbox.ui.components.NoticeVariant
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
@@ -84,6 +86,7 @@ fun ImageCloudScreen(
     val sync by viewModel.syncState.collectAsState()
     val remoteSync by viewModel.remoteSyncState.collectAsState()
     val loginState by loginViewModel.uiState.collectAsState()
+    val imageLoadingMode by viewModel.imageLoadingMode.collectAsState()
     // 退出登录要重新输密码才能连上，属于不可轻触的破坏性动作，先二次确认。
     var showLogoutConfirm by remember { mutableStateOf(false) }
 
@@ -145,6 +148,13 @@ fun ImageCloudScreen(
                         onLogout = { showLogoutConfirm = true }
                     )
                 }
+
+                // 图片显示策略属于「这台设备怎么用」，与登录无关；未登录也该能选。
+                Spacer(modifier = Modifier.height(14.dp))
+                ImageLoadingModeCard(
+                    mode = imageLoadingMode,
+                    onSelect = viewModel::setImageLoadingMode
+                )
             }
         }
 
@@ -310,7 +320,7 @@ private fun CloudPanel(
             if (remoteSync.lastConflicts > 0) {
                 Spacer(modifier = Modifier.height(8.dp))
                 InlineNotice(
-                    message = "有 ${remoteSync.lastConflicts} 条两边都改过，已按本地优先合并。可在「同步诊断」里逐条查看。",
+                    message = "有 ${remoteSync.lastConflicts} 条两边都改过，已按较新版本合并。可在「同步诊断」里逐条查看。",
                     variant = NoticeVariant.Info
                 )
             }

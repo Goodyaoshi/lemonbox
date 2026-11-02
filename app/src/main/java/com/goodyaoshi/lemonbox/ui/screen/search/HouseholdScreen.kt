@@ -206,6 +206,8 @@ fun HouseholdScreen(
     var showFilterSheet by remember { mutableStateOf(false) }
     var showOverflow by remember { mutableStateOf(false) }
     var pickerTarget by remember { mutableStateOf<PickerTarget?>(null) }
+    // 批量改位置（GAP-7 扩展）：选中多件后一次性搬到同一个位置。
+    var showBatchLocationPicker by remember { mutableStateOf(false) }
     // 用户自定义预设（SE1）：点击应用、长按删除；删除前确认，删完可撤销。
     val userPresets by viewModel.userFilterPresets.collectAsState()
     var pendingDeletePreset by remember { mutableStateOf<UserFilterPreset?>(null) }
@@ -442,43 +444,59 @@ fun HouseholdScreen(
                                 },
                                 hint = "勾选物品，一次批量处理"
                             ) {
-                                SelectionActionButton(
-                                    text = "加入待买",
+                                // 四个动作排两行：单行塞四个中文按钮会把文字挤到换行。
+                                Column(
                                     modifier = Modifier.weight(1f),
-                                    enabled = selectedIds.isNotEmpty(),
-                                    highlight = true,
-                                    onClick = {
-                                        viewModel.addSelectedToBuy { snapshots ->
-                                            appSnackbar?.showUndo(
-                                                "已把 ${snapshots.size} 件加入待买",
-                                                DeleteCopy.UNDO_ACTION
-                                            ) {
-                                                viewModel.undoBatchAction(snapshots)
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                        SelectionActionButton(
+                                            text = "加入待买",
+                                            modifier = Modifier.weight(1f),
+                                            enabled = selectedIds.isNotEmpty(),
+                                            highlight = true,
+                                            onClick = {
+                                                viewModel.addSelectedToBuy { snapshots ->
+                                                    appSnackbar?.showUndo(
+                                                        "已把 ${snapshots.size} 件加入待买",
+                                                        DeleteCopy.UNDO_ACTION
+                                                    ) {
+                                                        viewModel.undoBatchAction(snapshots)
+                                                    }
+                                                }
                                             }
-                                        }
+                                        )
+                                        SelectionActionButton(
+                                            text = "改位置",
+                                            modifier = Modifier.weight(1f),
+                                            enabled = selectedIds.isNotEmpty(),
+                                            onClick = { showBatchLocationPicker = true }
+                                        )
                                     }
-                                )
-                                SelectionActionButton(
-                                    text = "移入回收站",
-                                    modifier = Modifier.weight(1f),
-                                    enabled = selectedIds.isNotEmpty(),
-                                    destructive = true,
-                                    onClick = {
-                                        viewModel.moveSelectedToTrash { snapshots ->
-                                            appSnackbar?.showUndo(
-                                                DeleteCopy.UNDO_MESSAGE,
-                                                DeleteCopy.UNDO_ACTION
-                                            ) {
-                                                viewModel.undoBatchAction(snapshots)
+                                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                        SelectionActionButton(
+                                            text = "移入回收站",
+                                            modifier = Modifier.weight(1f),
+                                            enabled = selectedIds.isNotEmpty(),
+                                            destructive = true,
+                                            onClick = {
+                                                viewModel.moveSelectedToTrash { snapshots ->
+                                                    appSnackbar?.showUndo(
+                                                        DeleteCopy.UNDO_MESSAGE,
+                                                        DeleteCopy.UNDO_ACTION
+                                                    ) {
+                                                        viewModel.undoBatchAction(snapshots)
+                                                    }
+                                                }
                                             }
-                                        }
+                                        )
+                                        SelectionActionButton(
+                                            text = "取消",
+                                            modifier = Modifier.weight(1f),
+                                            onClick = { viewModel.exitSelectionMode() }
+                                        )
                                     }
-                                )
-                                SelectionActionButton(
-                                    text = "取消",
-                                    modifier = Modifier.weight(1f),
-                                    onClick = { viewModel.exitSelectionMode() }
-                                )
+                                }
                             }
                         }
                     } else {
@@ -633,6 +651,31 @@ fun HouseholdScreen(
             },
             onDismissRequest = { pickerTarget = null },
             emptyHint = if (isCategory) "还没有可筛选的分类。" else "还没有可筛选的位置。"
+        )
+    }
+
+    if (showBatchLocationPicker) {
+        HierarchicalPickerDialog(
+            title = "批量修改存放位置",
+            nodes = locations.map { TreeNode(id = it.id, parentId = it.parentId, name = it.name) },
+            selectedId = null,
+            onSelect = { locationId ->
+                if (locationId != null) {
+                    viewModel.moveSelectedToLocation(locationId) { snapshots ->
+                        val targetName = locations.firstOrNull { it.id == locationId }?.name.orEmpty()
+                        appSnackbar?.showUndo(
+                            "已把 ${snapshots.size} 件物品改到「$targetName」",
+                            DeleteCopy.UNDO_ACTION
+                        ) {
+                            // 改位置同样是整份快照写回，撤销后原位置与字段一起复原。
+                            viewModel.undoBatchAction(snapshots)
+                        }
+                    }
+                }
+            },
+            onDismissRequest = { showBatchLocationPicker = false },
+            emptyHint = "还没有可用的位置，先去「家当设置」里添加。",
+            allowClear = false
         )
     }
 }

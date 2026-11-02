@@ -84,13 +84,17 @@ const TOOLS = [
   {
     name: "list_records",
     description:
-      "按集合列出记录。collection 取值如 items（家当）、reminders（待办提醒）、ledger_records（记账）、categories（分类）、locations（存放地）。",
+      "按集合分页列出记录。collection 取值如 items（家当）、reminders（待办提醒）、ledger_records（记账）、categories（分类）、locations（存放地）。" +
+      "返回 { total, offset, limit, hasMore, nextOffset, records }；records 按 seq 倒序，元素含 key/seq/deleted/updatedBy/updatedAt/payload。" +
+      "记录数超过单页上限时用 offset 翻页（nextOffset 直接传给下一次调用）。" +
+      "翻页期间若有写入，seq 排序会变化，可能重复或漏条；需要严格全量时先只读、写完再重新读取。",
     inputSchema: {
       type: "object",
       properties: {
         collection: { type: "string" },
-        limit: { type: "integer", minimum: 1, maximum: 200 },
-        includeDeleted: { type: "boolean" },
+        limit: { type: "integer", minimum: 1, maximum: 200, description: "每页条数，默认 50" },
+        offset: { type: "integer", minimum: 0, description: "跳过前多少条，默认 0" },
+        includeDeleted: { type: "boolean", description: "是否包含墓碑记录，默认 false" },
       },
       required: ["collection"],
       additionalProperties: false,
@@ -298,20 +302,25 @@ async function callTool(name: string, args: Record<string, unknown>) {
   }
 
   if (name === "list_records") {
-    const collection = String(args.collection ?? "").trim();
-    if (!collection) throw new ToolError("缺少 collection");
-    const limit = Math.min(Math.max(1, Number(args.limit ?? 50)), 200);
+    const collection = requireCollection(args.collection);
+    const rawLimit = Number(args.limit ?? 50);
+    const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(1, Math.trunc(rawLimit)), 200) : 50;
+    const rawOffset = Number(args.offset ?? 0);
+    const offset = Number.isFinite(rawOffset) ? Math.max(0, Math.trunc(rawOffset)) : 0;
     let query = admin
       .from("records")
-      .select("record_key,payload,revision,deleted,updated_by_user,updated_at")
+      .select("record_key,payload,revision,deleted,updated_by_user,updated_at", {
+        count: "exact",
+      })
       .eq("household_id", household)
       .eq("collection", collection)
       .order("revision", { ascending: false })
-      .limit(limit);
+      .range(offset, offset + limit - 1);
     if (!args.includeDeleted) query = query.eq("deleted", false);
-    const { data, error } = await query;
+    const { data, count, error } = await query;
     if (error) throw new Error(`读取记录失败：${error.message}`);
-    return (data ?? []).map((row) => ({
+
+    const records = (data ?? []).map((row) => ({
       key: row.record_key,
       seq: Number(row.revision),
       deleted: !!row.deleted,
@@ -319,6 +328,17 @@ async function callTool(name: string, args: Record<string, unknown>) {
       updatedAt: Number(row.updated_at),
       payload: row.payload,
     }));
+    const total = Number(count ?? offset + records.length);
+    const nextOffset = offset + records.length;
+    return {
+      collection,
+      total,
+      offset,
+      limit,
+      hasMore: nextOffset < total,
+      nextOffset,
+      records,
+    };
   }
 
   if (name === "get_record") {
@@ -490,7 +510,7 @@ export default {
       return rpcReply(id, {
         protocolVersion: MCP_PROTOCOL_VERSION,
         capabilities: { tools: {} },
-        serverInfo: { name: "lemonbox-supabase", version: "1.0.0" },
+        serverInfo: { name: "lemonbox-supabase", version: "1.1.0" },
       });
     }
     if (message.method === "notifications/initialized" || message.method === "notifications/cancelled") {

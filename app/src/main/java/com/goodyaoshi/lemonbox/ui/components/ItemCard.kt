@@ -25,7 +25,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -35,7 +34,6 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
 import com.goodyaoshi.lemonbox.data.local.entity.Item
 import com.goodyaoshi.lemonbox.data.local.entity.ItemDetail
 import com.goodyaoshi.lemonbox.data.local.entity.StatusDimension
@@ -73,10 +71,6 @@ fun ItemCard(
 ) {
     val item = itemDetail.item
     val primaryImageHash = item.primaryImageHash()
-    // 图片来源交给统一解析：本地文件在就用本地（离线可看），本地没了才回退云端。
-    val primaryImageModel = rememberImageModel(primaryImageHash)
-    // 有没有图只看哈希：它既表示槽位存在，也能推导出本地路径与对象键。
-    val hasPrimaryImage = primaryImageHash != null
     val inSelectionMode = selectionSelected != null
 
     // 读屏可达（F8）：整卡点击在批量模式下就是「切换勾选」。此前整卡与行首勾选框
@@ -138,34 +132,13 @@ fun ItemCard(
                 }
                 Spacer(modifier = Modifier.width(8.dp))
             }
-            if (hasPrimaryImage) {
-                AsyncImage(
-                    model = primaryImageModel,
-                    contentDescription = item.name,
-                    modifier = Modifier
-                        .size(56.dp)
-                        // 圆角走形状令牌（F6）。
-                        .clip(MaterialTheme.shapes.medium),
-                    contentScale = ContentScale.Crop
-                )
-            } else {
-                Box(
-                    modifier = Modifier
-                        .size(56.dp)
-                        // 圆角走形状令牌（F6）。
-                        .clip(MaterialTheme.shapes.medium)
-                        .background(OrangeStart.copy(alpha = 0.12f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = item.name.take(1),
-                        color = OrangeStart,
-                        // 字号走主题字阶（F6）：headlineSmall 为 24sp。
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
+            // 缩略图统一交给 ItemThumbnail：有哈希但暂时取不到图时显示首字，
+            // 不再因为 model 为 null 留一块空白。
+            ItemThumbnail(
+                hash = primaryImageHash,
+                name = item.name,
+                modifier = Modifier.size(56.dp)
+            )
 
             Spacer(modifier = Modifier.width(12.dp))
 

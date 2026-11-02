@@ -36,6 +36,7 @@ import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppSnackbarState
 import com.goodyaoshi.lemonbox.ui.components.ItemStatusCatalogState
 import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
+import com.goodyaoshi.lemonbox.ui.components.LocalImageLoadingMode
 import com.goodyaoshi.lemonbox.ui.components.LocalImageUrlResolver
 import com.goodyaoshi.lemonbox.ui.components.LocalItemStatusOptions
 import com.goodyaoshi.lemonbox.ui.navigation.AppNavGraph
@@ -43,6 +44,7 @@ import com.goodyaoshi.lemonbox.ui.navigation.Screen
 import com.goodyaoshi.lemonbox.ui.screen.splash.AppSplashScreen
 import com.goodyaoshi.lemonbox.ui.theme.LemonTheme
 import com.goodyaoshi.lemonbox.util.TodoKeepAliveService
+import com.goodyaoshi.lemonbox.widget.LemonWidgetUpdater
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -72,6 +74,10 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var imageUrlResolver: ImageUrlResolver
 
+    /** 退到后台时刷新桌面小组件：周期任务要等 30 分钟，用户返回桌面看到的会是旧值。 */
+    @Inject
+    lateinit var lemonWidgetUpdater: LemonWidgetUpdater
+
     /** 桌面快捷方式发起的导航请求（F13）：冷启动落在起始页，热启动触发一次导航。 */
     private val navRequest = MutableStateFlow(ShortcutNavRequest(route = null, requestId = 0L))
 
@@ -91,6 +97,7 @@ class MainActivity : ComponentActivity() {
         startKeepAliveIfEnabled()
         setContent {
             val themeMode by appPreferences.themeMode.collectAsState()
+            val imageLoadingMode by appPreferences.imageLoadingMode.collectAsState()
             val systemDark = isSystemInDarkTheme()
             val navRequestState by navRequest.collectAsState()
             val darkTheme = when (themeMode) {
@@ -141,7 +148,9 @@ class MainActivity : ComponentActivity() {
                     LocalItemStatusOptions provides statusCatalog,
                     LocalAppSnackbar provides appSnackbar,
                     // 图片一律经解析器取：本地有就用本地（离线可看），本地没了才按对象键从云端取。
-                    LocalImageUrlResolver provides imageUrlResolver
+                    LocalImageUrlResolver provides imageUrlResolver,
+                    // 加载策略跟着偏好走：切换模式后所有图片位（列表 / 详情 / 预览）一起生效。
+                    LocalImageLoadingMode provides imageLoadingMode
                 ) {
                     Box(modifier = Modifier.fillMaxSize()) {
                         if (showSplash) {
@@ -182,6 +191,13 @@ class MainActivity : ComponentActivity() {
         // 通过 requestId 自增驱动导航容器跳转到目标路由（F13）。
         setIntent(intent)
         handleShortcutIntent(intent)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // 退到后台时刷新一次桌面小组件：只靠 30 分钟的周期任务，改完数据回桌面会先看到旧值。
+        // 用刷新器自带的 IO 作用域，避免 Activity 销毁时把这次刷新取消掉。
+        lemonWidgetUpdater.refreshAsync()
     }
 
     /** 解析桌面快捷方式携带的 action 并转成一次导航请求（F13）；非快捷方式忽略。 */

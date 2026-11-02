@@ -123,7 +123,7 @@ class SaveViewModel @Inject constructor(
         // 先落盘新图（上面已完成）再删旧图：同内容时新图会复用同一文件，顺序反了会误删。
         currentHashes.firstOrNull()?.let { old ->
             if (old !in hashes) {
-                ImageUtil.findLocalFile(context, old)?.let { ImageUtil.deleteImage(it.absolutePath) }
+                deleteLocalImageIfUnused(context, old)
             }
         }
         if (currentHashes.isEmpty()) {
@@ -142,9 +142,22 @@ class SaveViewModel @Inject constructor(
         currentHashes.removeAt(index)
         // 若不再被任何槽位引用，就把本地文件删掉——它是上传前的副本，留着只是垃圾。
         if (removed !in currentHashes) {
-            ImageUtil.findLocalFile(context, removed)?.let { ImageUtil.deleteImage(it.absolutePath) }
+            deleteLocalImageIfUnused(context, removed)
         }
         _state.value = _state.value.copy(imageHashes = currentHashes)
+    }
+
+    /**
+     * 删本地副本前先确认全库没人再引用这张图。
+     *
+     * 图片按内容哈希落盘，同一张图可能被多件物品共用（录入时直接选同一张照片就会落到同一文件），
+     * 只查当前表单会把别处还在用的图删掉。新物品尚未入库，故不排除任何 id。
+     */
+    private fun deleteLocalImageIfUnused(context: Context, hash: String) {
+        viewModelScope.launch {
+            if (itemRepository.isImageHashReferenced(hash)) return@launch
+            ImageUtil.findLocalFile(context, hash)?.let { ImageUtil.deleteImage(it.absolutePath) }
+        }
     }
 
     fun movePhoto(fromIndex: Int, toIndex: Int) {
@@ -258,7 +271,9 @@ class SaveViewModel @Inject constructor(
                 locationId = current.locationId,
                 quantity = current.quantity,
                 unit = current.unit,
-                price = current.price.toDoubleOrNull(),
+                // 价格是自由输入框：Kotlin 的解析会接受「NaN / Infinity」这类字面量，
+                // 落库后参与汇总会把整页统计带成 NaN。只接受有限值，其余按「没填」处理。
+                price = current.price.toDoubleOrNull()?.takeIf { it.isFinite() },
                 expireTime = current.expireTime,
                 note = current.note.trim(),
                 imageHashes = Item.encodeImageHashes(normalizedImages),
