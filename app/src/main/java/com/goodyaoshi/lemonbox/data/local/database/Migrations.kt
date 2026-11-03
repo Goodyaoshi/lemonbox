@@ -1066,6 +1066,20 @@ internal object Migrations {
         }
     }
 
+    /**
+     * v41：修复被内容 LWW 挡住的结构改动。
+     *
+     * 服务端把「储物区 / 家具区 / 行李区 / 洗衣区」移到客厅下后，旧合并逻辑因为
+     * 本机这几行的时间戳不旧而整条跳过，父级修正永远落不了地，管理页一级目录
+     * 就多出四个分组。这里按名字补回父级（规则见 [SeedDataProvider.relinkLivingRoomZones]），
+     * 并在合并通道里增加不依赖时间戳的父级自愈，避免同类问题再次出现。
+     */
+    private val MIGRATION_40_41 = object : Migration(40, 41) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            SeedDataProvider.relinkLivingRoomZones(db)
+        }
+    }
+
 /**
  * 把 v34 的「本地路径行 + 对象键行」合并成 v35 的单列哈希（F22）。
  *
@@ -1156,6 +1170,7 @@ private const val SHA256_HEX_LENGTH = 64
         MIGRATION_36_37,
         MIGRATION_37_38,
         MIGRATION_38_39,
-        MIGRATION_39_40
+        MIGRATION_39_40,
+        MIGRATION_40_41
     )
 }

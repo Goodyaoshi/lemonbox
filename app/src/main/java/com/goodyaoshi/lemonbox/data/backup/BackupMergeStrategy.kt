@@ -232,6 +232,39 @@ internal suspend fun AppBackupManager.mergeLocations(
         if (!isNew) updated++
     }
 
+    // 第三遍：父级结构自愈。
+    // 第二遍把父级修正绑在内容 LWW 上：本机这条的时间戳不比远端旧时整条跳过，
+    // 于是「远端把某条从顶级移到父级下」永远落不了地——管理页一级目录就多出一层
+    // 本该在房间下面的分区（v41 复盘）。父级是结构而非内容，只要远端能解析出活的父级、
+    // 本机这条又没有待推送改动（dirty 为 false，即与上次同步一致），就直接纠正 parentId，
+    // 不动名称 / updatedAt / 墓碑，避免把一条本地更新更晚的记录整体盖掉。
+    snapshots.forEach { snapshot ->
+        val key = keyOf(snapshot.syncId, snapshot.id, useSyncIds)
+        val localId = idByKey[key] ?: return@forEach
+        val local = localById[localId] ?: return@forEach
+        val resolved = resolveParentKey(snapshot.parentSyncId, snapshot.parentId, idByKey, useSyncIds)
+            ?: return@forEach
+        // 挂到墓碑父级等于把孩子藏起来，宁可留在顶级等下一轮。
+        if (localById[resolved]?.deletedAt != null) return@forEach
+        if (!shouldRelinkRootLocation(
+                localDeletedAt = local.deletedAt,
+                localProtected = local.isProtected,
+                localDirty = local.dirty,
+                localParentId = local.parentId,
+                localParentDeleted = local.parentId?.let { localById[it]?.deletedAt != null } == true,
+                remoteDeletedAt = snapshot.deletedAt,
+                resolvedParentId = resolved
+            )
+        ) {
+            return@forEach
+        }
+        locationRepository.updateSynced(
+            local.copy(parentId = resolved),
+            markDirty = markDirty
+        )
+        localById[localId] = local.copy(parentId = resolved)
+    }
+
     return MergeOutcome(added, updated, idByKey)
 }
 
@@ -992,6 +1025,29 @@ internal fun decideLocationParentId(
     if (resolved != null) return resolved
     val explicitRoot = remoteParentSyncId.orBlank() == null && remoteParentId == null
     return if (explicitRoot) null else localParentId
+}
+
+/**
+ * 结构自愈判定：本机这条位置是否需要按远端声明的父级纠正。
+ *
+ * 只处理「本机是顶级（或挂在已删除的父级上）→ 远端给出了可解析的活父级」这一种方向，
+ * 不动已经挂好的层级，也不碰有本机待推送改动（[localDirty]）的行：
+ * 那种行的父级是用户刚改的，等推送把它送上去就好。
+ */
+internal fun shouldRelinkRootLocation(
+    localDeletedAt: Long?,
+    localProtected: Boolean,
+    localDirty: Boolean,
+    localParentId: Long?,
+    localParentDeleted: Boolean,
+    remoteDeletedAt: Long?,
+    resolvedParentId: Long?
+): Boolean = when {
+    resolvedParentId == null -> false
+    localDeletedAt != null || remoteDeletedAt != null -> false
+    localProtected || localDirty -> false
+    localParentId == null -> true
+    else -> localParentDeleted
 }
 
 internal fun AppBackupManager.resolveReferenceId(

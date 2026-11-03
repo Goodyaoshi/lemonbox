@@ -85,6 +85,9 @@ internal object SeedDataProvider {
         "大衣柜" to listOf("挂衣区", "叠放区", "抽屉")
     )
 
+    /** 客厅里按用途拆出来的分区：服务端把它们的父级改回客厅后，本机要跟上。 */
+    private val livingRoomZones = listOf("储物区", "家具区", "行李区", "洗衣区")
+
     /**
      * 早期版本默认种下的多余房间（书房/储物间）：现行布局是客厅/卧室/厨房/卫生间/阳台，
      * 升级时把这两个房间连同其子位置下线。客厅是真实房间，不在这里清理。
@@ -221,6 +224,29 @@ internal object SeedDataProvider {
                 "UPDATE locations SET parentId = ?, updatedAt = $nowMillisSql, dirty = 1 " +
                     "WHERE name = ? AND parentId IS NULL AND deletedAt IS NULL AND id <> ?",
                 arrayOf<Any>(wardrobeId, section, wardrobeId)
+            )
+        }
+    }
+
+    /**
+     * v41：把客厅按用途拆出的四个分区重新挂回客厅。
+     *
+     * 拉取合并原先只在时间戳允许时才改父级，服务端把 储物区 / 家具区 / 行李区 / 洗衣区
+     * 移到客厅下之后，本机这几行仍是顶级，管理页一级目录就多出四个分组。
+     * 这里按名字补回（只动仍是顶级且未删的行），写 updatedAt + dirty，
+     * 让修正随后续同步收敛，也避免被服务端的旧父级再冲回顶级。
+     */
+    fun relinkLivingRoomZones(db: SupportSQLiteDatabase) {
+        val livingRoomId = queryLocationId(
+            db,
+            "SELECT id FROM locations WHERE name = '客厅' AND parentId IS NULL " +
+                "AND deletedAt IS NULL ORDER BY id LIMIT 1"
+        ) ?: return
+        livingRoomZones.forEach { zone ->
+            db.execSQL(
+                "UPDATE locations SET parentId = ?, updatedAt = $nowMillisSql, dirty = 1 " +
+                    "WHERE name = ? AND parentId IS NULL AND deletedAt IS NULL AND isProtected = 0",
+                arrayOf<Any>(livingRoomId, zone)
             )
         }
     }
