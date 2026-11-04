@@ -1,5 +1,6 @@
 package com.goodyaoshi.lemonbox.ui.screen.ledger
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -132,6 +133,11 @@ fun LedgerScreen(
     var pendingDeleteRecord by remember { mutableStateOf<LedgerRecordUi?>(null) }
     // 批量管理（B1）：开启后点流水为勾选，配合 SelectionTopBar 批量删除。
     var selectionMode by remember { mutableStateOf(false) }
+    // 批量管理时返回键先退出批量，与家当 / 待买保持同一套返回语义。
+    BackHandler(enabled = selectionMode) {
+        selectionMode = false
+        viewModel.clearRecordSelection()
+    }
     var pendingBatchDelete by remember { mutableStateOf(false) }
     // 「更多」菜单展开态（IA-4）：低频入口收进菜单后的弹出开关。
     var moreMenuExpanded by remember { mutableStateOf(false) }
@@ -294,7 +300,8 @@ fun LedgerScreen(
                             incomeText = DateUtil.formatCurrency(LedgerMath.centsToYuan(overview.incomeCents)),
                             balanceText = DateUtil.formatCurrency(
                                 LedgerMath.centsToYuan(overview.incomeCents - overview.expenseCents)
-                            )
+                            ),
+                            balanceNegative = overview.incomeCents - overview.expenseCents < 0
                         )
                         // ST1：口径外显——「这个月」从每月几号起算，不再让人猜。
                         // 这一行同时是设置入口：点开可改起算日（此前只有读取侧、值恒为 1）。

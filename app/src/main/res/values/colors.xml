@@ -2,9 +2,14 @@
 <!-- 桌面小组件用色（浅色）：此前三口字体色 + 卡面背景 + 描边散落写死十六进制，
      集中到颜色资源后随 values-night 自动适配深色，且全局只有一处可调。 -->
 <resources>
-    <color name="widget_card_bg">#FCF7F0</color>
-    <color name="widget_card_stroke">#F0E3D2</color>
-    <color name="widget_title_text">#B25A1E</color>
-    <color name="widget_body_text">#3B2F23</color>
-    <color name="widget_muted_text">#6B5844</color>
+    <color name="widget_card_bg">#FFFFFF</color>
+    <color name="widget_card_stroke">#E6EFDD</color>
+    <color name="widget_title_text">#3D7A2B</color>
+    <color name="widget_body_text">#2F3A2C</color>
+    <color name="widget_muted_text">#66745F</color>
+
+    <!-- 扫码页（相机画面恒为深色，因此固定深底 + 浅色文字，不随系统深浅切换） -->
+    <color name="scan_backdrop">#0B120C</color>
+    <color name="scan_title_text">#F2F8EE</color>
+    <color name="scan_hint_text">#B9C8B0</color>
 </resources>

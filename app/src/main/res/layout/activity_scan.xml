@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    扫码页自绘布局：ZXingLite 默认布局是黑底 + 青色取景框，既没有标题、提示、返回，
+    也完全没有品牌色。这里保留库要求的三件套（预览 / 取景框 / 手电筒），
+    其余全部用「柠檬百宝箱」的深绿底 + 叶绿取景框重画。
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/scan_backdrop">
+
+    <androidx.camera.view.PreviewView
+        android:id="@+id/scan_preview"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <com.king.view.viewfinderview.ViewfinderView
+        android:id="@+id/scan_viewfinder"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- 顶部：返回 + 标题 + 一句操作说明 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top"
+        android:orientation="vertical"
+        android:paddingStart="12dp"
+        android:paddingTop="48dp"
+        android:paddingEnd="20dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <ImageView
+                android:id="@+id/scan_back"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="@drawable/scan_round_button_bg"
+                android:contentDescription="@string/scan_back"
+                android:padding="12dp"
+                android:src="@drawable/ic_scan_back" />
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:layout_weight="1"
+                android:text="@string/scan_title"
+                android:textColor="@color/scan_title_text"
+                android:textSize="17sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:layout_marginStart="6dp"
+            android:text="@string/scan_hint"
+            android:textColor="@color/scan_hint_text"
+            android:textSize="13sp" />
+    </LinearLayout>
+
+    <!-- 底部：手电筒 + 无需快门的说明 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:gravity="center_horizontal"
+        android:orientation="vertical"
+        android:paddingBottom="56dp">
+
+        <ImageView
+            android:id="@+id/scan_flashlight"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:background="@drawable/scan_round_button_bg"
+            android:contentDescription="@string/scan_flashlight"
+            android:padding="16dp"
+            android:src="@drawable/scan_flashlight_selector" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:text="@string/scan_footer_hint"
+            android:textColor="@color/scan_hint_text"
+            android:textSize="12sp" />
+    </LinearLayout>
+</FrameLayout>

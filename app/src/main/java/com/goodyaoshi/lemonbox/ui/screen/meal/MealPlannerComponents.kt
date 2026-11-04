@@ -72,6 +72,7 @@ import com.goodyaoshi.lemonbox.ui.components.PillTag
 import com.goodyaoshi.lemonbox.ui.components.SegmentedTabs
 import com.goodyaoshi.lemonbox.ui.theme.Background
 import com.goodyaoshi.lemonbox.ui.theme.CardWhite
+import com.goodyaoshi.lemonbox.ui.theme.OnAccent
 import com.goodyaoshi.lemonbox.ui.theme.OnScrim
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarmDeep
@@ -184,13 +185,13 @@ private fun MealDayTab(
             text = day.dayLabel,
             style = MaterialTheme.typography.labelMedium,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-            color = if (selected) Color.White else TextSecondary,
+            color = if (selected) OnAccent else TextSecondary,
             maxLines = 1
         )
         Text(
             text = day.shortDate,
             style = MaterialTheme.typography.labelSmall,
-            color = if (selected) Color.White.copy(alpha = 0.85f) else TextHint,
+            color = if (selected) OnAccent.copy(alpha = 0.85f) else TextHint,
             maxLines = 1,
             modifier = Modifier.padding(top = 1.dp)
         )
@@ -435,7 +436,7 @@ private fun MealActionButton(
             // 字号走主题字阶（F6）：labelLarge 为 14sp。
             style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.SemiBold,
-            color = if (primary) Color.White else TextSecondary
+            color = if (primary) OnAccent else TextSecondary
         )
     }
 }
@@ -773,7 +774,7 @@ private fun SheetActionButton(
             fontWeight = FontWeight.SemiBold,
             color = when {
                 !enabled -> TextHint
-                highlight -> Color.White
+                highlight -> OnAccent
                 else -> TextSecondary
             }
         )

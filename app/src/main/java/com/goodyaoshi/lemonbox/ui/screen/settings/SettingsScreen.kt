@@ -55,6 +55,7 @@ import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.ImageLoadingModeCard
+import com.goodyaoshi.lemonbox.ui.theme.OnAccent
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarmDeep
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
@@ -89,7 +90,7 @@ private fun OptionChip(
             // 字号走主题字阶（F6）：labelLarge 为 14sp。
             style = MaterialTheme.typography.labelLarge,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-            color = if (selected) Color.White else TextSecondary
+            color = if (selected) OnAccent else TextSecondary
         )
     }
 }
@@ -639,7 +640,8 @@ fun SettingsScreen(
                 ) {
                     Text(
                         text = "推荐应用内校验安装：先比对发布方 SHA-256，再比对安装包签名与当前应用，" +
-                            "两者都通过才会打开系统安装器。即使下载走了加速代理，签名不符也装不上。",
+                            "两者都通过才会打开系统安装器。即使下载走了加速代理，签名不符也装不上。" +
+                            "\n\n接下来会出现系统的安装确认页（带系统样式），按提示点「安装」即可。",
                         style = MaterialTheme.typography.bodySmall,
                         color = TextSecondary
                     )

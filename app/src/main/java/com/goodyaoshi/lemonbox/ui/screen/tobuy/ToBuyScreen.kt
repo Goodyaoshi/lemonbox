@@ -1,5 +1,6 @@
 package com.goodyaoshi.lemonbox.ui.screen.tobuy
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -124,6 +125,8 @@ fun ToBuyScreen(
     // 批量模式（G-4）：与回收站同一套选择范式。
     val isSelectionMode by viewModel.isSelectionMode.collectAsState()
     val selectedIds by viewModel.selectedIds.collectAsState()
+    // 批量模式下返回键先退出批量，与家当页保持同一套返回语义。
+    BackHandler(enabled = isSelectionMode) { viewModel.exitSelectionMode() }
     val nickname by viewModel.nickname.collectAsState()
     // 建议补货（IA-2）：按消耗速度推算、且还没在待买清单里的物品。
     val restockSuggestions by viewModel.restockSuggestions.collectAsState()

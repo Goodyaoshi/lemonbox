@@ -19,14 +19,15 @@
     </style>
 
     <style name="Theme.Lemon.Launcher" parent="Theme.SplashScreen">
-        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash_empty</item>
+        <!-- 用自适应启动图标：矢量柠檬在部分 ROM 的系统闪屏里不渲染，自适应图标最稳。 -->
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
         <item name="windowSplashScreenBackground">#FCFEF8</item>
         <item name="windowSplashScreenIconBackgroundColor">@android:color/transparent</item>
         <item name="postSplashScreenTheme">@style/Theme.Lemon</item>
     </style>
 
     <style name="Theme.Lemon.Launcher.Dark" parent="Theme.SplashScreen">
-        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash_empty</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
         <item name="windowSplashScreenBackground">#131B15</item>
         <item name="windowSplashScreenIconBackgroundColor">@android:color/transparent</item>
         <item name="postSplashScreenTheme">@style/Theme.Lemon.Dark</item>
@@ -34,8 +35,11 @@
 
     <!-- 扫码页主题：ZXingLite 的扫码 Activity 继承 AppCompatActivity，必须使用 AppCompat 主题 -->
     <style name="Theme.Lemon.Scan" parent="Theme.AppCompat.NoActionBar">
-        <item name="android:windowBackground">@android:color/black</item>
+        <!-- 相机页恒为深色背景：状态栏 / 导航栏都保持浅色图标 -->
+        <item name="android:windowBackground">@color/scan_backdrop</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
-        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@color/scan_backdrop</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
     </style>
 </resources>

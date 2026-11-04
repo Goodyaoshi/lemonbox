@@ -69,7 +69,9 @@ import com.goodyaoshi.lemonbox.ui.components.UnitPickerRow
 import com.goodyaoshi.lemonbox.ui.components.TreeNode
 import com.goodyaoshi.lemonbox.ui.components.buildTreePathLabel
 import com.goodyaoshi.lemonbox.ui.scan.EXTRA_BARCODE
+import com.goodyaoshi.lemonbox.ui.scan.EXTRA_CAMERA_DENIED
 import com.goodyaoshi.lemonbox.ui.scan.ScanActivity
+import com.goodyaoshi.lemonbox.ui.scan.scanPermissionDeniedMessage
 import com.goodyaoshi.lemonbox.ui.screen.save.SavePhotoMode
 import com.goodyaoshi.lemonbox.ui.theme.TagRedText
 import com.goodyaoshi.lemonbox.ui.theme.TextHint
@@ -127,8 +129,8 @@ fun EditScreen(
     var showLocationPicker by remember { mutableStateOf(false) }
     // 「扫一扫」的方式选择弹窗（第 6 条）：扫条码与拍照识字共用一个入口。
     var showScanChoice by remember { mutableStateOf(false) }
-    // 必填项「物品名称」是否被触碰过：只在用户点过输入框、又清空内容时才提示。
-    var nameTouched by remember { mutableStateOf(false) }
+    // 必填项「物品名称」是否已经离开输入框：失焦后仍为空才提示，避免刚点进去就标红。
+    var nameBlurred by remember { mutableStateOf(false) }
 
     val categoryNodes = remember(categories) {
         categories.map { TreeNode(id = it.id, parentId = it.parentId, name = it.name) }
@@ -144,6 +146,9 @@ fun EditScreen(
             result.data?.getStringExtra(EXTRA_BARCODE)
                 ?.takeIf { it.isNotBlank() }
                 ?.let(viewModel::updateBarcode)
+        } else if (result.data?.getBooleanExtra(EXTRA_CAMERA_DENIED, false) == true) {
+            // 权限被拒时扫码页会静默退出，补一句说明，避免用户以为入口失灵。
+            appSnackbar?.postMessage(scanPermissionDeniedMessage())
         }
     }
     val expiryQuickCodes by viewModel.expiryQuickOptions.collectAsState()
@@ -307,10 +312,10 @@ fun EditScreen(
                         value = state.name,
                         onValueChange = viewModel::updateName,
                         placeholder = "给这件东西起个名字吧",
-                        onFocus = { nameTouched = true }
+                        onBlur = { nameBlurred = true }
                     )
                     // 必填项行内辅助文案：留空时直接说明原因，而不是只让保存键变灰。
-                    if (nameTouched && state.name.isBlank()) {
+                    if (nameBlurred && state.name.isBlank()) {
                         Spacer(modifier = Modifier.size(6.dp))
                         Text(
                             text = "名字是必填的，先给它起个名字吧",

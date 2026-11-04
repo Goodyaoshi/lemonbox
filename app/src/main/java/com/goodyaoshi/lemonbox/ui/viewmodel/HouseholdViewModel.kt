@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
@@ -243,7 +244,17 @@ class HouseholdViewModel @Inject constructor(
     private val _filter = MutableStateFlow(LibraryPreset.IN_STOCK.applyTo(LibraryFilter()))
     val filter: StateFlow<LibraryFilter> = _filter.asStateFlow()
 
+    /**
+     * 首帧数据是否已经读到。
+     * `allItems` 的初始值是 emptyList，直接用「列表为空」渲染会先画成「还没有家当」，
+     * 慢设备上这段假空态能停留数秒，看起来像数据丢了；用这个标记区分「正在读」与「确实为空」。
+     */
+    private val _itemsLoaded = MutableStateFlow(false)
+    val itemsLoaded: StateFlow<Boolean> = _itemsLoaded.asStateFlow()
+
     val allItems: StateFlow<List<ItemDetail>> = itemRepository.getAllItems()
+        // 只有上游真正发出一次数据才置位；stateIn 的初始 emptyList 不会经过 onEach。
+        .onEach { _itemsLoaded.value = true }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val categories: StateFlow<List<Category>> = categoryRepository.getAllCategories()

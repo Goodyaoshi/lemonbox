@@ -44,6 +44,7 @@ import com.goodyaoshi.lemonbox.data.widget.WidgetSnapshot
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.SectionHeader
+import com.goodyaoshi.lemonbox.ui.theme.OnAccent
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarmDeep
 import com.goodyaoshi.lemonbox.ui.theme.TextHint
@@ -261,7 +262,7 @@ private fun TimeChip(label: String, selected: Boolean, onClick: () -> Unit) {
                 text = label,
                 // 字号走主题字阶（F6）：labelLarge 承载 13sp。
                 style = MaterialTheme.typography.labelLarge,
-                color = if (selected) Color.White else TextSecondary
+                color = if (selected) OnAccent else TextSecondary
             )
         }
     }

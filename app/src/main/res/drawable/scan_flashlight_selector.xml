@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 手电筒开启时图标转叶绿：库只切换 View 的 selected 状态，靠选择器给出可见反馈。 -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@drawable/ic_scan_flashlight_on" android:state_selected="true" />
+    <item android:drawable="@drawable/ic_scan_flashlight_off" />
+</selector>

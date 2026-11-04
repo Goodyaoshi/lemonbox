@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    启动屏图标：透明底的矢量柠檬。此前指向 1dp 透明矩形导致冷启动全白；
+    改用位图又会带一块白底方片，这里用矢量保证在系统闪屏的圆形遮罩里干净可见。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="120dp"
+    android:height="120dp"
+    android:viewportWidth="120"
+    android:viewportHeight="120">
+
+    <!-- 果实 -->
+    <path
+        android:fillColor="#F2C744"
+        android:pathData="M58,22C34,22 14,40 14,64C14,88 34,106 58,106C82,106 102,88 102,64C102,40 82,22 58,22Z" />
+    <!-- 高光 -->
+    <path
+        android:fillColor="#FFE07A"
+        android:pathData="M34,38C27,44 23,53 23,62C23,66 27,68 30,65C33,61 35,52 40,46C44,41 39,34 34,38Z" />
+    <!-- 叶片 -->
+    <path
+        android:fillColor="#4E9B37"
+        android:pathData="M60,26C68,8 86,2 100,8C96,26 80,34 62,30Z" />
+    <!-- 果柄 -->
+    <path
+        android:fillColor="#7A5A34"
+        android:pathData="M57,24L62,24L64,12L58,12Z" />
+</vector>

@@ -65,7 +65,9 @@ fun ExpiryPickerDialog(
     var selectedYear by remember(initialDate) { mutableIntStateOf(initialDate.year) }
     var selectedMonth by remember(initialDate) { mutableIntStateOf(initialDate.monthValue) }
     var selectedDay by remember(initialDate) { mutableIntStateOf(initialDate.dayOfMonth) }
-    var selectedPanel by remember { mutableStateOf(ExpiryPanel.MONTH) }
+    // 默认停在「日」面板：绝大多数场景只是把今天/已有的日期挪几天，
+    // 先给年、月面板等于让用户多点两下才能开始。
+    var selectedPanel by remember { mutableStateOf(ExpiryPanel.DAY) }
 
     val years = remember(today.year, yearRange) { yearRange ?: (today.year..today.year + 8) }
     val currentYearMonth = remember(selectedYear, selectedMonth) { YearMonth.of(selectedYear, selectedMonth) }
@@ -76,7 +78,7 @@ fun ExpiryPickerDialog(
 
     AppDialog(
         title = title,
-        subtitle = "按年、月、日分步选择，布局固定更直观。",
+        subtitle = "默认是今天，点上方「年 / 月 / 日」可切换。",
         onDismissRequest = onDismissRequest,
         confirmText = "确定",
         secondaryText = onClear?.let { "清空" },
@@ -106,7 +108,9 @@ fun ExpiryPickerDialog(
                 modifier = Modifier.weight(1f)
             )
             ExpiryTab(
-                text = selectedDay.toString(),
+                // 带上「日」字：此前只显示裸数字「5」，和左边的「5月」并排时
+                // 分不清哪个是月、哪个是日。
+                text = "${selectedDay}日",
                 selected = selectedPanel == ExpiryPanel.DAY,
                 onClick = { selectedPanel = ExpiryPanel.DAY },
                 modifier = Modifier.weight(1f)

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -151,6 +152,8 @@ fun AppSplashScreen(darkTheme: Boolean = false) {
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
+                // 边到边适配：不加导航栏 padding 时，版本号会被系统三键导航条压住。
+                .navigationBarsPadding()
                 .padding(bottom = 36.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {

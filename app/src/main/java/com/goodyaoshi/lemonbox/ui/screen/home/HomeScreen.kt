@@ -1056,8 +1056,10 @@ private fun MonthSpendingBar(
     spending: MonthSpending,
     onClick: () -> Unit
 ) {
-    val budget = spending.budgetCents
-    val over = budget != null && budget > 0 && spending.spentCents >= budget
+    // 0 或负预算等同于「未设置」，统一折成 null，后面只判空一次。
+    val budget = spending.budgetCents?.takeIf { it > 0 }
+    val over = budget != null && spending.spentCents >= budget
+    val spentText = DateUtil.formatCurrency(LedgerMath.centsToYuan(spending.spentCents))
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -1071,20 +1073,18 @@ private fun MonthSpendingBar(
         LedgerBudgetBar(
             title = when {
                 over -> "本月预算已超支"
-                budget != null && budget > 0 ->
+                budget != null ->
                     "预算内，还剩 ${DateUtil.formatCurrency(LedgerMath.centsToYuan((budget - spending.spentCents).coerceAtLeast(0)))}"
-                else -> "这个月已花 ${DateUtil.formatCurrency(LedgerMath.centsToYuan(spending.spentCents))}"
+                else -> "这个月已花 $spentText"
             },
-            subtitle = buildString {
-                append("已花 ${DateUtil.formatCurrency(LedgerMath.centsToYuan(spending.spentCents))}")
-                if (budget != null && budget > 0) {
-                    append(" · 预算 ${DateUtil.formatCurrency(LedgerMath.centsToYuan(budget))}")
-                    if (!over) {
-                        append(" · 还剩 ${DateUtil.formatCurrency(LedgerMath.centsToYuan((budget - spending.spentCents).coerceAtLeast(0)))}")
-                    }
-                }
+            // 标题已经说过「已花」时，副标题不再重复同一句话；
+            // 没有预算时给一句可执行的引导，而不是把金额复读一遍。
+            subtitle = if (budget != null) {
+                "已花 $spentText · 预算 ${DateUtil.formatCurrency(LedgerMath.centsToYuan(budget))}"
+            } else {
+                "还没设预算，点这里设一个"
             },
-            ratio = if (budget != null && budget > 0) {
+            ratio = if (budget != null) {
                 spending.spentCents.toFloat() / budget
             } else {
                 0f

@@ -1,5 +1,6 @@
 package com.goodyaoshi.lemonbox.ui.screen.search
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -89,6 +90,7 @@ import com.goodyaoshi.lemonbox.ui.components.ItemMoreActionsDialog
 import com.goodyaoshi.lemonbox.ui.components.SearchBar
 import com.goodyaoshi.lemonbox.ui.components.SelectionActionButton
 import com.goodyaoshi.lemonbox.ui.components.SelectionTopBar
+import com.goodyaoshi.lemonbox.ui.components.SkeletonList
 import com.goodyaoshi.lemonbox.ui.components.SwipeRevealItem
 import com.goodyaoshi.lemonbox.ui.components.TabPageHeader
 import com.goodyaoshi.lemonbox.ui.components.TreeNode
@@ -156,8 +158,8 @@ fun HouseholdScreen(
     val results by viewModel.results.collectAsState()
     val allItems by viewModel.allItems.collectAsState()
     // 家当总览（对齐极简记物的资产统计）：只算真正在库、未删除的物品。
-    // needRestock 的待买项在数据层也是 Item（usageStatus=USED_UP），不能算进「在库」，
-    // 否则页头数字会和下方「在库」筛选胶囊对不上。
+    // 已用完的物品不算在库；但「待买」是叠加标签而不是独立分区——还有半瓶就先标了
+    // 补货提醒的物品，会同时出现在「在库」和「待买」两个筛选里，这是刻意保留的重叠口径。
     val inStockItems = remember(allItems) {
         allItems.filter {
             it.item.deletedAt == null &&
@@ -199,6 +201,11 @@ fun HouseholdScreen(
     // 批量模式（GAP-7）：整理大扫除时逐个滑动太碎，接入选中即批量处理的既有范式。
     val isSelectionMode by viewModel.isSelectionMode.collectAsState()
     val selectedIds by viewModel.selectedIds.collectAsState()
+    // 数据未到之前画骨架，避免先闪一个「还没有家当」的假空态。
+    val itemsLoaded by viewModel.itemsLoaded.collectAsState()
+    // 批量模式下返回键先退出批量，而不是把整页退掉——否则选了半天空手离开，
+    // 还会以为「返回」把选中项一起丢了。与系统相册 / 文件管理的心智保持一致。
+    BackHandler(enabled = isSelectionMode) { viewModel.exitSelectionMode() }
     var openedItemId by remember { mutableStateOf<Long?>(null) }
     var moreItemId by remember { mutableStateOf<Long?>(null) }
     var pendingDeleteItem by remember { mutableStateOf<Item?>(null) }
@@ -410,7 +417,15 @@ fun HouseholdScreen(
                     }
                 }
 
-                if (results.isEmpty()) {
+                if (!itemsLoaded) {
+                    item(key = "loading") {
+                        SkeletonList(
+                            showHeader = false,
+                            showBottomBarClearance = false,
+                            contentPadding = PaddingValues(horizontal = 0.dp)
+                        )
+                    }
+                } else if (results.isEmpty()) {
                     item(key = "empty") {
                         HouseholdEmptyState(
                             allItemsEmpty = allItems.isEmpty(),
@@ -539,7 +554,9 @@ fun HouseholdScreen(
 
         // 录入家当入口：原底栏中央按钮移到这里，与记账页 FAB 同款。
         // 批量模式下隐藏：此刻的交互是「处理已有物品」，录入会打断批量动线。
-        if (!isSelectionMode) {
+        // 空库时也隐藏：空状态卡片里已经有一个同目的地的绿色主按钮，
+        // 再放一个黄色 FAB 会出现两个主入口、两种主色。
+        if (!isSelectionMode && allItems.isNotEmpty()) {
             LemonFab(
                 icon = Icons.Default.Add,
                 // 文案与目的页标题对齐（P3-5）：落地页叫「快速录入」，入口就用同一个词。

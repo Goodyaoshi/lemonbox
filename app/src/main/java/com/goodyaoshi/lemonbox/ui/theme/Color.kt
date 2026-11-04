@@ -117,7 +117,8 @@ internal val DarkGlassWhite = Color(0xCC1F2B22)
 internal val DarkDividerSoft = Color(0xFF2E3B30)
 internal val DarkTextPrimary = Color(0xFFE8F0E4)
 internal val DarkTextSecondary = Color(0xFFAAB8A4)
-internal val DarkTextHint = Color(0xFF7E8C78)
+// 深色底上的提示文字：原 #7E8C78 在 12sp 下只有 3.3:1，提亮到约 5.9:1。
+internal val DarkTextHint = Color(0xFF9AA894)
 internal val DarkSurfaceWarm = Color(0xFF243026)
 internal val DarkSurfaceWarmDeep = Color(0xFF2A382C)
 // 深色下的叶绿需兼顾两种用法：作为强调文字（要够亮）与作为选中态底色承载白色文字
@@ -164,6 +165,8 @@ data class LemonPalette(
     val orangeTint: Color,
     val orangeLight: Color,
     val orangeGlow: Color,
+    /** 实心品牌绿底上的文字 / 图标色：浅色模式为白，深色模式为深绿黑。 */
+    val onAccent: Color,
     val mintSoft: Color,
     val sageSoft: Color,
     val statusExpired: Color,
@@ -201,6 +204,7 @@ internal val LightLemonPalette = LemonPalette(
     orangeTint = LightOrangeTint,
     orangeLight = LightOrangeLight,
     orangeGlow = LightOrangeGlow,
+    onAccent = Color.White,
     mintSoft = LightMintSoft,
     sageSoft = LightSageSoft,
     statusExpired = LightStatusExpired,
@@ -238,6 +242,8 @@ internal val DarkLemonPalette = LemonPalette(
     orangeTint = DarkOrangeTint,
     orangeLight = DarkOrangeLight,
     orangeGlow = DarkOrangeGlow,
+    // 深色品牌绿 #5AA83F 上压白字只有 2.9:1，改用深绿黑字后约 5:1。
+    onAccent = Color(0xFF10240C),
     mintSoft = DarkMintSoft,
     sageSoft = DarkSageSoft,
     statusExpired = DarkStatusExpired,
@@ -309,6 +315,10 @@ val OrangeLight: Color
 
 val OrangeGlow: Color
     @Composable @ReadOnlyComposable get() = LocalLemonPalette.current.orangeGlow
+
+/** 实心品牌绿底（[OrangeStart]）上的文字 / 图标色；深色模式下自动换成深绿黑以保证对比度。 */
+val OnAccent: Color
+    @Composable @ReadOnlyComposable get() = LocalLemonPalette.current.onAccent
 
 val MintSoft: Color
     @Composable @ReadOnlyComposable get() = LocalLemonPalette.current.mintSoft

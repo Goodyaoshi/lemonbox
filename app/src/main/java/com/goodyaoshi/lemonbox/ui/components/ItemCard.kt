@@ -38,6 +38,7 @@ import com.goodyaoshi.lemonbox.data.local.entity.Item
 import com.goodyaoshi.lemonbox.data.local.entity.ItemDetail
 import com.goodyaoshi.lemonbox.data.local.entity.StatusDimension
 import com.goodyaoshi.lemonbox.data.local.entity.formatQuantity
+import com.goodyaoshi.lemonbox.ui.theme.OnAccent
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.OrangeTint
 import com.goodyaoshi.lemonbox.ui.theme.StatusNormal
@@ -124,7 +125,7 @@ fun ItemCard(
                             Icon(
                                 imageVector = Icons.Default.Check,
                                 contentDescription = null,
-                                tint = androidx.compose.ui.graphics.Color.White,
+                                tint = OnAccent,
                                 modifier = Modifier.size(16.dp)
                             )
                         }

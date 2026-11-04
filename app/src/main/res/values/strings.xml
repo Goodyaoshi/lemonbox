@@ -11,6 +11,13 @@
     <string name="shortcut_camera_short">拍张照</string>
     <string name="shortcut_camera_long">拍照或扫条码入库</string>
 
+    <!-- 扫码页 -->
+    <string name="scan_title">扫一扫</string>
+    <string name="scan_hint">对准条形码或二维码，识别后自动填入</string>
+    <string name="scan_footer_hint">不用按快门，对准即可识别</string>
+    <string name="scan_back">返回</string>
+    <string name="scan_flashlight">手电筒</string>
+
     <!-- 桌面小组件（F04） -->
     <string name="widget_lemonbox_label">待买与今日速览</string>
     <string name="widget_lemonbox_description">不解锁就能看到待买清单、今天的事和本月支出</string>

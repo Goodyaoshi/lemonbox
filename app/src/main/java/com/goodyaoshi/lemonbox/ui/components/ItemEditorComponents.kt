@@ -87,6 +87,8 @@ fun EditorInputBox(
     minHeight: Int = 56,
     readOnly: Boolean = false,
     onFocus: (() -> Unit)? = null,
+    // 失焦回调：必填项要等用户「离开输入框」再判断，刚点进去就报错会显得咄咄逼人。
+    onBlur: (() -> Unit)? = null,
     trailingContent: (@Composable () -> Unit)? = null,
     // 需要打码的输入（如访问密钥）传 PasswordVisualTransformation()；
     // 默认 None，既有调用点行为逐字不变。
@@ -129,6 +131,9 @@ fun EditorInputBox(
                     modifier = Modifier.weight(1f)
                 )
             } else {
+                // onFocusChanged 在挂载时也会回调一次 isFocused=false，
+                // 记一个「曾经获得过焦点」的标记，避免刚进页面就误触发 onBlur。
+                var hadFocus by remember { mutableStateOf(false) }
                 BasicTextField(
                     value = value,
                     onValueChange = onValueChange,
@@ -136,7 +141,11 @@ fun EditorInputBox(
                         .weight(1f)
                         .onFocusChanged {
                             if (it.isFocused) {
+                                hadFocus = true
                                 onFocus?.invoke()
+                            } else if (hadFocus) {
+                                hadFocus = false
+                                onBlur?.invoke()
                             }
                         },
                     singleLine = singleLine,

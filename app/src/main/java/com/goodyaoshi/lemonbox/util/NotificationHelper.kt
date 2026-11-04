@@ -17,6 +17,12 @@ object NotificationHelper {
     private const val CHANNEL_NAME = "到期提醒"
     private const val SUMMARY_NOTIFICATION_ID = 1001
 
+    /**
+     * 通知强调色（品牌叶绿）。系统从 SmallIcon 的透明像素着色，
+     * 不设色时图标会跟随系统默认（部分 ROM 是蓝色），和 App 内小图标对不上。
+     */
+    private val NOTIFICATION_ACCENT = 0xFF4E9B37.toInt()
+
     private const val TODO_CHANNEL_ID = "todo_reminder"
     private const val TODO_CHANNEL_NAME = "待办提醒"
 
@@ -151,6 +157,7 @@ object NotificationHelper {
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
+            .setColor(NOTIFICATION_ACCENT)
             .setContentTitle(title)
             .setContentText(summaryText)
             .setStyle(style)
@@ -219,6 +226,7 @@ object NotificationHelper {
 
         val notification = NotificationCompat.Builder(context, ANNIVERSARY_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
+            .setColor(NOTIFICATION_ACCENT)
             .setContentTitle(title)
             .setContentText(summaryText)
             .setStyle(style)
@@ -274,6 +282,7 @@ object NotificationHelper {
         }
         val notification = NotificationCompat.Builder(context, TODO_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
+            .setColor(NOTIFICATION_ACCENT)
             .setContentTitle(title)
             .setContentText(contentText)
             .setStyle(NotificationCompat.BigTextStyle().bigText(contentText))
@@ -314,6 +323,7 @@ object NotificationHelper {
 
         val notification = NotificationCompat.Builder(context, SLEEP_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
+            .setColor(NOTIFICATION_ACCENT)
             .setContentTitle("$nickname，该休息啦")
             .setContentText("把今天先放下，早点睡，明天再一起打理。")
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
@@ -342,6 +352,7 @@ object NotificationHelper {
     fun buildKeepAliveNotification(context: Context): android.app.Notification =
         NotificationCompat.Builder(context, KEEP_ALIVE_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
+            .setColor(NOTIFICATION_ACCENT)
             .setContentTitle("柠檬提醒服务运行中")
             .setContentText("保持常驻，到点准时提醒")
             .setPriority(NotificationCompat.PRIORITY_MIN)

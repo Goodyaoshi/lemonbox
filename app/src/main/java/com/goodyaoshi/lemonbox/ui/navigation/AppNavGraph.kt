@@ -64,6 +64,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -124,7 +125,9 @@ import com.goodyaoshi.lemonbox.ui.screen.timecapsule.TimeCapsuleScreen
 import com.goodyaoshi.lemonbox.ui.screen.tobuy.ToBuyScreen
 import com.goodyaoshi.lemonbox.ui.screen.trash.TrashScreen
 import com.goodyaoshi.lemonbox.ui.scan.EXTRA_BARCODE
+import com.goodyaoshi.lemonbox.ui.scan.EXTRA_CAMERA_DENIED
 import com.goodyaoshi.lemonbox.ui.scan.ScanActivity
+import com.goodyaoshi.lemonbox.ui.scan.scanPermissionDeniedMessage
 import com.goodyaoshi.lemonbox.ui.theme.CardWhite
 import com.goodyaoshi.lemonbox.ui.theme.GlassWhite
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
@@ -179,6 +182,8 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
     var pendingCameraReturn by remember { mutableStateOf<CameraReturnTarget?>(null) }
     val hazeState = remember { HazeState() }
     val context = LocalContext.current
+    // ActivityResult 回调不是 @Composable，先把提示通道取出来，回调里才能直接用。
+    val appSnackbar = LocalAppSnackbar.current
     // 页面转场动效开关：跟随系统「关闭动画」设置，关闭时退化为无转场（不堆砌动效）。
     val motionEnabled = rememberMotionEnabled()
 
@@ -201,6 +206,9 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
             if (!scanned.isNullOrBlank()) {
                 navController.navigateSingleTop(Screen.Scan.createRoute(scanned))
             }
+        } else if (result.data?.getBooleanExtra(EXTRA_CAMERA_DENIED, false) == true) {
+            // 拒绝相机权限时扫码页会静默关闭，不说明原因就会被当成「按钮坏了」。
+            appSnackbar?.postMessage(scanPermissionDeniedMessage())
         }
     }
     val openScan: () -> Unit = { scanLauncher.launch(Intent(context, ScanActivity::class.java)) }
@@ -244,6 +252,10 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
         Screen.Household.route,
         Screen.Profile.route
     ) && !cameraExitGuard
+
+    // 这些页面右下角有 58dp 的悬浮按钮（LemonFab）。Snackbar 原来贴在底栏上沿，
+    // 正好盖住按钮；这里按路由把提示再抬高一个按钮的高度。
+    val currentRouteHasFab = currentRoute in fabRoutes
 
     // 宽屏断点（E1）：此前全 App 没有任何自适应，平板 / 折叠屏展开态下正文整屏铺开，
     // 行宽过长、底栏被拉成超长胶囊。这里在全局唯一壳层收口，覆盖全部页面；窄屏逐字不变。
@@ -1058,16 +1070,51 @@ fun AppNavGraph(startRoute: String? = null, navRequestId: Long = 0L) {
                     .navigationBarsPadding()
                     .padding(
                         horizontal = 16.dp,
-                        vertical = if (showBottomBar) {
-                            rememberBottomBarPanelClearance(extra = 8.dp)
-                        } else {
-                            16.dp
+                        // 钉底主操作的页面（快速录入选中的保存条、记账保存、纪念日保存、相机快门）
+                        // 提示原来贴底 16dp，正好压在按钮上，必须等提示自动消失才能继续点；
+                        // 这些路由先把提示抬到固定操作区上方，其余路由沿用原有避让规则。
+                        vertical = bottomActionClearanceByRoute[currentRoute] ?: when {
+                            currentRouteHasFab && showBottomBar ->
+                                rememberBottomBarPanelClearance(extra = 82.dp)
+                            // 无底栏时宿主只做 navigationBarsPadding，90dp 正好让开 58dp 按钮 + 间距。
+                            currentRouteHasFab -> 90.dp
+                            showBottomBar -> rememberBottomBarPanelClearance(extra = 8.dp)
+                            else -> 16.dp
                         }
                     )
             )
         }
     }
 }
+
+/** 右下角渲染 [com.goodyaoshi.lemonbox.ui.components.LemonFab] 的路由（用于抬高 Snackbar）。 */
+private val fabRoutes = setOf(
+    Screen.Ledger.route,
+    Screen.Household.route,
+    Screen.Anniversaries.route,
+    Screen.RecipeLibrary.route,
+    Screen.PackingList.route,
+    Screen.PackingTrip.route.substringBefore('?'),
+    Screen.TimeCapsule.route
+)
+
+/**
+ * 把主操作钉在屏幕底部的路由 → 提示需要抬高的距离（值已含按钮高度与内距）。
+ *
+ * 必要性：这些页面的按钮不是底栏也不是悬浮按钮，原先的避让规则没覆盖到，
+ * 提示条贴着底部 16dp 出现，正好整块压在保存键 / 快门上方，用户必须等它自动消失
+ * 才能继续录入——连续录入时尤其明显。逐条按页面固定操作区的实际高度抬高：
+ * - 快速录入：56dp 保存键 + 上下 18dp 内距 = 92dp，再留 12dp 间隙
+ * - 纪念日编辑：56dp + 上下 12dp 内距 = 80dp，再留 12dp 间隙
+ * - 记账编辑：同纪念日（金额键盘在保存键上方，提示只压到键盘末排，键位仍可点）
+ * - 相机：84dp 快门 + 上下 16dp 内距 = 116dp，再留 12dp 间隙
+ */
+private val bottomActionClearanceByRoute: Map<String, Dp> = mapOf(
+    Screen.Save.route.substringBefore('?') to 104.dp,
+    Screen.AnniversaryEdit.route.substringBefore('?') to 92.dp,
+    Screen.RecordEdit.route.substringBefore('?') to 92.dp,
+    Screen.Camera.route to 128.dp
+)
 
 private fun String.toSavePhotoMode(): SavePhotoMode {
     return when (lowercase()) {

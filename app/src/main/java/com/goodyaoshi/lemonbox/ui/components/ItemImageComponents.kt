@@ -484,6 +484,14 @@ fun ScanInputChoiceDialog(
                 modifier = Modifier.weight(1f)
             )
         }
+        // 系统权限弹窗是英文蓝白、无法换肤；至少在这里提前说清为什么需要相机，
+        // 避免用户点「扫条码」后被一个陌生系统框拦住。
+        Text(
+            text = "扫条码会请求相机权限，画面只用于识别、不会保存；拍照识字走系统相册。",
+            style = MaterialTheme.typography.bodySmall,
+            color = TextHint,
+            modifier = Modifier.padding(top = 14.dp)
+        )
     }
 }
 
@@ -508,13 +516,14 @@ private fun ActionImageSlot(
                 modifier = Modifier
                     .size(54.dp)
                     .clip(CircleShape)
-                    .background(OrangeStart.copy(alpha = 0.12f)),
+                    // 深色下 12% 绿底 + 绿图标对比度不足，改用 primaryContainer 配对色。
+                    .background(MaterialTheme.colorScheme.primaryContainer),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
-                    tint = OrangeStart,
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
                     modifier = Modifier.size(24.dp)
                 )
             }

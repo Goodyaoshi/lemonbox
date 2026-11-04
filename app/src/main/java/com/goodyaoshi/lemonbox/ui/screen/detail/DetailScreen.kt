@@ -51,6 +51,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -90,6 +91,7 @@ import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.ScrimMedium
 import com.goodyaoshi.lemonbox.ui.theme.ScrimSoft
 import com.goodyaoshi.lemonbox.ui.theme.StatusExpired
+import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarmDeep
 import com.goodyaoshi.lemonbox.ui.theme.TagGreen
 import com.goodyaoshi.lemonbox.ui.theme.TagGreenText
 import com.goodyaoshi.lemonbox.ui.theme.TagOrange
@@ -216,6 +218,9 @@ fun DetailScreen(
     // 图片被「无图 / 省流量 / 省存储」策略拦下时，详情页要能说明原因，
     // 否则用户只会看到首字占位，以为图片丢了。
     val imageMode = LocalImageLoadingMode.current
+    // 无图占位此前恒用亮黄渐变：深色主题里像贴了一块浅色海报，与下方深绿卡片硬切。
+    // 这里按当前主题底色判断明暗，深色下改用低饱和深绿，光感不再跳。
+    val isDarkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
 
     // 「需要补货」改动给回执 + 撤销（P2-7）：与家当列表同一套提示范式，
     // 不再像此前那样点了就直接生效、既无回执也无法回退。
@@ -264,10 +269,14 @@ fun DetailScreen(
                             },
                         shape = RectangleShape,
                         placeholderBackground = Brush.verticalGradient(
-                            colors = listOf(LemonStart, LemonEnd)
+                            colors = if (isDarkTheme) {
+                                listOf(SurfaceWarmDeep, BackgroundTop)
+                            } else {
+                                listOf(LemonStart, LemonEnd)
+                            }
                         ),
                         placeholderTextStyle = MaterialTheme.typography.displaySmall,
-                        placeholderColor = OnLemon
+                        placeholderColor = if (isDarkTheme) TextPrimary else OnLemon
                     )
                 }
 

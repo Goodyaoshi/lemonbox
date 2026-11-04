@@ -191,14 +191,14 @@ private fun DialogActionButton(
     val interactionSource = remember { MutableInteractionSource() }
     val background = when {
         !enabled -> SurfaceWarmDeep
-        destructive -> StatusExpired.copy(alpha = 0.12f)
-        highlight -> OrangeStart.copy(alpha = 0.12f)
+        destructive -> MaterialTheme.colorScheme.errorContainer
+        highlight -> MaterialTheme.colorScheme.primaryContainer
         else -> SurfaceWarm
     }
     val contentColor = when {
         !enabled -> TextHint
-        destructive -> StatusExpired
-        highlight -> OrangeStart
+        destructive -> MaterialTheme.colorScheme.onErrorContainer
+        highlight -> MaterialTheme.colorScheme.onPrimaryContainer
         else -> TextSecondary
     }
 

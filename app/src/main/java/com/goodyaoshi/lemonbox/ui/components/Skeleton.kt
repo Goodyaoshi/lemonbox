@@ -35,7 +35,6 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarmDeep
 
 /**
  * 骨架屏：与内容同构的占位卡片，用来替换「数据到达前的假空态」。
@@ -198,7 +197,9 @@ fun SkeletonBlock(
         modifier = modifier
             .clip(resolvedShape)
             .alpha(alpha)
-            .background(SurfaceWarmDeep)
+            // 原来用 SurfaceWarmDeep，在浅色底上对比度只有约 1.05:1，
+            // 骨架几乎看不见，用户会以为页面白屏/卡死；改用容器高亮色。
+            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
     )
 }
 

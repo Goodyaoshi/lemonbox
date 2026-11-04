@@ -85,14 +85,21 @@ import com.goodyaoshi.lemonbox.ui.components.UnitPickerRow
 import com.goodyaoshi.lemonbox.ui.components.TreeNode
 import com.goodyaoshi.lemonbox.ui.components.buildTreePathLabel
 import com.goodyaoshi.lemonbox.ui.scan.EXTRA_BARCODE
+import com.goodyaoshi.lemonbox.ui.scan.EXTRA_CAMERA_DENIED
 import com.goodyaoshi.lemonbox.ui.scan.ScanActivity
+import com.goodyaoshi.lemonbox.ui.scan.scanPermissionDeniedMessage
+import com.goodyaoshi.lemonbox.ui.theme.BackgroundTop
+import com.goodyaoshi.lemonbox.ui.theme.BackgroundWarm
 import com.goodyaoshi.lemonbox.ui.theme.CardWhite
 import com.goodyaoshi.lemonbox.ui.theme.GlassWhite
+import com.goodyaoshi.lemonbox.ui.theme.OnAccent
 import com.goodyaoshi.lemonbox.ui.theme.OnScrim
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.ScrimMedium
+import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarmDeep
 import com.goodyaoshi.lemonbox.ui.theme.TagRedText
 import com.goodyaoshi.lemonbox.ui.theme.TextHint
+import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
 import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
 import com.goodyaoshi.lemonbox.ui.viewmodel.SaveItemState
 import com.goodyaoshi.lemonbox.ui.viewmodel.SaveViewModel
@@ -144,8 +151,9 @@ fun SaveScreen(
     var showStartUseDatePicker by remember { mutableStateOf(false) }
     var showCategoryPicker by remember { mutableStateOf(false) }
     var showLocationPicker by remember { mutableStateOf(false) }
-    // 必填项「物品名称」是否被触碰过：只在用户点过输入框、又空着时才提示，避免一进来就报错。
-    var nameTouched by remember { mutableStateOf(false) }
+    // 必填项「物品名称」是否已经离开输入框：只在失焦后仍为空时提示，
+    // 刚点进去还没开始打字就标红会让人觉得「还没用就报错了」。
+    var nameBlurred by remember { mutableStateOf(false) }
 
     val categoryNodes = remember(categories) {
         categories.map { TreeNode(id = it.id, parentId = it.parentId, name = it.name) }
@@ -170,6 +178,9 @@ fun SaveScreen(
             result.data?.getStringExtra(EXTRA_BARCODE)
                 ?.takeIf { it.isNotBlank() }
                 ?.let(viewModel::updateBarcode)
+        } else if (result.data?.getBooleanExtra(EXTRA_CAMERA_DENIED, false) == true) {
+            // 权限被拒时扫码页会静默退出，补一句说明，避免用户以为入口失灵。
+            appSnackbar?.postMessage(scanPermissionDeniedMessage())
         }
     }
 
@@ -247,7 +258,8 @@ fun SaveScreen(
     BackHandler { requestBack() }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        if (state.imageHashes.isNotEmpty()) {
+        val hasPhoto = state.imageHashes.isNotEmpty()
+        if (hasPhoto) {
             AsyncImage(
                 // 背景模糊图按哈希解析：本地文件不在时也能从云端取（列表与详情同款逻辑）。
                 model = rememberImageModel(state.imageHashes.first()),
@@ -263,17 +275,26 @@ fun SaveScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            // 顶部压暗照片，走语义遮罩档位（P2 收敛硬编码）；
-                            // 下方过渡到语义「磨砂玻璃 / 卡片」色，深色模式下自动转为深底。
-                            ScrimMedium,
-                            GlassWhite,
-                            CardWhite
+                    // 只有真的有照片时才压暗；没有照片时顶部是页面底色，
+                    // 再叠深色遮罩会让白色标题落在浅底上（实测 1.81:1）。
+                    if (hasPhoto) {
+                        Brush.verticalGradient(
+                            colors = listOf(ScrimMedium, GlassWhite, CardWhite)
                         )
-                    )
+                    } else {
+                        Brush.verticalGradient(
+                            colors = listOf(BackgroundTop, BackgroundWarm, CardWhite)
+                        )
+                    }
                 )
         )
+
+        // 页头内容色随背景切换：有照片时是深遮罩上的浅色，无照片时回到常规文字色。
+        val headerColor = if (hasPhoto) OnScrim else TextPrimary
+        val pillBackground =
+            if (continuousEntry) OrangeStart else if (hasPhoto) ScrimMedium else SurfaceWarmDeep
+        val pillContentColor =
+            if (continuousEntry) OnAccent else if (hasPhoto) OnScrim else TextSecondary
 
         Column(
             modifier = Modifier
@@ -292,14 +313,13 @@ fun SaveScreen(
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "返回",
-                        // 压暗照片上的浅色内容色，走语义令牌（P2 收敛硬编码白）。
-                        tint = OnScrim
+                        tint = headerColor
                     )
                 }
                 Spacer(modifier = Modifier.weight(1f))
                 Text(
                     text = "快速录入",
-                    color = OnScrim,
+                    color = headerColor,
                     // 字号走主题字阶（F6）：titleMedium 为 16sp。
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold
@@ -308,10 +328,9 @@ fun SaveScreen(
                 Spacer(modifier = Modifier.size(8.dp))
                 Text(
                     text = if (continuousEntry) "连续录入·开" else "连续录入",
-                    // 对比度修复（P1）：原为白字 + 白色半透明底，压在浅色照片上几乎看不清；
-                    // 改为「开 = 不透明品牌色底」「关 = 深色遮罩底」，两种状态填充差异明确，
-                    // 文字一律用深遮罩上的浅色内容色，任何照片上都读得清。
-                    color = OnScrim,
+                    // 开关状态用底色区分：开 = 品牌绿实心，关 = 中性底；
+                    // 文字色随底色切换，深色模式下不再出现浅绿底 + 白字（2.9:1）。
+                    color = pillContentColor,
                     // 字号走主题字阶（F6）：labelMedium 为 12sp。
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.SemiBold,
@@ -319,7 +338,7 @@ fun SaveScreen(
                         // 触达面积达标（F7）：先撑出 48dp 最小可点区，再绘制胶囊本身，视觉尺寸不变。
                         .minimumInteractiveComponentSize()
                         .clip(CircleShape)
-                        .background(if (continuousEntry) OrangeStart else ScrimMedium)
+                        .background(pillBackground)
                         // 读屏可达（F8）：以开关角色播报，并给出开/关状态描述。
                         .semantics { stateDescription = if (continuousEntry) "已开启" else "已关闭" }
                         .clickable(role = Role.Switch) {
@@ -377,10 +396,10 @@ fun SaveScreen(
                             value = state.name,
                             onValueChange = viewModel::updateName,
                             placeholder = "给这件东西起个名字吧",
-                            onFocus = { nameTouched = true }
+                            onBlur = { nameBlurred = true }
                         )
                         // 必填项行内辅助文案：留空时给出原因，而不是只让保存键变灰、让人猜为什么点不动。
-                        if (nameTouched && state.name.isBlank()) {
+                        if (nameBlurred && state.name.isBlank()) {
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
                                 text = "名字是必填的，先给它起个名字吧",

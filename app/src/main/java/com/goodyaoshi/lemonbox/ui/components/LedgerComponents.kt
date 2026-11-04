@@ -191,7 +191,9 @@ fun LedgerSummaryCard(
     expenseText: String,
     incomeText: String,
     balanceText: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    // 结余为负时用警示色：此前固定品牌绿，会让人把「透支」读成「健康」。
+    balanceNegative: Boolean = false
 ) {
     Row(
         modifier = modifier.fillMaxWidth(),
@@ -199,7 +201,12 @@ fun LedgerSummaryCard(
     ) {
         LedgerSummaryItem("本月支出", expenseText, StatusExpired, Modifier.weight(1f))
         LedgerSummaryItem("本月收入", incomeText, StatusNormal, Modifier.weight(1f))
-        LedgerSummaryItem("结余", balanceText, OrangeStart, Modifier.weight(1f))
+        LedgerSummaryItem(
+            "结余",
+            balanceText,
+            if (balanceNegative) StatusExpired else OrangeStart,
+            Modifier.weight(1f)
+        )
     }
 }
 
@@ -269,13 +276,17 @@ fun LedgerBudgetBar(
                 .clip(MaterialTheme.shapes.small)
                 .background(DividerSoft)
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(ratio.coerceIn(0.02f, 1f))
-                    .height(8.dp)
-                    .clip(MaterialTheme.shapes.small)
-                    .background(if (over) StatusExpired else OrangeStart)
-            )
+            // 0% 时不再画一段「最小填充」：那会变成进度条左端的一个圆点，
+            // 让人以为已经花掉了一部分预算。
+            if (ratio > 0f) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(ratio.coerceIn(0f, 1f))
+                        .height(8.dp)
+                        .clip(MaterialTheme.shapes.small)
+                        .background(if (over) StatusExpired else OrangeStart)
+                )
+            }
         }
         statusText?.let {
             Spacer(modifier = Modifier.height(6.dp))

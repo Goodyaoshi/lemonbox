@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
@@ -125,6 +126,17 @@ fun HierarchicalPickerDialog(
     allowClear: Boolean = true
 ) {
     var pendingSelection by remember { mutableStateOf(selectedId) }
+    // 分类一屏能到 20+ 项，只能一路滚。条目多时给一个搜索框，
+    // 输入后直接平铺匹配项（带上级路径），不用先展开再找。
+    var query by remember { mutableStateOf("") }
+    val trimmedQuery = query.trim()
+    val searchResults = remember(nodes, trimmedQuery) {
+        if (trimmedQuery.isEmpty()) {
+            emptyList()
+        } else {
+            nodes.filter { it.name.contains(trimmedQuery, ignoreCase = true) }
+        }
+    }
     // 默认展开选中项所在的整条路径，打开弹窗就能看到当前层级。
     val expandedIds = remember(nodes, selectedId) {
         val byId = nodes.associateBy { it.id }
@@ -156,7 +168,48 @@ fun HierarchicalPickerDialog(
             modifier = Modifier.padding(top = 6.dp)
         )
 
-        if (nodes.isEmpty()) {
+        if (nodes.size >= 8) {
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 12.dp),
+                placeholder = { Text("搜索名称，如「零食」", style = MaterialTheme.typography.bodySmall) },
+                singleLine = true,
+                shape = MaterialTheme.shapes.medium,
+                textStyle = MaterialTheme.typography.bodySmall
+            )
+        }
+
+        if (trimmedQuery.isNotEmpty()) {
+            if (searchResults.isEmpty()) {
+                Text(
+                    text = "没有匹配「$trimmedQuery」的条目",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = TextHint,
+                    modifier = Modifier.padding(top = 18.dp)
+                )
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 10.dp)
+                        .weight(1f, fill = false),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    items(searchResults, key = { it.id }) { node ->
+                        PickerTreeRow(
+                            row = PickerRow(node = node, depth = 0, hasChildren = false, expanded = false),
+                            selected = pendingSelection == node.id,
+                            onToggleExpand = {},
+                            onSelect = { pendingSelection = node.id },
+                            pathLabel = buildTreePathLabel(node.parentId, nodes)
+                        )
+                    }
+                }
+            }
+        } else if (nodes.isEmpty()) {
             Text(
                 text = emptyHint,
                 // 字号走主题字阶（F6）：labelLarge 为 14sp。
@@ -268,7 +321,9 @@ private fun PickerTreeRow(
     row: PickerRow,
     selected: Boolean,
     onToggleExpand: () -> Unit,
-    onSelect: () -> Unit
+    onSelect: () -> Unit,
+    // 搜索结果会平铺不同层级，需要路径消歧（如「零食 / 薯片」）。
+    pathLabel: String? = null
 ) {
     Row(
         modifier = Modifier
@@ -298,14 +353,23 @@ private fun PickerTreeRow(
             Spacer(modifier = Modifier.size(20.dp))
         }
         Spacer(modifier = Modifier.width(8.dp))
-        Text(
-            text = row.node.name,
-            // 字号走主题字阶（F6）：titleSmall 为 14sp。
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = if (row.depth == 0) FontWeight.SemiBold else FontWeight.Normal,
-            color = if (selected) OrangeStart else TextPrimary,
-            modifier = Modifier.weight(1f)
-        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = row.node.name,
+                // 字号走主题字阶（F6）：titleSmall 为 14sp。
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = if (row.depth == 0) FontWeight.SemiBold else FontWeight.Normal,
+                color = if (selected) OrangeStart else TextPrimary
+            )
+            if (!pathLabel.isNullOrBlank()) {
+                Text(
+                    text = pathLabel,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TextHint,
+                    maxLines = 1
+                )
+            }
+        }
         if (selected) {
             Icon(
                 imageVector = Icons.Default.Check,
