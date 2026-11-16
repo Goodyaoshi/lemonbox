@@ -25,11 +25,13 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -52,6 +54,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import coil.compose.AsyncImage
 import coil.compose.AsyncImagePainter
+import com.goodyaoshi.lemonbox.data.settings.ImageLoadingMode
 import com.goodyaoshi.lemonbox.ui.theme.OnScrim
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.ScrimFaint
@@ -79,11 +82,30 @@ fun ItemThumbnail(
     placeholderTextStyle: TextStyle = MaterialTheme.typography.headlineSmall,
     placeholderColor: Color = OrangeStart,
     contentDescription: String? = name,
-    contentScale: ContentScale = ContentScale.Crop
+    contentScale: ContentScale = ContentScale.Crop,
+    // 详情页据此区分「有图片记录但取不到图」（F-18），连原因一起上报：
+    // 解析不到来源和加载失败对用户意味着完全不同的出路，详见 [ImageMissReason]。
+    // 无图模式是用户主动选择，不计入。
+    onMissingChange: ((ImageMissReason?) -> Unit)? = null,
+    // 外部要求重取时递增：换一个值就重建加载节点，让 Coil 重新发一次请求
+    // （加载失败后原地重试，不必退出页面再进来）。
+    retryToken: Int = 0
 ) {
     val model = rememberImageModel(hash)
-    // 换图或换加载模式后重试：上一次的失败不应该粘在新请求上。
-    var failed by remember(hash, model) { mutableStateOf(false) }
+    val mode = LocalImageLoadingMode.current
+    // 换图、换加载模式或点了重试后，上一次的失败不应该粘在新请求上。
+    var failed by remember(hash, model, retryToken) { mutableStateOf(false) }
+    // 有哈希却解析不出可加载的 model：本机没有这张图，且当前模式也不去云端取
+    // （标准模式未登录、省流量模式等）。无图模式是用户主动选择，不算缺失。
+    val unavailable = !hash.isNullOrBlank() && model == null && mode != ImageLoadingMode.NO_IMAGE
+    val missReason = when {
+        failed -> ImageMissReason.LOAD_FAILED
+        unavailable -> ImageMissReason.NOT_ON_DEVICE
+        else -> null
+    }
+    if (onMissingChange != null) {
+        LaunchedEffect(missReason) { onMissingChange(missReason) }
+    }
     Box(modifier = modifier.clip(shape)) {
         Box(
             modifier = Modifier
@@ -99,19 +121,23 @@ fun ItemThumbnail(
             )
         }
         if (model != null && !failed) {
-            AsyncImage(
-                model = model,
-                contentDescription = contentDescription,
-                modifier = Modifier.matchParentSize(),
-                contentScale = contentScale,
-                onState = { state ->
-                    when (state) {
-                        is AsyncImagePainter.State.Error -> failed = true
-                        is AsyncImagePainter.State.Success -> failed = false
-                        else -> Unit
+            // key 带上重试次数：AsyncImagePainter 按 model 记忆请求，只改 model 而不重建节点
+            // 会直接拿到上一次的失败结果，等于没重试。
+            key(retryToken) {
+                AsyncImage(
+                    model = model,
+                    contentDescription = contentDescription,
+                    modifier = Modifier.matchParentSize(),
+                    contentScale = contentScale,
+                    onState = { state ->
+                        when (state) {
+                            is AsyncImagePainter.State.Error -> failed = true
+                            is AsyncImagePainter.State.Success -> failed = false
+                            else -> Unit
+                        }
                     }
-                }
-            )
+                )
+            }
         }
     }
 }

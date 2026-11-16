@@ -91,12 +91,12 @@ import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.CategoryIconOption
+import com.goodyaoshi.lemonbox.ui.components.ChoiceChip
 import com.goodyaoshi.lemonbox.ui.components.EditorInputBox
 import com.goodyaoshi.lemonbox.ui.components.categoryIconFor
 import com.goodyaoshi.lemonbox.ui.components.categoryIconOptions
 import com.goodyaoshi.lemonbox.ui.components.itemStatusColors
 import com.goodyaoshi.lemonbox.ui.components.statusDimensionTitle
-import com.goodyaoshi.lemonbox.ui.theme.CardWhite
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.OrangeTint
 import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarm
@@ -155,13 +155,13 @@ internal fun ExpiryReminderPanel(
                     val candidates =
                         (DateUtil.EXPIRY_QUICK_CANDIDATES + expiryQuickOptions).distinct()
                     candidates.forEach { code ->
-                        OptionChip(
+                        ChoiceChip(
                             label = DateUtil.expiryQuickLabel(code),
                             selected = expiryQuickOptions.contains(code),
                             onClick = { onToggleQuickOption(code) }
                         )
                     }
-                    OptionChip(
+                    ChoiceChip(
                         label = "自定义…",
                         selected = false,
                         onClick = onOpenQuickCustom
@@ -206,7 +206,7 @@ internal fun ExpiryReminderPanel(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     AppPreferences.REMINDER_LADDER_OPTIONS.forEach { days ->
-                        OptionChip(
+                        ChoiceChip(
                             label = "$days 天",
                             selected = reminderLadder.contains(days),
                             onClick = { onToggleLadder(days) }
@@ -273,7 +273,7 @@ internal fun ExpiryQuickDialog(
                     )
                 }
                 unitOptions.forEach { (code, label) ->
-                    OptionChip(
+                    ChoiceChip(
                         label = label,
                         selected = unit == code,
                         onClick = { unit = code }
@@ -282,7 +282,7 @@ internal fun ExpiryQuickDialog(
             }
             Spacer(modifier = Modifier.height(10.dp))
             val canAdd = (amountText.toIntOrNull() ?: 0) > 0
-            OptionChip(
+            ChoiceChip(
                 label = if (canAdd) {
                     "添加：${DateUtil.expiryQuickLabel(amountText.toInt().toString() + unit)}"
                 } else {
@@ -290,7 +290,7 @@ internal fun ExpiryQuickDialog(
                 },
                 selected = canAdd,
                 onClick = {
-                    if (!canAdd) return@OptionChip
+                    if (!canAdd) return@ChoiceChip
                     added = DateUtil.normalizeExpiryQuickCodes(
                         added + (amountText.toInt().toString() + unit)
                     )
@@ -308,31 +308,6 @@ internal fun ExpiryQuickDialog(
                 )
             }
         }
-    }
-}
-
-/** 单选胶囊：选中态用品牌色铺底 + 白字，未选中态用浅底 + 次级文字。 */
-@Composable
-internal fun OptionChip(
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit
-) {
-    Box(
-        modifier = Modifier
-            // 胶囊走 CircleShape（F6）。
-            .clip(CircleShape)
-            .background(if (selected) OrangeStart else SurfaceWarmDeep)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 9.dp)
-    ) {
-        Text(
-            text = label,
-            // 字号走主题字阶（F6）：labelLarge 为 14sp。
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-            color = if (selected) CardWhite else TextSecondary
-        )
     }
 }
 

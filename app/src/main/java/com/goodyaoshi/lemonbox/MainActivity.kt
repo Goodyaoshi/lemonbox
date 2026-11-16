@@ -26,6 +26,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import com.goodyaoshi.lemonbox.data.imagecloud.ImageCloudConfig
 import com.goodyaoshi.lemonbox.data.imagecloud.ImageUrlResolver
 import com.goodyaoshi.lemonbox.data.local.entity.ItemStatusCatalog
 import com.goodyaoshi.lemonbox.data.local.entity.StatusDimension
@@ -36,6 +37,7 @@ import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppSnackbarState
 import com.goodyaoshi.lemonbox.ui.components.ItemStatusCatalogState
 import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
+import com.goodyaoshi.lemonbox.ui.components.LocalImageCloudSupported
 import com.goodyaoshi.lemonbox.ui.components.LocalImageLoadingMode
 import com.goodyaoshi.lemonbox.ui.components.LocalImageUrlResolver
 import com.goodyaoshi.lemonbox.ui.components.LocalItemStatusOptions
@@ -73,6 +75,10 @@ class MainActivity : ComponentActivity() {
      */
     @Inject
     lateinit var imageUrlResolver: ImageUrlResolver
+
+    /** 是否支持云端图片：缺图文案要据此区分「登录可拉取」与「本包没有云端副本」。 */
+    @Inject
+    lateinit var imageCloudConfig: ImageCloudConfig
 
     /** 退到后台时刷新桌面小组件：周期任务要等 30 分钟，用户返回桌面看到的会是旧值。 */
     @Inject
@@ -150,7 +156,9 @@ class MainActivity : ComponentActivity() {
                     // 图片一律经解析器取：本地有就用本地（离线可看），本地没了才按对象键从云端取。
                     LocalImageUrlResolver provides imageUrlResolver,
                     // 加载策略跟着偏好走：切换模式后所有图片位（列表 / 详情 / 预览）一起生效。
-                    LocalImageLoadingMode provides imageLoadingMode
+                    LocalImageLoadingMode provides imageLoadingMode,
+                    // 缺图文案要说实话：debug 包没有云端图片，不能让用户去登录找图。
+                    LocalImageCloudSupported provides imageCloudConfig.supported
                 ) {
                     Box(modifier = Modifier.fillMaxSize()) {
                         if (showSplash) {

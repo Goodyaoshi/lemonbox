@@ -683,7 +683,6 @@ fun AnniversaryEditScreen(
                 text = "保存",
                 enabled = name.isNotBlank(),
                 horizontalPadding = 20.dp,
-                verticalPadding = 12.dp,
                 onClick = {
                     val anchorSolar = if (isLunar) {
                         // 农历生日存出生当天换算的公历日期（含出生年），年龄/生肖才有据可算

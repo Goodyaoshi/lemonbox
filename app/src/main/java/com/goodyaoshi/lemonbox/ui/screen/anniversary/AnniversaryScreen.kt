@@ -129,8 +129,8 @@ fun AnniversaryScreen(
                 }
                 Text(
                     text = "纪念日",
-                    // 字号走主题字阶（F6）：titleLarge 为 18sp。
-                    style = MaterialTheme.typography.titleLarge,
+                    // 二级页面主标题统一（F-06）：走 headlineLarge（28sp），不再单独用 18sp。
+                    style = MaterialTheme.typography.headlineLarge,
                     color = TextPrimary,
                     modifier = Modifier.weight(1f)
                 )

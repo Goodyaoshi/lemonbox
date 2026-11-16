@@ -81,6 +81,7 @@ import com.goodyaoshi.lemonbox.ui.theme.CardWhite
 import com.goodyaoshi.lemonbox.ui.theme.DividerSoft
 import com.goodyaoshi.lemonbox.ui.theme.LemonEnd
 import com.goodyaoshi.lemonbox.ui.theme.LemonStart
+import com.goodyaoshi.lemonbox.ui.theme.OnAccent
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.OrangeTint
 import com.goodyaoshi.lemonbox.ui.theme.StatusExpired
@@ -163,68 +164,68 @@ fun HomeScreen(
                 eventCount = todayEvents.size
             )
 
-            // 首页只留一个搜索入口：整条可点去家当，右侧扫码是同一身体里的附属动作。
-            // 此前搜索和扫码各占一枚等重的浅绿胶囊，像两个并列的主按钮，反而不知道该点哪个。
+            // 首页只留一个搜索入口：整条可点去家当，右侧扫码是独立圆钮。
+            // F-03：白底圆角 + 放大镜的「输入框皮肤」会让人以为能直接打字，点下去却整页跳转；
+            // 改成实心品牌色的按钮式胶囊，并把扫码从胶囊内部拆出来，一条行只保留一种跳转。
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 12.dp)
+                    .padding(horizontal = 20.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(
                     modifier = Modifier
                         .weight(1f)
-                        .height(52.dp)
+                        .height(48.dp)
                         .clip(CircleShape)
-                        .background(CardWhite)
-                        .border(1.dp, DividerSoft, CircleShape)
-                        .clickable(onClickLabel = "去家当搜索", role = Role.Button) {
+                        .background(OrangeStart)
+                        .clickable(onClickLabel = "搜索家当", role = Role.Button) {
                             onSearchInHousehold("")
                         }
-                        .padding(start = 16.dp, end = 4.dp),
+                        .padding(start = 16.dp, end = 12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
                         imageVector = Icons.Default.Search,
                         contentDescription = null,
-                        tint = OrangeStart,
+                        tint = OnAccent,
                         modifier = Modifier.size(19.dp)
                     )
                     Spacer(modifier = Modifier.width(10.dp))
-                    // 这是「去家当搜索」的入口，不是输入框：用实心文字 + 右箭头
-                    // 明确它的跳转语义，避免用户点下去才发现键盘不会出现。
                     Text(
-                        text = "去家当搜索",
+                        text = "搜索家当",
                         style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.SemiBold,
-                        color = TextPrimary,
+                        color = OnAccent,
                         modifier = Modifier.weight(1f)
                     )
                     Icon(
                         imageVector = Icons.Default.ChevronRight,
                         contentDescription = null,
-                        tint = TextHint,
+                        tint = OnAccent,
                         modifier = Modifier.size(18.dp)
                     )
-                    Box(
-                        modifier = Modifier
-                            .width(1.dp)
-                            .height(20.dp)
-                            .background(DividerSoft)
+                }
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(CircleShape)
+                        .background(CardWhite)
+                        .border(1.dp, DividerSoft, CircleShape)
+                        .clickable(
+                            role = Role.Button,
+                            onClickLabel = "扫码",
+                            onClick = onNavigateToScan
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.QrCodeScanner,
+                        contentDescription = "扫码",
+                        tint = OrangeStart,
+                        modifier = Modifier.size(20.dp)
                     )
-                    Box(
-                        modifier = Modifier
-                            .size(48.dp)
-                            .clip(CircleShape)
-                            .clickable(onClick = onNavigateToScan),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.QrCodeScanner,
-                            contentDescription = "扫码",
-                            tint = OrangeStart,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
                 }
             }
 
@@ -1090,6 +1091,8 @@ private fun MonthSpendingBar(
                 0f
             },
             over = over,
+            // 未设预算的白底虚线卡（F-17）：浅绿底在全站只表示「选中」，不表示「空」。
+            unset = budget == null,
             onClick = onClick
         )
     }

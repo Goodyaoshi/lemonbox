@@ -133,14 +133,26 @@ fun RecordEditScreen(
             loadedBaseline = state
         }
     }
-    val hasUnsavedInput = loadedBaseline?.let { base ->
+    // 只有填过金额才算「有东西可丢」：切换支出/转账、默认分类与账户都会改变 state，
+    // 若直接和基准快照比较，刚进页面切一下类型再返回也会弹「放弃这笔账单？」。
+    val hasUnsavedInput = (loadedBaseline?.let { base ->
         state.copy(isSaved = false) != base
-    } ?: false
+    } ?: false) && state.amountText.isNotEmpty()
     val requestBack: () -> Unit = {
         if (hasUnsavedInput) showDiscardDialog = true else onBack()
     }
     // 系统返回手势/按键与左上角返回走同一套确认逻辑（I6）。
     BackHandler { requestBack() }
+
+    // 保存键禁用时说明缺什么（F-01）：只把按钮变灰，用户看不出还差哪一项。
+    val saveHint = when {
+        (state.amountCents ?: 0L) <= 0L -> "输入金额后就能保存"
+        state.type == TYPE_TRANSFER && state.assetId == null -> "选个转出账户才能保存"
+        state.type == TYPE_TRANSFER && state.targetAssetId == null -> "选个转入账户才能保存"
+        state.type == TYPE_TRANSFER && state.assetId == state.targetAssetId -> "转出和转入不能是同一个账户"
+        state.assetId == null -> "选个账户才能保存"
+        else -> null
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         AppDecorativeBackground()
@@ -165,8 +177,8 @@ fun RecordEditScreen(
                 }
                 Text(
                     text = if (state.recordId > 0) "编辑账单" else "记一笔",
-                    // 字号走主题字阶（F6）：titleLarge 为 18sp。
-                    style = MaterialTheme.typography.titleLarge,
+                    // 二级页面主标题统一（F-06）：走 headlineLarge（28sp），与到期提醒 / 回收站一致。
+                    style = MaterialTheme.typography.headlineLarge,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary
                 )
@@ -484,8 +496,8 @@ fun RecordEditScreen(
                     text = "保存",
                     enabled = state.canSave,
                     onClick = viewModel::save,
-                    horizontalPadding = 0.dp,
-                    verticalPadding = 0.dp
+                    hint = saveHint,
+                    horizontalPadding = 0.dp
                 )
                 Spacer(modifier = Modifier.height(12.dp))
             }
@@ -551,9 +563,10 @@ fun RecordEditScreen(
 
     // I6：有未保存内容时返回先确认，避免误触返回键丢掉这笔账。
     if (showDiscardDialog) {
+        val isNewRecord = state.recordId <= 0
         AppDialog(
-            title = "放弃修改？",
-            subtitle = "这笔账单还没保存，返回就会丢失。",
+            // 新建态还没「修改」过任何已存在的账（F-02）：标题按新建 / 编辑区分。
+            title = if (isNewRecord) "放弃这笔账单？" else "放弃修改？",
             onDismissRequest = { showDiscardDialog = false },
             confirmText = "放弃",
             destructiveConfirm = true,
@@ -563,8 +576,17 @@ fun RecordEditScreen(
             },
             dismissText = "继续填"
         ) {
+            // 正文只说结果，不再用副标题 + 问句把同一句话写三遍。
             Text(
-                text = "确定要离开并丢弃当前填写的内容吗？",
+                text = buildString {
+                    append(if (isNewRecord) "这笔账还没保存" else "这次修改还没保存")
+                    val cents = state.amountCents
+                    if (cents != null && cents > 0) {
+                        append("，当前金额 ¥")
+                        append(LedgerMath.centsToInputText(cents))
+                    }
+                    append("，返回后不会保留。")
+                },
                 // 字号走主题字阶（F6）：bodyMedium 为 14sp。
                 style = MaterialTheme.typography.bodyMedium,
                 color = TextSecondary

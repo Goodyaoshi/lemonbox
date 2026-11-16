@@ -61,6 +61,7 @@ import com.goodyaoshi.lemonbox.ui.theme.GlassWhite
 import com.goodyaoshi.lemonbox.ui.theme.LemonEnd
 import com.goodyaoshi.lemonbox.ui.theme.LemonStart
 import com.goodyaoshi.lemonbox.ui.theme.LocalLemonPalette
+import com.goodyaoshi.lemonbox.ui.theme.OnAccent
 import com.goodyaoshi.lemonbox.ui.theme.OnLemon
 import com.goodyaoshi.lemonbox.ui.theme.OrangeGlow
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
@@ -79,12 +80,16 @@ fun appGlassStyle(blurAlpha: Float = 0.55f): HazeStyle {
     return HazeStyle(
         backgroundColor = Color.Transparent,
         tints = listOf(
-            HazeTint(palette.glassTint.copy(alpha = 0.08f + (0.05f * strength))),
-            HazeTint(palette.glassTint.copy(alpha = 0.03f + (0.03f * strength)))
+            // 底栏是常驻控件，透出多少内容要按「文字可读」来定而不是按「玻璃感」：
+            // 原来的 0.13 / 0.05 会让列表标题从图标缝里透出来，读成两行字（F-10）。
+            HazeTint(palette.glassTint.copy(alpha = 0.40f + (0.20f * strength))),
+            HazeTint(palette.glassTint.copy(alpha = 0.08f + (0.06f * strength)))
         ),
         blurRadius = (18 + (8 * strength)).dp,
         noiseFactor = 0f,
-        fallbackTint = HazeTint(palette.glassFallback.copy(alpha = 0.56f + (0.12f * strength)))
+        // 不支持实时模糊时退回半透明底：透明度太低会让滚动内容透出来，
+        // 与底栏图标叠成「两行字」（F-10），故把兜底底色提高到接近不透明。
+        fallbackTint = HazeTint(palette.glassFallback.copy(alpha = 0.78f + (0.10f * strength)))
     )
 }
 
@@ -375,10 +380,47 @@ fun SegmentedTabs(
                     // 字号走主题字阶（F6）：labelLarge 为 14sp，满足正文 ≥12sp（F7）。
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                    color = if (selected) OrangeStart else TextHint
+                    color = if (selected) OrangeStart else TextHint,
+                    // 分段标签始终单行（F-08）：长文案折行会把某一格撑高，破坏同高分段。
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }
+    }
+}
+
+/**
+ * 单选胶囊：选中态品牌色铺底 + [OnAccent] 文字，未选中态浅底 + 次级文字。
+ *
+ * 使用边界（F-07）：**分段**（[SegmentedTabs]）用于视图 / 类型的整组切换，
+ * **胶囊**（本组件）用于筛选与配置项的单选。两者此前分别由设置页、分类页各自实现，
+ * 同一语义出现三种选中样式；这里收成唯一入口，页面不再各自写一份。
+ */
+@Composable
+fun ChoiceChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            // 触达面积达标（F7）：胶囊约 34dp 高，先撑出 48dp 最小可点区，视觉尺寸不变。
+            .minimumInteractiveComponentSize()
+            .clip(CircleShape)
+            .background(if (selected) OrangeStart else SurfaceWarmDeep)
+            // 互斥单选：声明 RadioButton 角色，读屏会把「已选中」读出来。
+            .clickable(role = Role.RadioButton, onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 9.dp)
+    ) {
+        Text(
+            text = label,
+            // 字号走主题字阶（F6）：labelLarge 为 14sp。
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            color = if (selected) OnAccent else TextSecondary
+        )
     }
 }
 
@@ -441,6 +483,10 @@ fun SectionHeader(
  * 各 Tab 的标题此前分别用 22sp / 28sp，切页时视觉重量会跳。这里统一走
  * headlineMedium（22sp），标题与副标题都限制单行，右侧最多放两个 48dp 动作。
  * 调用方负责外层水平留白；本组件只负责一行高度与排版。
+ *
+ * 右侧图标的着色规则（F-16）：导航 / 辅助类动作统一 [TextSecondary]，
+ * 只有「新建」这类页面主操作才用品牌色 [OrangeStart]。新加动作槽时按这条选色，
+ * 不要再出现「同一排图标一半灰一半绿」。
  */
 @Composable
 fun TabPageHeader(

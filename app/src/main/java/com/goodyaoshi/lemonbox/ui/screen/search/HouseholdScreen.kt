@@ -33,12 +33,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.FilterAltOff
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material.icons.filled.Widgets
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.DropdownMenu
@@ -377,7 +378,9 @@ fun HouseholdScreen(
                     start = 20.dp,
                     end = 20.dp,
                     top = 8.dp,
-                    bottom = rememberBottomBarClearance(extra = 38.dp)
+                    // 悬浮加号按钮实际占「58dp 按钮 + 16dp 间距」（F-11）：只留 38dp 时，
+                    // 最后一张卡右侧的「⋯」会被永远压住。
+                    bottom = rememberBottomBarClearance(extra = 80.dp)
                 ),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
@@ -1194,7 +1197,8 @@ private fun HouseholdTopBar(
                     DropdownMenuItem(
                         text = { Text("家当设置") },
                         leadingIcon = {
-                            Icon(Icons.Default.Widgets, contentDescription = null)
+                            // 九宫格读起来像「应用 / 视图切换」（F-13）；这里是分类、位置等设置项。
+                            Icon(Icons.Default.Tune, contentDescription = null)
                         },
                         onClick = {
                             onShowOverflow(false)
@@ -1204,7 +1208,8 @@ private fun HouseholdTopBar(
                     DropdownMenuItem(
                         text = { Text("回收站") },
                         leadingIcon = {
-                            Icon(Icons.Default.History, contentDescription = null)
+                            // 时钟回拨会被读成「历史记录 / 最近浏览」（F-13）；回收站是删除的去处。
+                            Icon(Icons.Default.DeleteOutline, contentDescription = null)
                         },
                         onClick = {
                             onShowOverflow(false)
@@ -1418,9 +1423,9 @@ private fun HouseholdEmptyState(
                 } else {
                     "可以更换关键词，或者去掉部分筛选条件。"
                 },
-                // 有家当却筛不出来，往往是自己把筛选收窄了（I5）：给一键「重置」，清关键词 + 恢复默认筛选。
+                // 重置是「清掉筛选」，不是「关闭」（F-05）：✕ 在全站表示关闭 / 移除，会被读成取消。
                 actionLabel = "重置筛选条件",
-                actionIcon = Icons.Default.Close,
+                actionIcon = Icons.Default.FilterAltOff,
                 onAction = onReset,
                 compact = true,
                 modifier = topPadding

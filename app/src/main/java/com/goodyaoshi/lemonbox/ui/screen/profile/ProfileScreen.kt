@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.goodyaoshi.lemonbox.data.settings.AppPreferences
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
+import com.goodyaoshi.lemonbox.ui.components.TabPageHeader
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
 import com.goodyaoshi.lemonbox.ui.components.PillTag
@@ -97,6 +98,12 @@ fun ProfileScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(bottom = rememberBottomBarPanelClearance())
         ) {
+            // 一级 Tab 统一有 22sp 页面标题（F-15）：此前「我的」直接从卡片开始，
+            // 阅读起点与家当 / 记账 / 吃饭三个 Tab 不一致。
+            TabPageHeader(
+                title = "我的",
+                modifier = Modifier.padding(horizontal = 20.dp)
+            )
             Box(
                 modifier = Modifier
                     .fillMaxWidth()

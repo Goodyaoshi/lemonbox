@@ -45,16 +45,21 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.goodyaoshi.lemonbox.ui.theme.CardWhite
 import com.goodyaoshi.lemonbox.ui.theme.DividerSoft
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
 import com.goodyaoshi.lemonbox.ui.theme.OrangeTint
@@ -230,6 +235,19 @@ private fun LedgerSummaryItem(label: String, value: String, accent: Color, modif
     }
 }
 
+/** 虚线描边：用于「未设置 / 待填写」的空态卡片，与实线描边的正常卡片区分开。 */
+private fun Modifier.dashedOutline(color: Color, cornerRadius: Dp, width: Dp = 1.dp): Modifier =
+    drawBehind {
+        drawRoundRect(
+            color = color,
+            cornerRadius = CornerRadius(cornerRadius.toPx()),
+            style = Stroke(
+                width = width.toPx(),
+                pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 8f))
+            )
+        )
+    }
+
 /** 预算进度条：超支转警示红。 */
 @Composable
 fun LedgerBudgetBar(
@@ -240,14 +258,24 @@ fun LedgerBudgetBar(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
     // 状态补白文字（P2）：超支不再只靠变红，补一句可读的状态说明。
-    statusText: String? = null
+    statusText: String? = null,
+    // 未设置预算（F-17）：全站只有这里用「底色变绿」表达空态，
+    // 会被读成「选中」；改为白底 + 虚线描边，与其它白底卡保持同一种卡片语言。
+    unset: Boolean = false
 ) {
     Column(
         modifier = modifier
             .fillMaxWidth()
             // 圆角走形状令牌（F6）：medium 为 16dp，不再内联 18dp。
             .clip(MaterialTheme.shapes.medium)
-            .background(SurfaceWarmDeep)
+            .background(if (unset) CardWhite else SurfaceWarmDeep)
+            .then(
+                if (unset) {
+                    Modifier.dashedOutline(color = DividerSoft, cornerRadius = 16.dp)
+                } else {
+                    Modifier
+                }
+            )
             .clickable(enabled = onClick != null, onClick = { onClick?.invoke() })
             .padding(horizontal = 14.dp, vertical = 12.dp)
     ) {

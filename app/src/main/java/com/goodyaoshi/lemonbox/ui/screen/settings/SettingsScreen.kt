@@ -54,10 +54,9 @@ import com.goodyaoshi.lemonbox.data.settings.ThemeMode
 import com.goodyaoshi.lemonbox.ui.components.AppDecorativeBackground
 import com.goodyaoshi.lemonbox.ui.components.AppDialog
 import com.goodyaoshi.lemonbox.ui.components.AppSurfaceCard
+import com.goodyaoshi.lemonbox.ui.components.ChoiceChip
 import com.goodyaoshi.lemonbox.ui.components.ImageLoadingModeCard
-import com.goodyaoshi.lemonbox.ui.theme.OnAccent
 import com.goodyaoshi.lemonbox.ui.theme.OrangeStart
-import com.goodyaoshi.lemonbox.ui.theme.SurfaceWarmDeep
 import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
 import com.goodyaoshi.lemonbox.ui.theme.TextSecondary
 import com.goodyaoshi.lemonbox.ui.viewmodel.SettingsViewModel
@@ -68,36 +67,9 @@ private val themeModeOptions = listOf(
     ThemeMode.DARK to "深色"
 )
 
-/** 单选胶囊：选中态用品牌色铺底 + 白字，未选中态用主题化浅底 + 次级文字，深浅色通用。 */
-@Composable
-private fun OptionChip(
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit
-) {
-    Box(
-        modifier = Modifier
-            // 触达面积达标（F7）：胶囊约 34dp 高，先撑出 48dp 最小可点区，再绘制胶囊本身，视觉尺寸不变。
-            .minimumInteractiveComponentSize()
-            // 胶囊走 CircleShape（F6）：不再内联 RoundedCornerShape(999.dp)。
-            .clip(CircleShape)
-            .background(if (selected) OrangeStart else SurfaceWarmDeep)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 9.dp)
-    ) {
-        Text(
-            text = label,
-            // 字号走主题字阶（F6）：labelLarge 为 14sp。
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-            color = if (selected) OnAccent else TextSecondary
-        )
-    }
-}
-
 /**
  * 动作胶囊按钮：立刻触发一个动作（如「一键允许」「去设置」）。
- * I9：此前这两个动作借 OptionChip(selected = true) 渲染，把「可选项」的视觉语言
+ * I9：此前这两个动作借 ChoiceChip(selected = true) 渲染，把「可选项」的视觉语言
  * 用在了「按钮」上，用户难以分辨哪些是配置项、哪些会立即执行。
  * 这里单独抽一个动作按钮：浅色底 + 品牌色文字 + 尾部箭头，并声明 Button 角色。
  */
@@ -218,7 +190,7 @@ fun SettingsScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     themeModeOptions.forEach { (mode, label) ->
-                        OptionChip(
+                        ChoiceChip(
                             label = label,
                             selected = mode == themeMode,
                             onClick = { viewModel.setThemeMode(mode) }
@@ -294,7 +266,7 @@ fun SettingsScreen(
                     allTimeOptions.forEach { time ->
                         val selected = reminderTimes.contains(time)
                         val custom = customReminderTimes.contains(time)
-                        OptionChip(
+                        ChoiceChip(
                             label = time,
                             selected = selected,
                             onClick = {
@@ -307,7 +279,7 @@ fun SettingsScreen(
                             }
                         )
                     }
-                    OptionChip(
+                    ChoiceChip(
                         label = "自定义…",
                         selected = false,
                         onClick = { showTimePicker = true }
@@ -345,12 +317,12 @@ fun SettingsScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    OptionChip(
+                    ChoiceChip(
                         label = "前一天",
                         selected = mealPrepDayShift == -1,
                         onClick = { viewModel.setMealPrepDayShift(-1) }
                     )
-                    OptionChip(
+                    ChoiceChip(
                         label = "当天",
                         selected = mealPrepDayShift == 0,
                         onClick = { viewModel.setMealPrepDayShift(0) }
@@ -363,13 +335,13 @@ fun SettingsScreen(
                 ) {
                     // 候选含当前默认值，自定义后立即显示为选中项。
                     (allTimeOptions + mealPrepFireTime).distinct().sorted().forEach { time ->
-                        OptionChip(
+                        ChoiceChip(
                             label = time,
                             selected = mealPrepFireTime == time,
                             onClick = { viewModel.setMealPrepFireTime(time) }
                         )
                     }
-                    OptionChip(
+                    ChoiceChip(
                         label = "自定义…",
                         selected = false,
                         onClick = { showMealPrepTimePicker = true }

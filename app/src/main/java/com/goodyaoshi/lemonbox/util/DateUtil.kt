@@ -15,6 +15,8 @@ object DateUtil {
     // 因此日期改用不可变的 DateTimeFormatter，货币用每线程一份的 NumberFormat。
     private val dateFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
     private val dateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
+    private val displayDateTimeFormatter = DateTimeFormatter.ofPattern("M月d日 HH:mm")
+    private val displayDateTimeWithYearFormatter = DateTimeFormatter.ofPattern("yyyy年M月d日 HH:mm")
     private val currencyFormatter = ThreadLocal.withInitial {
         NumberFormat.getCurrencyInstance(Locale.CHINA)
     }
@@ -36,6 +38,22 @@ object DateUtil {
 
     fun formatDateTime(timestamp: Long): String =
         Instant.ofEpochMilli(timestamp).atZone(zoneId).format(dateTimeFormatter)
+
+    /**
+     * 给人看的时间：「11月4日 02:34」，跨年才补年份。
+     *
+     * [formatDateTime] 的机器格式保留给备份文件名与日志；页面上与首页「11月16日」、
+     * 记账「11月3日 周二」保持一致的中文写法，不再出现「2026-11-04 02:34」这种割裂感。
+     */
+    fun formatDateTimeDisplay(timestamp: Long): String {
+        val dateTime = Instant.ofEpochMilli(timestamp).atZone(zoneId)
+        val formatter = if (dateTime.year == LocalDate.now(zoneId).year) {
+            displayDateTimeFormatter
+        } else {
+            displayDateTimeWithYearFormatter
+        }
+        return dateTime.format(formatter)
+    }
 
     fun daysUntil(timestamp: Long): Long {
         val today = Instant.ofEpochMilli(System.currentTimeMillis()).atZone(zoneId).toLocalDate()

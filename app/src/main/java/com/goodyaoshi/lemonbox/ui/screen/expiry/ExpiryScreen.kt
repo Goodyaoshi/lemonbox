@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.ShoppingCart
+import androidx.compose.material.icons.outlined.HourglassEmpty
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -62,13 +63,13 @@ import com.goodyaoshi.lemonbox.ui.theme.TextPrimary
 import com.goodyaoshi.lemonbox.ui.viewmodel.ExpiryViewModel
 import com.goodyaoshi.lemonbox.util.DateUtil
 
-private data class ExpiryTab(val label: String, val days: Int?)
+private data class ExpiryTab(val label: String, val days: Int?, val note: String? = null)
 
 private val expiryTabs = listOf(
     ExpiryTab("全部", null),
-    // 标签字面含义对齐结果（P3-22）：该档用 days <= 3，已过期项（days < 0）也会落入其中，
-    // 故标签明说「含已过期」，避免「3天内」混进早已过期的物品却看不出。
-    ExpiryTab("3天内（含已过期）", 3),
+    // 标签必须单行（F-08）：该档用 days <= 3，已过期项（days < 0）也会落入其中；
+    // 「含已过期」从标签移到列表副标题，避免把分段块撑成两行、三个块高度不齐。
+    ExpiryTab("3天内", 3, note = "含已过期"),
     ExpiryTab("7天内", 7),
     ExpiryTab("30天内", 30)
 )
@@ -146,6 +147,8 @@ fun ExpiryScreen(
                 val isAllTab = selectedTab == 0
                 EmptyState(
                     title = "没有效期提醒",
+                    // 空态图标按语义区分（F-14）：到期提醒用沙漏。
+                    icon = Icons.Outlined.HourglassEmpty,
                     message = if (isAllTab) {
                         "还没有物品登记到期日，给易过期的东西补上效期就会出现在这里。"
                     } else {
@@ -167,9 +170,13 @@ fun ExpiryScreen(
                     contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 18.dp)
                 ) {
                     item {
+                        val tabNote = expiryTabs[selectedTab].note
                         SectionHeader(
                             title = "效期列表",
-                            subtitle = "共 ${filteredItems.size} 件物品需要关注",
+                            subtitle = buildString {
+                                append("共 ${filteredItems.size} 件物品需要关注")
+                                if (tabNote != null) append("（$tabNote）")
+                            },
                             modifier = Modifier.padding(bottom = 10.dp)
                         )
                     }

@@ -29,9 +29,13 @@ import com.goodyaoshi.lemonbox.ui.theme.TextHint
  * @param text 按钮文案（保存中可传入「保存中...」）
  * @param onClick 点击回调
  * @param enabled 是否可点，默认由调用方按表单校验结果传入
- * @param hint 按钮下方的一行说明，为 null 时不占位
+ * @param hint 按钮下方的一行说明，为 null 时不占位；保存键被禁用时用它说明缺什么
  * @param horizontalPadding 左右内边距；表单自身已带内边距时可传 0，避免双重缩进
- * @param verticalPadding 上下内边距
+ * @param verticalPadding 上下内边距。
+ *
+ * 四条表单页统一用默认的 12dp（F-09）：此前记一笔传 0、物品录入传 18，同一个「保存」
+ * 在不同页面离系统导航条的距离不一样。系统导航条的内边距仍由各页面统一在根布局里
+ * `navigationBarsPadding()` 处理（记一笔的固定键盘区也需要这层内边距，不能只加在这里）。
  */
 @Composable
 fun PrimaryActionBar(

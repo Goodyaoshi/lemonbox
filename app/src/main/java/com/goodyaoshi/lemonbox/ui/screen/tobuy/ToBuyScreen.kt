@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.outlined.ShoppingBag
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -270,6 +271,8 @@ fun ToBuyScreen(
             } else if (items.isEmpty()) {
                 EmptyState(
                     title = "还没有要买的",
+                    // 空态图标按语义区分（F-14）：待买用购物袋，与到期提醒（沙漏）、待办提醒（闹钟）分开。
+                    icon = Icons.Outlined.ShoppingBag,
                     // 原文案让用户去点「右上角」（I5），改为空态里直接给「手动添加」按钮。
                     message = "物品用完会自动记到这里，也可以手动添加一条。",
                     actionLabel = "手动添加",

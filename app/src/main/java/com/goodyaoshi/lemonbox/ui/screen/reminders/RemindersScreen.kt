@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.outlined.Alarm
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -196,6 +197,8 @@ fun RemindersScreen(
             } else if (reminders.isEmpty()) {
                 EmptyState(
                     title = "还没有提醒",
+                    // 空态图标按语义区分（F-14）：待办提醒用闹钟。
+                    icon = Icons.Outlined.Alarm,
                     // 去掉「点右上角 +」这种屏外指路（I5），空态直接给「新建提醒」按钮。
                     message = "新建一条提醒，或在首页菜谱的某天点「提醒准备」自动生成。",
                     actionLabel = "新建提醒",

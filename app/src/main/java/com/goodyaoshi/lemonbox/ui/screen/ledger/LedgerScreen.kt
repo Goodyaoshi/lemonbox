@@ -333,6 +333,8 @@ fun LedgerScreen(
                         },
                         ratio = if (totalBudget == null) 0f else totalSpent.toFloat() / totalBudget,
                         over = totalBudget != null && totalSpent > totalBudget,
+                        // 未设置时白底虚线（F-17）：浅绿底在全站只表示选中，不表示「空」。
+                        unset = totalBudget == null,
                         onClick = onNavigateToBudget
                     )
                 }

@@ -154,15 +154,6 @@ fun DataCenterScreen(
                         tint = TextHint
                     )
                 }
-                if (!state.cloudLoggedIn) {
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Text(
-                        text = "登录并开启 ›",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = OrangeStart
-                    )
-                }
                 if (state.cloudLoggedIn && state.cloudLastError != null) {
                     Spacer(modifier = Modifier.height(10.dp))
                     InlineNotice(
@@ -262,7 +253,9 @@ fun DataCenterScreen(
 
 /** 云同步入口的一行状态：未登录、同步中、失败、或最近一次成功时间。 */
 private fun cloudSubtitle(state: DataCenterUiState): String = when {
-    !state.cloudLoggedIn -> "登录后自动同步数据与图片，本机数据始终保留"
+    // 未登录时整张卡就是唯一入口（F-04）：不再额外挂一条「登录并开启 ›」文字链，
+    // 否则一张卡里出现「行内动作 + 整行导航」两种可点信号。
+    !state.cloudLoggedIn -> "点此登录并开启，自动同步数据与图片；本机数据始终保留"
     state.cloudSyncing -> "正在同步…"
     maxOf(state.cloudSkippedPayloads, state.cloudTotalSkippedPayloads) > 0 ->
         "有 ${maxOf(state.cloudSkippedPayloads, state.cloudTotalSkippedPayloads)} 条服务端记录未落地，点此查看"

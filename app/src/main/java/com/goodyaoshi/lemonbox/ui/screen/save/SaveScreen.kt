@@ -648,7 +648,6 @@ fun SaveScreen(
                     onClick = viewModel::save,
                     enabled = state.name.isNotBlank() && !state.isSaving,
                     horizontalPadding = 28.dp,
-                    verticalPadding = 18.dp,
                     modifier = Modifier.align(Alignment.BottomCenter)
                 )
             }

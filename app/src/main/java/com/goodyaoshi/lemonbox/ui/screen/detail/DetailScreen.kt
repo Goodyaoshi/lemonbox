@@ -40,6 +40,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -71,8 +73,10 @@ import com.goodyaoshi.lemonbox.ui.components.ErrorState
 import com.goodyaoshi.lemonbox.ui.components.ItemThumbnail
 import com.goodyaoshi.lemonbox.data.settings.ImageLoadingMode
 import com.goodyaoshi.lemonbox.ui.components.LocalAppSnackbar
+import com.goodyaoshi.lemonbox.ui.components.LocalImageCloudSupported
 import com.goodyaoshi.lemonbox.ui.components.LocalImageLoadingMode
 import com.goodyaoshi.lemonbox.ui.components.GradientButton
+import com.goodyaoshi.lemonbox.ui.components.ImageMissReason
 import com.goodyaoshi.lemonbox.ui.components.ImagePreviewOverlay
 import com.goodyaoshi.lemonbox.ui.components.PillTag
 import com.goodyaoshi.lemonbox.ui.components.SkeletonDetail
@@ -218,6 +222,16 @@ fun DetailScreen(
     // 图片被「无图 / 省流量 / 省存储」策略拦下时，详情页要能说明原因，
     // 否则用户只会看到首字占位，以为图片丢了。
     val imageMode = LocalImageLoadingMode.current
+    // 不支持云同步的包（debug）里没有云端副本可拉：缺图文案不能指向一个不存在的开关。
+    val cloudSupported = LocalImageCloudSupported.current
+    // 「有图片记录但取不到图」的物品集合（F-18）：换机 / 重装 / 未登录云同步时常见。
+    // 按**物品 id** 而不是页码记：删除 / 换筛选后页码会指向另一件物品，
+    // 用页码会把上一件的缺图状态误挂到图片正常的物品上。
+    val missingItems = remember { mutableStateMapOf<Long, ImageMissReason>() }
+    // 当前页物品的缺图原因（null 表示图片正常或本来就没图）。
+    val currentMiss = missingItems[item.id]
+    // 点「重试」时递增，重建图片加载节点；只在加载失败时可用。
+    var retryToken by remember { mutableIntStateOf(0) }
     // 无图占位此前恒用亮黄渐变：深色主题里像贴了一块浅色海报，与下方深绿卡片硬切。
     // 这里按当前主题底色判断明暗，深色下改用低饱和深绿，光感不再跳。
     val isDarkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
@@ -276,7 +290,17 @@ fun DetailScreen(
                             }
                         ),
                         placeholderTextStyle = MaterialTheme.typography.displaySmall,
-                        placeholderColor = if (isDarkTheme) TextPrimary else OnLemon
+                        placeholderColor = if (isDarkTheme) TextPrimary else OnLemon,
+                        // 取不到图时按原因登记该物品，供下方补说明；恢复后移除。
+                        onMissingChange = { reason ->
+                            if (reason == null) {
+                                missingItems.remove(pageItem.id)
+                            } else {
+                                missingItems[pageItem.id] = reason
+                            }
+                        },
+                        // 重试次数只作用于当前页的缩略图；其他页不参与组合，不受影响。
+                        retryToken = retryToken
                     )
                 }
 
@@ -357,8 +381,51 @@ fun DetailScreen(
                     }
                 }
 
+                // 缺图时不再只报页码（F-18）：补一句「未同步」，并把可执行的出路写在图上，
+                // 否则一整块「首字 + 1/5」看起来像页面坏了。
+                if (currentMiss != null) {
+                    // 只有「加载失败」能原地重取；「本机没有」重试也取不回来，不做成可点。
+                    val canRetry = currentMiss == ImageMissReason.LOAD_FAILED
+                    Text(
+                        // 文案跟着原因走：加载失败时图片其实在云端（或只是文件损坏），
+                        // 说「登录后可拉取」会误导已登录的用户去重复登录。
+                        text = when {
+                            canRetry -> "图片暂时没取到，点此重试"
+                            // 本包没有云端图片，登录也拉不回来：直接给出唯一可行的出路。
+                            !cloudSupported -> "图片文件不在本机了，可编辑物品重新拍一张"
+                            imageMode == ImageLoadingMode.SAVE_DATA ->
+                                "图片不在本机，切到标准模式可补取"
+                            else -> "图片未在本机，登录云同步后可拉取"
+                        },
+                        // 字号走主题字阶（F6）：labelMedium 为 12sp。
+                        style = MaterialTheme.typography.labelMedium,
+                        color = OnScrim,
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 56.dp)
+                            .clip(CircleShape)
+                            .background(ScrimMedium)
+                            .then(if (canRetry) Modifier.clickable { retryToken++ } else Modifier)
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    )
+                }
+
                 Text(
-                    text = "${pagerState.currentPage + 1}/${pagerItems.size}",
+                    text = buildString {
+                        append("${pagerState.currentPage + 1}/${pagerItems.size}")
+                        // 「未同步」只对「本机没有」成立；加载失败时改说「未加载」，
+                        // 免得把一次网络抖动写成同步问题。
+                        if (currentMiss != null) {
+                            append(
+                                when {
+                                    currentMiss == ImageMissReason.LOAD_FAILED -> " · 未加载"
+                                    // 没有云端副本可同步，「未同步」会让人以为登录就能补回来。
+                                    !cloudSupported -> " · 缺图"
+                                    else -> " · 未同步"
+                                }
+                            )
+                        }
+                    },
                     // 字号走主题字阶（F6）：labelMedium 为 12sp。
                     style = MaterialTheme.typography.labelMedium,
                     color = OnScrim,
@@ -487,7 +554,8 @@ fun DetailScreen(
                         "${formatQuantity(item.consumedQuantity)} / ${formatQuantity(item.totalQuantity)}${item.unit}"
                     )
                 }
-                DetailInfoRow("添加时间", DateUtil.formatDateTime(item.createdAt))
+                // 展示用中文时间（F-12）：机器格式只留给备份文件名与日志。
+                DetailInfoRow("添加时间", DateUtil.formatDateTimeDisplay(item.createdAt))
                 if (!isToBuyItem) {
                     DetailInfoRow(
                         label = statusDimensionTitle(StatusDimension.USAGE),

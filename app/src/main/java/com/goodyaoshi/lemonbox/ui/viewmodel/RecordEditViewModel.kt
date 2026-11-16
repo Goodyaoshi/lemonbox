@@ -158,25 +158,30 @@ class RecordEditViewModel @Inject constructor(
     /** 类型或可用分类变化后，未手动选过时自动带默认分类/账户，减少点击。 */
     fun ensureDefaults(expense: List<LedgerCategory>, income: List<LedgerCategory>) {
         val current = _state.value
-        if (current.initialized) return
-        if (current.type == TYPE_TRANSFER) {
-            _state.value = current.copy(
+        // 账户列表可能比分类晚一帧到达（Room 首帧为空）：initialized 已置位时也要补默认账户，
+        // 否则「保存」会一直是禁用态，而页面看不出缺的是账户（F-01）。
+        // 只对新建生效：编辑历史账单时 assetId 可能本来就是 null，静默挑第一个账户
+        // 会在用户没动过账户的情况下改写这笔账的归属。
+        val backfilled = if (current.recordId <= 0) {
+            current.copy(
                 assetId = current.assetId ?: assets.value.firstOrNull()?.id,
-                targetAssetId = current.targetAssetId ?: assets.value.getOrNull(1)?.id,
-                initialized = true
+                targetAssetId = current.targetAssetId ?: assets.value.getOrNull(1)?.id
             )
+        } else {
+            current
+        }
+        if (current.initialized) {
+            if (backfilled != current) _state.value = backfilled
             return
         }
-        if (current.categoryId != null && current.assetId != null) {
-            _state.value = current.copy(initialized = true)
+        if (backfilled.type == TYPE_TRANSFER) {
+            _state.value = backfilled.copy(initialized = true)
             return
         }
-        val defaultCategory = (if (current.type == TYPE_INCOME) income else expense)
+        val defaultCategory = (if (backfilled.type == TYPE_INCOME) income else expense)
             .firstOrNull()?.id
-        _state.value = current.copy(
-            categoryId = current.categoryId ?: defaultCategory,
-            assetId = current.assetId ?: assets.value.firstOrNull()?.id,
-            targetAssetId = current.targetAssetId ?: assets.value.getOrNull(1)?.id,
+        _state.value = backfilled.copy(
+            categoryId = backfilled.categoryId ?: defaultCategory,
             initialized = true
         )
     }

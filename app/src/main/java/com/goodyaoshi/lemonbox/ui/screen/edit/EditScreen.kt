@@ -552,8 +552,7 @@ fun EditScreen(
                         onClick = viewModel::save,
                         enabled = state.name.isNotBlank() && !state.isSaving,
                         hint = "改完会同步更新你的首页、家当和分类。",
-                        horizontalPadding = 0.dp,
-                        verticalPadding = 0.dp
+                        horizontalPadding = 0.dp
                     )
                 }
             }
